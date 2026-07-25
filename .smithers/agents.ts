@@ -145,22 +145,22 @@ export const agents = {
     // providers.openclaw,
     // providers.openrouter,
   ],
-  // Claude leads this seat (Codex 5.6 does not orchestrate or gate). Later entries, including Codex, are runtime fallbacks.
+  // Codex leads while the local Claude subscription is unavailable. Claude remains a fallback.
   planning: [
-    providers.claude,
-    providers.claudeOpus,
     providers.codexSol,
+    providers.claudeOpus,
+    providers.claude,
     providers.claudeSonnet,
     // providers.kimi,
     // providers.opencode,
     // providers.openclaw,
     // providers.openrouter,
   ],
-  // Claude leads this seat (Codex 5.6 does not orchestrate or gate). Later entries, including Codex, are runtime fallbacks.
+  // Codex leads while the local Claude subscription is unavailable. Claude remains a fallback.
   orchestrator: [
+    providers.codexSol,
     providers.claudeOpus,
     providers.claude,
-    providers.codexSol,
     // providers.kimi,
     // providers.opencode,
     // providers.openclaw,
