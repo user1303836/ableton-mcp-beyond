@@ -1,0 +1,33 @@
+{
+  "name": "smithers-workflows",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "gateway": "bun ./gateway.ts",
+    "workflow:list": "smithers workflow list",
+    "workflow:run": "smithers workflow run",
+    "workflow:inspect": "smithers workflow inspect",
+    "workflow:skills": "smithers workflow skills"
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "smithers-orchestrator": "^0.30.0",
+    "@smithers-orchestrator/cli": "^0.30.0",
+    "zod": "4.4.3",
+    "@milkdown/crepe": "7.21.2",
+    "mermaid": "11.16.0",
+    "yaml": "2.9.0",
+    "@xyflow/react": "12.11.2",
+    "dagre": "0.8.5"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@types/mdx": "2.0.14",
+    "@types/node": "26.1.1",
+    "@types/dagre": "0.7.54"
+  }
+}

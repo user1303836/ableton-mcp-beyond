@@ -3,3 +3,8 @@
 
 # Locally supplied Ableton Extensions SDK
 /extensions-sdk-1.0.0-beta.0/
+
+# Smithers run store (ephemeral — never commit)
+smithers.db
+smithers.db-shm
+smithers.db-wal
