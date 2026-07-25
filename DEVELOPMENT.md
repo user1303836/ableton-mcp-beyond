@@ -1,15 +1,36 @@
 # Development Notes
 
-## Ableton Extensions SDK
+The repository currently ships a TypeScript MCP host and deterministic local
+PCM analysis. It does not ship a Live adapter. Keep implementation claims
+aligned with the exported code and tests; the project reference document is
+context, not an API specification.
 
-The Ableton Extensions SDK **1.0.0-beta.0** is available locally at
-`extensions-sdk-1.0.0-beta.0/` in the repository root. It is reference material
-for development and is intentionally excluded from Git in its entirety.
+## Local development
 
-## Local test environment
+Use Node.js 20 or newer:
 
-- Ableton Live 12 beta **12.4.5b8** is installed and currently available for testing.
-- The **AbletonMCP** control surface is enabled in Ableton Live.
-- The running Ableton instance can be used for integration and end-to-end testing as development proceeds.
+```sh
+cd apps/mcp-server
+npm ci
+npm run typecheck
+npm test
+```
 
-These are local development assumptions and are not expected to be present in a fresh clone.
+`npm test` builds TypeScript into `dist/` and runs the compiled Node test files.
+The package is ESM, exports `dist/src/index.js`, and exposes the
+`ableton-mcp-server` binary after a build.
+
+## Extension boundary
+
+Do not make tests depend on an installed Ableton Live process, a device, a
+platform-specific runner, or local-only reference material. The default
+`UnavailableLiveAdapter` is the supported behavior until a real adapter is
+implemented and tested. Any future adapter must preserve the protocol and
+safety contracts documented in [`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md).
+
+## Change discipline
+
+Keep stdout protocol-only. Send diagnostics to stderr and redact request data
+from diagnostics. Add tests for every new protocol method or Live side effect,
+including malformed input and recovery behavior. Do not claim integration or
+end-to-end support when the required external runtime is unavailable.
