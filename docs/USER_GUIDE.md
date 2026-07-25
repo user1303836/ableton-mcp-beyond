@@ -23,9 +23,10 @@ float32, normalized to `[-1, 1]`. Optional `channels` defaults to 1 and
 The result includes duration, peak and RMS levels, an RMS-based LUFS estimate,
 crest factor, a histogram-based dynamic-range estimate, silence and clipping
 ratios, spectral centroid, dominant frequency, analyzed-frame count, and
-bounded reversible remediation suggestions. The result explicitly reports
-that raw audio was neither retained nor returned and that playback and project
-mutation did not occur.
+bounded reversible remediation suggestions. The result also reports hard
+performance bounds: no more than 32 spectral frames and a 4,096-point FFT.
+The result explicitly reports that raw audio was neither retained nor returned
+and that playback and project mutation did not occur.
 
 The analyzer accepts at most 10,000,000 samples and 600 seconds of audio. It
 accepts sample rates from 8,000 to 384,000 Hz, 1–32 channels, and frame sizes

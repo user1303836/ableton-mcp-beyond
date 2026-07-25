@@ -7,6 +7,8 @@
 export const ANALYSIS_VERSION = "pcm-analysis/v1";
 export const MAX_ANALYSIS_SAMPLES = 10_000_000;
 export const MAX_ANALYSIS_SECONDS = 600;
+export const MAX_SPECTRAL_FRAMES = 32;
+export const MAX_FFT_SIZE = 4096;
 
 export interface PcmAnalysisInput {
   samples: ArrayLike<number>;
@@ -40,7 +42,7 @@ export interface PcmAnalysis {
   spectral: { centroidHz: number; dominantFrequencyHz: number; analyzedFrames: number; fftSize: number };
   privacy: { rawAudioRetained: false; rawAudioReturned: false; sourcePathAccepted: false };
   safety: { playbackStarted: false; projectMutated: false; destructiveActionRequired: false };
-  performance: { bounded: true; maxSamples: number; maxSeconds: number };
+  performance: { bounded: true; maxSamples: number; maxSeconds: number; maxSpectralFrames: number; maxFftSize: number };
   remediation: AudioRemediation[];
 }
 
@@ -61,10 +63,11 @@ function nextPowerOfTwo(value: number): number {
 }
 
 function analyzeSpectrum(samples: ArrayLike<number>, sampleRate: number, frameSize: number): PcmAnalysis["spectral"] {
-  const fftSize = nextPowerOfTwo(Math.min(Math.max(frameSize, 256), 4096));
+  const fftSize = nextPowerOfTwo(Math.min(Math.max(frameSize, 256), MAX_FFT_SIZE));
   const frameCount = Math.max(1, Math.ceil(samples.length / frameSize));
-  const analyzedFrames = Math.min(frameCount, 32);
+  const analyzedFrames = Math.min(frameCount, MAX_SPECTRAL_FRAMES);
   let centroidTotal = 0;
+  let activeFrames = 0;
   let dominantFrequency = 0;
   let dominantMagnitude = -1;
   for (let frame = 0; frame < analyzedFrames; frame += 1) {
@@ -123,15 +126,10 @@ function analyzeSpectrum(samples: ArrayLike<number>, sampleRate: number, frameSi
     }
     if (totalMagnitude > EPSILON) {
       centroidTotal += weightedFrequency / totalMagnitude;
+      activeFrames += 1;
     }
   }
-  return { centroidHz: centroidTotal / analyzedFrames, dominantFrequencyHz: totalEnergy(samples) > EPSILON ? dominantFrequency : 0, analyzedFrames, fftSize };
-}
-
-function totalEnergy(samples: ArrayLike<number>): number {
-  let energy = 0;
-  for (let i = 0; i < samples.length; i += 1) energy += Math.abs(samples[i] ?? 0);
-  return energy;
+  return { centroidHz: activeFrames > 0 ? centroidTotal / activeFrames : 0, dominantFrequencyHz: activeFrames > 0 ? dominantFrequency : 0, analyzedFrames, fftSize };
 }
 
 function remediation(analysis: Pick<PcmAnalysis, "peakDbfs" | "clipping" | "loudness" | "dynamics">): AudioRemediation[] {
@@ -168,8 +166,6 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
   let peak = 0;
   let clippingCount = 0;
   let silenceCount = 0;
-  let previous = 0;
-  let crossings = 0;
   const histogram = new Uint32Array(2048);
   for (let i = 0; i < input.samples.length; i += 1) {
     const sample = input.samples[i] ?? 0;
@@ -182,8 +178,6 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
     peak = Math.max(peak, magnitude);
     if (magnitude >= 0.999999) clippingCount += 1;
     if (magnitude < 0.0001) silenceCount += 1;
-    if (i > 0 && ((sample < 0 && previous >= 0) || (sample >= 0 && previous < 0))) crossings += 1;
-    previous = sample;
   }
   const rms = Math.sqrt(sumSquares / input.samples.length);
   const quantile = (fraction: number): number => {
@@ -220,17 +214,29 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
     spectral: analyzeSpectrum(monoSamples, input.sampleRate, frameSize),
     privacy: { rawAudioRetained: false, rawAudioReturned: false, sourcePathAccepted: false },
     safety: { playbackStarted: false, projectMutated: false, destructiveActionRequired: false },
-    performance: { bounded: true, maxSamples: MAX_ANALYSIS_SAMPLES, maxSeconds: MAX_ANALYSIS_SECONDS },
+    performance: { bounded: true, maxSamples: MAX_ANALYSIS_SAMPLES, maxSeconds: MAX_ANALYSIS_SECONDS, maxSpectralFrames: MAX_SPECTRAL_FRAMES, maxFftSize: MAX_FFT_SIZE },
     remediation: [],
   };
   analysis.remediation = remediation(analysis);
-  void crossings; // Kept out of the public contract until a stable feature needs it.
   return analysis;
 }
 
 export function decodeFloat32Le(base64: string): Float32Array {
-  if (typeof base64 !== "string" || base64.length > Math.ceil(MAX_ANALYSIS_SAMPLES * 4 * 4 / 3)) throw new RangeError("pcmBase64 is invalid or exceeds the analysis limit");
-  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64)) throw new RangeError("pcmBase64 is invalid");
+  const maxBase64Length = Math.ceil((MAX_ANALYSIS_SAMPLES * 4) / 3) * 4;
+  if (typeof base64 !== "string" || base64.length > maxBase64Length) throw new RangeError("pcmBase64 is invalid or exceeds the analysis limit");
+  if (base64.length === 0 || base64.length % 4 !== 0) throw new RangeError("pcmBase64 is invalid");
+  let contentLength = base64.length;
+  const paddingStart = base64.indexOf("=");
+  if (paddingStart >= 0) {
+    contentLength = paddingStart;
+    const padding = base64.slice(paddingStart);
+    if ((padding !== "=" && padding !== "==") || paddingStart < 2) throw new RangeError("pcmBase64 is invalid");
+  }
+  for (let i = 0; i < contentLength; i += 1) {
+    const code = base64.charCodeAt(i);
+    const valid = (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || (code >= 48 && code <= 57) || code === 43 || code === 47;
+    if (!valid) throw new RangeError("pcmBase64 is invalid");
+  }
   let bytes: Buffer;
   try { bytes = Buffer.from(base64, "base64"); } catch { throw new RangeError("pcmBase64 is invalid"); }
   if (bytes.length === 0 || bytes.length % 4 !== 0 || bytes.length / 4 > MAX_ANALYSIS_SAMPLES) throw new RangeError("pcmBase64 must contain bounded float32 PCM");

@@ -18,7 +18,11 @@ npm test
 
 `npm test` builds TypeScript into `dist/` and runs the compiled Node test files.
 The package is ESM, exports `dist/src/index.js`, and exposes the
-`ableton-mcp-server` binary after a build.
+`ableton-mcp-server`, `ableton-mcp-setup`, `ableton-mcp-migrate`, and
+`ableton-mcp-diagnostics` binaries after a build. CI exercises the portable
+Node distribution on Linux, macOS, and Windows; native Live, installer,
+signing, and notarization evidence remains unavailable without those external
+dependencies.
 
 ## Extension boundary
 

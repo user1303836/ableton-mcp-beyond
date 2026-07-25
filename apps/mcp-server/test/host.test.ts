@@ -106,6 +106,18 @@ test("accepts MCP metadata and reports value errors as tool errors", () => {
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "ping" }) as any).result instanceof Object, true);
 });
 
+test("does not let invalid audio requests consume the rate limit", () => {
+  const host = new McpHost();
+  host.handle(initialize);
+  for (let id = 2; id <= 121; id += 1) {
+    const result = host.handle({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "audio_analyze", arguments: {} } });
+    assert.equal((result as any).error.code, -32602);
+  }
+  const bytes = Buffer.alloc(4);
+  const result = host.handle({ jsonrpc: "2.0", id: 122, method: "tools/call", params: { name: "audio_analyze", arguments: { pcmBase64: bytes.toString("base64"), sampleRate: 44100 } } });
+  assert.equal((result as any).result.isError, false);
+});
+
 test("rejects legacy shutdown and cancellation requests", () => {
   const host = new McpHost();
   host.handle(initialize);

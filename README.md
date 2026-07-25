@@ -26,6 +26,19 @@ npm test
 npm start
 ```
 
+After building, generate an MCP client configuration without overwriting an
+existing file:
+
+```sh
+npm run build
+npm run setup -- --output "$PWD/client-config.json"
+```
+
+The package also provides `npm run migrate` for versioned configuration
+migration and `npm run diagnostics` for local readiness checks. External
+Ableton Live, signing, and notarization capabilities are reported as
+unavailable until real platform evidence exists.
+
 The server reads one JSON-RPC request per line from stdin and writes one JSON
 response per line to stdout. Diagnostics are written to stderr. An MCP client
 must send `initialize` with protocol version `2025-11-25` before calling tools.

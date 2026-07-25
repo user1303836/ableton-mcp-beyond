@@ -21,7 +21,7 @@ this is expected and is not evidence of Live connectivity.
 The host bounds each input line at 64 MiB. PCM analysis bounds decoded input at
 10,000,000 samples and 600 seconds, and limits sample rate, channels, and FFT
 frame size to the ranges in the user guide. Analysis examines at most 32
-spectral frames and does not retain audio.
+spectral frames with an FFT of at most 4,096 points and does not retain audio.
 
 Rate-limit handling returns JSON-RPC error `-32029` after 120 audio calls in a
 rolling minute. Other malformed or invalid requests return standard validation

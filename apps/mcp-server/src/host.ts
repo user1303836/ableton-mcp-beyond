@@ -191,14 +191,14 @@ export class McpHost {
       return response(id, { content: [{ type: "text", text: JSON.stringify({ implemented: ["server.status", "capabilities", "audio.analyze"], unavailable: unavailableCapabilities }) }], isError: false });
     }
     if (params.name === "audio_analyze") {
-      const now = Date.now();
-      while (this.toolCallTimes.length > 0 && now - (this.toolCallTimes[0] ?? now) >= 60_000) this.toolCallTimes.shift();
-      if (this.toolCallTimes.length >= MAX_TOOL_CALLS_PER_MINUTE) return error(id, -32029, "Tool invocation rate limit exceeded");
-      this.toolCallTimes.push(now);
       const args = params.arguments;
       if (!isObject(args) || !hasOnly(args, ["pcmBase64", "sampleRate", "channels", "frameSize"]) || typeof args.pcmBase64 !== "string" || typeof args.sampleRate !== "number") {
         return error(id, -32602, "audio_analyze requires pcmBase64 and sampleRate");
       }
+      const now = Date.now();
+      while (this.toolCallTimes.length > 0 && now - (this.toolCallTimes[0] ?? now) >= 60_000) this.toolCallTimes.shift();
+      if (this.toolCallTimes.length >= MAX_TOOL_CALLS_PER_MINUTE) return error(id, -32029, "Tool invocation rate limit exceeded");
+      this.toolCallTimes.push(now);
       try {
         const result = analyzePcm({
           samples: decodeFloat32Le(args.pcmBase64),

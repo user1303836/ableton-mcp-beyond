@@ -8,6 +8,7 @@ npm ci
 npm run typecheck
 npm test
 npm run property-test
+npm pack --dry-run
 git diff --check
 ```
 
