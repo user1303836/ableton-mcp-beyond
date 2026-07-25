@@ -595,7 +595,11 @@ function checkpointBranch(iterationNumber: number) {
   let changedPaths: string[] = [];
   let createdCommit = false;
   if (errors.length === 0) {
-    const add = runCommand("git", ["add", "-A", "--", ".", `:(exclude)${PROTECTED_SDK_PATH}`, `:(exclude)${PROTECTED_SDK_PATH}/**`], root);
+    // The SDK is root-ignored, so staging the repository will not include it.
+    // Supplying an explicit pathspec for an ignored directory makes Git return
+    // non-zero even though all eligible files were staged, which prevented
+    // otherwise valid checkpoints from being committed.
+    const add = runCommand("git", ["add", "-A", "--", "."], root);
     commands.push(add);
     if (add.exitCode !== 0) errors.push("Failed to stage the iteration changes.");
     const staged = runCommand("git", ["diff", "--cached", "--name-only"], root);

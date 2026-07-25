@@ -31,6 +31,13 @@ describe("ableton-platform-build workflow shape", () => {
     expect(assessed.tasks.map((task) => task.nodeId)).toContain("research-repository");
   });
 
+  test("checkpoints stage eligible changes without addressing the ignored SDK", () => {
+    const source = readFileSync(join(root, "workflows/ableton-platform-build.tsx"), "utf8");
+    expect(source).toContain('runCommand("git", ["add", "-A", "--", "."], root)');
+    expect(source).toContain("Protected SDK paths were staged");
+    expect(source).not.toContain(":(exclude)");
+  });
+
   test("UI uses the shipped runtime components and safe actions", () => {
     const source = readFileSync(join(root, "ui/ableton-platform-build.tsx"), "utf8");
     expect(source).toContain("<RunTree");
