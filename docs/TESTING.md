@@ -1,5 +1,9 @@
 # Testing guide
 
+Tests prove the local implementation and its failure behavior. They do not
+manufacture evidence for unavailable Live, device, platform-runner, signing,
+notarization, or realtime dependencies.
+
 ## Required local checks
 
 Run from `apps/mcp-server`:
@@ -30,6 +34,11 @@ and method rejection, and wire-safe operation errors. The TypeScript simulator
 tests cover stable references, bounded property changes, subscriptions, and
 reconnect epochs; they are test-double evidence, not Live integration.
 
+The loopback tests additionally cover authenticated status, replay rejection,
+tamper rejection, bounded nonces, subscriptions, and wire-safe operation
+failures. The fixture uses a deterministic simulator and must not be reported
+as an Ableton Live integration test.
+
 ## Acceptance checks
 
 A documentation or implementation checkpoint is valid only when typechecking,
@@ -42,6 +51,10 @@ Integration, end-to-end, device, platform, signing, and Ableton Live checks
 are not represented as passing by this repository. They require external
 runtime evidence and must remain explicitly unavailable when those dependencies
 are missing.
+
+When a check cannot run because a tool, credential, device, Live installation,
+or runner is absent, record it as unavailable and do not replace it with a
+static or simulated success.
 
 ## Benchmark gates
 

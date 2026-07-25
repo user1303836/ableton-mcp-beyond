@@ -1,5 +1,9 @@
 # Operations guide
 
+Operate the current release as a supervised local stdio process. A green
+local readiness report means the Node entrypoint is usable; it never means
+Ableton Live, signing, or notarization is available.
+
 ## Start and observe
 
 ```sh
@@ -40,6 +44,9 @@ The process accepts one newline-delimited JSON-RPC message per line. A malformed
 line returns parse error `-32700` and a redacted stderr diagnostic, then later
 lines can still be processed. Lines over 64 MiB receive an invalid-request
 error and are discarded through the next newline.
+Invalid UTF-8 is also rejected without exposing request contents. Keep stdout
+reserved for newline-delimited JSON-RPC responses and route stderr to a
+separate diagnostic log.
 
 ## Shutdown and upgrades
 
@@ -59,3 +66,7 @@ components and are not evidence that a Live set is connected.
 The independent Python boundary tests run from the repository root with
 `python3 -m unittest discover -s remote-script -p 'test_*.py'`. Passing them
 proves only deterministic transport validation and wire-safe errors.
+
+Do not attach the simulator or loopback directly to a production process based
+on a readiness result. They are deterministic development components, and the
+MCP host has no command-line option that enables them.

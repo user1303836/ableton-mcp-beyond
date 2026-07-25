@@ -1,5 +1,8 @@
 # Deterministic checkpoint
 
+This checkpoint validates repository-controlled behavior only. It is not a
+release, signing, notarization, or Ableton Live certification procedure.
+
 Run the following from the repository root:
 
 ```sh
@@ -42,6 +45,11 @@ evidence. A deterministic checkpoint may commit and push only validated
 changes on the existing feature branch when explicitly permitted. Never
 include `extensions-sdk-1.0.0-beta.0`, generated `dist/`, credentials, or
 external-runtime claims.
+
+Before recording completion, confirm that the working tree contains no changes
+to `extensions-sdk-1.0.0-beta.0` and that no generated `dist/`, tarball,
+credential, device, or platform artifact is staged. Preserve unrelated user
+changes when reviewing or committing the checkpoint.
 
 The package verifier installs the actual tarball and exercises the handshake,
 setup, migration, and diagnostics helpers. It also requires diagnostics to

@@ -1,5 +1,9 @@
 # Ableton Live safety
 
+This document is a safety boundary for the shipped host. It does not grant
+authority to a real Live process and cannot turn unavailable evidence into a
+passing integration result.
+
 ## Current guarantee
 
 The shipped default adapter is `UnavailableLiveAdapter`. It always reports
@@ -60,3 +64,8 @@ When testing a future adapter, treat the loopback secret as a credential, use
 localhost-only transport, reject replayed or tampered messages, and verify the
 status epoch after reconnect. Never place secrets, raw PCM, or Live project
 data in protocol logs or documentation.
+
+The simulator's connected status is intentionally scoped to its in-memory test
+state. It must not be copied into production status, used as a proxy for Live,
+or treated as proof that a Control Surface callback, localhost transport, or
+device is present.

@@ -1,5 +1,9 @@
 # Developer guide
 
+The implementation source and compiled tests are authoritative. Keep this
+guide synchronized with exported methods and test assertions; references and
+roadmap material do not add capabilities.
+
 ## Layout
 
 - `apps/mcp-server/src/host.ts` implements JSON-RPC framing, MCP lifecycle,
@@ -83,3 +87,10 @@ connection. `src/loopback.ts` and `remote-script/ableton_mcp_remote_script.py`
 define an HMAC-authenticated `ableton-loopback/v1` boundary with bounded IDs,
 nonces, and replay protection. The Python shim has no Ableton import-time
 dependency.
+
+The simulator's deterministic fixture contains a set, track, scene, MIDI clip,
+device, parameter, locator, and browser entries. Its bounded test operations
+validate transport, track and parameter properties, MIDI notes, automation,
+warp flags, takes, subscriptions, and reconnect epochs. These exports are
+adapter-boundary evidence only; `McpHost` constructs the unavailable adapter
+by default and does not dispatch simulator operations as MCP tools.

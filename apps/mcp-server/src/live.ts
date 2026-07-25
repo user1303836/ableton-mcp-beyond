@@ -25,7 +25,7 @@ export const LIVE_UNAVAILABLE_CAPABILITIES = [
 ] as const;
 
 export type LiveCapability = typeof LIVE_CAPABILITIES[number];
-export type LiveObjectKind = "set" | "track" | "scene" | "clip" | "device" | "parameter" | "note" | "automation";
+export type LiveObjectKind = "set" | "track" | "scene" | "clip" | "device" | "parameter" | "note" | "automation" | "locator";
 export type LiveRef = `${LiveObjectKind}:${string}`;
 
 export interface LiveStatus {
@@ -76,7 +76,7 @@ function createSimulatorState(): LiveSnapshot {
     set: { ref: ref("set", "set-1"), name: "Simulator Set", tempo: 120, playing: false, position: 0, loop: { enabled: false, start: 0, length: 4 } },
     tracks: [track],
     scenes: [{ ref: ref("scene", "scene-1"), name: "Scene 1", index: 0 }],
-    arrangement: { length: 16, locators: [{ ref: ref("automation", "locator-1"), name: "Intro", position: 0 }] },
+    arrangement: { length: 16, locators: [{ ref: ref("locator", "locator-1"), name: "Intro", position: 0 }] },
     browser: [{ ref: ref("device", "utility-1"), name: "Utility", kind: "device" }, { ref: ref("clip", "sample-1"), name: "Kick Sample", kind: "sample" }],
     selected: track.ref,
   };
@@ -92,6 +92,8 @@ export class DeterministicLiveSimulator implements LiveAdapter {
   snapshot(): LiveSnapshot { return structuredClone(this.state); }
   get(objectRef: LiveRef): unknown {
     if (objectRef === this.state.set.ref) return structuredClone(this.state.set);
+    const scene = this.state.scenes.find((item) => item.ref === objectRef);
+    if (scene) return structuredClone(scene);
     for (const track of this.state.tracks) {
       if (track.ref === objectRef) return structuredClone(track);
       const clip = track.clips.find((item) => item.ref === objectRef);
@@ -115,14 +117,26 @@ export class DeterministicLiveSimulator implements LiveAdapter {
     else if (property === "name") { if (typeof value !== "string" || value.length === 0 || value.length > 256) throw new TypeError("name must be 1-256 characters"); (target as Record<string, unknown>)[property] = value; }
     else if (property === "value" && "min" in target && "max" in target) { if (typeof value !== "number" || !Number.isFinite(value)) throw new TypeError("parameter value must be finite"); (target as Parameter).value = clamp(value, (target as Parameter).min, (target as Parameter).max); }
     else throw new Error(`property is not writable: ${property}`);
-    this.emit({ type: property === "playing" || property === "tempo" ? "transport" : "object", ref: objectRef, payload: { property, value } });
+    const appliedValue = (target as Record<string, unknown>)[property];
+    this.emit({ type: property === "playing" || property === "tempo" ? "transport" : "object", ref: objectRef, payload: { property, value: appliedValue } });
   }
   subscribe(listener: (event: LiveEvent) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   reconnect(): LiveStatus { this.epoch += 1; this.emit({ type: "state", payload: { epoch: this.epoch, snapshot: this.snapshot() } }); return this.status(); }
-  addNote(clipRef: LiveRef, note: Note): void { const clip = this.findClip(clipRef); if (clip.kind !== "midi") throw new Error("notes require a MIDI clip"); if (note.pitch < 0 || note.pitch > 127 || note.duration <= 0 || note.velocity < 1 || note.velocity > 127) throw new RangeError("invalid MIDI note"); clip.notes.push(structuredClone(note)); this.emit({ type: "object", ref: clipRef, payload: { operation: "note.add", note } }); }
-  setAutomation(clipRef: LiveRef, point: AutomationPoint): void { const clip = this.findClip(clipRef); if (point.time < 0 || point.time > clip.length || !Number.isFinite(point.value)) throw new RangeError("automation point is outside the clip"); clip.automation.push(structuredClone(point)); this.emit({ type: "object", ref: clipRef, payload: { operation: "automation.add", point } }); }
-  setWarp(clipRef: LiveRef, enabled: boolean): void { const clip = this.findClip(clipRef); if (clip.kind !== "audio") throw new Error("warp requires an audio clip"); clip.warp = enabled; this.emit({ type: "object", ref: clipRef, payload: { operation: "warp.set", enabled } }); }
-  addTake(clipRef: LiveRef, take: string): void { const clip = this.findClip(clipRef); if (!take || take.length > 256 || clip.takes.includes(take)) throw new Error("invalid or duplicate take"); clip.takes.push(take); this.emit({ type: "object", ref: clipRef, payload: { operation: "take.add", take } }); }
+  addNote(clipRef: LiveRef, note: Note): void {
+    const clip = this.findClip(clipRef);
+    if (clip.kind !== "midi") throw new Error("notes require a MIDI clip");
+    if (!Number.isInteger(note.pitch) || note.pitch < 0 || note.pitch > 127 || !Number.isFinite(note.start) || note.start < 0 || !Number.isFinite(note.duration) || note.duration <= 0 || !Number.isInteger(note.velocity) || note.velocity < 1 || note.velocity > 127 || !Number.isInteger(note.channel) || note.channel < 1 || note.channel > 16) throw new RangeError("invalid MIDI note");
+    clip.notes.push(structuredClone(note));
+    this.emit({ type: "object", ref: clipRef, payload: { operation: "note.add", note } });
+  }
+  setAutomation(clipRef: LiveRef, point: AutomationPoint): void {
+    const clip = this.findClip(clipRef);
+    if (!Number.isFinite(point.time) || point.time < 0 || point.time > clip.length || !Number.isFinite(point.value) || (point.curve !== undefined && !Number.isFinite(point.curve))) throw new RangeError("automation point is outside the clip");
+    clip.automation.push(structuredClone(point));
+    this.emit({ type: "object", ref: clipRef, payload: { operation: "automation.add", point } });
+  }
+  setWarp(clipRef: LiveRef, enabled: boolean): void { if (typeof enabled !== "boolean") throw new TypeError("warp must be boolean"); const clip = this.findClip(clipRef); if (clip.kind !== "audio") throw new Error("warp requires an audio clip"); clip.warp = enabled; this.emit({ type: "object", ref: clipRef, payload: { operation: "warp.set", enabled } }); }
+  addTake(clipRef: LiveRef, take: string): void { const clip = this.findClip(clipRef); if (typeof take !== "string" || take.length === 0 || take.length > 256 || clip.takes.includes(take)) throw new Error("invalid or duplicate take"); clip.takes.push(take); this.emit({ type: "object", ref: clipRef, payload: { operation: "take.add", take } }); }
   private find(objectRef: LiveRef): Track | Clip | Device | Parameter | undefined { for (const track of this.state.tracks) { if (track.ref === objectRef) return track; const clip = track.clips.find((item) => item.ref === objectRef); if (clip) return clip; for (const device of track.devices) { if (device.ref === objectRef) return device; const parameter = device.parameters.find((item) => item.ref === objectRef); if (parameter) return parameter; } } return undefined; }
   private findClip(objectRef: LiveRef): Clip { const value = this.find(objectRef); if (!value || !("notes" in value)) throw new Error(`unknown clip reference: ${objectRef}`); return value; }
   private emit(event: Omit<LiveEvent, "sequence">): void { const complete = { ...event, sequence: ++this.sequence }; for (const listener of this.listeners) listener(structuredClone(complete)); }

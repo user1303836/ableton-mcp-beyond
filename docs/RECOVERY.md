@@ -1,5 +1,8 @@
 # Recovery procedures
 
+Recovery is intentionally restart-based: the stdio host has no persistent
+session, durable request queue, or in-place resume mechanism.
+
 ## Invalid request or tool error
 
 Read the returned JSON-RPC error or the tool error’s `reason`. Correct the
@@ -67,3 +70,12 @@ For a failed package or configuration upgrade, preserve the old configuration,
 discard only failed disposable output, rerun `npm ci`, `npm run build`, and
 the checkpoint checks, then regenerate setup output with an explicit path. Do
 not use `--force` without a backup.
+
+The writer refuses symbolic-link destinations, refuses overwrite without
+`--force`, requires an existing parent directory, and uses owner-only file
+permissions where supported. Preserve the old file before any forced rewrite.
+
+If a future adapter reports authentication, replay, epoch, or mutation
+behavior inconsistent with its contract, stop the client and isolate the
+adapter before retrying. The current host cannot enter that state because it
+does not instantiate the loopback or simulator adapters.

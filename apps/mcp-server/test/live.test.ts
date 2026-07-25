@@ -17,6 +17,7 @@ test("simulator covers stable references, bounded edits, subscriptions, and reco
   const unsubscribe = live.subscribe((event) => events.push(event));
   live.set(track.ref, "volume", 2);
   assert.equal((live.get(track.ref) as typeof track).volume, 1);
+  assert.deepEqual(events[0], { sequence: 1, type: "object", ref: track.ref, payload: { property: "volume", value: 1 } });
   live.addNote(track.clips[0]!.ref, { pitch: 40, start: 1, duration: 0.25, velocity: 90, channel: 1 });
   const epoch = live.reconnect().epoch;
   assert.equal(epoch, 2);
@@ -34,6 +35,7 @@ test("simulator exposes domain objects and bounded editing operations", () => {
   assert.ok(LIVE_CAPABILITIES.includes("arrangement.read"));
   assert.ok(LIVE_CAPABILITIES.includes("parameters"));
   assert.equal(snapshot.arrangement.locators[0]!.name, "Intro");
+  assert.equal((live.get(snapshot.scenes[0]!.ref) as typeof snapshot.scenes[0]).name, "Scene 1");
   assert.equal((live.get(parameter.ref) as typeof parameter).value, 0.5);
   live.set(parameter.ref, "value", 9);
   assert.equal((live.get(parameter.ref) as typeof parameter).value, 1);
@@ -43,6 +45,11 @@ test("simulator exposes domain objects and bounded editing operations", () => {
   assert.equal(updated.automation.length, 1);
   assert.deepEqual(updated.takes, ["take-1", "take-2"]);
   assert.throws(() => live.setAutomation(clip.ref, { time: 99, value: 0.5 }), /outside the clip/);
+  assert.throws(() => live.setAutomation(clip.ref, { time: Number.NaN, value: 0.5 }), /outside the clip/);
+  assert.throws(() => live.addNote(clip.ref, { pitch: 40, start: Number.NaN, duration: 0.25, velocity: 90, channel: 1 }), /invalid MIDI note/);
+  assert.throws(() => live.addNote(clip.ref, { pitch: 40, start: 1, duration: 0.25, velocity: 90, channel: 17 }), /invalid MIDI note/);
+  assert.throws(() => live.addTake(clip.ref, 42 as unknown as string), /invalid or duplicate take/);
+  assert.throws(() => live.setWarp(clip.ref, "yes" as unknown as boolean), /warp must be boolean/);
 });
 
 test("loopback authenticates, rejects replay/tampering, and forwards subscriptions", () => {

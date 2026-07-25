@@ -1,5 +1,9 @@
 # User guide
 
+This guide describes the implementation in `apps/mcp-server/src`, not the
+roadmap or the simulator contract. The shipped process is local-only and
+defaults to `UnavailableLiveAdapter`.
+
 ## What is available
 
 Build, then run `node dist/src/cli.js` from `apps/mcp-server`. The process accepts newline-delimited
@@ -36,6 +40,9 @@ and that playback and project mutation did not occur.
 The analyzer accepts at most 10,000,000 samples and 600 seconds of audio. It
 accepts sample rates from 8,000 to 384,000 Hz, 1–32 channels, and frame sizes
 from 256–4,096 samples. Invalid input is returned as an MCP tool error.
+Input must contain complete interleaved channel frames; the base64 payload is
+canonical standard base64 and must decode to finite little-endian float32
+samples. Audio calls are limited to 120 per rolling minute.
 
 ## Important expectation
 
@@ -76,3 +83,8 @@ The simulator and authenticated loopback modules are adapter-boundary test
 components, not a shipped Live connection. The Python Remote Script is a
 dependency-free transport shim; a real Control Surface callback and
 authenticated localhost transport are still required.
+
+The simulator can model snapshots, bounded edits, subscriptions, and reconnect
+epochs for adapter tests, but it is not selected by the MCP host. Its
+`ableton-live/v1` contract and the loopback `ableton-loopback/v1` protocol do
+not constitute Live connectivity or permission to use a real set.
