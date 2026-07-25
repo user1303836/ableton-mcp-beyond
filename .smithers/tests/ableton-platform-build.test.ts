@@ -38,6 +38,17 @@ describe("ableton-platform-build workflow shape", () => {
     expect(source).not.toContain(":(exclude)");
   });
 
+  test("implementation prompts cannot indefinitely defer missing Live integration", () => {
+    const promptDir = join(root, "prompts/ableton-platform-build");
+    const selector = readFileSync(join(promptDir, "slice-select.mdx"), "utf8");
+    const planner = readFileSync(join(promptDir, "implementation-plan.mdx"), "utf8");
+    const ableton = readFileSync(join(promptDir, "implement-ableton.mdx"), "utf8");
+    expect(selector).toContain("implementation work to select—not a reason to defer");
+    expect(selector).toContain("every iteration must materially expand");
+    expect(planner).toContain("at least one unsupported core Live-control capability");
+    expect(ableton).toContain("implement the adapter boundary");
+  });
+
   test("UI uses the shipped runtime components and safe actions", () => {
     const source = readFileSync(join(root, "ui/ableton-platform-build.tsx"), "utf8");
     expect(source).toContain("<RunTree");
