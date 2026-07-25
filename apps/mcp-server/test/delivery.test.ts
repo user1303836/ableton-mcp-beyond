@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { configForEntrypoint, diagnostics, isSupportedPlatform, migrateConfig, readConfig, writeConfig } from "../src/delivery.js";
+import { npmExecutable } from "../src/platform.js";
 
 test("writes a versioned config without overwriting user files", () => {
   const directory = mkdtempSync(join(tmpdir(), "ableton-mcp-"));
@@ -47,6 +48,12 @@ test("compatibility is explicit for the portable Node runtime", () => {
 test("delivery supports the three CI platforms without native packaging", () => {
   assert.deepEqual(["darwin", "linux", "win32"].map((value) => isSupportedPlatform(value as NodeJS.Platform)), [true, true, true]);
   assert.equal(isSupportedPlatform("freebsd"), false);
+});
+
+test("package verification selects the Windows npm shim", () => {
+  assert.equal(npmExecutable("win32"), "npm.cmd");
+  assert.equal(npmExecutable("darwin"), "npm");
+  assert.equal(npmExecutable("linux"), "npm");
 });
 
 test("npm start launches the stdio server entrypoint", () => {

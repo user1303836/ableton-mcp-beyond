@@ -2,11 +2,13 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { npmExecutable } from "../dist/src/platform.js";
 
 const packageDirectory = new URL("..", import.meta.url);
 const temporaryDirectory = mkdtempSync(join(tmpdir(), "ableton-mcp-package-"));
+const npm = npmExecutable();
 try {
-  const packOutput = execFileSync("npm", ["pack", "--json", "--pack-destination", temporaryDirectory], {
+  const packOutput = execFileSync(npm, ["pack", "--json", "--pack-destination", temporaryDirectory], {
     cwd: packageDirectory,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -16,7 +18,7 @@ try {
     throw new Error("npm pack did not return exactly one artifact");
   }
   const artifact = join(temporaryDirectory, packed[0].filename);
-  const listing = execFileSync("npm", ["pack", "--dry-run", "--json"], {
+  const listing = execFileSync(npm, ["pack", "--dry-run", "--json"], {
     cwd: packageDirectory,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -33,7 +35,7 @@ try {
   }
 
   const installDirectory = join(temporaryDirectory, "install");
-  execFileSync("npm", ["install", "--prefix", installDirectory, artifact, "--ignore-scripts", "--no-audit", "--no-fund"], {
+  execFileSync(npm, ["install", "--prefix", installDirectory, artifact, "--ignore-scripts", "--no-audit", "--no-fund"], {
     cwd: packageDirectory,
     stdio: "pipe",
   });
