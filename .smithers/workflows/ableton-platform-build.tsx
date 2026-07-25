@@ -432,6 +432,7 @@ const {
   Workflow,
   Task,
   Sequence,
+  Parallel,
   Branch,
   Approval,
   Ralph,
@@ -947,19 +948,23 @@ export default smithers((ctx) => {
                           else={null}
                         />
                         <AiTask id="pr-verify" output={outputs.prClassify} agent={abletonAgents.review} Prompt={PrVerifyPrompt} context={{ ...sharedContext, checkpoint, prPoll, prClassify }} />
-                        <AiTask id="audit-requirements" output={outputs.audit} agent={abletonAgents.review} Prompt={AuditRequirementsPrompt} context={sharedContext} />
-                        <AiTask id="audit-integrity" output={outputs.audit} agent={abletonAgents.review} Prompt={AuditIntegrityPrompt} context={sharedContext} />
-                        <AiTask id="audit-safety" output={outputs.audit} agent={abletonAgents.review} Prompt={AuditSafetyPrompt} context={sharedContext} />
-                        <AiTask id="audit-exhaustive" output={outputs.audit} agent={abletonAgents.review} Prompt={ExhaustiveAuditPrompt} context={sharedContext} />
+                        <Parallel maxConcurrency={4}>
+                          <AiTask id="audit-requirements" output={outputs.audit} agent={abletonAgents.review} Prompt={AuditRequirementsPrompt} context={sharedContext} />
+                          <AiTask id="audit-integrity" output={outputs.audit} agent={abletonAgents.review} Prompt={AuditIntegrityPrompt} context={sharedContext} />
+                          <AiTask id="audit-safety" output={outputs.audit} agent={abletonAgents.review} Prompt={AuditSafetyPrompt} context={sharedContext} />
+                          <AiTask id="audit-exhaustive" output={outputs.audit} agent={abletonAgents.review} Prompt={ExhaustiveAuditPrompt} context={sharedContext} />
+                        </Parallel>
                         <AiTask id="audit-moderation" output={outputs.audit} agent={abletonAgents.planning} Prompt={AuditModerationPrompt} context={sharedContext} />
                         <Branch
                           if={Boolean(audit?.remediationIds.length)}
                           then={<AiTask id="audit-remediation" output={outputs.implementationWork} agent={abletonAgents.implementation} Prompt={AuditRemediationPrompt} context={sharedContext} />}
                           else={null}
                         />
-                        <AiTask id="final-architecture-review" output={outputs.specialistReview} agent={abletonAgents.review} Prompt={FinalArchitectureReviewPrompt} context={sharedContext} />
-                        <AiTask id="final-use-case-review" output={outputs.specialistReview} agent={abletonAgents.review} Prompt={FinalUseCaseReviewPrompt} context={sharedContext} />
-                        <AiTask id="final-release-review" output={outputs.specialistReview} agent={abletonAgents.review} Prompt={FinalReleaseReviewPrompt} context={sharedContext} />
+                        <Parallel maxConcurrency={3}>
+                          <AiTask id="final-architecture-review" output={outputs.specialistReview} agent={abletonAgents.review} Prompt={FinalArchitectureReviewPrompt} context={sharedContext} />
+                          <AiTask id="final-use-case-review" output={outputs.specialistReview} agent={abletonAgents.review} Prompt={FinalUseCaseReviewPrompt} context={sharedContext} />
+                          <AiTask id="final-release-review" output={outputs.specialistReview} agent={abletonAgents.review} Prompt={FinalReleaseReviewPrompt} context={sharedContext} />
+                        </Parallel>
                         <AiTask id="final-review-verdict" output={outputs.finalReview} agent={abletonAgents.planning} Prompt={FinalReviewVerdictPrompt} context={sharedContext} />
                         <Task id="iteration-disposition" output={outputs.iterationDisposition}>
                           {() => dispositionFor({

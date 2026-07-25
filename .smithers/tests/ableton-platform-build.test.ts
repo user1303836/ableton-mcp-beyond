@@ -38,6 +38,14 @@ describe("ableton-platform-build workflow shape", () => {
     expect(source).not.toContain(":(exclude)");
   });
 
+  test("independent read-only audits and final reviews run concurrently", () => {
+    const source = readFileSync(join(root, "workflows/ableton-platform-build.tsx"), "utf8");
+    expect(source).toContain("<Parallel maxConcurrency={4}>");
+    expect(source).toContain("<Parallel maxConcurrency={3}>");
+    expect(source.indexOf('id="audit-requirements"')).toBeLessThan(source.indexOf('id="audit-moderation"'));
+    expect(source.indexOf('id="final-release-review"')).toBeLessThan(source.indexOf('id="final-review-verdict"'));
+  });
+
   test("implementation prompts cannot indefinitely defer missing Live integration", () => {
     const promptDir = join(root, "prompts/ableton-platform-build");
     const selector = readFileSync(join(promptDir, "slice-select.mdx"), "utf8");
