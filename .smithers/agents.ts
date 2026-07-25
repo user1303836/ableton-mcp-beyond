@@ -55,7 +55,54 @@ export const providers = {
   codexLuna: new SmithersCodexAgent({ model: "gpt-5.6-luna", config: { model_reasoning_effort: "medium" }, skipGitRepoCheck: true }),
   claudeOpus: new SmithersClaudeCodeAgent({ model: "claude-opus-4-8" }),
   claudeSonnet: new SmithersClaudeCodeAgent({ model: "claude-sonnet-5" }),
+  abletonCodexSol: new SmithersCodexAgent({
+    model: "gpt-5.6-sol",
+    config: { model_reasoning_effort: "xhigh" },
+    sandbox: "danger-full-access",
+    dangerouslyBypassApprovalsAndSandbox: true,
+    skipGitRepoCheck: true,
+  }),
+  abletonCodexTerra: new SmithersCodexAgent({
+    model: "gpt-5.6-terra",
+    config: { model_reasoning_effort: "high" },
+    sandbox: "danger-full-access",
+    dangerouslyBypassApprovalsAndSandbox: true,
+    skipGitRepoCheck: true,
+  }),
+  abletonCodexLuna: new SmithersCodexAgent({
+    model: "gpt-5.6-luna",
+    config: { model_reasoning_effort: "medium" },
+    sandbox: "danger-full-access",
+    dangerouslyBypassApprovalsAndSandbox: true,
+    skipGitRepoCheck: true,
+  }),
+  abletonClaudeOpus: new SmithersClaudeCodeAgent({
+    model: "claude-opus-4-8",
+    permissionMode: "bypassPermissions",
+    dangerouslySkipPermissions: true,
+  }),
+  abletonClaudeSonnet: new SmithersClaudeCodeAgent({
+    model: "claude-sonnet-5",
+    permissionMode: "bypassPermissions",
+    dangerouslySkipPermissions: true,
+  }),
 } as const;
+
+/**
+ * Autonomous, cwd-unpinned pools for the durable Ableton build.
+ *
+ * The workflow serializes every mutating task in the existing feature-branch
+ * checkout. These agents therefore must not pin cwd or prompt for permissions
+ * in a detached run; the workflow's preflight, prompts, checkpoints, and human
+ * gates provide the safety boundary.
+ */
+export const abletonAgents = {
+  research: [providers.abletonCodexTerra, providers.abletonClaudeSonnet],
+  planning: [providers.abletonCodexSol, providers.abletonClaudeOpus],
+  implementation: [providers.abletonCodexLuna, providers.abletonClaudeSonnet],
+  validation: [providers.abletonCodexTerra, providers.abletonClaudeSonnet],
+  review: [providers.abletonCodexSol, providers.abletonClaudeOpus],
+} as const satisfies Record<string, AgentLike[]>;
 
 export const agents = {
   // Codex runs first. Later entries are runtime fallbacks and are invoked only if every Codex attempt fails.
@@ -80,7 +127,7 @@ export const agents = {
   ],
   // Codex runs first. Later entries are runtime fallbacks and are invoked only if every Codex attempt fails.
   implement: [
-    providers.codexTerra,
+    providers.codexLuna,
     providers.claudeSonnet,
     providers.claude,
     // providers.kimi,

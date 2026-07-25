@@ -8,7 +8,8 @@
     "workflow:list": "smithers workflow list",
     "workflow:run": "smithers workflow run",
     "workflow:inspect": "smithers workflow inspect",
-    "workflow:skills": "smithers workflow skills"
+    "workflow:skills": "smithers workflow skills",
+    "test": "bun test --preload ./preload.ts ./tests/ableton-platform-build.test.ts"
   },
   "dependencies": {
     "react": "19.2.8",
