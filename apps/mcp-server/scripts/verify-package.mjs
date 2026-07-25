@@ -7,8 +7,10 @@ import { npmExecutable } from "../dist/src/platform.js";
 const packageDirectory = new URL("..", import.meta.url);
 const temporaryDirectory = mkdtempSync(join(tmpdir(), "ableton-mcp-package-"));
 const npm = npmExecutable();
+const npmOptions = { shell: process.platform === "win32" };
 try {
   const packOutput = execFileSync(npm, ["pack", "--json", "--pack-destination", temporaryDirectory], {
+    ...npmOptions,
     cwd: packageDirectory,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -19,6 +21,7 @@ try {
   }
   const artifact = join(temporaryDirectory, packed[0].filename);
   const listing = execFileSync(npm, ["pack", "--dry-run", "--json"], {
+    ...npmOptions,
     cwd: packageDirectory,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -36,6 +39,7 @@ try {
 
   const installDirectory = join(temporaryDirectory, "install");
   execFileSync(npm, ["install", "--prefix", installDirectory, artifact, "--ignore-scripts", "--no-audit", "--no-fund"], {
+    ...npmOptions,
     cwd: packageDirectory,
     stdio: "pipe",
   });
