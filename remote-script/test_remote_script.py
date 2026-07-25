@@ -34,6 +34,12 @@ class RemoteScriptTests(unittest.TestCase):
         self.assertFalse(remote.dispatch({**request, "mac": remote.sign(request)})["ok"])
         self.assertEqual(called, [])
 
+    def test_malformed_requests_are_wire_errors_and_nonces_are_bounded(self):
+        remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: method)
+        self.assertFalse(remote.dispatch(None)["ok"])
+        unsigned = {"version": PROTOCOL, "id": "large", "method": "status", "nonce": "x" * 257}
+        self.assertFalse(remote.dispatch({**unsigned, "mac": remote.sign(unsigned)})["ok"])
+
 
 if __name__ == "__main__":
     unittest.main()

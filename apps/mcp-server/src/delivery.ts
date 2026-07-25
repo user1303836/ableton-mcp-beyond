@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { platform, versions } from "node:process";
@@ -33,9 +33,9 @@ function parseConfig(value: unknown): ServerConfig {
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("configuration must be an object");
   const candidate = value as Record<string, unknown>;
   const server = candidate.server;
-  if (candidate.version !== CONFIG_VERSION || typeof server !== "object" || server === null || Array.isArray(server)) throw new Error("unsupported configuration version");
+  if (Object.keys(candidate).some((key) => !["version", "server"].includes(key)) || candidate.version !== CONFIG_VERSION || typeof server !== "object" || server === null || Array.isArray(server)) throw new Error("unsupported configuration version");
   const serverObject = server as Record<string, unknown>;
-  if (typeof serverObject.command !== "string" || serverObject.command.length === 0 || !Array.isArray(serverObject.args) || !serverObject.args.every((arg) => typeof arg === "string")) throw new Error("invalid server configuration");
+  if (Object.keys(serverObject).some((key) => !["command", "args"].includes(key)) || typeof serverObject.command !== "string" || serverObject.command.length === 0 || !Array.isArray(serverObject.args) || !serverObject.args.every((arg) => typeof arg === "string")) throw new Error("invalid server configuration");
   return { version: 1, server: { command: serverObject.command, args: [...serverObject.args] } };
 }
 
@@ -55,7 +55,10 @@ export function readConfig(path: string): ServerConfig {
 
 export function writeConfig(path: string, config: ServerConfig, force = false): void {
   config = parseConfig(config);
-  if (existsSync(path) && !force) throw new Error(`refusing to overwrite existing file: ${path}`);
+  if (existsSync(path)) {
+    if (lstatSync(path).isSymbolicLink()) throw new Error(`refusing to write through symbolic link: ${path}`);
+    if (!force) throw new Error(`refusing to overwrite existing file: ${path}`);
+  }
   const parent = dirname(path);
   if (!existsSync(parent)) throw new Error(`configuration directory does not exist: ${parent}`);
   writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "w" });

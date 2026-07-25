@@ -118,6 +118,10 @@ function isNonEmptyString(value: unknown, maxLength = REQUEST_ID_MAX_LENGTH): va
   return typeof value === "string" && value.length > 0 && value.length <= maxLength;
 }
 
+function isIntegerInRange(value: unknown, minimum: number, maximum: number): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= minimum && value <= maximum;
+}
+
 function response(id: RequestId, result: unknown): JsonObject {
   return { jsonrpc: "2.0", id, result };
 }
@@ -240,7 +244,14 @@ export class McpHost {
     }
     if (params.name === "audio_analyze") {
       const args = params.arguments;
-      if (!isObject(args) || !hasOnly(args, ["pcmBase64", "sampleRate", "channels", "frameSize"]) || typeof args.pcmBase64 !== "string" || typeof args.sampleRate !== "number") {
+      if (
+        !isObject(args) ||
+        !hasOnly(args, ["pcmBase64", "sampleRate", "channels", "frameSize"]) ||
+        typeof args.pcmBase64 !== "string" ||
+        !isIntegerInRange(args.sampleRate, 8_000, 384_000) ||
+        (args.channels !== undefined && !isIntegerInRange(args.channels, 1, 32)) ||
+        (args.frameSize !== undefined && !isIntegerInRange(args.frameSize, 256, 4_096))
+      ) {
         return error(id, -32602, "audio_analyze requires pcmBase64 and sampleRate");
       }
       const now = Date.now();

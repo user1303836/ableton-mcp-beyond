@@ -32,6 +32,12 @@ test("rejects unsafe and malformed input", () => {
   assert.throws(() => decodeFloat32Le("not base64"), /float32|invalid/);
   assert.throws(() => decodeFloat32Le("AA=A"), /invalid/);
   assert.throws(() => decodeFloat32Le("Zh=="), /invalid/);
+  const nonFinite = Buffer.alloc(4);
+  nonFinite.writeUInt32LE(0x7fc00000);
+  assert.throws(() => decodeFloat32Le(nonFinite.toString("base64")), /finite normalized/);
+  const outOfRange = Buffer.alloc(4);
+  outOfRange.writeFloatLE(1.01);
+  assert.throws(() => decodeFloat32Le(outOfRange.toString("base64")), /finite normalized/);
   assert.throws(() => analyzePcm({ samples: [0, 0, 0], sampleRate: 44100, channels: 2 }), /complete channel frames/);
   assert.throws(() => analyzePcm({ samples: [Number.NaN], sampleRate: 44100 }), /finite/);
   assert.throws(() => analyzePcm({ samples: [Number.POSITIVE_INFINITY], sampleRate: 44100 }), /finite/);

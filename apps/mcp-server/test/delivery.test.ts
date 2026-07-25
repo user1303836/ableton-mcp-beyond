@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -14,7 +14,18 @@ test("writes a versioned config without overwriting user files", () => {
   assert.deepEqual(readConfig(path), config);
   assert.throws(() => writeConfig(path, config), /refusing to overwrite/);
   assert.throws(() => writeConfig(join(directory, "invalid.json"), { version: 1, server: { command: "", args: [] } } as any), /invalid server configuration/);
+  assert.throws(() => writeConfig(join(directory, "unknown.json"), { version: 1, server: { command: "/usr/bin/node", args: [], extra: true } } as any), /invalid server configuration/);
   assert.throws(() => configForEntrypoint("/opt/ableton-mcp/dist/src/index.js", ""), /node command/);
+});
+
+test("does not follow configuration symlinks", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ableton-mcp-"));
+  const target = join(directory, "target.json");
+  const link = join(directory, "config.json");
+  writeFileSync(target, "sentinel");
+  symlinkSync(target, link);
+  assert.throws(() => writeConfig(link, configForEntrypoint("/opt/server.js"), true), /symbolic link/);
+  assert.equal(readFileSync(target, "utf8"), "sentinel");
 });
 
 test("migrates the legacy command-and-args shape", () => {

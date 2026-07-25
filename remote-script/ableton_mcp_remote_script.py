@@ -18,6 +18,7 @@ from typing import Any, Callable
 
 PROTOCOL = "ableton-loopback/v1"
 METHODS = {"status", "snapshot", "get", "set", "subscribe", "reconnect"}
+MAX_NONCE_LENGTH = 256
 
 
 class AuthenticatedRemoteScript:
@@ -35,18 +36,20 @@ class AuthenticatedRemoteScript:
 
     def dispatch(self, request: dict[str, Any]) -> dict[str, Any]:
         required = {"version", "id", "method", "nonce", "mac"}
-        if set(request) - required - {"ref", "property", "value"} or not required <= set(request):
+        if not isinstance(request, dict) or set(request) - required - {"ref", "property", "value"} or not required <= set(request):
             return self._error("invalid", "invalid request")
         unsigned = {key: value for key, value in request.items() if key != "mac"}
         if (
             request["version"] != PROTOCOL
             or not isinstance(request["id"], str)
             or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", request["id"])
+            or not isinstance(request["method"], str)
             or request["method"] not in METHODS
             or not isinstance(request["nonce"], str)
+            or not isinstance(request["mac"], str)
         ):
             return self._error(request.get("id", "invalid"), "invalid request")
-        if len(request["nonce"]) < 16 or request["nonce"] in self._seen_nonces or not hmac.compare_digest(self.sign(unsigned), request["mac"]):
+        if len(request["nonce"]) < 16 or len(request["nonce"]) > MAX_NONCE_LENGTH or request["nonce"] in self._seen_nonces or not hmac.compare_digest(self.sign(unsigned), request["mac"]):
             return self._error(request["id"], "authentication or replay check failed")
         self._seen_nonces.add(request["nonce"])
         self._nonce_order.append(request["nonce"])

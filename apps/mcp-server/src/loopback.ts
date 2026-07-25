@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { LiveAdapter, LiveEvent, LiveRef, LiveStatus } from "./live.js";
 
 export const LOOPBACK_PROTOCOL_VERSION = "ableton-loopback/v1";
+const MAX_NONCE_LENGTH = 256;
 export type LoopbackRequest = { version: string; id: string; method: "status" | "snapshot" | "get" | "set" | "subscribe" | "reconnect"; ref?: LiveRef; property?: string; value?: unknown; nonce: string; mac: string };
 export type LoopbackResponse = { version: string; id: string; ok: boolean; result?: unknown; error?: string; mac: string };
 
@@ -21,7 +22,7 @@ export class AuthenticatedLoopback {
     if (!this.isRequest(request)) return this.response("invalid", false, "invalid request");
     const unsigned = { ...request } as Omit<LoopbackRequest, "mac">;
     delete (unsigned as Partial<LoopbackRequest>).mac;
-    if (request.version !== LOOPBACK_PROTOCOL_VERSION || !validId(request.id) || request.nonce.length < 16 || this.seenNonces.has(request.nonce) || !this.verify(body(unsigned), request.mac)) return this.response(request.id, false, "authentication or replay check failed");
+    if (request.version !== LOOPBACK_PROTOCOL_VERSION || !validId(request.id) || request.nonce.length < 16 || request.nonce.length > MAX_NONCE_LENGTH || this.seenNonces.has(request.nonce) || !this.verify(body(unsigned), request.mac)) return this.response(request.id, false, "authentication or replay check failed");
     this.seenNonces.add(request.nonce);
     this.nonceOrder.push(request.nonce);
     if (this.nonceOrder.length > 4096) {

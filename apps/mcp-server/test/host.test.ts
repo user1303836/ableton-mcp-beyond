@@ -148,6 +148,23 @@ test("does not let invalid audio requests consume the rate limit", () => {
   assert.equal((result as any).result.isError, false);
 });
 
+test("rejects audio schema values before decoding or consuming the rate limit", () => {
+  const host = new McpHost();
+  ready(host);
+  const base = { pcmBase64: Buffer.alloc(4).toString("base64"), sampleRate: 44100 };
+  for (const [id, args] of [
+    [2, { ...base, sampleRate: 44100.5 }],
+    [3, { ...base, sampleRate: 7999 }],
+    [4, { ...base, channels: 0 }],
+    [5, { ...base, frameSize: 4097 }],
+  ] as const) {
+    const result = host.handle({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "audio_analyze", arguments: args } });
+    assert.equal((result as any).error.code, -32602);
+  }
+  const result = host.handle({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "audio_analyze", arguments: base } });
+  assert.equal((result as any).result.isError, false);
+});
+
 test("rejects legacy shutdown and cancellation requests", () => {
   const host = new McpHost();
   ready(host);

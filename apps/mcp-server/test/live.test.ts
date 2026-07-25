@@ -24,6 +24,27 @@ test("simulator covers stable references, bounded edits, subscriptions, and reco
   unsubscribe();
 });
 
+test("simulator exposes domain objects and bounded editing operations", () => {
+  const live = new DeterministicLiveSimulator();
+  const snapshot = live.snapshot();
+  const clip = snapshot.tracks[0]!.clips[0]!;
+  const device = snapshot.tracks[0]!.devices[0]!;
+  const parameter = device.parameters[0]!;
+
+  assert.ok(LIVE_CAPABILITIES.includes("arrangement.read"));
+  assert.ok(LIVE_CAPABILITIES.includes("parameters"));
+  assert.equal(snapshot.arrangement.locators[0]!.name, "Intro");
+  assert.equal((live.get(parameter.ref) as typeof parameter).value, 0.5);
+  live.set(parameter.ref, "value", 9);
+  assert.equal((live.get(parameter.ref) as typeof parameter).value, 1);
+  live.setAutomation(clip.ref, { time: 1, value: 0.75, curve: 0 });
+  live.addTake(clip.ref, "take-2");
+  const updated = live.get(clip.ref) as typeof clip;
+  assert.equal(updated.automation.length, 1);
+  assert.deepEqual(updated.takes, ["take-1", "take-2"]);
+  assert.throws(() => live.setAutomation(clip.ref, { time: 99, value: 0.5 }), /outside the clip/);
+});
+
 test("loopback authenticates, rejects replay/tampering, and forwards subscriptions", () => {
   const live = new DeterministicLiveSimulator();
   const events: unknown[] = [];
@@ -49,4 +70,10 @@ test("loopback accepts valid nonces out of order and rejects unknown fields", ()
   assert.equal(transport.handle(second).ok, true);
   const extra = { ...transport.authenticate({ version: LOOPBACK_PROTOCOL_VERSION, id: "third", method: "status", nonce: "bbbbbbbbbbbbbbbb3" }), unexpected: true };
   assert.equal(transport.handle(extra).ok, false);
+});
+
+test("loopback rejects oversized nonces before retaining them", () => {
+  const transport = new AuthenticatedLoopback(new DeterministicLiveSimulator(), secret);
+  const request = transport.authenticate({ version: LOOPBACK_PROTOCOL_VERSION, id: "large", method: "status", nonce: "x".repeat(257) });
+  assert.equal(transport.handle(request).ok, false);
 });
