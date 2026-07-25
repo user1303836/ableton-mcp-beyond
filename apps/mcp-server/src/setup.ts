@@ -11,7 +11,7 @@ if (!output) {
   process.exitCode = 2;
 } else {
   try {
-    const entrypoint = resolve(fileURLToPath(new URL("./index.js", import.meta.url)));
+    const entrypoint = resolve(fileURLToPath(new URL("./cli.js", import.meta.url)));
     writeConfig(resolve(output), configForEntrypoint(entrypoint), force);
     console.log(JSON.stringify({ created: resolve(output), version: 1 }));
   } catch (error) {

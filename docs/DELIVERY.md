@@ -1,12 +1,24 @@
 # Delivery
 
 The supported artifact is the npm package produced from `apps/mcp-server` with
-`npm pack`. It contains compiled TypeScript and uses no native extensions. The
-repository provides local Node.js validation; no platform runner or CI result
-is evidence in this checkout, so Windows/macOS compatibility remains an
-unverified limitation until those environments are exercised.
+`npm pack`. It contains compiled TypeScript and uses no native extensions, so
+the same artifact is portable across the supported Node.js platforms: macOS
+(`darwin`), Windows (`win32`), and Linux (`linux`). The GitHub Actions matrix
+runs the typecheck, tests, benchmark, and package-install smoke check on Node
+20 and 22 for all three platforms.
 
-After `npm run build`, setup writes a versioned MCP client configuration:
+Run the local artifact check with:
+
+```sh
+npm run package:verify
+```
+
+This creates the tarball and installs it under a disposable temporary
+directory. It verifies the executable and delivery helpers are present and
+that the artifact contains neither dependencies nor the protected SDK.
+
+After `npm run build`, setup writes a versioned MCP client configuration whose
+server command targets the packaged `cli.js` executable:
 
 ```sh
 npm run setup -- --output /absolute/path/client-config.json
@@ -20,11 +32,11 @@ shape and emits version 1:
 npm run migrate -- --input /absolute/path/old.json --output /absolute/path/new.json
 ```
 
-`npm run diagnostics` emits JSON for Node version, architecture, compiled
-entrypoint presence, and optional config validity. `ready` means only that the
-local host can be launched. Ableton Live, native devices, signing, and
-notarization are reported as `unavailable`; they are never inferred from the
-host operating system.
+`npm run diagnostics` emits JSON for Node version, architecture, supported
+platform, compiled executable presence, and optional config validity. `ready`
+means only that the local host can be launched on a supported Node platform.
+Ableton Live, native devices, signing, and notarization are reported as
+`unavailable`; they are never inferred from the host operating system.
 
 Diagnostics do not start Live or validate a client connection. Setup and
 migration only write configuration; they do not install, launch, sign, or

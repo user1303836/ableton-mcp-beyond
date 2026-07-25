@@ -27,4 +27,6 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run property-test
+      - run: npm run benchmark
+      - run: npm run package:verify
       - run: npm pack --dry-run

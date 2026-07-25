@@ -7,11 +7,13 @@
 - `apps/mcp-server/src/analysis.ts` implements bounded, deterministic PCM
   decoding and analysis.
 - `apps/mcp-server/src/delivery.ts` implements versioned client configuration,
-  legacy migration, and local diagnostics.
+  legacy migration, supported-platform detection, and local diagnostics.
 - `apps/mcp-server/src/benchmark.ts` implements deterministic local benchmark
-  gates for protocol, recovery, analysis, and resume behavior.
+  gates for protocol, recovery, and bounded analysis behavior.
 - `apps/mcp-server/test/` contains unit, protocol, process, benchmark, and
   property tests.
+- `apps/mcp-server/scripts/verify-package.mjs` audits and installs the real npm
+  tarball in a disposable directory for cross-platform packaging checks.
 
 ## Build and test
 
@@ -26,10 +28,9 @@ npm run benchmark
 
 The build uses `tsc -p tsconfig.json`; tests execute compiled files from
 `dist/test`. Generated `dist/` and dependencies are local build outputs.
-`npm test` currently runs 24 tests; `npm run property-test` runs 2 focused
-property tests. `npm run benchmark` emits JSON and fails if a fixed local
-protocol, recovery, analysis, or resume budget is breached. These are
-host-process measurements, not Live or realtime evidence.
+`npm run property-test` runs focused invariant tests. `npm run benchmark` emits
+JSON and fails if a fixed local protocol, recovery, or analysis budget is
+breached. These are host-process measurements, not Live or realtime evidence.
 
 ## Protocol contract
 

@@ -5,6 +5,7 @@ import { platform, versions } from "node:process";
 
 export const CONFIG_VERSION = 1;
 export const MIN_NODE_MAJOR = 20;
+export const SUPPORTED_PLATFORMS = ["darwin", "linux", "win32"] as const;
 
 export interface ServerConfig {
   version: 1;
@@ -16,6 +17,7 @@ export interface DiagnosticReport {
   arch: string;
   node: string;
   nodeSupported: boolean;
+  platformSupported: boolean;
   packageRoot: string;
   entrypoint: { path: string; present: boolean };
   config: { path: string | null; present: boolean; valid: boolean };
@@ -41,6 +43,10 @@ export function configForEntrypoint(entrypoint: string, nodeCommand = process.ex
   if (!isAbsolute(entrypoint)) throw new Error("entrypoint must be an absolute path");
   if (typeof nodeCommand !== "string" || nodeCommand.length === 0) throw new Error("node command must be a non-empty string");
   return { version: 1, server: { command: nodeCommand, args: [entrypoint] } };
+}
+
+export function isSupportedPlatform(value: NodeJS.Platform = platform): boolean {
+  return (SUPPORTED_PLATFORMS as readonly string[]).includes(value);
 }
 
 export function readConfig(path: string): ServerConfig {
@@ -75,7 +81,7 @@ export function migrateConfig(inputPath: string, outputPath: string, force = fal
 }
 
 export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../.."), configPath?: string): DiagnosticReport {
-  const entrypoint = join(packageRoot, "dist", "src", "index.js");
+  const entrypoint = join(packageRoot, "dist", "src", "cli.js");
   let configValid = false;
   if (configPath && existsSync(configPath)) {
     try { readConfig(configPath); configValid = true; } catch { configValid = false; }
@@ -87,10 +93,11 @@ export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.m
     arch: process.arch,
     node: versions.node,
     nodeSupported: nodeMajor >= MIN_NODE_MAJOR,
+    platformSupported: isSupportedPlatform(),
     packageRoot,
     entrypoint: { path: entrypoint, present: entrypointPresent },
     config: { path: configPath ?? null, present: configPath ? existsSync(configPath) : false, valid: configValid },
     external: { abletonLive: "unavailable", signing: "unavailable", notarization: "unavailable" },
-    ready: nodeMajor >= MIN_NODE_MAJOR && entrypointPresent,
+    ready: nodeMajor >= MIN_NODE_MAJOR && isSupportedPlatform() && entrypointPresent,
   };
 }

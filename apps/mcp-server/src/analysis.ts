@@ -158,16 +158,17 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
   if (!Number.isInteger(input.sampleRate) || input.sampleRate < 8_000 || input.sampleRate > 384_000) throw new RangeError("sampleRate must be an integer from 8000 to 384000");
   if (!Number.isInteger(channels) || channels < 1 || channels > 32) throw new RangeError("channels must be an integer from 1 to 32");
   if (!Number.isInteger(frameSize) || frameSize < 256 || frameSize > 4096) throw new RangeError("frameSize must be an integer from 256 to 4096");
-  if (input.samples.length === 0 || input.samples.length > MAX_ANALYSIS_SAMPLES) throw new RangeError(`samples must contain 1-${MAX_ANALYSIS_SAMPLES} values`);
-  if (input.samples.length % channels !== 0) throw new RangeError("samples must contain complete channel frames");
-  if (input.samples.length / channels / input.sampleRate > MAX_ANALYSIS_SECONDS) throw new RangeError(`analysis duration exceeds ${MAX_ANALYSIS_SECONDS} seconds`);
+  const sampleCount = input.samples.length;
+  if (!Number.isSafeInteger(sampleCount) || sampleCount === 0 || sampleCount > MAX_ANALYSIS_SAMPLES) throw new RangeError(`samples must contain 1-${MAX_ANALYSIS_SAMPLES} values`);
+  if (sampleCount % channels !== 0) throw new RangeError("samples must contain complete channel frames");
+  if (sampleCount / channels / input.sampleRate > MAX_ANALYSIS_SECONDS) throw new RangeError(`analysis duration exceeds ${MAX_ANALYSIS_SECONDS} seconds`);
 
   let sumSquares = 0;
   let peak = 0;
   let clippingCount = 0;
   let silenceCount = 0;
   const histogram = new Uint32Array(2048);
-  for (let i = 0; i < input.samples.length; i += 1) {
+  for (let i = 0; i < sampleCount; i += 1) {
     const sample = input.samples[i] ?? 0;
     finite(sample, `samples[${i}]`);
     if (sample < -1 || sample > 1) throw new RangeError(`samples[${i}] must be normalized between -1 and 1`);
@@ -179,9 +180,9 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
     if (magnitude >= 0.999999) clippingCount += 1;
     if (magnitude < 0.0001) silenceCount += 1;
   }
-  const rms = Math.sqrt(sumSquares / input.samples.length);
+  const rms = Math.sqrt(sumSquares / sampleCount);
   const quantile = (fraction: number): number => {
-    const target = Math.floor(input.samples.length * fraction);
+    const target = Math.floor(sampleCount * fraction);
     let seen = 0;
     for (let bucket = 0; bucket < histogram.length; bucket += 1) {
       seen += histogram[bucket] ?? 0;
@@ -191,7 +192,7 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
   };
   const p10 = quantile(0.1);
   const p95 = quantile(0.95);
-  const monoSamples = new Float64Array(input.samples.length / channels);
+  const monoSamples = new Float64Array(sampleCount / channels);
   for (let frame = 0; frame < monoSamples.length; frame += 1) {
     let sum = 0;
     for (let channel = 0; channel < channels; channel += 1) sum += input.samples[frame * channels + channel] ?? 0;
@@ -202,15 +203,15 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
     version: ANALYSIS_VERSION,
     sampleRate: input.sampleRate,
     channels,
-    durationSeconds: input.samples.length / channels / input.sampleRate,
-    sampleCount: input.samples.length,
+    durationSeconds: sampleCount / channels / input.sampleRate,
+    sampleCount,
     peak,
     peakDbfs: db(peak),
     rms,
     rmsDbfs: db(rms),
     loudness: { integratedLufsEstimate: db(rms), method: "mono-rms-estimate" },
-    dynamics: { crestFactorDb: db(peak / Math.max(rms, EPSILON)), dynamicRangeDb, silenceRatio: silenceCount / input.samples.length },
-    clipping: { count: clippingCount, ratio: clippingCount / input.samples.length },
+    dynamics: { crestFactorDb: db(peak / Math.max(rms, EPSILON)), dynamicRangeDb, silenceRatio: silenceCount / sampleCount },
+    clipping: { count: clippingCount, ratio: clippingCount / sampleCount },
     spectral: analyzeSpectrum(monoSamples, input.sampleRate, frameSize),
     privacy: { rawAudioRetained: false, rawAudioReturned: false, sourcePathAccepted: false },
     safety: { playbackStarted: false, projectMutated: false, destructiveActionRequired: false },

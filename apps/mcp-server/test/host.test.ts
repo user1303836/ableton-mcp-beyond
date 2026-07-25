@@ -6,11 +6,14 @@ import { test } from "node:test";
 import { McpHost, PROTOCOL_VERSION, serve } from "../src/host.js";
 
 const initialize = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "test", version: "1" } } };
+const initialized = { jsonrpc: "2.0", method: "notifications/initialized" };
+function ready(host: McpHost): void { host.handle(initialize); host.handle(initialized); }
 
 test("requires initialization and exposes only read-only tools", () => {
   const host = new McpHost();
   assert.equal((host.handle({ jsonrpc: "2.0", id: 1, method: "tools/list" }) as any).error.code, -32002);
   assert.equal((host.handle({ ...initialize, id: 2 }) as any).result.protocolVersion, PROTOCOL_VERSION);
+  assert.equal(host.handle(initialized), null);
   const tools = (host.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
   assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze"]);
 });
@@ -18,13 +21,14 @@ test("requires initialization and exposes only read-only tools", () => {
 test("validates client identity and rejects unsupported protocol versions", () => {
   const host = new McpHost();
   assert.equal((host.handle({ ...initialize, id: 1, params: { ...initialize.params, clientInfo: { name: "", version: "1" } } }) as any).error.code, -32602);
-  assert.equal((host.handle({ ...initialize, id: 2, params: { ...initialize.params, protocolVersion: "unsupported" } }) as any).error.code, -32602);
-  assert.equal((host.handle({ ...initialize, id: 3 }) as any).result.protocolVersion, PROTOCOL_VERSION);
+  assert.equal((host.handle({ ...initialize, id: 2, params: { ...initialize.params, protocolVersion: "unsupported" } }) as any).result.protocolVersion, PROTOCOL_VERSION);
+  const second = new McpHost();
+  assert.equal((second.handle({ ...initialize, id: 3 }) as any).result.protocolVersion, PROTOCOL_VERSION);
 });
 
 test("reports Live unavailable and ignores caller authority", () => {
   const host = new McpHost();
-  host.handle(initialize);
+  ready(host);
   const status = host.handle({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "server_status", arguments: { grant: "admin" } } });
   assert.equal((status as any).error.code, -32602);
   const capabilities = host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "capabilities", arguments: {} } });
@@ -37,7 +41,7 @@ test("analyzes supplied PCM through the MCP tool without Live side effects", () 
   const bytes = Buffer.alloc(4 * 4);
   for (const [index, value] of [0, 0.5, -0.5, 0].entries()) bytes.writeFloatLE(value, index * 4);
   const host = new McpHost();
-  host.handle(initialize);
+  ready(host);
   const result = host.handle({ jsonrpc: "2.0", id: 20, method: "tools/call", params: { name: "audio_analyze", arguments: { pcmBase64: bytes.toString("base64"), sampleRate: 44100 } } });
   const text = (result as any).result.content[0].text;
   const analysis = JSON.parse(text) as { sampleCount: number; privacy: { rawAudioReturned: boolean }; safety: { projectMutated: boolean } };
@@ -48,7 +52,7 @@ test("analyzes supplied PCM through the MCP tool without Live side effects", () 
 
 test("rejects duplicates, unsupported methods, and unknown fields", () => {
   const host = new McpHost();
-  host.handle(initialize);
+  ready(host);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 3);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).error.message, "Duplicate request identifier");
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set", arguments: {} } }) as any).error.code, -32601);
@@ -57,7 +61,7 @@ test("rejects duplicates, unsupported methods, and unknown fields", () => {
 
 test("accepts cancellation notifications without manufacturing a response", () => {
   const host = new McpHost();
-  host.handle(initialize);
+  ready(host);
   assert.equal(host.handle({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: 99 } }), null);
 });
 
@@ -77,10 +81,11 @@ test("keeps stdout protocol-only and emits redacted parse diagnostics on stderr"
 });
 
 test("built process performs a read-only handshake and exits without non-protocol stdout", () => {
-  const entry = fileURLToPath(new URL("../../dist/src/index.js", import.meta.url));
+  const entry = fileURLToPath(new URL("../src/cli.js", import.meta.url));
   const child = spawnSync(process.execPath, [entry], {
     input: [
       initialize,
+      initialized,
       { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "server_status", arguments: {} } },
       { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "capabilities", arguments: {} } },
       { jsonrpc: "2.0", id: 4, method: "ping" },
@@ -101,6 +106,7 @@ test("accepts MCP metadata and reports value errors as tool errors", () => {
   const host = new McpHost();
   const init = host.handle({ ...initialize, _meta: { trace: "test" }, params: { ...initialize.params, _meta: {} } });
   assert.equal((init as any).result.protocolVersion, PROTOCOL_VERSION);
+  host.handle(initialized);
   const result = host.handle({ jsonrpc: "2.0", id: 2, method: "tools/call", _meta: {}, params: { name: "audio_analyze", _meta: {}, arguments: { pcmBase64: "AAAA", sampleRate: 44100 } } });
   assert.equal((result as any).result.isError, true);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "ping" }) as any).result instanceof Object, true);
@@ -108,7 +114,7 @@ test("accepts MCP metadata and reports value errors as tool errors", () => {
 
 test("does not let invalid audio requests consume the rate limit", () => {
   const host = new McpHost();
-  host.handle(initialize);
+  ready(host);
   for (let id = 2; id <= 121; id += 1) {
     const result = host.handle({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "audio_analyze", arguments: {} } });
     assert.equal((result as any).error.code, -32602);
@@ -120,7 +126,7 @@ test("does not let invalid audio requests consume the rate limit", () => {
 
 test("rejects legacy shutdown and cancellation requests", () => {
   const host = new McpHost();
-  host.handle(initialize);
+  ready(host);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "shutdown" }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "$/cancelRequest", params: { requestId: 1 } }) as any).error.code, -32601);
   assert.equal(host.handle({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: 1 } }), null);

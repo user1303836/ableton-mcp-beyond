@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { configForEntrypoint, diagnostics, migrateConfig, readConfig, writeConfig } from "../src/delivery.js";
+import { configForEntrypoint, diagnostics, isSupportedPlatform, migrateConfig, readConfig, writeConfig } from "../src/delivery.js";
 
 test("writes a versioned config without overwriting user files", () => {
   const directory = mkdtempSync(join(tmpdir(), "ableton-mcp-"));
@@ -33,4 +33,13 @@ test("diagnostics report local readiness separately from unavailable external ev
   assert.equal(report.external.abletonLive, "unavailable");
   assert.equal(report.external.signing, "unavailable");
   assert.equal(report.ready, false);
+  assert.equal(report.entrypoint.path.endsWith("dist/src/cli.js"), true);
+  assert.equal(report.platformSupported, true);
+});
+
+test("compatibility is explicit for the portable Node runtime", () => {
+  assert.equal(isSupportedPlatform("darwin"), true);
+  assert.equal(isSupportedPlatform("win32"), true);
+  assert.equal(isSupportedPlatform("linux"), true);
+  assert.equal(isSupportedPlatform("aix"), false);
 });

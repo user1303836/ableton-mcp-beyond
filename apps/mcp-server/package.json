@@ -6,7 +6,7 @@
     ".": "./dist/src/index.js"
   },
   "bin": {
-    "ableton-mcp-server": "./dist/src/index.js",
+    "ableton-mcp-server": "./dist/src/cli.js",
     "ableton-mcp-setup": "./dist/src/setup.js",
     "ableton-mcp-migrate": "./dist/src/migrate.js",
     "ableton-mcp-diagnostics": "./dist/src/diagnostics.js"
@@ -19,10 +19,11 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test dist/test/*.test.js",
+    "test": "npm run build && node scripts/run-tests.mjs",
     "property-test": "npm run build && node --test dist/test/property.test.js",
     "benchmark": "npm run build && node dist/src/benchmark.js",
     "package": "npm pack --json",
+    "package:verify": "npm run build && node scripts/verify-package.mjs",
     "setup": "node dist/src/setup.js",
     "migrate": "node dist/src/migrate.js",
     "diagnostics": "node dist/src/diagnostics.js",

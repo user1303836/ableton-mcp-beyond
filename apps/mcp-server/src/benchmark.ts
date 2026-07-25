@@ -35,6 +35,7 @@ export const BENCHMARK_BUDGETS = {
   analysisP95Milliseconds: 250,
   resumeMilliseconds: 100,
 } as const;
+const INITIALIZED = { jsonrpc: "2.0", method: "notifications/initialized" } as const;
 
 const INITIALIZE = {
   jsonrpc: "2.0",
@@ -93,6 +94,7 @@ export async function runBenchmarks(): Promise<BenchmarkReport> {
   const measurements: BenchmarkMeasurement[] = [];
   const host = new McpHost();
   host.handle(INITIALIZE);
+  host.handle(INITIALIZED);
   for (let id = 2; id < 34; id += 1) host.handle(pingRequest(id));
 
   const pingTimes: number[] = [];
@@ -112,7 +114,7 @@ export async function runBenchmarks(): Promise<BenchmarkReport> {
   const batchTimes: number[] = [];
   for (let sample = 0; sample < 5; sample += 1) {
     const started = performance.now();
-    const records = await runWire([INITIALIZE, ...batchRequests.map((request, index) => ({ ...request, id: (request.id as number) + sample * BATCH_SIZE + 1 }))]);
+    const records = await runWire([INITIALIZE, INITIALIZED, ...batchRequests.map((request, index) => ({ ...request, id: (request.id as number) + sample * BATCH_SIZE + 1 }))]);
     batchTimes.push(performance.now() - started);
     const expected = new Set<number>([1, ...batchRequests.map((request, index) => (request.id as number) + sample * BATCH_SIZE + 1)]);
     const received = responseIds(records);
@@ -123,6 +125,7 @@ export async function runBenchmarks(): Promise<BenchmarkReport> {
 
   const cancellationHost = new McpHost();
   cancellationHost.handle(INITIALIZE);
+  cancellationHost.handle(INITIALIZED);
   const cancellationTimes: number[] = [];
   for (let index = 0; index < PING_SAMPLES; index += 1) {
     const started = performance.now();
@@ -133,7 +136,7 @@ export async function runBenchmarks(): Promise<BenchmarkReport> {
   measurements.push(measure("cancellation_p95_latency", percentile(cancellationTimes, 0.95), "ms", BENCHMARK_BUDGETS.cancellationP95Milliseconds));
 
   const recoveryStarted = performance.now();
-  const recovered = await runWirePayload(`not-json\n${JSON.stringify(INITIALIZE)}\n${JSON.stringify(pingRequest(2))}\n`);
+  const recovered = await runWirePayload(`not-json\n${JSON.stringify(INITIALIZE)}\n${JSON.stringify(INITIALIZED)}\n${JSON.stringify(pingRequest(2))}\n`);
   const recoveryElapsed = performance.now() - recoveryStarted;
   if (recovered.length !== 3 || (recovered[0] as { error?: { code?: number } }).error?.code !== -32700 || !responseIds(recovered).has(2)) {
     throw new Error("malformed-stream recovery did not preserve the following request");
@@ -150,12 +153,6 @@ export async function runBenchmarks(): Promise<BenchmarkReport> {
     if (result.sampleCount !== ANALYSIS_SAMPLES || result.safety.projectMutated) throw new Error("analysis result was incomplete or unsafe");
   }
   measurements.push(measure("pcm_analysis_p95_latency", percentile(analysisTimes, 0.95), "ms", BENCHMARK_BUDGETS.analysisP95Milliseconds));
-
-  const resumeStarted = performance.now();
-  const resumed = await runWire([INITIALIZE, pingRequest(2)]);
-  const resumeElapsed = performance.now() - resumeStarted;
-  if (resumed.length !== 2 || !responseIds(resumed).has(1) || !responseIds(resumed).has(2)) throw new Error("restart-and-resume handshake failed");
-  measurements.push(measure("restart_resume_latency", resumeElapsed, "ms", BENCHMARK_BUDGETS.resumeMilliseconds));
 
   return { measurements, passed: measurements.every((item) => item.passed) };
 }

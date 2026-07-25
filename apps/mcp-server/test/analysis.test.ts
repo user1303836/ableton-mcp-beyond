@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { analyzePcm, decodeFloat32Le, MAX_ANALYSIS_SAMPLES, MAX_FFT_SIZE, MAX_SPECTRAL_FRAMES } from "../src/analysis.js";
+import { analyzePcm, decodeFloat32Le, MAX_ANALYSIS_SAMPLES, MAX_ANALYSIS_SECONDS, MAX_FFT_SIZE, MAX_SPECTRAL_FRAMES } from "../src/analysis.js";
 import { impulseFixture, sineFixture } from "./fixtures.js";
 
 test("deterministically analyzes a fixture without exposing audio", () => {
@@ -33,6 +33,25 @@ test("rejects unsafe and malformed input", () => {
   assert.throws(() => decodeFloat32Le("AA=A"), /invalid/);
   assert.throws(() => decodeFloat32Le("Zh=="), /invalid/);
   assert.throws(() => analyzePcm({ samples: [0, 0, 0], sampleRate: 44100, channels: 2 }), /complete channel frames/);
+  assert.throws(() => analyzePcm({ samples: [Number.NaN], sampleRate: 44100 }), /finite/);
+  assert.throws(() => analyzePcm({ samples: [Number.POSITIVE_INFINITY], sampleRate: 44100 }), /finite/);
+});
+
+test("enforces sample and duration limits before reading untrusted sample storage", () => {
+  const tooManySamples = { length: MAX_ANALYSIS_SAMPLES + 1 } as ArrayLike<number>;
+  const tooLong = { length: 8_000 * MAX_ANALYSIS_SECONDS + 1 } as ArrayLike<number>;
+  assert.throws(() => analyzePcm({ samples: tooManySamples, sampleRate: 8_000 }), /samples must contain/);
+  assert.throws(() => analyzePcm({ samples: tooLong, sampleRate: 8_000 }), /duration exceeds/);
+});
+
+test("keeps spectral work bounded and remediation advisory at each threshold", () => {
+  const result = analyzePcm({ samples: sineFixture(4096 * 33, 440, 48_000, 0.5), sampleRate: 48_000, frameSize: 4096 });
+  assert.equal(result.spectral.analyzedFrames, MAX_SPECTRAL_FRAMES);
+  assert.equal(result.spectral.fftSize, MAX_FFT_SIZE);
+  assert.equal(result.remediation.length, 0);
+  const loud = analyzePcm({ samples: Float32Array.from([0.99, -0.99, 0.5]), sampleRate: 44_100 });
+  assert.ok(loud.remediation.some((item) => item.id === "leave-headroom"));
+  assert.ok(loud.remediation.some((item) => item.id === "check-loudness"));
 });
 
 test("does not dilute spectral measurements with silent sampled frames", () => {

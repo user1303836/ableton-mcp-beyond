@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
-import { serve } from "./host.js";
-
-await serve(process.stdin, process.stdout);
+export { McpHost, UnavailableLiveAdapter, serve, PROTOCOL_VERSION, MAX_MESSAGE_BYTES } from "./host.js";
+export type { LiveAdapter, LiveStatus } from "./host.js";
+export { analyzePcm, decodeFloat32Le } from "./analysis.js";

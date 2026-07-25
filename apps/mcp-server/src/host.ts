@@ -1,5 +1,6 @@
 import type { Readable, Writable } from "node:stream";
 import { analyzePcm, decodeFloat32Le } from "./analysis.js";
+import { serveStdio } from "./stdio.js";
 
 export const PROTOCOL_VERSION = "2025-11-25";
 export const MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
@@ -102,6 +103,7 @@ function error(id: RequestId | null, code: number, message: string, data?: unkno
 
 export class McpHost {
   private initialized = false;
+  private initializedNotification = false;
   private shuttingDown = false;
   private readonly seenIds = new Set<string>();
   private readonly idOrder: string[] = [];
@@ -118,9 +120,11 @@ export class McpHost {
     }
     const id = input.id;
     if (id === undefined) {
-      if (input.method === "notifications/initialized" && this.initialized) return null;
+      if (input.method === "notifications/initialized" && this.initialized && !this.initializedNotification && input.params === undefined) {
+        this.initializedNotification = true;
+        return null;
+      }
       if (input.method === "notifications/cancelled") return null;
-      if (input.method === "notifications/initialized") return null;
       return null;
     }
     if (!this.isId(id)) return error(null, -32600, "Invalid Request");
@@ -134,13 +138,25 @@ export class McpHost {
     }
     if (this.shuttingDown && input.method !== "exit") return error(id, -32600, "Server is shutting down");
 
-    if (!this.initialized && input.method !== "initialize" && input.method !== "exit") {
+    if (input.method === "notifications/initialized") {
+      if (this.initializedNotification || !this.initialized || input.params !== undefined) return null;
+      this.initializedNotification = true;
+      return null;
+    }
+    if (input.method === "notifications/cancelled") {
+      if (input.params !== undefined && (!isObject(input.params) || !hasOnly(input.params, ["requestId"]) || !this.isId(input.params.requestId))) return null;
+      return null;
+    }
+    if (!this.initialized && input.method !== "initialize") {
       return error(id, -32002, "Server has not been initialized");
+    }
+    if (!this.initializedNotification && input.method !== "initialize" && input.method !== "ping") {
+      return error(id, -32002, "Server has not received initialized notification");
     }
     switch (input.method) {
       case "initialize": return this.initialize(id, input.params);
-      case "ping": return response(id, {});
-      case "tools/list": return response(id, { tools: implementedTools });
+      case "ping": return this.utilityParams(input.params) ? response(id, {}) : error(id, -32602, "Invalid ping parameters");
+      case "tools/list": return this.utilityParams(input.params) ? response(id, { tools: implementedTools }) : error(id, -32602, "Invalid tools/list parameters");
       case "tools/call": return this.callTool(id, input.params);
       default: return error(id, -32601, "Method not found");
     }
@@ -160,7 +176,6 @@ export class McpHost {
     ) {
       return error(id, -32602, "Invalid initialize parameters");
     }
-    if (params.protocolVersion !== PROTOCOL_VERSION) return error(id, -32602, "Unsupported protocol version");
     this.initialized = true;
     return response(id, {
       protocolVersion: PROTOCOL_VERSION,
@@ -219,6 +234,10 @@ export class McpHost {
     return isNonEmptyString(value) || (typeof value === "number" && Number.isSafeInteger(value));
   }
 
+  private utilityParams(value: unknown): boolean {
+    return value === undefined || (isObject(value) && Object.keys(value).length === 0);
+  }
+
   private requestId(value: unknown): RequestId | null {
     return this.isId(value) ? value : null;
   }
@@ -226,46 +245,16 @@ export class McpHost {
 
 export function serve(input: Readable, output: Writable, diagnostics: Writable = process.stderr): Promise<void> {
   const host = new McpHost();
-  return new Promise((resolve) => {
-    let pending = Buffer.alloc(0);
-    let oversized = false;
-    const processLine = (line: Buffer): void => {
-      if (line.length > MAX_MESSAGE_BYTES) {
-        output.write(`${JSON.stringify(error(null, -32600, "Message exceeds size limit"))}\n`);
-        return;
-      }
-      try {
-        const result = host.handle(JSON.parse(line.toString("utf8")) as unknown);
-        if (result !== null) output.write(`${JSON.stringify(result)}\n`);
-      } catch {
-        diagnostics.write("mcp-host: malformed input\n");
-        output.write(`${JSON.stringify(error(null, -32700, "Parse error"))}\n`);
-      }
-    };
-    input.on("data", (chunk: Buffer | string) => {
-      if (oversized) {
-        const end = Buffer.from(chunk).indexOf(10);
-        if (end >= 0) { oversized = false; pending = Buffer.from(chunk).subarray(end + 1); }
-        else return;
-      } else {
-        pending = Buffer.concat([pending, Buffer.from(chunk)]);
-      }
-      while (true) {
-        const newline = pending.indexOf(10);
-        if (newline < 0) {
-          if (pending.length > MAX_MESSAGE_BYTES) {
-            output.write(`${JSON.stringify(error(null, -32600, "Message exceeds size limit"))}\n`);
-            pending = Buffer.alloc(0);
-            oversized = true;
-          }
-          return;
-        }
-        const line = pending.subarray(0, newline).subarray(0, pending[newline - 1] === 13 ? -1 : undefined);
-        pending = pending.subarray(newline + 1);
-        processLine(line);
-      }
-    });
-    input.on("end", () => { if (pending.length > 0 && !oversized) processLine(pending); resolve(); });
-    input.on("error", resolve);
+  return serveStdio(input, output, async (line) => {
+    let value: unknown;
+    try { value = JSON.parse(line) as unknown; }
+    catch { diagnostics.write("mcp-host: malformed input\n"); return JSON.stringify(error(null, -32700, "Parse error")); }
+    try {
+      const result = host.handle(value);
+      return result === null ? null : JSON.stringify(result);
+    } catch {
+      diagnostics.write("mcp-host: internal fault\n");
+      return JSON.stringify(error(null, -32603, "Internal error"));
+    }
   });
 }

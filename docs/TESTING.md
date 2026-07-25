@@ -11,11 +11,11 @@ npm run property-test
 npm run benchmark
 ```
 
-The current suite has 24 tests covering deterministic analysis, clipping
-remediation, invalid and unsafe PCM, mono/stereo spectral handling, MCP
-initialization, strict schemas, duplicate IDs, notifications, malformed JSON,
-the built process, metadata, unsupported methods, boundedness, and float32
-decoding.
+The current suite covers deterministic analysis, clipping remediation, invalid
+and unsafe PCM, mono/stereo spectral handling, MCP initialization, strict
+schemas, duplicate IDs, notifications, malformed JSON, the built process,
+metadata, unsupported methods, boundedness, delivery configuration, packaging
+compatibility, and float32 decoding.
 
 ## Acceptance checks
 
@@ -35,10 +35,9 @@ are missing.
 `npm run benchmark` runs fixed, local fixtures and emits a JSON report. The
 gates cover in-process request latency and throughput, newline-delimited batch
 loss and latency, cancellation notification handling, recovery after malformed
-input, bounded PCM analysis, and a restart-and-reinitialize resume handshake.
-Each measurement includes its numerical budget and pass state; a budget breach
-returns a nonzero status. The current gates are 5 ms ping p95, 5,000 ping
-requests/s minimum, 100 ms batch p95, zero response loss, 5 ms cancellation
-p95, 100 ms malformed-stream recovery, 250 ms analysis p95, and 100 ms resume.
-These are host-process measurements, not evidence of Ableton Live, device,
-platform, network, signing, or realtime performance.
+input, and bounded PCM analysis. Each measurement includes its numerical budget
+and pass state; a budget breach returns a nonzero status. The current gates are
+5 ms ping p95, 5,000 ping requests/s minimum, 100 ms batch p95, zero response
+loss, 5 ms cancellation p95, 100 ms malformed-stream recovery, and 250 ms
+analysis p95. These are host-process measurements, not evidence of Ableton
+Live, device, platform, network, signing, or realtime performance.
