@@ -47,5 +47,15 @@ There is no legacy `shutdown` method and no installed Live adapter to stop.
 Terminate the supervising process using its normal service mechanism after
 allowing the MCP client to close stdin. For an upgrade, stop the process,
 install dependencies from the lockfile, run the checkpoint validation, and
-restart only after it passes. Do not use `npm start` as the server command;
-use `node dist/src/cli.js` or generated setup configuration.
+restart only after it passes. Use `npm start`, `node dist/src/cli.js`, or
+generated setup configuration as the server command.
+
+For a packaged installation, use the `ableton-mcp-server` binary or `npm
+start` after build. The setup, migration, and diagnostics helpers write or
+inspect local configuration only; they do not install or launch Live. The
+deterministic simulator and authenticated loopback are development/test
+components and are not evidence that a Live set is connected.
+
+The independent Python boundary tests run from the repository root with
+`python3 -m unittest discover -s remote-script -p 'test_*.py'`. Passing them
+proves only deterministic transport validation and wire-safe errors.

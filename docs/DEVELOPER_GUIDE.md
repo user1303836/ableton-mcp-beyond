@@ -6,6 +6,12 @@
   tool dispatch, limits, and the unavailable Live adapter.
 - `apps/mcp-server/src/analysis.ts` implements bounded, deterministic PCM
   decoding and analysis.
+- `apps/mcp-server/src/live.ts` defines the Live adapter contract and an
+  in-memory simulator; it does not connect to Live.
+- `apps/mcp-server/src/loopback.ts` defines the HMAC-authenticated adapter
+  boundary with replay protection.
+- `remote-script/ableton_mcp_remote_script.py` is the dependency-free Python
+  transport shim for a future real Control Surface integration.
 - `apps/mcp-server/src/delivery.ts` implements versioned client configuration,
   legacy migration, supported-platform detection, and local diagnostics.
 - `apps/mcp-server/src/benchmark.ts` implements deterministic local benchmark
@@ -49,7 +55,10 @@ produces a JSON-RPC parse error and the redacted diagnostic
 `mcp-host: malformed input` on stderr. A message is limited to 64 MiB. Audio
 tool calls are limited to 120 calls per rolling minute. The initialize request
 must use exactly protocol version `2025-11-25`; unsupported versions are
-rejected. The host has no persistent session or in-place resume mechanism.
+rejected. Read-only capability and safety resources are available through
+`resources/list` and `resources/read`; the bounded audio workflow is available
+as the `analyze_audio` prompt through `prompts/list` and `prompts/get`. The host
+has no persistent session or in-place resume mechanism.
 
 ## Extension rules
 
@@ -63,3 +72,14 @@ Configuration writers validate version 1 documents before writing, refuse to
 overwrite unless `--force` is supplied, require a non-empty command, and create
 files with owner-only permissions where supported. PCM base64 decoding requires
 canonical base64 and bounded little-endian float32 data.
+
+The complete method set additionally includes `resources/list`,
+`resources/read`, `prompts/list`, and `prompts/get`. `shutdown` and
+`$/cancelRequest` are not implemented; only `notifications/cancelled` is
+accepted as a no-response notification.
+
+`src/live.ts` is an in-memory simulator and adapter contract, not a Live
+connection. `src/loopback.ts` and `remote-script/ableton_mcp_remote_script.py`
+define an HMAC-authenticated `ableton-loopback/v1` boundary with bounded IDs,
+nonces, and replay protection. The Python shim has no Ableton import-time
+dependency.

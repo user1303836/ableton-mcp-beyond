@@ -24,6 +24,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/mcp-server/package-lock.json
       - run: npm ci
+      - run: npm run compatibility
       - run: npm run typecheck
       - run: npm test
       - run: npm run property-test

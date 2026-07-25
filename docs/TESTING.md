@@ -9,13 +9,26 @@ npm run typecheck
 npm test
 npm run property-test
 npm run benchmark
+npm run compatibility
+npm run package:verify
+npm pack --dry-run
+git diff --check
 ```
 
 The current suite covers deterministic analysis, clipping remediation, invalid
 and unsafe PCM, mono/stereo spectral handling, MCP initialization, strict
 schemas, duplicate IDs, notifications, malformed JSON, the built process,
 metadata, unsupported methods, boundedness, delivery configuration, packaging
-compatibility, and float32 decoding.
+compatibility, float32 decoding, static safety resources, and the audio-analysis
+prompt workflow.
+The package smoke test also runs setup, legacy migration, diagnostics, and a
+protocol handshake against the installed tarball on each CI operating system.
+From the repository root, also run
+`python3 -m unittest discover -s remote-script -p 'test_*.py'`. Those tests
+cover HMAC authentication, replay protection, nonce ordering, unknown-field
+and method rejection, and wire-safe operation errors. The TypeScript simulator
+tests cover stable references, bounded property changes, subscriptions, and
+reconnect epochs; they are test-double evidence, not Live integration.
 
 ## Acceptance checks
 

@@ -56,3 +56,14 @@ migrated before use.
    identity, then send `notifications/initialized`.
 4. Retry only the operation that was not acknowledged, using a fresh request
    ID. The server has no persistent or resumable Live session state.
+
+For a future adapter using the loopback boundary, stop on any authentication,
+replay, or unexpected mutation result. Rotate the loopback secret, close the
+subscription, discard outstanding nonces, and reconnect only after checking
+adapter status and epoch. The current MCP host does not instantiate this
+boundary.
+
+For a failed package or configuration upgrade, preserve the old configuration,
+discard only failed disposable output, rerun `npm ci`, `npm run build`, and
+the checkpoint checks, then regenerate setup output with an explicit path. Do
+not use `--force` without a backup.

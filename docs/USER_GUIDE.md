@@ -64,6 +64,15 @@ There is no Live adapter, playback, recording, project mutation, device access,
 network access, filesystem tool, raw-audio return path, installer, signing, or
 notarization flow. The benchmark command measures only local host behavior and
 does not establish realtime, platform, or Ableton Live performance.
-The `npm start` package script currently targets the export-only library
-entrypoint; use `node dist/src/cli.js` (or a generated client configuration)
-to run the server.
+The `npm start` package script launches the stdio server after the package has
+been built. You can also use `node dist/src/cli.js` or a generated client
+configuration.
+
+The host also exposes read-only resources `ableton://capabilities` and
+`ableton://safety`. The `analyze_audio` prompt describes the same bounded tool;
+it does not accept audio or grant Live access.
+
+The simulator and authenticated loopback modules are adapter-boundary test
+components, not a shipped Live connection. The Python Remote Script is a
+dependency-free transport shim; a real Control Surface callback and
+authenticated localhost transport are still required.

@@ -28,8 +28,8 @@ node dist/src/cli.js
 ```
 
 The host executable is `dist/src/cli.js`; `dist/src/index.js` is the library
-entrypoint used by the package export. The current `npm start` script targets
-the library entrypoint and therefore does not start a stdio server.
+entrypoint used by the package export. `npm start` launches the stdio server
+after the package has been built.
 
 After building, generate an MCP client configuration without overwriting an
 existing file:

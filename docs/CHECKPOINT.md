@@ -9,8 +9,16 @@ npm run typecheck
 npm test
 npm run property-test
 npm run benchmark
+npm run compatibility
+npm run package:verify
 npm pack --dry-run
 git diff --check
+```
+
+From the repository root, validate the independent Python boundary:
+
+```sh
+python3 -m unittest discover -s remote-script -p 'test_*.py'
 ```
 
 A valid checkpoint requires every command to succeed and the diff to contain
@@ -22,8 +30,8 @@ evidence.
 After the build, the executable smoke path is `node dist/src/cli.js`; verify
 that stdout contains only JSON-RPC responses and that valid traffic produces
 no stderr. `dist/src/index.js` is an import/export entrypoint, not the stdio
-server. The package `npm start` script is currently not a valid server launch
-path and is tracked as a known limitation until corrected.
+server. The package `npm start` script launches the stdio server through
+`dist/src/cli.js`.
 
 The checkpoint proves local compilation and automated behavior only. It does
 not prove Ableton Live connectivity, Windows/macOS integration, signing,
@@ -34,3 +42,9 @@ evidence. A deterministic checkpoint may commit and push only validated
 changes on the existing feature branch when explicitly permitted. Never
 include `extensions-sdk-1.0.0-beta.0`, generated `dist/`, credentials, or
 external-runtime claims.
+
+The package verifier installs the actual tarball and exercises the handshake,
+setup, migration, and diagnostics helpers. It also requires diagnostics to
+report external Ableton Live as `unavailable`. From the repository root, run
+`python3 -m unittest discover -s remote-script -p 'test_*.py'` for the
+independent transport shim tests.

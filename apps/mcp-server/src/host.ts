@@ -13,6 +13,31 @@ type RequestId = string | number;
 const REQUEST_ID_MAX_LENGTH = 128;
 const SERVER_VERSION = "0.1.0";
 
+const resources = [
+  { uri: "ableton://capabilities", name: "Capability catalog", description: "Implemented and unavailable host capabilities.", mimeType: "application/json" },
+  { uri: "ableton://safety", name: "Live safety contract", description: "The host's read-only and unavailable-capability guarantees.", mimeType: "text/markdown" },
+] as const;
+
+const prompts = [
+  {
+    name: "analyze_audio",
+    description: "Prepare a bounded, local PCM analysis request without changing Live state.",
+    arguments: [
+      { name: "sampleRate", description: "PCM sample rate in Hz.", required: true },
+      { name: "channels", description: "Optional interleaved channel count.", required: false },
+    ],
+  },
+] as const;
+
+const safetyResource = [
+  "# Live safety contract",
+  "",
+  "This host does not connect to Ableton Live unless an explicit adapter is installed.",
+  "The shipped adapter reports unavailable and performs no Live operations.",
+  "The implemented audio workflow analyzes caller-supplied PCM locally and returns aggregates only.",
+  "No tool starts playback, records, writes files, or mutates a project.",
+].join("\n");
+
 export interface LiveStatus {
   connected: false;
   adapter: "unavailable";
@@ -101,6 +126,10 @@ function error(id: RequestId | null, code: number, message: string, data?: unkno
   return { jsonrpc: "2.0", id, error: { code, message, ...(data === undefined ? {} : { data }) } };
 }
 
+function textContent(text: string): JsonObject {
+  return { type: "text", text };
+}
+
 export class McpHost {
   private initialized = false;
   private initializedNotification = false;
@@ -158,6 +187,10 @@ export class McpHost {
       case "ping": return this.utilityParams(input.params) ? response(id, {}) : error(id, -32602, "Invalid ping parameters");
       case "tools/list": return this.utilityParams(input.params) ? response(id, { tools: implementedTools }) : error(id, -32602, "Invalid tools/list parameters");
       case "tools/call": return this.callTool(id, input.params);
+      case "resources/list": return this.listResources(id, input.params);
+      case "resources/read": return this.readResource(id, input.params);
+      case "prompts/list": return this.listPrompts(id, input.params);
+      case "prompts/get": return this.getPrompt(id, input.params);
       default: return error(id, -32601, "Method not found");
     }
   }
@@ -179,7 +212,7 @@ export class McpHost {
     this.initialized = true;
     return response(id, {
       protocolVersion: PROTOCOL_VERSION,
-      capabilities: { tools: {} },
+      capabilities: { tools: {}, resources: {}, prompts: {} },
       serverInfo: { name: "ableton-mcp-host", version: SERVER_VERSION },
     });
   }
@@ -228,6 +261,48 @@ export class McpHost {
       }
     }
     return error(id, -32601, "Tool not found");
+  }
+
+  private listResources(id: RequestId, params: unknown): JsonObject {
+    if (!this.utilityParams(params)) return error(id, -32602, "Invalid resources/list parameters");
+    return response(id, { resources });
+  }
+
+  private readResource(id: RequestId, params: unknown): JsonObject {
+    if (!isObject(params) || !hasOnly(params, ["uri"]) || typeof params.uri !== "string") {
+      return error(id, -32602, "Invalid resources/read parameters");
+    }
+    if (params.uri === "ableton://safety") {
+      return response(id, { contents: [{ uri: params.uri, mimeType: "text/markdown", text: safetyResource }] });
+    }
+    if (params.uri === "ableton://capabilities") {
+      return response(id, { contents: [{ uri: params.uri, mimeType: "application/json", text: JSON.stringify({ implemented: ["server.status", "capabilities", "audio.analyze"], unavailable: unavailableCapabilities }) }] });
+    }
+    return error(id, -32002, "Resource not found", { uri: params.uri });
+  }
+
+  private listPrompts(id: RequestId, params: unknown): JsonObject {
+    if (!this.utilityParams(params)) return error(id, -32602, "Invalid prompts/list parameters");
+    return response(id, { prompts });
+  }
+
+  private getPrompt(id: RequestId, params: unknown): JsonObject {
+    if (!isObject(params) || !hasOnly(params, ["name", "arguments"]) || typeof params.name !== "string") {
+      return error(id, -32602, "Invalid prompts/get parameters");
+    }
+    if (params.arguments !== undefined && (!isObject(params.arguments) || !hasOnly(params.arguments, ["sampleRate", "channels"]))) {
+      return error(id, -32602, "Invalid prompt arguments");
+    }
+    if (params.name !== "analyze_audio") return error(id, -32002, "Prompt not found", { name: params.name });
+    const argumentsObject = params.arguments as JsonObject | undefined;
+    const sampleRate = argumentsObject?.sampleRate;
+    const channels = argumentsObject?.channels;
+    const details = [
+      "Use tools/call with name audio_analyze and caller-supplied little-endian float32 PCM.",
+      sampleRate === undefined ? "Provide sampleRate in Hz." : `Use sampleRate=${String(sampleRate)} Hz.`,
+      channels === undefined ? "Optionally provide channels." : `Use channels=${String(channels)}.`,
+    ].join(" ");
+    return response(id, { description: "Safe local audio analysis", messages: [{ role: "user", content: textContent(details) }] });
   }
 
   private isId(value: unknown): value is RequestId {

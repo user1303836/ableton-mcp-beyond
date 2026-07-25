@@ -33,7 +33,7 @@ test("diagnostics report local readiness separately from unavailable external ev
   assert.equal(report.external.abletonLive, "unavailable");
   assert.equal(report.external.signing, "unavailable");
   assert.equal(report.ready, false);
-  assert.equal(report.entrypoint.path.endsWith("dist/src/cli.js"), true);
+  assert.equal(report.entrypoint.path.replaceAll("\\", "/").endsWith("dist/src/cli.js"), true);
   assert.equal(report.platformSupported, true);
 });
 
@@ -42,4 +42,14 @@ test("compatibility is explicit for the portable Node runtime", () => {
   assert.equal(isSupportedPlatform("win32"), true);
   assert.equal(isSupportedPlatform("linux"), true);
   assert.equal(isSupportedPlatform("aix"), false);
+});
+
+test("delivery supports the three CI platforms without native packaging", () => {
+  assert.deepEqual(["darwin", "linux", "win32"].map((value) => isSupportedPlatform(value as NodeJS.Platform)), [true, true, true]);
+  assert.equal(isSupportedPlatform("freebsd"), false);
+});
+
+test("npm start launches the stdio server entrypoint", () => {
+  const packageJson = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { scripts?: { start?: string } };
+  assert.equal(packageJson.scripts?.start, "node dist/src/cli.js");
 });

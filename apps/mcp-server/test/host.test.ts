@@ -18,6 +18,29 @@ test("requires initialization and exposes only read-only tools", () => {
   assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze"]);
 });
 
+test("advertises and serves static safety resources and a complete audio workflow prompt", () => {
+  const host = new McpHost();
+  ready(host);
+  const init = host.handle({ ...initialize, id: 99 });
+  assert.equal((init as any).error.code, -32600);
+  const resources = host.handle({ jsonrpc: "2.0", id: 30, method: "resources/list", params: {} });
+  assert.deepEqual((resources as any).result.resources.map((resource: { uri: string }) => resource.uri), ["ableton://capabilities", "ableton://safety"]);
+  const safety = host.handle({ jsonrpc: "2.0", id: 31, method: "resources/read", params: { uri: "ableton://safety" } });
+  assert.match((safety as any).result.contents[0].text, /does not connect to Ableton Live/);
+  const prompts = host.handle({ jsonrpc: "2.0", id: 32, method: "prompts/list" });
+  assert.equal((prompts as any).result.prompts[0].name, "analyze_audio");
+  const prompt = host.handle({ jsonrpc: "2.0", id: 33, method: "prompts/get", params: { name: "analyze_audio", arguments: { sampleRate: "44100" } } });
+  assert.match((prompt as any).result.messages[0].content.text, /sampleRate=44100/);
+});
+
+test("rejects unknown resources, prompts, and extension fields", () => {
+  const host = new McpHost();
+  ready(host);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 34, method: "resources/read", params: { uri: "ableton://secret" } }) as any).error.code, -32002);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 35, method: "prompts/get", params: { name: "analyze_audio", extra: true } }) as any).error.code, -32602);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 36, method: "resources/list", params: { cursor: "x" } }) as any).error.code, -32602);
+});
+
 test("validates client identity and rejects unsupported protocol versions", () => {
   const host = new McpHost();
   assert.equal((host.handle({ ...initialize, id: 1, params: { ...initialize.params, clientInfo: { name: "", version: "1" } } }) as any).error.code, -32602);

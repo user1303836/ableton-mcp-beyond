@@ -22,12 +22,13 @@
     "test": "npm run build && node scripts/run-tests.mjs",
     "property-test": "npm run build && node --test dist/test/property.test.js",
     "benchmark": "npm run build && node dist/src/benchmark.js",
+    "compatibility": "node scripts/check-compatibility.mjs",
     "package": "npm pack --json",
     "package:verify": "npm run build && node scripts/verify-package.mjs",
     "setup": "node dist/src/setup.js",
     "migrate": "node dist/src/migrate.js",
     "diagnostics": "node dist/src/diagnostics.js",
-    "start": "node dist/src/index.js",
+    "start": "node dist/src/cli.js",
     "prepack": "npm run build"
   },
   "devDependencies": {

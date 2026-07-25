@@ -50,3 +50,13 @@ Live set until the implementation and recovery path have been reviewed.
 Missing Live, device, platform-runner, signing, or notarization evidence is an
 explicit limitation, not a safety pass. Do not promote any unavailable
 capability based on documentation, environment detection, or caller metadata.
+
+The repository also contains a deterministic simulator with a broader adapter
+contract and an HMAC-authenticated `ableton-loopback/v1` boundary. Both are
+development/test components. The Python Remote Script shim likewise does not
+enable those capabilities in the MCP host or prove that Live is installed.
+
+When testing a future adapter, treat the loopback secret as a credential, use
+localhost-only transport, reject replayed or tampered messages, and verify the
+status epoch after reconnect. Never place secrets, raw PCM, or Live project
+data in protocol logs or documentation.
