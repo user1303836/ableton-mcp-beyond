@@ -2,9 +2,14 @@
 
 ## What is available
 
-Run `npm start` from `apps/mcp-server`. The process accepts newline-delimited
+Build, then run `node dist/src/cli.js` from `apps/mcp-server`. The process accepts newline-delimited
 JSON-RPC 2.0 messages on stdin and emits responses on stdout. The MCP
 handshake must use protocol version `2025-11-25`.
+
+The lifecycle is `initialize`, followed by the
+`notifications/initialized` notification. `ping` is available after
+`initialize`; tools require the initialized notification. Notifications do not
+produce responses.
 
 After initialization, the available tools are:
 
@@ -59,3 +64,6 @@ There is no Live adapter, playback, recording, project mutation, device access,
 network access, filesystem tool, raw-audio return path, installer, signing, or
 notarization flow. The benchmark command measures only local host behavior and
 does not establish realtime, platform, or Ableton Live performance.
+The `npm start` package script currently targets the export-only library
+entrypoint; use `node dist/src/cli.js` (or a generated client configuration)
+to run the server.

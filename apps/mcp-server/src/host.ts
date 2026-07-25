@@ -167,7 +167,7 @@ export class McpHost {
     if (
       !isObject(params) ||
       !hasOnly(params, ["protocolVersion", "capabilities", "clientInfo", "_meta"]) ||
-      !isNonEmptyString(params.protocolVersion) ||
+      params.protocolVersion !== PROTOCOL_VERSION ||
       !isObject(params.capabilities) ||
       !isObject(params.clientInfo) ||
       !isNonEmptyString(params.clientInfo.name, 256) ||

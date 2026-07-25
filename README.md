@@ -23,8 +23,13 @@ Requirements: Node.js 20 or newer.
 cd apps/mcp-server
 npm ci
 npm test
-npm start
+npm run build
+node dist/src/cli.js
 ```
+
+The host executable is `dist/src/cli.js`; `dist/src/index.js` is the library
+entrypoint used by the package export. The current `npm start` script targets
+the library entrypoint and therefore does not start a stdio server.
 
 After building, generate an MCP client configuration without overwriting an
 existing file:
@@ -41,7 +46,8 @@ unavailable until real platform evidence exists.
 
 The server reads one JSON-RPC request per line from stdin and writes one JSON
 response per line to stdout. Diagnostics are written to stderr. An MCP client
-must send `initialize` with protocol version `2025-11-25` before calling tools.
+must send `initialize` with protocol version `2025-11-25`, then the
+`notifications/initialized` notification, before calling tools.
 
 This repository is under active development. The shipped scope and known gaps
 are recorded in [`docs/OPERATIONS.md`](docs/OPERATIONS.md) and

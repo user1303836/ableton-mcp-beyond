@@ -21,9 +21,10 @@ test("requires initialization and exposes only read-only tools", () => {
 test("validates client identity and rejects unsupported protocol versions", () => {
   const host = new McpHost();
   assert.equal((host.handle({ ...initialize, id: 1, params: { ...initialize.params, clientInfo: { name: "", version: "1" } } }) as any).error.code, -32602);
-  assert.equal((host.handle({ ...initialize, id: 2, params: { ...initialize.params, protocolVersion: "unsupported" } }) as any).result.protocolVersion, PROTOCOL_VERSION);
+  assert.equal((host.handle({ ...initialize, id: 2, params: { ...initialize.params, protocolVersion: "unsupported" } }) as any).error.code, -32602);
+  assert.equal((host.handle({ ...initialize, id: 3 }) as any).result.protocolVersion, PROTOCOL_VERSION);
   const second = new McpHost();
-  assert.equal((second.handle({ ...initialize, id: 3 }) as any).result.protocolVersion, PROTOCOL_VERSION);
+  assert.equal((second.handle({ ...initialize, id: 4 }) as any).result.protocolVersion, PROTOCOL_VERSION);
 });
 
 test("reports Live unavailable and ignores caller authority", () => {

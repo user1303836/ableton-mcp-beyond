@@ -26,6 +26,10 @@ npm run property-test
 npm run benchmark
 ```
 
+The built stdio executable is `dist/src/cli.js`. `dist/src/index.js` is the
+library export and is not a process runner; generated client configuration
+targets `cli.js`.
+
 The build uses `tsc -p tsconfig.json`; tests execute compiled files from
 `dist/test`. Generated `dist/` and dependencies are local build outputs.
 `npm run property-test` runs focused invariant tests. `npm run benchmark` emits
@@ -43,7 +47,9 @@ methods are `initialize`, `ping`, `tools/list`, and `tools/call`.
 The host accepts notifications without manufacturing responses. Malformed JSON
 produces a JSON-RPC parse error and the redacted diagnostic
 `mcp-host: malformed input` on stderr. A message is limited to 64 MiB. Audio
-tool calls are limited to 120 calls per rolling minute.
+tool calls are limited to 120 calls per rolling minute. The initialize request
+must use exactly protocol version `2025-11-25`; unsupported versions are
+rejected. The host has no persistent session or in-place resume mechanism.
 
 ## Extension rules
 

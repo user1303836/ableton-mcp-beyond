@@ -5,12 +5,17 @@
 ```sh
 cd apps/mcp-server
 npm ci
-npm start
+npm run build
+node dist/src/cli.js
 ```
 
 The process is intended to be supervised by an MCP client or process manager.
 Keep stdout connected to the protocol consumer and capture stderr separately.
 Do not parse human diagnostics as protocol messages.
+
+There is no in-place session resume. If stdin, stdout, or the process fails,
+restart `cli.js`, repeat `initialize` and `notifications/initialized`, and
+retry with a new request ID.
 
 Use `server_status` after initialization to verify the host state. In the
 current release a healthy status still reports the Live adapter as unavailable;
@@ -42,4 +47,5 @@ There is no legacy `shutdown` method and no installed Live adapter to stop.
 Terminate the supervising process using its normal service mechanism after
 allowing the MCP client to close stdin. For an upgrade, stop the process,
 install dependencies from the lockfile, run the checkpoint validation, and
-restart only after it passes.
+restart only after it passes. Do not use `npm start` as the server command;
+use `node dist/src/cli.js` or generated setup configuration.

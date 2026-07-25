@@ -18,6 +18,12 @@ not returned or retained and that the project was not mutated. These fields are
 claims about this local code path, not proof that an unavailable external Live
 process was inspected.
 
+The safe operating assumption is therefore offline analysis only: the input
+must be supplied as bounded PCM by the caller, and the returned remediation is
+advisory. A successful MCP handshake, a supported Node platform, or a local
+Ableton installation does not change the adapter status or authorize Live
+access.
+
 ## Capability boundary
 
 The unavailable catalog includes Live mutations, transport, recording, routing,
@@ -40,3 +46,7 @@ If observed client or device behavior contradicts `server_status` or the
 capability catalog, stop the client and treat the discrepancy as a defect. Do
 not enable a caller-supplied authority field or continue testing against a
 Live set until the implementation and recovery path have been reviewed.
+
+Missing Live, device, platform-runner, signing, or notarization evidence is an
+explicit limitation, not a safety pass. Do not promote any unavailable
+capability based on documentation, environment detection, or caller metadata.

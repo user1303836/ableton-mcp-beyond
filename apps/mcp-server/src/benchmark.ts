@@ -143,6 +143,18 @@ export async function runBenchmarks(): Promise<BenchmarkReport> {
   }
   measurements.push(measure("malformed_stream_recovery_latency", recoveryElapsed, "ms", BENCHMARK_BUDGETS.recoveryMilliseconds));
 
+  // Stdio has no resumable session state. Its documented recovery procedure is
+  // to start a fresh host and repeat the MCP lifecycle before retrying a new
+  // request, so measure that complete, observable path rather than implying
+  // that an interrupted pipe can be resumed in place.
+  const resumeStarted = performance.now();
+  const resumed = await runWire([INITIALIZE, INITIALIZED, pingRequest(2)]);
+  const resumeElapsed = performance.now() - resumeStarted;
+  if (resumed.length !== 2 || !responseIds(resumed).has(1) || !responseIds(resumed).has(2)) {
+    throw new Error("restart-and-resume did not complete initialization and retry");
+  }
+  measurements.push(measure("restart_resume_latency", resumeElapsed, "ms", BENCHMARK_BUDGETS.resumeMilliseconds));
+
   const samples = audioFixture();
   analyzePcm({ samples, sampleRate: 48_000 });
   const analysisTimes: number[] = [];

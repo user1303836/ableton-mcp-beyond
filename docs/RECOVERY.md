@@ -24,8 +24,11 @@ retry with a fresh ID. Do not send a large stream without newline framing.
 
 Discard the malformed line, inspect stderr for the redacted parse diagnostic,
 and resume with a valid newline-delimited message. If the supervisor or pipe is
-broken, restart the server and repeat initialization; no Live recovery action
-is needed because the shipped server cannot mutate or play a Live set.
+broken, restart `dist/src/cli.js`, repeat initialization and the initialized
+notification, and retry with a new request ID. Invalid UTF-8 and oversized
+records are rejected by the framer; oversized data is discarded through its
+next newline. No Live recovery action is needed because the shipped server
+cannot mutate or play a Live set.
 
 ## Suspected Live impact
 
@@ -43,3 +46,13 @@ version 1 (or a valid legacy command-and-string-args document), and the
 destination is disposable or backed up. Run `npm run diagnostics -- --config
 /absolute/path/config.json`; `valid: false` means the config must be repaired or
 migrated before use.
+
+## Restart procedure
+
+1. Stop the failed process through its supervisor.
+2. Start `node dist/src/cli.js` with stdout and stderr kept on separate
+   channels.
+3. Send `initialize` with protocol version `2025-11-25` and valid client
+   identity, then send `notifications/initialized`.
+4. Retry only the operation that was not acknowledged, using a fresh request
+   ID. The server has no persistent or resumable Live session state.

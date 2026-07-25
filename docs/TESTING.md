@@ -38,6 +38,8 @@ loss and latency, cancellation notification handling, recovery after malformed
 input, and bounded PCM analysis. Each measurement includes its numerical budget
 and pass state; a budget breach returns a nonzero status. The current gates are
 5 ms ping p95, 5,000 ping requests/s minimum, 100 ms batch p95, zero response
-loss, 5 ms cancellation p95, 100 ms malformed-stream recovery, and 250 ms
-analysis p95. These are host-process measurements, not evidence of Ableton
-Live, device, platform, network, signing, or realtime performance.
+loss, 5 ms cancellation p95, 100 ms malformed-stream recovery, 100 ms
+restart-and-resume (fresh host, initialization, and retry), and 250 ms analysis
+p95. Stdio has no in-place resumable session; the resume fixture measures the
+documented restart procedure. These are host-process measurements, not evidence
+of Ableton Live, device, platform, network, signing, or realtime performance.

@@ -19,6 +19,12 @@ status --short` before any commit. Do not add local dependencies, generated
 `dist/` output, credentials, device artifacts, or unavailable external test
 evidence.
 
+After the build, the executable smoke path is `node dist/src/cli.js`; verify
+that stdout contains only JSON-RPC responses and that valid traffic produces
+no stderr. `dist/src/index.js` is an import/export entrypoint, not the stdio
+server. The package `npm start` script is currently not a valid server launch
+path and is tracked as a known limitation until corrected.
+
 The checkpoint proves local compilation and automated behavior only. It does
 not prove Ableton Live connectivity, Windows/macOS integration, signing,
 notarization, release readiness, performance at production scale, or any
