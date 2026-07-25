@@ -39,6 +39,7 @@ function parseConfig(value: unknown): ServerConfig {
 
 export function configForEntrypoint(entrypoint: string, nodeCommand = process.execPath): ServerConfig {
   if (!isAbsolute(entrypoint)) throw new Error("entrypoint must be an absolute path");
+  if (typeof nodeCommand !== "string" || nodeCommand.length === 0) throw new Error("node command must be a non-empty string");
   return { version: 1, server: { command: nodeCommand, args: [entrypoint] } };
 }
 
@@ -47,6 +48,7 @@ export function readConfig(path: string): ServerConfig {
 }
 
 export function writeConfig(path: string, config: ServerConfig, force = false): void {
+  config = parseConfig(config);
   if (existsSync(path) && !force) throw new Error(`refusing to overwrite existing file: ${path}`);
   const parent = dirname(path);
   if (!existsSync(parent)) throw new Error(`configuration directory does not exist: ${parent}`);
@@ -63,7 +65,7 @@ export function migrateConfig(inputPath: string, outputPath: string, force = fal
     const legacy = source as Record<string, unknown>;
     const command = legacy.command;
     const args = legacy.args;
-    if (typeof command !== "string" || !Array.isArray(args) || !args.every((arg) => typeof arg === "string")) throw new Error("legacy configuration must contain command and string args");
+    if (typeof command !== "string" || command.length === 0 || !Array.isArray(args) || !args.every((arg) => typeof arg === "string")) throw new Error("legacy configuration must contain command and string args");
     config = { version: 1, server: { command, args: [...args] } };
   } else {
     throw new Error("configuration must be an object");

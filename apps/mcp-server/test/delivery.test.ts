@@ -12,6 +12,8 @@ test("writes a versioned config without overwriting user files", () => {
   writeConfig(path, config);
   assert.deepEqual(readConfig(path), config);
   assert.throws(() => writeConfig(path, config), /refusing to overwrite/);
+  assert.throws(() => writeConfig(join(directory, "invalid.json"), { version: 1, server: { command: "", args: [] } } as any), /invalid server configuration/);
+  assert.throws(() => configForEntrypoint("/opt/ableton-mcp/dist/src/index.js", ""), /node command/);
 });
 
 test("migrates the legacy command-and-args shape", () => {
@@ -21,6 +23,9 @@ test("migrates the legacy command-and-args shape", () => {
   writeFileSync(input, JSON.stringify({ command: "/usr/bin/node", args: ["server.js"] }));
   assert.deepEqual(migrateConfig(input, output), { version: 1, server: { command: "/usr/bin/node", args: ["server.js"] } });
   assert.match(readFileSync(output, "utf8"), /"version": 1/);
+  const invalid = join(directory, "invalid-legacy.json");
+  writeFileSync(invalid, JSON.stringify({ command: "", args: [] }));
+  assert.throws(() => migrateConfig(invalid, join(directory, "invalid-output.json")), /legacy configuration/);
 });
 
 test("diagnostics report local readiness separately from unavailable external evidence", () => {

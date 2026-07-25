@@ -13,6 +13,11 @@ aggregates and remediation suggestions; remediation entries are marked
 reversible and `changesAudio: false`. Suggestions are advisory and never apply
 gain, limiting, deletion, or other edits automatically.
 
+The analyzer also reports privacy and safety fields showing that raw audio was
+not returned or retained and that the project was not mutated. These fields are
+claims about this local code path, not proof that an unavailable external Live
+process was inspected.
+
 ## Capability boundary
 
 The unavailable catalog includes Live mutations, transport, recording, routing,
@@ -28,3 +33,10 @@ bounded inputs, clear status/epoch reporting, and tests that prove failure does
 not alter Live state. Add recovery instructions and update the capability
 catalog in the same change. Missing Live, device, platform, signing, or runner
 evidence is unavailable—not a pass.
+
+## Operational stop rule
+
+If observed client or device behavior contradicts `server_status` or the
+capability catalog, stop the client and treat the discrepancy as a defect. Do
+not enable a caller-supplied authority field or continue testing against a
+Live set until the implementation and recovery path have been reviewed.

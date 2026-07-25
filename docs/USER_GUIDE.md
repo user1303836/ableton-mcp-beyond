@@ -38,3 +38,24 @@ The server does not currently control Ableton Live. `server_status` reports
 `connected: false`, `adapter: "unavailable"`, and
 `reason: "live-adapter-not-installed"`. Treat the capability catalog as the
 source of truth for what is actually enabled.
+
+## Client configuration and readiness
+
+After building, generate a versioned configuration with:
+
+```sh
+npm run setup -- --output /absolute/path/client-config.json
+```
+
+Existing files are protected unless `--force` is supplied. Legacy
+`{ "command": "...", "args": ["..."] }` files can be converted with
+`npm run migrate -- --input /absolute/path/old.json --output /absolute/path/new.json`.
+`npm run diagnostics` reports local Node and entrypoint readiness separately
+from unavailable Live, signing, and notarization evidence.
+
+## Known limitations
+
+There is no Live adapter, playback, recording, project mutation, device access,
+network access, filesystem tool, raw-audio return path, installer, signing, or
+notarization flow. The benchmark command measures only local host behavior and
+does not establish realtime, platform, or Ableton Live performance.

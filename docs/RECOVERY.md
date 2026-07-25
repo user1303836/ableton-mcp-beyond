@@ -6,7 +6,8 @@ Read the returned JSON-RPC error or the tool error’s `reason`. Correct the
 request and retry with a new request ID. Do not retry an unchanged malformed
 payload. For audio, verify little-endian float32 encoding, complete channel
 frames, normalized sample values, supported sample rate, and the sample/time
-limits.
+limits. The base64 string must be canonical; re-encode the decoded bytes when
+diagnosing padding or alphabet errors.
 
 ## Duplicate or exhausted request IDs
 
@@ -33,3 +34,12 @@ audio or credentials, and verify `server_status` and `capabilities`. The
 current implementation has no Live mutation or playback path. Escalate any
 contradictory observation as an implementation defect before enabling future
 adapter functionality.
+
+## Configuration or diagnostics failure
+
+Do not use `--force` as a first response to a setup or migration error. Check
+that the output parent exists, the command is non-empty, the document is
+version 1 (or a valid legacy command-and-string-args document), and the
+destination is disposable or backed up. Run `npm run diagnostics -- --config
+/absolute/path/config.json`; `valid: false` means the config must be repaired or
+migrated before use.

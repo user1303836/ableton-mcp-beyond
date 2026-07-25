@@ -238,7 +238,10 @@ export function decodeFloat32Le(base64: string): Float32Array {
     if (!valid) throw new RangeError("pcmBase64 is invalid");
   }
   let bytes: Buffer;
-  try { bytes = Buffer.from(base64, "base64"); } catch { throw new RangeError("pcmBase64 is invalid"); }
+  try {
+    bytes = Buffer.from(base64, "base64");
+    if (bytes.toString("base64") !== base64) throw new RangeError("non-canonical encoding");
+  } catch { throw new RangeError("pcmBase64 is invalid"); }
   if (bytes.length === 0 || bytes.length % 4 !== 0 || bytes.length / 4 > MAX_ANALYSIS_SAMPLES) throw new RangeError("pcmBase64 must contain bounded float32 PCM");
   const result = new Float32Array(bytes.length / 4);
   for (let i = 0; i < result.length; i += 1) result[i] = bytes.readFloatLE(i * 4);

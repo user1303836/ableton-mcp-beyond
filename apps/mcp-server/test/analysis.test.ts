@@ -31,6 +31,7 @@ test("rejects unsafe and malformed input", () => {
   assert.throws(() => analyzePcm({ samples: [], sampleRate: 44100 }), /samples/);
   assert.throws(() => decodeFloat32Le("not base64"), /float32|invalid/);
   assert.throws(() => decodeFloat32Le("AA=A"), /invalid/);
+  assert.throws(() => decodeFloat32Le("Zh=="), /invalid/);
   assert.throws(() => analyzePcm({ samples: [0, 0, 0], sampleRate: 44100, channels: 2 }), /complete channel frames/);
 });
 

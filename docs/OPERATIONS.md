@@ -16,6 +16,10 @@ Use `server_status` after initialization to verify the host state. In the
 current release a healthy status still reports the Live adapter as unavailable;
 this is expected and is not evidence of Live connectivity.
 
+Use `capabilities` as the authoritative feature list. The only implemented
+tools are `server_status`, `capabilities`, and `audio_analyze`; caller metadata
+or authority-like fields cannot enable unavailable capabilities.
+
 ## Resource and input limits
 
 The host bounds each input line at 64 MiB. PCM analysis bounds decoded input at
@@ -26,6 +30,11 @@ spectral frames with an FFT of at most 4,096 points and does not retain audio.
 Rate-limit handling returns JSON-RPC error `-32029` after 120 audio calls in a
 rolling minute. Other malformed or invalid requests return standard validation
 errors or an MCP tool error with remediation text.
+
+The process accepts one newline-delimited JSON-RPC message per line. A malformed
+line returns parse error `-32700` and a redacted stderr diagnostic, then later
+lines can still be processed. Lines over 64 MiB receive an invalid-request
+error and are discarded through the next newline.
 
 ## Shutdown and upgrades
 
