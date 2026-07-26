@@ -2,7 +2,7 @@ import type { Readable, Writable } from "node:stream";
 import { randomBytes } from "node:crypto";
 import { analyzePcm, decodeFloat32Le } from "./analysis.js";
 import { LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_UNAVAILABLE_CAPABILITIES, UnavailableLiveAdapter, type LiveAdapter, type LiveCapability, type LiveRef, type LiveSnapshot, type LiveStatus } from "./live.js";
-import { serveStdio } from "./stdio.js";
+import { serveStdio, type RecordContext } from "./stdio.js";
 import { SessionMidiTransactionManager, discoverSession, discoverSessionAsync } from "./transactions/session-midi.js";
 import type { AsyncLiveAdapter } from "./live.js";
 
@@ -295,7 +295,8 @@ export class McpHost {
 
   /** Promise-based request entrypoint for process-backed adapters. The legacy
    * handle() remains for deterministic in-process callers. */
-  public async handleAsync(input: unknown): Promise<JsonObject | null> {
+  public async handleAsync(input: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (signal?.aborted) return null;
     if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handle(input);
     const name = input.params.name;
     if (![ "live_session_structure_preview", "live_session_structure_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"].includes(name)) return this.handle(input);
@@ -310,6 +311,7 @@ export class McpHost {
     if (!this.initialized) return error(id, -32002, "Server has not been initialized");
     if (!this.initializedNotification && name !== "live_status") return error(id, -32002, "Server has not received initialized notification");
     try {
+      if (signal?.aborted) return null;
       if (name === "live_session_structure_preview") return await this.liveSessionStructurePreviewAsync(id, input.params.arguments);
       if (name === "live_session_structure_apply") return await this.liveSessionStructureApplyAsync(id, input.params.arguments);
       if (name === "live_snapshot") return await this.liveSnapshotAsync(id, input.params.arguments);
@@ -322,7 +324,8 @@ export class McpHost {
       if (name === "live_arrangement_section_apply") return await this.liveArrangementApplyAsync(id, input.params.arguments);
       if (name === "live_tempo_preview") return await this.liveTempoPreviewAsync(id, input.params.arguments);
       if (name === "live_tempo_apply") return await this.liveTempoApplyAsync(id, input.params.arguments);
-      return await this.liveUndoAsync(id, input.params.arguments);
+      const result = await this.liveUndoAsync(id, input.params.arguments);
+      return signal?.aborted ? null : result;
     } catch (cause) { return this.adapterToolError(id, cause, "The asynchronous Live operation failed; inspect authoritative state before retrying."); }
   }
 
@@ -1127,12 +1130,12 @@ export class McpHost {
 
 export async function serve(input: Readable, output: Writable, diagnostics: Writable = process.stderr, adapter: LiveAdapter = new UnavailableLiveAdapter()): Promise<void> {
   const host = new McpHost(adapter);
-  try { await serveStdio(input, output, async (line) => {
+  try { await serveStdio(input, output, async (line, context?: RecordContext) => {
     let value: unknown;
     try { value = JSON.parse(line) as unknown; }
     catch { diagnostics.write("mcp-host: malformed input\n"); return JSON.stringify(error(null, -32700, "Parse error")); }
     try {
-      const result = await host.handleAsync(value);
+      const result = await host.handleAsync(value, context?.signal);
       return result === null ? null : JSON.stringify(result);
     } catch {
       diagnostics.write("mcp-host: internal fault\n");

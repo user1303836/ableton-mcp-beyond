@@ -1,4 +1,5 @@
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { platform, versions } from "node:process";
@@ -6,7 +7,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 export const CONFIG_VERSION = 1;
 export const BRIDGE_CONFIG_VERSION = 2;
-export const MIN_NODE_MAJOR = 20;
+export const MIN_NODE_MAJOR = 22;
 export const SUPPORTED_PLATFORMS = ["darwin", "linux", "win32"] as const;
 export const REMOTE_SCRIPT_ASSET = "ableton_mcp_remote_script.py";
 export const REMOTE_SCRIPT_PACKAGE = "AbletonMcpBridge";
@@ -72,12 +73,36 @@ function validateSecretPath(path: string): void {
 }
 
 function secretPermissions(path: string): DiagnosticReport["secretPermissions"] {
-  if (platform === "win32") return "unavailable";
+  if (platform === "win32") {
+    try {
+      const owner = process.env.USERNAME;
+      if (!owner) return "unavailable";
+      const output = execFileSync("icacls.exe", [path], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+      const lower = output.toLowerCase();
+      const broadPrincipals = ["everyone", "authenticated users", "builtin\\users", "nt authority\\users", "\u00a0users"];
+      if (!lower.includes(owner.toLowerCase()) || broadPrincipals.some((principal) => lower.includes(principal))) return "invalid";
+      return "owner-only";
+    } catch {
+      return "unavailable";
+    }
+  }
   try {
     const mode = statSync(path).mode & 0o777;
     return (mode & 0o077) === 0 ? "owner-only" : "invalid";
   } catch {
     return "invalid";
+  }
+}
+
+function secureWindowsFile(path: string): void {
+  if (platform !== "win32") return;
+  const owner = process.env.USERNAME;
+  if (!owner) throw new Error("Windows owner identity is unavailable");
+  try {
+    execFileSync("icacls.exe", [path, "/inheritance:r", "/grant:r", `${owner}:(F)`], { stdio: "ignore" });
+    if (secretPermissions(path) !== "owner-only") throw new Error("could not establish an owner-only Windows ACL");
+  } catch (error) {
+    throw new Error("could not establish an owner-only Windows ACL", { cause: error });
   }
 }
 
@@ -104,6 +129,7 @@ export function writeSecretFile(path: string, secret = generateSecret()): void {
   if (!existsSync(parent)) throw new Error(`secret directory does not exist: ${parent}`);
   writeFileSync(path, `${secret}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
   if (platform !== "win32") chmodSync(path, 0o600);
+  secureWindowsFile(path);
 }
 
 export function readSecretFile(path: string): string {
@@ -151,6 +177,11 @@ export function isSupportedPlatform(value: NodeJS.Platform = platform): boolean 
   return (SUPPORTED_PLATFORMS as readonly string[]).includes(value);
 }
 
+export function supportedNodeMajor(value = versions.node): boolean {
+  const major = Number.parseInt(value.split(".")[0] ?? "0", 10);
+  return Number.isSafeInteger(major) && major >= MIN_NODE_MAJOR;
+}
+
 export function readConfig(path: string): ServerConfig {
   return parseConfig(JSON.parse(readFileSync(path, "utf8")) as unknown);
 }
@@ -183,6 +214,7 @@ export function writeConfig(path: string, config: ServerConfig | BridgeConfig, f
   try {
     writeFileSync(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
     if (platform !== "win32") chmodSync(temporaryPath, 0o600);
+    secureWindowsFile(temporaryPath);
     if (destinationExists && force) {
       // Windows does not let renameSync replace an existing file. Moving the
       // old file beside the staged file keeps replacement explicit and lets us
@@ -232,6 +264,7 @@ export function writeBridgeReference(path: string, configPath: string, force = f
   if (!existsSync(parent)) throw new Error(`configuration directory does not exist: ${parent}`);
   writeFileSync(path, `${JSON.stringify({ config: configPath })}\n`, { encoding: "utf8", mode: 0o600, flag: force ? "w" : "wx" });
   if (platform !== "win32") chmodSync(path, 0o600);
+  secureWindowsFile(path);
 }
 
 function operationRegistrySource(): string {
@@ -304,9 +337,8 @@ export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.m
   if (configPath && existsSync(configPath)) {
     try { readAnyConfig(configPath); configValid = true; } catch { configValid = false; }
   }
-  const nodeMajor = Number.parseInt(versions.node.split(".")[0] ?? "0", 10);
   const entrypointPresent = existsSync(entrypoint) && statSync(entrypoint).isFile();
-  const hostReady = nodeMajor >= MIN_NODE_MAJOR && isSupportedPlatform() && entrypointPresent;
+  const hostReady = supportedNodeMajor() && isSupportedPlatform() && entrypointPresent;
   const remoteScriptInstalled = existsSync(join(packageRoot, "remote-script", REMOTE_SCRIPT_PACKAGE, "__init__.py")) && existsSync(join(packageRoot, "remote-script", REMOTE_SCRIPT_PACKAGE, REMOTE_SCRIPT_ASSET));
   const packageDirectory = join(packageRoot, "remote-script", REMOTE_SCRIPT_PACKAGE);
   let packageAssetsValid = false;
@@ -323,7 +355,7 @@ export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.m
     platform,
     arch: process.arch,
     node: versions.node,
-    nodeSupported: nodeMajor >= MIN_NODE_MAJOR,
+    nodeSupported: supportedNodeMajor(),
     platformSupported: isSupportedPlatform(),
     packageRoot,
     entrypoint: { path: entrypoint, present: entrypointPresent },
@@ -363,7 +395,7 @@ export async function diagnosticsAsync(packageRoot = resolve(dirname(fileURLToPa
     const adapter = await RemoteScriptLiveAdapter.connect({ ...config.bridge, secret: readSecretFile(config.bridge.secretFile) });
     try {
       const status = adapter.status();
-      const discovery = await adapter.invokeAsync({ operation: "session.discover" as never, args: { kind: "track", limit: 1 } });
+      const discovery = await adapter.invokeAsync({ operation: "session.discover" as never, args: { kind: "scene", limit: 1 } });
       if (!discovery || typeof discovery !== "object") throw new Error("bounded discovery returned no result");
       return {
         ...report,
@@ -374,7 +406,7 @@ export async function diagnosticsAsync(packageRoot = resolve(dirname(fileURLToPa
         adapterOperations: [...status.capabilities],
         registryHash: typeof (status as LiveStatusWithRegistry).registryHash === "string" ? (status as LiveStatusWithRegistry).registryHash as string : null,
         discoveryReachable: true,
-        liveConnected: status.connected,
+        liveConnected: status.connected && status.adapter === "remote-script",
         simulator: status.adapter === "simulator",
         evidence: "authenticated-bridge",
         ready: report.hostReady && status.connected,

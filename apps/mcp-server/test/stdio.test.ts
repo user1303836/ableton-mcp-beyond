@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { PassThrough, Writable } from "node:stream";
 import { test } from "node:test";
-import { serveStdio } from "../src/stdio.js";
+import { serveStdio, type RecordContext } from "../src/stdio.js";
 
 test("stdio preserves order across a backpressured writable", async () => {
   const input = new PassThrough();
@@ -20,4 +20,45 @@ test("stdio preserves order across a backpressured writable", async () => {
   input.end("1\n2\n3\n");
   await done;
   assert.deepEqual(received, ["1", "2", "3"]);
+});
+
+test("stdio runs bounded concurrent work but writes responses in request order", async () => {
+  const input = new PassThrough();
+  const received: string[] = [];
+  const output = new Writable({ write(chunk, _encoding, callback) { received.push(String(chunk).trim()); callback(); } });
+  let active = 0;
+  let peak = 0;
+  const done = serveStdio(input, output, async (record) => {
+    const id = (JSON.parse(record) as { id: number }).id;
+    active += 1;
+    peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, id === 1 ? 20 : 1));
+    active -= 1;
+    return record;
+  }, { maxInFlight: 2 });
+  input.end('{"jsonrpc":"2.0","id":1}\n{"jsonrpc":"2.0","id":2}\n{"jsonrpc":"2.0","id":3}\n');
+  await done;
+  assert.equal(peak, 2);
+  assert.deepEqual(received, ["{\"jsonrpc\":\"2.0\",\"id\":1}", "{\"jsonrpc\":\"2.0\",\"id\":2}", "{\"jsonrpc\":\"2.0\",\"id\":3}"]);
+});
+
+test("stdio cancellation aborts the matching request and emits no response", async () => {
+  const input = new PassThrough();
+  const received: string[] = [];
+  const output = new Writable({ write(chunk, _encoding, callback) { received.push(String(chunk).trim()); callback(); } });
+  let aborted = false;
+  const done = serveStdio(input, output, async (record: string, context?: RecordContext) => {
+    if ((JSON.parse(record) as { method?: string }).method !== "work") return record;
+    await new Promise<void>((resolve) => {
+      context!.signal.addEventListener("abort", () => { aborted = true; resolve(); }, { once: true });
+    });
+    return "should-not-be-written";
+  });
+  input.write('{"jsonrpc":"2.0","id":7,"method":"work"}\n');
+  await new Promise((resolve) => setImmediate(resolve));
+  input.write('{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":7}}\n');
+  input.end();
+  await done;
+  assert.equal(aborted, true);
+  assert.deepEqual(received, []);
 });

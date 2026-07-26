@@ -1,4 +1,6 @@
 import { performance } from "node:perf_hooks";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { PassThrough } from "node:stream";
 import { analyzePcm, MAX_ANALYSIS_CHANNELS, MAX_TIME_FREQUENCY_BANDS, MAX_TIME_FREQUENCY_FRAMES, MAX_WAVEFORM_BINS } from "./analysis.js";
 import { McpHost, PROTOCOL_VERSION, serve } from "./host.js";
@@ -14,6 +16,16 @@ export interface BenchmarkMeasurement {
 export interface BenchmarkReport {
   measurements: BenchmarkMeasurement[];
   passed: boolean;
+}
+
+export interface IsolatedAnalysisResources {
+  elapsedMilliseconds: number;
+  latencyMeasurements: number[];
+  peakRssBytes: number;
+  peakHeapUsedBytes: number;
+  peakExternalBytes: number;
+  peakArrayBuffersBytes: number;
+  outputBytes: number;
 }
 
 export type AnalysisBenchmarkFn = (input: Parameters<typeof analyzePcm>[0]) => ReturnType<typeof analyzePcm>;
@@ -47,6 +59,11 @@ export const BENCHMARK_BUDGETS = {
   // full-size working copy for mono input.
   analysisArrayBufferDeltaBytes: 140_000_000,
   analysisOutputBytes: 2_000_000,
+  isolatedPeakRssBytes: 512_000_000,
+  isolatedPeakHeapUsedBytes: 256_000_000,
+  isolatedPeakExternalBytes: 256_000_000,
+  isolatedPeakArrayBuffersBytes: 256_000_000,
+  isolatedLatencyP95Milliseconds: 2_000,
   maxChannelAnalysisP95Milliseconds: 250,
   waveformTimeFrequencyP95Milliseconds: 250,
   waveformTimeFrequencyOutputBytes: 2_000_000,
@@ -108,6 +125,40 @@ export function measureMaximumInputAnalysis(analyzer: AnalysisBenchmarkFn = anal
     measure("pcm_analysis_p95_latency", percentile(analysisTimes, 0.95), "ms", BENCHMARK_BUDGETS.analysisP95Milliseconds),
     measure("pcm_analysis_array_buffer_delta", maximumArrayBufferDelta, "bytes", BENCHMARK_BUDGETS.analysisArrayBufferDeltaBytes),
     measure("pcm_analysis_output_bytes", maximumOutputBytes, "bytes", BENCHMARK_BUDGETS.analysisOutputBytes),
+  ];
+}
+
+/**
+ * Run the maximum-input analyzer in a disposable child process. The child
+ * owns the input and all analyzer allocations, so functional tests cannot
+ * hide peak resource use in a warmed test worker. The worker reports its
+ * observed high-water values and never returns PCM.
+ */
+export async function measureIsolatedMaximumInputAnalysis(): Promise<BenchmarkMeasurement[]> {
+  const workerPath = fileURLToPath(new URL("./analysis-worker.js", import.meta.url));
+  const started = performance.now();
+  const child = spawn(process.execPath, [workerPath], { stdio: ["ignore", "pipe", "pipe"] });
+  const stdout: Buffer[] = [];
+  const stderr: Buffer[] = [];
+  child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+  const exitCode = await new Promise<number>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) => resolve(code ?? (signal ? 1 : 0)));
+  });
+  const elapsedMilliseconds = performance.now() - started;
+  if (exitCode !== 0) throw new Error(`isolated analysis worker failed (${exitCode}): ${Buffer.concat(stderr).toString("utf8")}`);
+  let resources: Omit<IsolatedAnalysisResources, "elapsedMilliseconds">;
+  try { resources = JSON.parse(Buffer.concat(stdout).toString("utf8")) as Omit<IsolatedAnalysisResources, "elapsedMilliseconds">; }
+  catch { throw new Error("isolated analysis worker returned invalid resource evidence"); }
+  const result: IsolatedAnalysisResources = { ...resources, elapsedMilliseconds };
+  return [
+    measure("pcm_isolated_latency_p95", percentile(result.latencyMeasurements, 0.95), "ms", BENCHMARK_BUDGETS.isolatedLatencyP95Milliseconds),
+    measure("pcm_isolated_peak_rss", result.peakRssBytes, "bytes", BENCHMARK_BUDGETS.isolatedPeakRssBytes),
+    measure("pcm_isolated_peak_heap_used", result.peakHeapUsedBytes, "bytes", BENCHMARK_BUDGETS.isolatedPeakHeapUsedBytes),
+    measure("pcm_isolated_peak_external", result.peakExternalBytes, "bytes", BENCHMARK_BUDGETS.isolatedPeakExternalBytes),
+    measure("pcm_isolated_peak_array_buffers", result.peakArrayBuffersBytes, "bytes", BENCHMARK_BUDGETS.isolatedPeakArrayBuffersBytes),
+    measure("pcm_isolated_output_bytes", result.outputBytes, "bytes", BENCHMARK_BUDGETS.analysisOutputBytes),
   ];
 }
 
@@ -197,6 +248,7 @@ export async function runBenchmarks(): Promise<BenchmarkReport> {
   measurements.push(measure("restart_resume_latency", resumeElapsed, "ms", BENCHMARK_BUDGETS.resumeMilliseconds));
 
   measurements.push(...measureMaximumInputAnalysis());
+  measurements.push(...await measureIsolatedMaximumInputAnalysis());
 
   const maximumChannelSamples = new Float32Array(MAX_CHANNEL_ANALYSIS_SAMPLES);
   for (let index = 0; index < maximumChannelSamples.length; index += 1) {

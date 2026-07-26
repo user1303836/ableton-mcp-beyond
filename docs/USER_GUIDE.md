@@ -4,6 +4,9 @@ Ableton MCP Beyond is a fail-closed MCP host. With no explicit configuration it 
 
 ## Start
 
+Requirements: Node.js 22 or newer. Node 20 is end-of-life and is not a
+supported runtime for this package.
+
 ```sh
 cd apps/mcp-server
 npm ci

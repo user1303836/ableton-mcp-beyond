@@ -14,7 +14,7 @@
   },
   "files": ["dist/src", "remote-script/AbletonMcpBridge", "remote-script/README.md", "scripts"],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "type": "module",
   "scripts": {

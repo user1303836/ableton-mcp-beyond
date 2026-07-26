@@ -21,14 +21,17 @@ and `liveConnected`. Only the optional authenticated status handshake followed
 by bounded read-only discovery can set those active bridge fields; files, ports,
 processes, or simulators cannot.
 
-Node platform support is reported for Darwin, Linux, and Windows. Windows ACL
-permission verification is reported unavailable rather than passed. Signing,
+Node platform support is reported for Darwin, Linux, and Windows, with Node 22
+as the minimum maintained runtime and Node 22/24 in CI. Windows ACL
+permission verification is reported unavailable rather than passed when the
+native security descriptor cannot be observed; creation applies and verifies
+an owner-only DACL through `icacls.exe` when available. Signing,
 notarization, real Live runtime, accessibility, hardware, and installer-runtime
 evidence remain unavailable without dedicated observed runners and identities.
 
 The shipped wrappers reject unknown or repeated options. Setup, migration, and
-diagnostics are exercised in the Node 20/22 Linux, macOS, and Windows CI
-matrix. Version 1 migration
+diagnostics are exercised in the Node 22/24 Linux, macOS, and Windows CI
+matrix, with Python provisioned for the authenticated package smoke. Version 1 migration
 accepts only the legacy command/args shape and produces a versioned host-only
 configuration; version 2 additionally validates loopback, bounded ports and
 timeouts, absolute non-symlink paths, and the separate secret file. The

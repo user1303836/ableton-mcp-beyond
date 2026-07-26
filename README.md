@@ -10,7 +10,7 @@ transport.
 
 ## Quick start
 
-Requirements: Node.js 20 or newer.
+Requirements: Node.js 22 or newer (Node 22 and 24 are exercised in CI).
 
 ```sh
 cd apps/mcp-server

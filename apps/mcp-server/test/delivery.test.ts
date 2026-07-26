@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFil
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { configForBridge, configForEntrypoint, diagnostics, generateSecret, installRemoteScript, isSupportedPlatform, migrateConfig, readConfig, readSecretFile, writeBridgeReference, writeConfig, writeSecretFile } from "../src/delivery.js";
+import { configForBridge, configForEntrypoint, diagnostics, generateSecret, installRemoteScript, isSupportedPlatform, migrateConfig, readConfig, readSecretFile, supportedNodeMajor, writeBridgeReference, writeConfig, writeSecretFile } from "../src/delivery.js";
 import { npmExecutable } from "../src/platform.js";
 
 test("writes a versioned config and replaces it only with explicit force", () => {
@@ -71,6 +71,13 @@ test("compatibility is explicit for the portable Node runtime", () => {
   assert.equal(isSupportedPlatform("win32"), true);
   assert.equal(isSupportedPlatform("linux"), true);
   assert.equal(isSupportedPlatform("aix"), false);
+});
+
+test("requires a maintained Node runtime", () => {
+  assert.equal(supportedNodeMajor("22.0.0"), true);
+  assert.equal(supportedNodeMajor("24.1.0"), true);
+  assert.equal(supportedNodeMajor("20.19.0"), false);
+  assert.equal(supportedNodeMajor("not-a-version"), false);
 });
 
 test("delivery supports the three CI platforms without native packaging", () => {

@@ -288,6 +288,40 @@ class ControlSurfaceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             mapper.invoke("track.create", {"name": "Nope", "kind": "midi", "index": 0})
 
+    def test_hierarchical_discovery_exposes_song_parents_and_empty_slots(self):
+        mapper = LiveObjectMapper(FakeSong())
+        song = mapper.discover("song")["items"][0]
+        track = mapper.discover("track")["items"][0]
+        slot = mapper.discover("clip_slot", parent=track["ref"])["items"][0]
+        self.assertEqual(track["parentRef"], song["ref"])
+        self.assertEqual(slot["parentRef"], track["ref"])
+        self.assertTrue(slot["empty"])
+        self.assertEqual(mapper.discover("clip_slot", requested_fields=["empty"])["items"][0], {"ref": slot["ref"], "parentRef": track["ref"], "empty": True})
+
+    def test_discovery_cursor_is_opaque_authenticated_and_revision_bound(self):
+        mapper = LiveObjectMapper(FakeSong())
+        page = mapper.discover("track", limit=1, traversal_budget=1)
+        self.assertIsNone(page.get("nextCursor"))
+        mapper = LiveObjectMapper(FakeSong())
+        mapper.song.tracks.append(FakeTrack())
+        page = mapper.discover("track", limit=1)
+        cursor = page["nextCursor"]
+        self.assertIsInstance(cursor, str)
+        self.assertNotIn(":", cursor)
+        self.assertEqual(len(mapper.discover("track", limit=1, cursor=cursor)["items"]), 1)
+        tampered = ("A" if cursor[4] != "A" else "B") + cursor[5:]
+        with self.assertRaises(ValueError):
+            mapper.discover("track", limit=1, cursor=tampered)
+
+    def test_discovery_rejects_stale_parent_and_reports_unknown_playback_authoritatively(self):
+        mapper = LiveObjectMapper(FakeSong())
+        stale = f"{mapper.refs.epoch + 1}:track:0"
+        with self.assertRaises(ValueError):
+            mapper.discover("clip_slot", parent=stale)
+        playback = mapper.discover("session_playback")["items"][0]
+        self.assertNotIn("playing", playback)
+        self.assertNotIn("recording", playback)
+
     def test_arrangement_locators_are_authoritative_and_reversible(self):
         song = FakeArrangementSong()
         mapper = LiveObjectMapper(song)

@@ -1,5 +1,5 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -75,7 +75,71 @@ try {
   const diagnosticsOutput = execFileSync(process.execPath, [join(installedPackageDirectory, "dist", "src", "diagnostics.js"), "--config", migratedPath], { encoding: "utf8" });
   const diagnostics = JSON.parse(diagnosticsOutput);
   if (diagnostics.config?.valid !== true || diagnostics.entrypoint?.present !== true || diagnostics.external?.abletonLive !== "unavailable") throw new Error("installed diagnostics helper reported an invalid readiness result");
-  console.log(JSON.stringify({ artifact: packed[0].filename, files: names.length, installed: true, protocolSmoke: true, setupSmoke: true, migrationSmoke: true, diagnosticsSmoke: true, platform: process.platform, arch: process.arch }));
+
+  const secretPath = join(temporaryDirectory, "bridge.secret");
+  const bridgeConfigPath = join(temporaryDirectory, "bridge-config.json");
+  const readyPath = join(temporaryDirectory, "bridge-ready.json");
+  const bridgeSecret = "package-smoke-secret-0123456789abcdef0123456789";
+  writeFileSync(secretPath, `${bridgeSecret}\n`, { encoding: "utf8", mode: 0o600 });
+  if (process.platform !== "win32") chmodSync(secretPath, 0o600);
+  if (process.platform === "win32") {
+    const owner = process.env.USERNAME;
+    if (!owner) throw new Error("package smoke could not identify the Windows owner");
+    execFileSync("icacls.exe", [secretPath, "/inheritance:r", "/grant:r", `${owner}:(F)`], { stdio: "ignore" });
+  }
+  const bridgeScript = join(temporaryDirectory, "bridge-smoke.py");
+  writeFileSync(bridgeScript, `
+import json, pathlib, socket, sys, time
+from AbletonMcpBridge.ableton_mcp_remote_script import AbletonMcpBridge
+class Scene:
+    def __init__(self): self.name = "Package Smoke Scene"
+class Track:
+    def __init__(self): self.name = "Package Smoke Track"; self.clip_slots = []; self.devices = []
+class Song:
+    def __init__(self):
+        self.tracks = [Track()]; self.return_tracks = []; self.scenes = [Scene()]; self.master_track = None
+        self.is_playing = False; self.record_mode = False; self.session_record = False; self.tempo = 120.0
+class Instance:
+    def __init__(self): self.song = Song()
+probe = socket.socket(); probe.bind(("127.0.0.1", 0)); port = probe.getsockname()[1]; probe.close()
+bridge = AbletonMcpBridge(Instance(), {"host":"127.0.0.1", "port":port, "secret":sys.argv[1]})
+pathlib.Path(sys.argv[2]).write_text(json.dumps({"port":port}), encoding="utf-8")
+try:
+    while True: bridge.update_display(); time.sleep(0.01)
+except KeyboardInterrupt: pass
+finally: bridge.disconnect()
+`, { encoding: "utf8", mode: 0o600 });
+  const python = process.platform === "win32" ? "python.exe" : "python3";
+  const bridgeProcess = spawn(python, [bridgeScript, bridgeSecret, readyPath], {
+    cwd: temporaryDirectory,
+    env: { ...process.env, PYTHONPATH: join(installedPackageDirectory, "remote-script") },
+    stdio: "ignore",
+  });
+  try {
+    const wait = new Int32Array(new SharedArrayBuffer(4));
+    const deadline = Date.now() + 5_000;
+    while (!existsSync(readyPath) && Date.now() < deadline) Atomics.wait(wait, 0, 0, 25);
+    if (!existsSync(readyPath)) throw new Error("installed production bridge did not become ready");
+    const port = JSON.parse(readFileSync(readyPath, "utf8")).port;
+    execFileSync(process.execPath, [join(installedPackageDirectory, "dist", "src", "setup.js"), "--output", bridgeConfigPath, "--bridge-host", "127.0.0.1", "--bridge-port", String(port), "--secret-file", secretPath], { encoding: "utf8" });
+    const bridgeConfig = JSON.parse(readFileSync(bridgeConfigPath, "utf8"));
+    const bridgeArgs = bridgeConfig.server?.args;
+    if (bridgeConfig.version !== 2 || JSON.stringify(bridgeConfig).includes(bridgeSecret) || !Array.isArray(bridgeArgs) || bridgeArgs.length !== 3 || realpathSync(bridgeArgs[0]) !== realpathSync(executable) || bridgeArgs[1] !== "--config" || realpathSync(bridgeArgs[2]) !== realpathSync(bridgeConfigPath)) throw new Error("installed setup helper emitted an unsafe bridge configuration");
+    const initializeBridge = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "authenticated-package-smoke", version: "1" } } });
+    const initializedBridge = JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" });
+    const liveStatus = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "live_status", arguments: {} } });
+    const liveScenes = JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "live_discover", arguments: { kind: "scene", limit: 4 } } });
+    const authenticatedOutput = execFileSync(process.execPath, [executable, "--config", bridgeConfigPath], { input: `${initializeBridge}\n${initializedBridge}\n${liveStatus}\n${liveScenes}\n`, encoding: "utf8", timeout: 10_000 });
+    const authenticatedResponses = authenticatedOutput.trim().split("\n").map((line) => JSON.parse(line));
+    if (authenticatedResponses.length !== 3 || authenticatedResponses[0]?.id !== 1 || authenticatedResponses[1]?.id !== 2 || authenticatedResponses[2]?.id !== 3) throw new Error("authenticated package discovery did not return ordered MCP responses");
+    const statusText = authenticatedResponses[1]?.result?.content?.[0]?.text ?? "";
+    const sceneText = authenticatedResponses[2]?.result?.content?.[0]?.text ?? "";
+    if (!statusText.includes("remote-script") || !sceneText.includes("Package Smoke Scene")) throw new Error("authenticated package smoke did not observe production bridge state");
+  } finally {
+    bridgeProcess.kill();
+    try { bridgeProcess.unref(); } catch {}
+  }
+  console.log(JSON.stringify({ artifact: packed[0].filename, files: names.length, installed: true, protocolSmoke: true, setupSmoke: true, migrationSmoke: true, diagnosticsSmoke: true, authenticatedBridgeSmoke: true, discoverySmoke: true, platform: process.platform, arch: process.arch }));
 } finally {
   rmSync(temporaryDirectory, { recursive: true, force: true });
 }

@@ -175,12 +175,14 @@ class ReferenceRegistry:
 
     def __init__(self) -> None:
         self.epoch = secrets.randbelow(2**53 - 1) + 1
+        self._cursor_key = secrets.token_bytes(32)
         self._objects: dict[str, Any] = {}
         self._revisions: dict[str, int] = {}
         self._object_keys: dict[tuple[str, int], str] = {}
 
     def reset(self) -> None:
         self.epoch = secrets.randbelow(2**53 - 1) + 1
+        self._cursor_key = secrets.token_bytes(32)
         self._objects.clear()
         self._revisions.clear()
         self._object_keys.clear()
@@ -266,6 +268,82 @@ class LiveObjectMapper:
             result.append({"ref": reference, "name": str(name), "position": float(position)})
         return sorted(result, key=lambda item: (item["position"], item["name"], item["ref"]))
 
+    def _track_kind(self, track: Any) -> str:
+        """Read Live's track class without treating a missing property as truth."""
+        value = getattr(track, "kind", getattr(track, "track_kind", None))
+        if isinstance(value, str) and value.lower() in {"regular", "midi", "audio"}:
+            return "regular"
+        if bool(getattr(track, "is_foldable", False)) or "group" in track.__class__.__name__.lower():
+            return "group"
+        if bool(getattr(track, "is_return", False)) or "return" in track.__class__.__name__.lower():
+            return "return"
+        if bool(getattr(track, "is_master", False)) or "master" in track.__class__.__name__.lower():
+            return "main"
+        return "regular"
+
+    @staticmethod
+    def _authoritative(value: Any, predicate: Callable[[Any], bool]) -> Any:
+        return value if predicate(value) else None
+
+    def _playback(self) -> dict[str, Any]:
+        values = {
+            "playing": getattr(self.song, "is_playing", None),
+            "recording": getattr(self.song, "record_mode", getattr(self.song, "session_record", None)),
+            "arrangementRecord": getattr(self.song, "record_mode", None),
+            "sessionRecord": getattr(self.song, "session_record", None),
+            "launchQuantization": getattr(self.song, "clip_trigger_quantization", getattr(self.song, "launch_quantization", None)),
+            "position": getattr(self.song, "current_song_time", getattr(self.song, "song_time", None)),
+        }
+        result: dict[str, Any] = {"ref": self.refs.put("session_playback", self.song, "playback"), "epoch": self.refs.epoch}
+        for key, value in values.items():
+            if key in {"playing", "recording", "arrangementRecord", "sessionRecord"}:
+                checked = self._authoritative(value, lambda item: isinstance(item, bool))
+            elif key == "position":
+                checked = self._authoritative(value, lambda item: isinstance(item, (int, float)) and not isinstance(item, bool) and math.isfinite(float(item)) and float(item) >= 0)
+                if checked is not None:
+                    checked = float(checked)
+            else:
+                checked = self._authoritative(value, lambda item: isinstance(item, (str, int, float)) and not isinstance(item, bool))
+            if checked is not None:
+                result[key] = checked
+        return result
+
+    def _cursor(self, offset: int, revision: str) -> str:
+        payload = f"{self.refs.epoch}|{revision}|{offset}".encode("ascii")
+        tag = hmac.new(self.refs._cursor_key, payload, hashlib.sha256).hexdigest()[:24]
+        return base64.urlsafe_b64encode(payload + b":" + tag.encode("ascii")).decode("ascii").rstrip("=")
+
+    def _cursor_offset(self, cursor: str, revision: str) -> int:
+        try:
+            raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4))
+            encoded = raw.decode("ascii")
+            payload_text, tag = encoded.rsplit(":", 1)
+            epoch, actual_revision, offset_text = payload_text.split("|", 2)
+            payload = payload_text.encode("ascii")
+            expected = hmac.new(self.refs._cursor_key, payload, hashlib.sha256).hexdigest()[:24]
+            if not hmac.compare_digest(tag, expected) or int(epoch) != self.refs.epoch or actual_revision != revision:
+                raise ValueError("stale discovery cursor")
+            offset = int(offset_text)
+        except (ValueError, TypeError, UnicodeError, OSError) as error:
+            raise ValueError("invalid discovery cursor") from error
+        if not 0 <= offset <= MAX_WIRE_COLLECTION_LENGTH * MAX_WIRE_COLLECTION_LENGTH:
+            raise ValueError("invalid discovery cursor")
+        return offset
+
+    def _arrangement_clip_items(self) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for index, clip in enumerate(self._items(getattr(self.song, "arrangement_clips", []))):
+            reference = self.refs.put("arrangement_clip", clip, str(index))
+            rows.append({
+                "ref": reference,
+                "parentRef": self.refs.put("set", self.song, "song"),
+                "name": str(getattr(clip, "name", "")),
+                "kind": "midi" if hasattr(clip, "add_new_notes") else "audio",
+                "start": float(getattr(clip, "start_time", getattr(clip, "start", 0.0)) or 0.0),
+                "length": float(getattr(clip, "length", 0.0) or 0.0),
+            })
+        return rows
+
     def _device_items(self, track: Any) -> list[dict[str, Any]]:
         devices = self._items(getattr(track, "devices", getattr(track, "device_chain", [])))
         rows: list[dict[str, Any]] = []
@@ -333,22 +411,24 @@ class LiveObjectMapper:
         track_rows = []
         for index, track in enumerate(tracks):
             track_ref = self.refs.put("track", track, str(index))
+            track_kind = self._track_kind(track)
             slots = self._items(getattr(track, "clip_slots", []))
             clips = []
             slot_rows = []
             for slot_index, slot in enumerate(slots):
                 clip = getattr(slot, "clip", None)
+                slot_ref = self.refs.put("clip_slot", slot, f"{index}:{slot_index}")
                 if clip is None:
-                    slot_rows.append({"ref": f"{self.refs.epoch}:clip_slot:{index}:{slot_index}", "trackRef": track_ref, "sceneIndex": slot_index, "empty": True})
+                    slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "sceneIndex": slot_index, "empty": True})
                     continue
                 clip_ref = self.refs.put("clip", clip, f"{index}:{slot_index}")
                 notes = self._read_notes(clip)
-                clips.append({"ref": clip_ref, "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": slot_index * 4, "length": float(getattr(clip, "length", 0.0)), "notes": notes})
-                slot_rows.append({"ref": f"{self.refs.epoch}:clip_slot:{index}:{slot_index}", "trackRef": track_ref, "sceneIndex": slot_index, "clipRef": clip_ref, "empty": False})
-            track_rows.append({"ref": track_ref, "name": str(getattr(track, "name", f"Track {index + 1}")), "kind": "midi" if bool(getattr(track, "has_midi_input", True)) else "audio", "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track)})
-        scene_rows = [{"ref": self.refs.put("scene", scene, str(i)), "name": str(getattr(scene, "name", f"Scene {i + 1}")), "index": i} for i, scene in enumerate(scenes)]
+                clips.append({"ref": clip_ref, "parentRef": slot_ref, "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": slot_index * 4, "length": float(getattr(clip, "length", 0.0)), "notes": notes})
+                slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "sceneIndex": slot_index, "clipRef": clip_ref, "empty": False})
+            track_rows.append({"ref": track_ref, "parentRef": self.refs.put("set", self.song, "song"), "name": str(getattr(track, "name", f"Track {index + 1}")), "kind": track_kind, "mediaKind": "midi" if bool(getattr(track, "has_midi_input", True)) else "audio", "armed": self._authoritative(getattr(track, "arm", getattr(track, "armed", None)), lambda item: isinstance(item, bool)), "monitoring": self._authoritative(getattr(track, "current_monitoring_state", getattr(track, "monitoring", None)), lambda item: isinstance(item, (bool, int)) and not isinstance(item, bool) or isinstance(item, bool)), "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track)})
+        scene_rows = [{"ref": self.refs.put("scene", scene, str(i)), "parentRef": self.refs.put("set", self.song, "song"), "name": str(getattr(scene, "name", f"Scene {i + 1}")), "index": i, "triggerable": callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None))} for i, scene in enumerate(scenes)]
         locators = self._locator_items()
-        return {"set": {"ref": set_ref, "name": str(getattr(self.song, "name", "Live Set")), "tempo": float(tempo), "playing": playing, "position": float(position), "loop": {"enabled": bool(getattr(self.song, "loop", False)), "start": 0.0, "length": float(getattr(self.song, "loop_length", 4.0) or 4.0)}}, "tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators}, "epoch": self.refs.epoch}
+        return {"set": {"ref": set_ref, "name": str(getattr(self.song, "name", "Live Set")), "tempo": float(tempo), "playing": playing, "position": float(position), "loop": {"enabled": bool(getattr(self.song, "loop", False)), "start": 0.0, "length": float(getattr(self.song, "loop_length", 4.0) or 4.0)}}, "tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators}, "playback": self._playback(), "epoch": self.refs.epoch}
 
     def _read_notes(self, clip: Any) -> list[dict[str, Any]]:
         if hasattr(clip, "get_notes"):
@@ -420,39 +500,76 @@ class LiveObjectMapper:
             obj.tempo = float(value)
         return {"changed": True, "ref": reference, "property": property_name, "value": value}
 
-    def discover(self, kind: str, limit: int = 100, cursor: str | None = None) -> dict[str, Any]:
-        if kind not in {"track", "scene", "clip", "note", "locator", "device", "parameter"}:
+    def discover(self, kind: str, limit: int = 100, cursor: str | None = None, parent: str | None = None, filters: dict[str, Any] | None = None, requested_fields: list[str] | None = None, traversal_budget: int = 1000) -> dict[str, Any]:
+        supported = {"set", "song", "track", "group_track", "return_track", "main_track", "scene", "clip_slot", "clip", "session_clip", "arrangement_clip", "note", "locator", "device", "parameter", "selection", "routing_choice", "session_playback"}
+        if kind not in supported:
             raise ValueError("unsupported discovery kind")
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
             raise ValueError("discovery limit is invalid")
+        if not isinstance(traversal_budget, int) or isinstance(traversal_budget, bool) or not 1 <= traversal_budget <= 10_000:
+            raise ValueError("traversal budget is invalid")
+        if parent is not None and not isinstance(parent, str):
+            raise ValueError("parent reference is invalid")
+        if filters is not None and (not isinstance(filters, dict) or len(filters) > 16 or any(not isinstance(key, str) for key in filters)):
+            raise ValueError("discovery filters are invalid")
+        if requested_fields is not None and (not isinstance(requested_fields, list) or len(requested_fields) > 32 or any(not isinstance(field, str) or not field for field in requested_fields)):
+            raise ValueError("requested fields are invalid")
         snapshot = self.snapshot()
-        if kind == "track": items = snapshot["tracks"]
+        set_row = snapshot["set"]
+        if kind in {"set", "song"}: items = [set_row]
+        elif kind == "track": items = snapshot["tracks"]
+        elif kind == "group_track": items = [item for item in snapshot["tracks"] if item["kind"] == "group"]
+        elif kind == "return_track": items = [item for item in snapshot["tracks"] if item["kind"] == "return"]
+        elif kind == "main_track": items = [item for item in snapshot["tracks"] if item["kind"] == "main"]
         elif kind == "scene": items = snapshot["scenes"]
-        elif kind == "clip": items = [clip for track in snapshot["tracks"] for clip in track["clips"]]
-        elif kind == "note": items = [note | {"ref": f"note:{clip['ref']}:{index}"} for track in snapshot["tracks"] for clip in track["clips"] for index, note in enumerate(clip["notes"])]
+        elif kind == "clip_slot": items = [slot for track in snapshot["tracks"] for slot in track["clipSlots"]]
+        elif kind in {"clip", "session_clip"}: items = [clip for track in snapshot["tracks"] for clip in track["clips"]]
+        elif kind == "arrangement_clip": items = self._arrangement_clip_items()
+        elif kind == "note": items = [note | {"ref": f"{clip['ref']}:note:{index}", "parentRef": clip["ref"]} for track in snapshot["tracks"] for clip in track["clips"] for index, note in enumerate(clip["notes"])]
         elif kind == "locator": items = snapshot["arrangement"]["locators"]
         elif kind == "device": items = [device for track in snapshot["tracks"] for device in track["devices"]]
-        else: items = [parameter for track in snapshot["tracks"] for device in track["devices"] for parameter in device["parameters"]]
+        elif kind == "parameter": items = [parameter for track in snapshot["tracks"] for device in track["devices"] for parameter in device["parameters"]]
+        elif kind == "session_playback": items = [snapshot["playback"]]
+        elif kind == "selection": items = [{"ref": f"{self.refs.epoch}:selection:current", "parentRef": set_row["ref"], "selectedRef": getattr(self.song, "view", None) and getattr(getattr(self.song, "view", None), "selected_track", None) and self.refs.put("track", getattr(self.song.view, "selected_track"), "selected")}]
+        else:
+            items = []
+            for index, choice in enumerate(self._items(getattr(self.song, "routing_choices", []))):
+                if isinstance(choice, dict):
+                    row = dict(choice)
+                else:
+                    row = {"name": str(getattr(choice, "name", "")), "type": str(getattr(choice, "type", ""))}
+                row["ref"] = self.refs.put("routing_choice", choice, str(index))
+                row["parentRef"] = set_row["ref"]
+                items.append(row)
+        if parent is not None:
+            if not parent.startswith(f"{self.refs.epoch}:"):
+                raise ValueError("stale parent reference")
+            items = [item for item in items if item.get("parentRef") == parent]
+        if filters:
+            items = [item for item in items if all(item.get(key) == value for key, value in filters.items())]
+        items = items[:traversal_budget]
+        fingerprint = hashlib.sha256(json.dumps(items, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")).hexdigest()[:16]
+        revision = f"{self.refs.epoch}:{kind}:{len(items)}:{fingerprint}"
         offset = 0
         if cursor is not None:
-            try:
-                decoded = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode("ascii")
-                epoch, offset_text = decoded.split(":", 1)
-                if int(epoch) != self.refs.epoch:
-                    raise ValueError("stale discovery cursor")
-                offset = int(offset_text)
-            except (ValueError, TypeError, UnicodeError) as error:
-                raise ValueError("invalid discovery cursor") from error
+            offset = self._cursor_offset(cursor, revision)
         if not 0 <= offset <= len(items):
             raise ValueError("invalid discovery cursor")
         page = items[offset:offset + limit]
         next_offset = offset + len(page)
-        next_cursor = base64.urlsafe_b64encode(f"{self.refs.epoch}:{next_offset}".encode("ascii")).decode("ascii").rstrip("=") if next_offset < len(items) else None
-        return {"epoch": self.refs.epoch, "items": page, "truncated": next_cursor is not None, "revision": f"{self.refs.epoch}:{len(items)}", **({"nextCursor": next_cursor} if next_cursor else {})}
+        next_cursor = self._cursor(next_offset, revision) if next_offset < len(items) else None
+        if requested_fields is not None:
+            allowed = set(requested_fields) | {"ref", "parentRef"}
+            page = [{key: value for key, value in item.items() if key in allowed} for item in page]
+        return {"epoch": self.refs.epoch, "items": page, "truncated": next_cursor is not None, "revision": revision, "kind": kind, **({"nextCursor": next_cursor} if next_cursor else {})}
 
     def invoke(self, operation: str, args: dict[str, Any]) -> Any:
         if operation == "session.discover":
-            return self.discover(str(args.get("kind", "track")), int(args.get("limit", 100)), args.get("cursor") if isinstance(args.get("cursor"), str) else None)
+            if not isinstance(args, dict) or set(args) - {"kind", "limit", "cursor", "parent", "filters", "requestedFields", "traversalBudget"}:
+                raise ValueError("discovery arguments are invalid")
+            if any(key in args and args[key] is not None and not isinstance(args[key], expected) for key, expected in (("kind", str), ("limit", int), ("cursor", str), ("parent", str), ("filters", dict), ("requestedFields", list), ("traversalBudget", int))):
+                raise ValueError("discovery arguments are invalid")
+            return self.discover(args.get("kind", "track"), args.get("limit", 100), args.get("cursor"), args.get("parent"), args.get("filters"), args.get("requestedFields"), args.get("traversalBudget", 1000))
         if operation == "session.status":
             return self.status()
         if operation == "session.reconnect":
