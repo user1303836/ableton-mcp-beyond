@@ -110,17 +110,23 @@ function secureWindowsFile(path: string): void {
   if (platform !== "win32") return;
   try {
     const encodedPath = Buffer.from(path, "utf8").toString("base64");
+    // Build a fresh protected DACL from the process-token SID. This avoids
+    // localized account names and cannot retain inherited or explicit broad ACEs.
     const script = "$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:ABLETON_MCP_ACL_PATH));" +
-      "$a=Get-Acl -LiteralPath $p;" +
-      "$owner=$a.GetOwner([System.Security.Principal.SecurityIdentifier]);" +
-      "$a.SetAccessRuleProtection($true,$false);" +
-      "foreach($existing in @($a.Access)){[void]$a.RemoveAccessRuleSpecific($existing)};" +
-      "$rule=[System.Security.AccessControl.FileSystemAccessRule]::new($owner,[System.Security.AccessControl.FileSystemRights]::FullControl,[System.Security.AccessControl.AccessControlType]::Allow);" +
-      "[void]$a.AddAccessRule($rule);Set-Acl -LiteralPath $p -AclObject $a";
-    execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], { encoding: "utf8", env: { ...process.env, ABLETON_MCP_ACL_PATH: encodedPath }, stdio: "ignore" });
-    if (secretPermissions(path) !== "owner-only") throw new Error("could not establish an owner-only Windows ACL");
+      "$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User;" +
+      "$a=New-Object System.Security.AccessControl.FileSecurity;" +
+      "$a.SetOwner($sid);$a.SetAccessRuleProtection($true,$false);" +
+      "$rule=New-Object System.Security.AccessControl.FileSystemAccessRule -ArgumentList @($sid,[System.Security.AccessControl.FileSystemRights]::FullControl,[System.Security.AccessControl.AccessControlType]::Allow);" +
+      "[void]$a.AddAccessRule($rule);[System.IO.File]::SetAccessControl($p,$a)";
+    execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
+      encoding: "utf8", env: { ...process.env, ABLETON_MCP_ACL_PATH: encodedPath }, stdio: ["ignore", "pipe", "pipe"],
+    });
+    if (secretPermissions(path) !== "owner-only") throw new Error("Windows ACL verification rejected the applied descriptor");
   } catch (error) {
-    throw new Error("could not establish an owner-only Windows ACL", { cause: error });
+    const stderr = error && typeof error === "object" && "stderr" in error && typeof (error as { stderr?: unknown }).stderr === "string"
+      ? (error as { stderr: string }).stderr.replaceAll(path, "<redacted-path>").replace(/\s+/g, " ").trim().slice(0, 512)
+      : "";
+    throw new Error(`could not establish an owner-only Windows ACL${stderr ? `: ${stderr}` : ""}`, { cause: error });
   }
 }
 
@@ -154,8 +160,8 @@ export function readSecretFile(path: string): string {
   validateSecretPath(path);
   const raw = readFileSync(path, "utf8");
   const secret = raw.endsWith("\n") ? raw.slice(0, -1).replace(/\r$/, "") : raw;
-  if (secret.length === 0 || /\s/.test(secret)) throw new Error("secret file is invalid");
-  if (secret.length < 32) throw new Error("secret file is invalid");
+  if (secret.length === 0 || /\s/.test(secret) || secret.length < 32) throw new Error("secret file is invalid");
+  if (secretPermissions(path) !== "owner-only") throw new Error("secret file permissions must be conclusively owner-only");
   return secret;
 }
 

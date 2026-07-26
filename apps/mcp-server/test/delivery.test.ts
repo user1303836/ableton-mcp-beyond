@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -111,6 +111,10 @@ test("bridge configuration and secrets are explicit and fail closed", () => {
   writeFileSync(join(directory, "bad-secret"), ` ${secret}\n`);
   assert.throws(() => readSecretFile(join(directory, "bad-secret")), /secret file is invalid/);
   assert.throws(() => configForBridge("/opt/cli.js", { host: "127.999.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000 }), /loopback/);
+  if (process.platform !== "win32") {
+    chmodSync(secretPath, 0o644);
+    assert.throws(() => readSecretFile(secretPath), /permissions.*owner-only/);
+  }
 });
 
 test("package bridge smoke does not pass its secret on the command line", () => {
