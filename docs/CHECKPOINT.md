@@ -1,10 +1,10 @@
 # Deterministic checkpoint
 
-This is a repository-contract checkpoint, not Live certification or release
-approval. It must describe the exact tested checkout; a green historical SHA
-does not validate later working-tree changes.
+This is a repository-contract checkpoint, not Live certification, release approval, signing, or notarization. It describes only the exact tested checkout; historical CI evidence does not validate later working-tree changes.
 
-From `apps/mcp-server`, run serially:
+## Required serial commands
+
+From `apps/mcp-server`:
 
 ```sh
 npm ci
@@ -17,7 +17,7 @@ npm run package:verify
 npm pack --dry-run --json
 ```
 
-From the repository root, run:
+From the repository root:
 
 ```sh
 python3 -m unittest discover -s remote-script -p 'test_*.py'
@@ -25,16 +25,8 @@ git diff --check
 git diff --cached --check
 ```
 
-Before staging, verify the intended branch, an empty index, and an allowlisted
-diff. Exclude `dist/`, tarballs, credentials, device/platform artifacts,
-Smithers state, workflow files, and `extensions-sdk-1.0.0-beta.0`. Preserve
-unrelated changes.
+Before any checkpoint commit, verify the intended feature branch, an empty index before staging, and an allowlisted diff. Audit staged paths and packed contents. Exclude generated `dist/`, archives, credentials, device/platform artifacts, Smithers state, workflow/UI/prompt/agent/runtime files, unrelated changes, and the protected local SDK evidence.
 
-The checks cover TypeScript, protocol framing, async adapter behavior,
-transactions, fake-Live mapping, analysis, packaging, configuration, and
-installer contracts. Confirm the branch and empty index before staging; review
-the explicit ownership allowlist and inspect the packed file list. They do not
-prove real Live connectivity, a supported Live version, realtime performance,
-hardware, accessibility, signing, notarization, or installer runtime on every
-platform. Missing, skipped, cancelled, stale-SHA, or unavailable jobs are not
-passing evidence.
+## Evidence interpretation
+
+The gates cover TypeScript, registry constants and hash negotiation, protocol framing, async remote-adapter behavior, transactions, fake-Live mapping, device-parameter validation, analysis, configuration, packaging, and installer contracts. A missing, skipped, cancelled, stale-SHA, failed, or unavailable external job is not passing evidence. The gates do not prove a real Live runtime, supported Live version, disposable Set, visible or audible state, realtime performance, hardware, accessibility, installer runtime on every platform, signing, notarization, or publication.

@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
-import type { LiveAdapter, LiveEvent, LiveInvocation, LiveRef, LiveSnapshot, LiveStatus } from "../live.js";
+import { LIVE_REGISTRY_HASH, LIVE_REGISTRY_OPERATIONS, type LiveAdapter, type LiveEvent, type LiveInvocation, type LiveRef, type LiveSnapshot, type LiveStatus } from "../live.js";
 import { LOOPBACK_PROTOCOL_VERSION, type LoopbackRequest, type LoopbackResponse } from "../loopback.js";
 
 const MAX_FRAME_BYTES = 1_048_576;
@@ -31,10 +31,17 @@ function validEndpoint(endpoint: Endpoint): void {
 function validStatus(value: unknown): value is LiveStatus {
   if (!value || typeof value !== "object") return false;
   const status = value as Partial<LiveStatus>;
-  return typeof status.connected === "boolean" && typeof status.adapter === "string" && ADAPTERS.has(status.adapter) &&
-    (status.epoch === null || (typeof status.epoch === "number" && Number.isSafeInteger(status.epoch) && status.epoch >= 0)) && typeof status.protocol === "string" &&
-    status.protocol === LIVE_PROTOCOL && Array.isArray(status.capabilities) && status.capabilities.length <= 256 &&
-    status.capabilities.every((capability) => typeof capability === "string" && capability.length > 0 && capability.length <= 128);
+  const capabilities = status.capabilities;
+  const operations = status.operations;
+  if (typeof status.connected !== "boolean" || typeof status.adapter !== "string" || !ADAPTERS.has(status.adapter) ||
+      !(status.epoch === null || (typeof status.epoch === "number" && Number.isSafeInteger(status.epoch) && status.epoch >= 0)) ||
+      status.protocol !== LIVE_PROTOCOL || !Array.isArray(capabilities) || capabilities.length > 256 ||
+      !capabilities.every((capability) => typeof capability === "string" && capability.length > 0 && capability.length <= 128) ||
+      status.registryHash !== LIVE_REGISTRY_HASH || !Array.isArray(operations) || operations.length > 256) return false;
+  return operations.every((operation) => typeof operation === "string" && operation.length > 0 && operation.length <= 128) &&
+    new Set(operations).size === operations.length &&
+    operations.every((operation) => (LIVE_REGISTRY_OPERATIONS as readonly string[]).includes(operation)) &&
+    ["status", "discover", "get", "set", "reconnect"].every((operation) => operations.includes(operation));
 }
 
 /** Async, authenticated TCP adapter. Live methods are intentionally exposed through requestAsync. */

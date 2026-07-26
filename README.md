@@ -28,6 +28,13 @@ For the client-facing tool list and mutation sequence, see
 handling, see [`docs/OPERATIONS.md`](docs/OPERATIONS.md) and
 [`docs/RECOVERY.md`](docs/RECOVERY.md).
 
+The source-controlled operation contract is
+[`protocol/ableton-live-v1.operations.json`](protocol/ableton-live-v1.operations.json).
+The bridge negotiates its exact SHA-256 before serving Live operations. The
+current host surface includes bounded discovery, Session structure and MIDI,
+Arrangement locators, tempo, and guarded numeric device-parameter adjustment;
+unsupported domains remain unavailable.
+
 Build a host-only client configuration:
 
 ```sh

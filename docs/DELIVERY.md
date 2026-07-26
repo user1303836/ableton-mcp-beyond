@@ -31,4 +31,5 @@ diagnostics are exercised in the Node 20/22 Linux, macOS, and Windows CI
 matrix. Version 1 migration
 accepts only the legacy command/args shape and produces a versioned host-only
 configuration; version 2 additionally validates loopback, bounded ports and
-timeouts, absolute non-symlink paths, and the separate secret file.
+timeouts, absolute non-symlink paths, and the separate secret file. The
+generated client arguments contain exactly `--config PATH` for version 2.

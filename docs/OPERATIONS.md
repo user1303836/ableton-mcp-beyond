@@ -1,59 +1,34 @@
 # Operations guide
 
-Run the host as a supervised stdio process with stdout and stderr on separate
-channels.
+Run the host under a supervisor with stdout and stderr kept separate.
 
-## Start
+## Start and observe
 
 ```sh
 cd apps/mcp-server
 npm ci
 npm run build
-node dist/src/cli.js
-```
-
-For an explicit bridge:
-
-```sh
 node dist/src/cli.js --config /absolute/path/bridge-config.json
 ```
 
-The CLI loads only the supplied configuration path. It validates the version,
-loopback endpoint, timeout, secret path, and secret before connecting. Startup
-failure is written as redacted text to stderr and no protocol output is
-manufactured.
+Use `server_status`, `capabilities`, and `live_status` after initialization. A valid `live_status` must identify `ableton-live/v1`, a connected `remote-script` adapter, a non-null epoch, the expected registry hash, and the negotiated operations. `live_snapshot` and bounded discovery provide the active read-only check.
 
-## Observe
+Diagnostics accepts no arguments or exactly one `--config PATH`:
 
-Use `server_status` and `capabilities` after initialization. `live_status`
-reports the negotiated protocol, epoch, adapter kind, connection state, and
-capabilities. `live_discover` is authoritative only for the connected adapter
-and negotiated kind; simulator and fake-Live results are deterministic
-contract evidence. `npm run diagnostics -- --config <path>` performs local
-readiness checks and, for version 2, one authenticated read-only status probe.
-A port, file, process, simulator, or installed package is not Live connectivity.
+```sh
+npm run diagnostics -- --config /absolute/path/bridge-config.json
+```
+
+Diagnostics separates local host/package/configuration readiness from authenticated reachability, discovery reachability, registry hash, epoch, protocol, and `liveConnected`. A file, process, open port, installed package, simulator, or fake-Live result cannot establish real Live connectivity.
 
 ## Limits and shutdown
 
-Input frames are limited to 64 MiB. Audio is limited as documented in the user
-guide and to 120 calls per rolling minute. The stdio path preserves response
-framing and observes output backpressure. Close stdin for normal completion or
-terminate the supervisor; the host closes the adapter and rejects pending
-remote requests. A timeout or cancellation can invalidate the sequenced bridge
-session. There is no durable session resume; reinitialize and obtain a fresh
-epoch after restart or reconnect.
+The host bounds JSON-RPC frames at 64 MiB, remote frames at 1 MiB, remote pending work at 64 requests, tracked request identifiers at 4096, and tool calls at 120 per rolling minute. Audio analysis is bounded to the limits in `USER_GUIDE.md`. Close stdin for normal completion. On EOF, signal, initialization failure, cancellation, output failure, timeout, or disconnect, close the adapter and settle pending work; reinitialize to obtain a new epoch.
 
-## Remote Script installation
+## Installation
 
-Use `node dist/src/install-remote-script.js --destination <absolute-path>`.
-`--dry-run` inspects the target. Installation refuses symlink trees and
-overwrite by default. `--force` moves an existing target to a recoverable
-timestamped backup before replacement. With a configuration path it also
-installs the non-secret bridge reference. Never auto-select a Live destination.
+Use `node dist/src/install-remote-script.js --destination <absolute-path>`. Inspect with `--dry-run`; use `--force` only for a known recoverable destination. Installation refuses symlink trees, does not auto-select a Live folder, and writes only the allowlisted bridge assets plus a non-secret reference when configured.
 
-## Evidence
+## Evidence boundary
 
-Node/Python tests, the simulator, fake-Live mapper, package verification, and
-loopback handshake prove repository-controlled contracts only. They do not
-establish a real Live Set, Live version compatibility, audio capture,
-hardware, accessibility, signing, notarization, or installer-runtime support.
+Node/Python tests, the simulator, fake-Live mapper, authenticated loopback checks, package verification, and benchmarks establish repository-controlled contracts only. They do not prove a real Ableton Live version, disposable Set, visible UI state, audible/realtime behavior, hardware, accessibility, installer runtime, signing, notarization, or release readiness.

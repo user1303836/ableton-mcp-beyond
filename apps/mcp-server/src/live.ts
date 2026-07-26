@@ -8,6 +8,12 @@
  */
 
 export const LIVE_PROTOCOL_VERSION = "ableton-live/v1";
+export const LIVE_REGISTRY_HASH = "a6b2ecbd8181221fcb64b6ffc738c7a220082a293118aa266821ee972479fa96";
+export const LIVE_REGISTRY_OPERATIONS = [
+  "clip.create", "clip.delete", "device.parameter.set", "discover", "get", "locator.add", "locator.delete",
+  "note.add", "reconnect", "scene.create", "scene.delete", "session.discover", "set", "status", "subscribe",
+  "track.create", "track.delete",
+] as const;
 
 export const LIVE_CAPABILITIES = [
   "session.read", "session.write", "tracks", "scenes", "clips", "notes",
@@ -40,6 +46,8 @@ export interface LiveStatus {
   protocol: string;
   capabilities: readonly LiveCapability[];
   reason?: string;
+  registryHash?: string;
+  operations?: readonly string[];
 }
 
 export interface Note { pitch: number; start: number; duration: number; velocity: number; channel: number; }

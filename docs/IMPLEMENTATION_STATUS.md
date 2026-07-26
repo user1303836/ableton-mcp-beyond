@@ -13,11 +13,13 @@
   epochs, and deterministic close behavior.
 - Loadable `AbletonMcpBridge/__init__.py` with one-argument `create_instance`,
   fail-closed configuration, Control Surface scheduling, socket lifecycle,
-  main-thread queue, epoch-scoped references, Session discovery/MIDI mapping,
-  and version-negotiated Arrangement locator support when the Live shape exists.
+  main-thread queue, epoch-scoped references, registry hash negotiation, Session
+  discovery/MIDI mapping, Arrangement locator support when the Live shape
+  exists, and published numeric device-parameter mapping.
 - Bounded Session discovery, Session-structure track/scene
   preview/apply/undo, MIDI preview/apply/undo, Arrangement locator
-  preview/apply/undo, and tempo preview/apply/undo contracts in the host.
+  preview/apply/undo, tempo preview/apply/undo, and device-parameter
+  preview/apply/guarded-undo contracts in the host.
 - Privacy-preserving PCM aggregate, waveform envelope, logarithmic
   time-frequency, and transient summaries.
 - Explicit-target Remote Script packaging/installation with manifest hashes,
@@ -32,14 +34,17 @@ Use `docs/USER_GUIDE.md` for clients, `docs/OPERATIONS.md` for supervision,
 ## Known limitations
 
 The production bridge has not been validated against a real Ableton Live
-runtime or disposable Set in this checkout. Discovery is currently limited to
-the implemented track/scene/clip/note/locator pages and the Python mapper's
-supported objects; it is not the full Live hierarchy. Session structure is
-limited to bounded named track/scene creation and guarded removal. Arrangement
-support is limited to named locator operations. Launch/recording, audio capture,
-warp/takes, automation, devices/racks, routing, projects, realtime delivery,
-Max/OSC, plug-in UI fallback, performance mode, accessibility certification,
-signing, notarization, and release publication are unavailable.
+runtime or disposable Set in this checkout. The host `live_discover` tool
+currently accepts track, scene, clip, and note pages; the Python bridge mapper
+also has bounded locator, device, and parameter pages. This is not the full
+Live hierarchy and host-side parent/filter/field traversal is not complete.
+Session structure is limited to bounded named track/scene creation and guarded
+removal. Arrangement support is limited to named locator operations. Device
+support is limited to discovery and guarded numeric parameter adjustment; it
+does not insert, delete, move, load presets, traverse racks/chains, or control
+plug-in UI. Launch/recording, audio capture, warp/takes, automation, routing,
+projects, realtime delivery, Max/OSC, performance mode, accessibility
+certification, signing, notarization, and release publication are unavailable.
 
 The RMS loudness field is explicitly a proxy, not LUFS or true peak. Simulator,
 fake-Live, package, benchmark, and CI results are deterministic contract

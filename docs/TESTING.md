@@ -1,9 +1,10 @@
 # Testing guide
 
-## Local gates
+## Deterministic gates
+
+Run serially from `apps/mcp-server`:
 
 ```sh
-cd apps/mcp-server
 npm ci
 npm run typecheck
 npm test
@@ -12,31 +13,24 @@ npm run benchmark
 npm run compatibility
 npm run package:verify
 npm pack --dry-run --json
-cd ../..
+```
+
+Then run from the repository root:
+
+```sh
 python3 -m unittest discover -s remote-script -p 'test_*.py'
 git diff --check
 git diff --cached --check
 ```
 
-Node tests compile into `dist/` and exercise MCP lifecycle, stdio framing,
-remote response validation, delivery, async adapter paths, transactions,
-analysis, properties, and package installation. Python tests exercise the
-dependency-free bridge, canonical authentication, sequence/replay rejection,
-main-thread queue, fake-Live mapper, locator/MIDI and track/scene behavior, and
-cleanup. Package verification and the dry-run check inspect the actual
-allowlisted artifact rather than only source files.
+Node tests compile into `dist/` and cover MCP lifecycle, schema validation, stdio framing, async adapter behavior, authenticated loopback responses, transactions, analysis, properties, delivery, and package installation. Python tests cover the dependency-free Control Surface entrypoint, registry loading and hashing, authentication, sequencing/replay rejection, main-thread queueing, fake-Live references, discovery, Session MIDI, locators, structure, device/parameter validation, and cleanup.
+
+The benchmark warms the declared maximum PCM input and reports repeated latency measurements. Latency, output size, and bounded-memory evidence are distinct concerns; no unavailable platform runner or simulator result is a pass for real Live.
 
 ## What passing means
 
-Passing proves deterministic repository behavior and package contracts. It does
-not prove a real Control Surface loaded in Ableton Live, a real Live API shape,
-audible or realtime behavior, platform installer runtime, accessibility,
-hardware, signing, or notarization.
+Passing proves deterministic repository behavior and package contracts. It does not prove a real Control Surface loaded in Ableton Live, a supported Live API shape, visible Set state, audible or realtime behavior, platform installer runtime, accessibility, hardware, signing, notarization, or release publication.
 
 ## Change discipline
 
-Add both success and fail-closed tests for new capabilities. Keep analysis
-fixtures bounded and privacy-preserving. Test epoch changes, stale references,
-timeouts, disconnects, lost acknowledgements, partial mutation, compensation,
-and guarded undo. Run the gates serially from the existing checkout. Do not
-use the protected SDK directory as a copied fixture or package input.
+Add success and fail-closed tests for every new protocol method or Live side effect. Cover stale epochs/cursors/revisions, expired confirmations, conflicting idempotency keys, timeouts, cancellation, disconnects, lost acknowledgements, partial mutation, compensation failure, external edits, and guarded undo. Keep fixtures bounded and privacy-preserving. Never open, copy, stage, package, or expose the protected local SDK evidence.

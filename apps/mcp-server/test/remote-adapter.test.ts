@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import { createServer } from "node:net";
 import { test } from "node:test";
 import { RemoteScriptLiveAdapter } from "../src/bridge/remote-adapter.js";
+import { LIVE_REGISTRY_HASH } from "../src/live.js";
 
 const secret = "0123456789abcdef0123456789abcdef";
 const canonical = (value: unknown): string => {
@@ -23,7 +24,20 @@ test("remote adapter fails closed before opening non-loopback or weakly authenti
 test("remote adapter rejects an invalid negotiated status", async () => {
   const server = createServer((socket) => socket.on("data", (chunk) => {
     const request = JSON.parse(chunk.toString("utf8")) as { id: string };
-    const base = { version: "ableton-loopback/v1", id: request.id, ok: true, result: { connected: true, adapter: "remote-script", epoch: -1, protocol: "ableton-live/v1", capabilities: [42] } };
+    const base = { version: "ableton-loopback/v1", id: request.id, ok: true, result: { connected: true, adapter: "remote-script", epoch: -1, protocol: "ableton-live/v1", capabilities: [42], registryHash: LIVE_REGISTRY_HASH, operations: ["status"] } };
+    socket.write(`${JSON.stringify({ ...base, mac: signed(base) })}\n`);
+  }));
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  try { await assert.rejects(RemoteScriptLiveAdapter.connect({ host: "127.0.0.1", port: address.port, secret, timeoutMs: 200 }), /handshake or negotiation/); }
+  finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
+});
+
+test("remote adapter rejects a registry operation outside the canonical set", async () => {
+  const server = createServer((socket) => socket.on("data", (chunk) => {
+    const request = JSON.parse(chunk.toString("utf8")) as { id: string };
+    const base = { version: "ableton-loopback/v1", id: request.id, ok: true, result: { connected: true, adapter: "remote-script", epoch: 1, protocol: "ableton-live/v1", capabilities: [], registryHash: LIVE_REGISTRY_HASH, operations: ["status", "discover", "get", "set", "reconnect", "forged.operation"] } };
     socket.write(`${JSON.stringify({ ...base, mac: signed(base) })}\n`);
   }));
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -56,7 +70,7 @@ test("remote adapter tears down on an authenticated unknown response", async () 
         const index = buffer.indexOf("\n");
         const request = JSON.parse(buffer.slice(0, index)) as { id: string; method: string };
         buffer = buffer.slice(index + 1);
-        const base = { version: "ableton-loopback/v1", id: request.method === "status" ? request.id : "unknown", ok: true, result: request.method === "status" ? { connected: true, adapter: "remote-script", epoch: 1, protocol: "ableton-live/v1", capabilities: [] } : {} };
+        const base = { version: "ableton-loopback/v1", id: request.method === "status" ? request.id : "unknown", ok: true, result: request.method === "status" ? { connected: true, adapter: "remote-script", epoch: 1, protocol: "ableton-live/v1", capabilities: [], registryHash: LIVE_REGISTRY_HASH, operations: ["status", "discover", "get", "set", "reconnect"] } : {} };
         socket.write(`${JSON.stringify({ ...base, mac: signed(base) })}\n`);
       }
     });

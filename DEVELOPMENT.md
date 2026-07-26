@@ -1,9 +1,11 @@
 # Development Notes
 
-The repository currently ships a TypeScript MCP host and deterministic local
-PCM analysis. It does not ship a Live adapter. Keep implementation claims
-aligned with the exported code and tests; the project reference document is
-context, not an API specification.
+The repository ships a TypeScript MCP host, deterministic local PCM analysis,
+an authenticated loopback Remote Script adapter, a canonical operation
+registry, and dependency-free fake-Live contracts. The default remains
+`UnavailableLiveAdapter`; a configured bridge is not evidence of a real Live
+runtime. Keep implementation claims aligned with exported code and tests; the
+project reference document is context, not an API specification.
 
 ## Local development
 
@@ -28,9 +30,10 @@ dependencies.
 
 Do not make tests depend on an installed Ableton Live process, a device, a
 platform-specific runner, or local-only reference material. The default
-`UnavailableLiveAdapter` is the supported behavior until a real adapter is
-implemented and tested. Any future adapter must preserve the protocol and
-safety contracts documented in [`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md).
+`UnavailableLiveAdapter` is the supported behavior when no explicit
+configuration is supplied. Any adapter must preserve the registry, protocol,
+epoch, validation, and safety contracts documented in
+[`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md).
 
 ## Change discipline
 

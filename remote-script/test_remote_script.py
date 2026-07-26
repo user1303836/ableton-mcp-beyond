@@ -221,6 +221,14 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(mapper.get(first)["ref"], first)
 
+    def test_snapshot_exposes_authoritative_set_for_transport_verification(self):
+        song = FakeSong()
+        song.tempo = 128.0
+        mapper = LiveObjectMapper(song)
+        snapshot = mapper.snapshot()
+        self.assertEqual(snapshot["set"]["tempo"], 128.0)
+        self.assertEqual(mapper.get(snapshot["set"]["ref"])["ref"], snapshot["set"]["ref"])
+
     def test_device_parameter_discovery_and_guarded_mutation(self):
         mapper = LiveObjectMapper(FakeSong())
         device = mapper.discover("device")["items"][0]

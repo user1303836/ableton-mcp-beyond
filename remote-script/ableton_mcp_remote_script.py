@@ -28,6 +28,7 @@ SUPPORTED_OPERATIONS = {
     "session.discover", "session.reconnect", "clip.create", "clip.delete", "note.add",
     "locator.add", "locator.delete", "track.create", "track.delete", "scene.create", "scene.delete", "device.parameter.set",
 }
+REQUIRED_REGISTRY_OPERATIONS = {"status", "discover", "get", "set", "reconnect"}
 _MODULE_PATH = Path(__file__).resolve()
 _REGISTRY_CANDIDATES = (
     _MODULE_PATH.with_name("ableton-live-v1.operations.json"),
@@ -50,6 +51,11 @@ def operation_registry() -> tuple[dict[str, Any], str]:
     identifiers = [item.get("id") for item in operations if isinstance(item, dict)]
     if len(identifiers) != len(operations) or identifiers != sorted(identifiers) or len(set(identifiers)) != len(identifiers):
         raise ValueError("operation registry identifiers are not canonical")
+    for item in operations:
+        if set(item) != {"id", "method", "request", "result"} or not isinstance(item["id"], str) or not isinstance(item["method"], str) or not isinstance(item["request"], dict) or not isinstance(item["result"], dict):
+            raise ValueError("operation registry entry is malformed")
+    if not REQUIRED_REGISTRY_OPERATIONS.issubset(identifiers):
+        raise ValueError("operation registry is missing required operations")
     return registry, hashlib.sha256(raw).hexdigest()
 MAX_NONCE_LENGTH = 256
 MAX_WIRE_BYTES = 1_048_576
@@ -312,6 +318,16 @@ class LiveObjectMapper:
             return []
 
     def snapshot(self) -> dict[str, Any]:
+        set_ref = self.refs.put("set", self.song, "song")
+        tempo = getattr(self.song, "tempo", 120.0)
+        position = getattr(self.song, "current_song_time", getattr(self.song, "song_time", 0.0))
+        playing = getattr(self.song, "is_playing", False)
+        if not isinstance(tempo, (int, float)) or isinstance(tempo, bool) or not math.isfinite(float(tempo)):
+            tempo = 120.0
+        if not isinstance(position, (int, float)) or isinstance(position, bool) or not math.isfinite(float(position)) or float(position) < 0:
+            position = 0.0
+        if not isinstance(playing, bool):
+            playing = False
         tracks = self._items(getattr(self.song, "tracks", []))
         scenes = self._items(getattr(self.song, "scenes", []))
         track_rows = []
@@ -332,7 +348,7 @@ class LiveObjectMapper:
             track_rows.append({"ref": track_ref, "name": str(getattr(track, "name", f"Track {index + 1}")), "kind": "midi" if bool(getattr(track, "has_midi_input", True)) else "audio", "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track)})
         scene_rows = [{"ref": self.refs.put("scene", scene, str(i)), "name": str(getattr(scene, "name", f"Scene {i + 1}")), "index": i} for i, scene in enumerate(scenes)]
         locators = self._locator_items()
-        return {"tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators}, "epoch": self.refs.epoch}
+        return {"set": {"ref": set_ref, "name": str(getattr(self.song, "name", "Live Set")), "tempo": float(tempo), "playing": playing, "position": float(position), "loop": {"enabled": bool(getattr(self.song, "loop", False)), "start": 0.0, "length": float(getattr(self.song, "loop_length", 4.0) or 4.0)}}, "tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators}, "epoch": self.refs.epoch}
 
     def _read_notes(self, clip: Any) -> list[dict[str, Any]]:
         if hasattr(clip, "get_notes"):
@@ -347,6 +363,8 @@ class LiveObjectMapper:
         if obj is None:
             raise ValueError("object reference is stale or unknown")
         kind = reference.split(":", 2)[1] if reference.count(":") >= 2 else ""
+        if kind == "set":
+            return self.snapshot()["set"]
         if kind == "clip":
             return next((clip for track in self.snapshot()["tracks"] for clip in track["clips"] if clip["ref"] == reference), None)
         if kind in {"device", "parameter"}:

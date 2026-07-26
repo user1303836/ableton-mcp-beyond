@@ -1,49 +1,27 @@
 # Recovery procedures
 
-## Protocol or input errors
+## Protocol and input errors
 
-Use a fresh request ID after correcting the request. For malformed or oversized
-input, discard the rejected line, inspect only the redacted stderr diagnostic,
-and resume with valid newline-delimited JSON when the session remains valid. If
-framing, authentication, sequencing, or correlation is no longer trustworthy,
-restart and reinitialize rather than continuing the stream.
+Correct the request and use a fresh request identifier. For malformed or oversized input, discard the rejected frame and inspect only the redacted stderr diagnostic. If authentication, framing, sequencing, or response correlation is no longer trustworthy, stop and restart the process; do not continue the stream.
 
-## Configuration or installation errors
+## Configuration and installation errors
 
-Check that the parent exists, the configuration is version 1 or 2, the bridge
-host is loopback (`127.x.x.x`, `::1`, or `localhost`), the port and timeout are
-in range, and the secret is a regular owner-only file of at least 32
-non-whitespace characters. Do not put a
-secret on the command line. Repair or migrate to a new explicit path before
-using `--force`. For installation, preserve the reported backup and do not
-replace an unrelated destination.
+Verify that the path is explicit, regular, non-symlink, and owner-controlled; configuration is version 1 or 2; the bridge host is numeric loopback (`127.x.x.x` or `::1`); port and timeout are in range; and the separate secret is at least 32 non-whitespace characters with safe permissions. Never put a secret on the command line. Write a repaired configuration to a new path before using `--force`. Preserve any installer backup and never replace an unrelated destination.
 
 ## Adapter uncertainty
 
-Authentication failure, response-MAC failure, replay, sequence error,
-malformed response, timeout, cancellation, disconnect, or acknowledgement loss means the
-remote result is unknown. Stop mutation attempts, reconnect only after checking
-status and epoch, and read authoritative state before any retry. Never
-automatically replay a mutation.
+Authentication failure, registry mismatch, response-MAC failure, replay, sequence error, malformed response, timeout, cancellation, disconnect, or acknowledgement loss means the result is unknown. Stop mutation attempts. Reconnect only after checking that the bridge is the intended endpoint, then obtain a fresh status, epoch, snapshot, and discovery result. Never automatically replay a mutation.
 
 ## Transaction recovery
 
-Preview expiry, epoch change, stale revision, occupied Session slot, duplicate
-track/scene name, locator collision, failed verification, or compensation
-failure requires fresh discovery and a new preview. Arrangement uncertainty
-must be resolved by reading locators; structure uncertainty must be resolved by
-reading tracks and scenes. `live_undo` refuses uncertain or externally changed state.
-Tempo and MIDI undo likewise refuse when the captured postcondition or epoch no
-longer matches. Do not force an undo.
+Preview expiry, stale epoch, stale revision, invalid parent, occupied Session slot, duplicate structure name, locator collision, unsupported or disabled parameter, out-of-range or incorrectly quantized value, failed verification, or failed compensation requires fresh authoritative discovery and a new preview. `live_undo` refuses uncertain or externally changed state. For device parameters, verify the same device-child relationship, applied value, and applied revision before undo; reconnects, automation changes, or external edits require manual inspection.
 
-## Process restart
+## Restart
 
-1. Stop the supervisor.
-2. Confirm no generated or credential files are being collected.
-3. Restart `dist/src/cli.js` with separate stdout/stderr.
-4. Send `initialize` with `2025-11-25`, then `notifications/initialized`.
-5. Use fresh request IDs and fresh transaction previews.
+1. Stop the supervisor and preserve redacted diagnostics.
+2. Confirm that no generated archive or credential file is being collected.
+3. Restart `dist/src/cli.js` with stdout and stderr separate.
+4. Initialize with `2025-11-25`, then send `notifications/initialized`.
+5. Obtain fresh status and discovery, preview again, and use a new bounded idempotency key.
 
-If a real Live session is ever involved, stop and inspect the Set visibly before
-continuing. The current deterministic evidence cannot substitute for that
-inspection.
+If real Live is involved, stop and inspect the Set visibly before continuing. Repository-controlled evidence cannot substitute for that inspection or prove restoration.

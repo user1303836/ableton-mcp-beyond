@@ -19,8 +19,11 @@ Session MIDI clip/note operations, bounded track/scene creation and deletion,
 reconnect epoch invalidation, and Arrangement locator operations when the Live
 object exposes cue points and `set_or_delete_cue`. Unsupported shapes are
 unavailable, not fabricated. Discovery is not a complete Live object graph and
-does not imply support for devices, routing, recording, or other unimplemented
-domains.
+does not imply support for routing, recording, or other unimplemented domains.
+
+It also loads and hashes the canonical operation registry, advertises only
+supported operations, and provides bounded device/parameter discovery plus
+guarded writes to enabled, automatable, bounded, quantized numeric parameters.
 
 Run contract tests from the repository root:
 
