@@ -95,11 +95,12 @@ class AuthenticatedRemoteScript:
             or not isinstance(request["nonce"], str)
             or not isinstance(request["sequence"], int)
             or isinstance(request["sequence"], bool)
+            or not 1 <= request["sequence"] <= (2**53 - 1)
             or not isinstance(request["mac"], str)
         ):
             return self._error(request.get("id", "invalid"), "invalid request")
         if request["method"] == "invoke":
-            if not isinstance(request.get("operation"), str) or not re.fullmatch(r"[a-z]+\.[a-z]+", request["operation"]):
+            if not isinstance(request.get("operation"), str) or not re.fullmatch(r"[a-z]+(?:\.[a-z]+)+", request["operation"]):
                 return self._error(request["id"], "operation is required")
             if not isinstance(request.get("args", {}), dict) or len(request.get("args", {})) > 32:
                 return self._error(request["id"], "args must be a bounded object")
@@ -189,11 +190,30 @@ class LiveObjectMapper:
     def capabilities(self) -> list[str]:
         if self.song is None:
             return []
-        return [
+        capabilities = [
             "session.read", "session.write", "session.discovery",
             "session.midi_clip.create", "session.midi_clip.delete",
             "session.midi_note.read", "session.midi_note.write", "reconnect",
         ]
+        if self._locator_supported():
+            capabilities.extend(("arrangement.read", "arrangement.write", "arrangement.locator.create", "arrangement.locator.delete"))
+        return capabilities
+
+    def _locator_supported(self) -> bool:
+        return hasattr(self.song, "cue_points") and callable(getattr(self.song, "set_or_delete_cue", None))
+
+    def _locator_items(self) -> list[dict[str, Any]]:
+        if not self._locator_supported():
+            return []
+        result = []
+        for index, locator in enumerate(self._items(getattr(self.song, "cue_points", []))):
+            position = getattr(locator, "time", getattr(locator, "position", None))
+            if not isinstance(position, (int, float)) or not math.isfinite(float(position)):
+                continue
+            name = getattr(locator, "name", "")
+            reference = self.refs.put("locator", locator, str(index))
+            result.append({"ref": reference, "name": str(name), "position": float(position)})
+        return sorted(result, key=lambda item: (item["position"], item["name"], item["ref"]))
 
     @staticmethod
     def _items(value: Any) -> list[Any]:
@@ -219,7 +239,8 @@ class LiveObjectMapper:
                 clips.append({"ref": clip_ref, "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": slot_index * 4, "length": float(getattr(clip, "length", 0.0)), "notes": notes})
             track_rows.append({"ref": track_ref, "name": str(getattr(track, "name", f"Track {index + 1}")), "kind": "midi" if bool(getattr(track, "has_midi_input", True)) else "audio", "clips": clips})
         scene_rows = [{"ref": self.refs.put("scene", scene, str(i)), "name": str(getattr(scene, "name", f"Scene {i + 1}")), "index": i} for i, scene in enumerate(scenes)]
-        return {"tracks": track_rows, "scenes": scene_rows, "epoch": self.refs.epoch}
+        locators = self._locator_items()
+        return {"tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators}, "epoch": self.refs.epoch}
 
     def _read_notes(self, clip: Any) -> list[dict[str, Any]]:
         if hasattr(clip, "get_notes"):
@@ -228,7 +249,7 @@ class LiveObjectMapper:
         return []
 
     def discover(self, kind: str, limit: int = 100, cursor: str | None = None) -> dict[str, Any]:
-        if kind not in {"track", "scene", "clip", "note"}:
+        if kind not in {"track", "scene", "clip", "note", "locator"}:
             raise ValueError("unsupported discovery kind")
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
             raise ValueError("discovery limit is invalid")
@@ -236,7 +257,8 @@ class LiveObjectMapper:
         if kind == "track": items = snapshot["tracks"]
         elif kind == "scene": items = snapshot["scenes"]
         elif kind == "clip": items = [clip for track in snapshot["tracks"] for clip in track["clips"]]
-        else: items = [note | {"ref": f"note:{clip['ref']}:{index}"} for track in snapshot["tracks"] for clip in track["clips"] for index, note in enumerate(clip["notes"])]
+        elif kind == "note": items = [note | {"ref": f"note:{clip['ref']}:{index}"} for track in snapshot["tracks"] for clip in track["clips"] for index, note in enumerate(clip["notes"])]
+        else: items = snapshot["arrangement"]["locators"]
         offset = 0
         if cursor is not None:
             try:
@@ -262,22 +284,69 @@ class LiveObjectMapper:
         if operation == "session.reconnect":
             self.refs.reset()
             return self.status()
+        if operation == "arrangement.locator.create":
+            return self._locator_mutate(args, delete=False)
+        if operation == "arrangement.locator.delete":
+            return self._locator_mutate(args, delete=True)
         if operation in {"clip.create", "clip.delete", "note.add"}:
             return self._mutate(operation, args)
         raise ValueError("live operation unavailable")
 
+    def _locator_mutate(self, args: dict[str, Any], delete: bool) -> dict[str, Any]:
+        if not self._locator_supported():
+            raise ValueError("Arrangement locators are unavailable")
+        if delete:
+            reference = args.get("ref")
+            if not isinstance(reference, str):
+                raise ValueError("locator reference is required")
+            locator = self.refs.get(reference)
+            position = getattr(locator, "time", getattr(locator, "position", None))
+            if not isinstance(position, (int, float)) or not math.isfinite(float(position)):
+                raise ValueError("locator position is invalid")
+            self.song.set_or_delete_cue(float(position))
+            self.refs.delete(reference)
+            return {"deleted": reference}
+        name = args.get("name")
+        position = args.get("position")
+        if not isinstance(name, str) or not 1 <= len(name) <= 128 or not isinstance(position, (int, float)) or isinstance(position, bool) or not math.isfinite(float(position)) or not 0 <= float(position) <= 100000:
+            raise ValueError("locator name or position is invalid")
+        if any(item["name"] == name or item["position"] == float(position) for item in self._locator_items()):
+            raise ValueError("locator target collides with existing state")
+        before = self._locator_items()
+        self.song.set_or_delete_cue(float(position))
+        after = self._locator_items()
+        created = [item for item in after if item["ref"] not in {old["ref"] for old in before} and item["position"] == float(position)]
+        if len(created) != 1:
+            raise RuntimeError("Live did not confirm locator creation")
+        locator = self.refs.get(created[0]["ref"])
+        if hasattr(locator, "name"):
+            locator.name = name
+        return {"ref": created[0]["ref"], "name": name, "position": float(position)}
+
     def _mutate(self, operation: str, args: dict[str, Any]) -> Any:
         if operation == "clip.create":
             track = self.refs.get(str(args["trackRef"]))
+            if not bool(getattr(track, "has_midi_input", False)):
+                raise ValueError("target track is not MIDI-capable")
             slots = self._items(getattr(track, "clip_slots", []))
-            index = int(args["sceneIndex"])
+            if not isinstance(args.get("sceneIndex"), int) or isinstance(args["sceneIndex"], bool):
+                raise ValueError("scene index is invalid")
+            index = args["sceneIndex"]
+            if not 0 <= index < len(slots):
+                raise ValueError("scene index is invalid")
             slot = slots[index]
             if getattr(slot, "clip", None) is not None:
                 raise ValueError("session slot is occupied")
-            clip = slot.create_clip(float(args["length"]))
+            length = args.get("length")
+            if not isinstance(length, (int, float)) or isinstance(length, bool) or not math.isfinite(float(length)) or not 0 < float(length) <= 1024:
+                raise ValueError("clip length is invalid")
+            name = args.get("name")
+            if not isinstance(name, str) or not 1 <= len(name) <= 256:
+                raise ValueError("clip name is invalid")
+            clip = slot.create_clip(float(length))
             if hasattr(clip, "name"):
-                clip.name = str(args["name"])
-            return {"ref": self.refs.put("clip", clip, f"{args['trackRef']}:{index}"), "name": getattr(clip, "name", ""), "length": float(getattr(clip, "length", args["length"]))}
+                clip.name = name
+            return {"ref": self.refs.put("clip", clip, f"{args['trackRef']}:{index}"), "name": getattr(clip, "name", ""), "length": float(getattr(clip, "length", length))}
         if operation == "clip.delete":
             clip = self.refs.get(str(args["ref"]))
             for track in self._items(getattr(self.song, "tracks", [])):
@@ -287,9 +356,20 @@ class LiveObjectMapper:
                         return {"deleted": args["ref"]}
             raise ValueError("clip reference is not deletable")
         clip = self.refs.get(str(args["ref"]))
+        if not isinstance(args.get("note"), dict):
+            raise ValueError("note is invalid")
         note = dict(args["note"])
         if not hasattr(clip, "add_new_notes"):
             raise ValueError("target is not a MIDI clip")
+        if (not isinstance(note.get("pitch"), int) or isinstance(note["pitch"], bool) or not 0 <= note["pitch"] <= 127
+                or not isinstance(note.get("velocity"), int) or isinstance(note["velocity"], bool) or not 1 <= note["velocity"] <= 127
+                or not isinstance(note.get("channel"), int) or isinstance(note["channel"], bool) or not 1 <= note["channel"] <= 16
+                or not isinstance(note.get("start"), (int, float)) or isinstance(note["start"], bool)
+                or not isinstance(note.get("duration"), (int, float)) or isinstance(note["duration"], bool)
+                or not math.isfinite(float(note["start"])) or not math.isfinite(float(note["duration"]))
+                or float(note["start"]) < 0 or float(note["duration"]) <= 0
+                or float(note["start"]) + float(note["duration"]) > float(getattr(clip, "length", 0))):
+            raise ValueError("note is invalid")
         clip.add_new_notes([note])
         return {"added": True}
 
@@ -297,16 +377,32 @@ class LiveObjectMapper:
 class _MainThreadQueue:
     def __init__(self) -> None:
         self.items: queue.Queue[tuple[Callable[[], Any], threading.Event, list[Any]]] = queue.Queue(MAX_QUEUE_ITEMS)
+        self._closed = False
+        self._lock = threading.Lock()
 
     def submit(self, callback: Callable[[], Any], timeout: float = DEFAULT_TIMEOUT_SECONDS) -> Any:
         event = threading.Event()
         result: list[Any] = []
-        self.items.put_nowait((callback, event, result))
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("Live bridge is disconnected")
+            self.items.put_nowait((callback, event, result))
         if not event.wait(timeout):
             raise TimeoutError("Live main-thread operation timed out")
         if result and isinstance(result[0], BaseException):
             raise result[0]
         return result[0] if result else None
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+            while True:
+                try:
+                    _, event, result = self.items.get_nowait()
+                except queue.Empty:
+                    break
+                result.append(RuntimeError("Live bridge is disconnected"))
+                event.set()
 
     def drain(self, budget: int = MAX_QUEUE_ITEMS) -> int:
         count = 0
@@ -340,6 +436,8 @@ class AbletonMcpBridge:
         self.address = self._server.getsockname()
         self._stop = threading.Event()
         self._clients: set[socket.socket] = set()
+        self._workers: set[threading.Thread] = set()
+        self._secret_value = secret
         self._thread = threading.Thread(target=self._accept, name="AbletonMcpBridge", daemon=True)
         self._thread.start()
 
@@ -366,10 +464,12 @@ class AbletonMcpBridge:
             try: client, _ = self._server.accept()
             except (socket.timeout, OSError): continue
             self._clients.add(client)
-            threading.Thread(target=self._client, args=(client,), daemon=True).start()
+            worker = threading.Thread(target=self._client, args=(client,), daemon=True)
+            self._workers.add(worker)
+            worker.start()
 
     def _client(self, client: socket.socket) -> None:
-        client.settimeout(0.2); buffer = b""
+        client.settimeout(0.2); buffer = b""; auth = AuthenticatedRemoteScript(self._secret_value, self._dispatch)
         try:
             while not self._stop.is_set():
                 try: chunk = client.recv(65536)
@@ -380,11 +480,11 @@ class AbletonMcpBridge:
                 while b"\n" in buffer:
                     line, buffer = buffer.split(b"\n", 1)
                     if not line: continue
-                    try: request = json.loads(line.decode("utf-8")); response = self.auth.dispatch(request)
+                    try: request = json.loads(line.decode("utf-8")); response = auth.dispatch(request)
                     except Exception: response = self.auth.error_response()
                     client.sendall(json.dumps(response, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n")
         finally:
-            self._clients.discard(client); client.close()
+            self._clients.discard(client); client.close(); self._workers.discard(threading.current_thread())
 
     def disconnect(self) -> None:
         self._stop.set()
@@ -394,8 +494,12 @@ class AbletonMcpBridge:
             try: client.close()
             except OSError: pass
         self._clients.clear()
-        self.queue = _MainThreadQueue()
+        self.queue.close()
         self.mapper.refs.reset()
+        if self._thread is not threading.current_thread():
+            self._thread.join(timeout=1)
+        for worker in list(self._workers):
+            worker.join(timeout=1)
 
     def __del__(self) -> None:
         try:

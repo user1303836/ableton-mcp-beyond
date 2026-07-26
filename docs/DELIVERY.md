@@ -1,25 +1,22 @@
 # Delivery and platform evidence
 
-The npm artifact contains the compiled MCP host, the allowlisted production
-Remote Script module, and the explicit-target installer. It does not select a
-Live destination automatically and refuses symbolic links, ambiguous paths,
-and overwrite without `--force`. Replacement first moves the existing target
-to a timestamped backup; a failed rename restores it.
+The npm artifact allowlists compiled host files, the `AbletonMcpBridge`
+package, its bridge module, README, and packaging scripts. The verifier checks
+the real tarball in a disposable directory and rejects tests, caches, local
+configuration, secrets, temporary output, and protected evidence.
 
-Host-only configuration remains version 1 for compatibility. Version 2 adds an
-explicit loopback bridge endpoint and secret-file reference. Configuration
-validation rejects non-loopback hosts, invalid ports, unsafe or symbolic-link
-secret files, unknown versions, and missing secrets. Secret contents are never
-included in diagnostics or command output.
+Installation requires an explicit absolute destination. It refuses symlink
+trees and overwrite by default; forced replacement moves an existing target to
+a timestamped recoverable backup. It installs a manifest containing SHA-256
+hashes and never embeds the bridge secret.
 
-Diagnostics report host readiness, installed Remote Script assets, bridge
-configuration, authenticated reachability, negotiated protocol/epoch/capability
-state, and observed Live connectivity independently. File presence and a
-running Live process cannot establish authenticated reachability or Live
-connectivity. Signing, notarization, and real Live runtime evidence remain
-unavailable until the corresponding identity, runner, and disposable Set are
-observed.
+Version 2 configuration references a separate secret file and accepts only a
+loopback host, valid port, safe path, and bounded timeout. Diagnostics report
+host/package/configuration readiness separately from authenticated reachability
+and `liveConnected`. Only the optional authenticated status handshake can set
+those active bridge fields; files, ports, processes, or simulators cannot.
 
-CI runs Node 20 and 22 checks on Ubuntu, macOS, and Windows plus Python Remote
-Script contract tests. These are deterministic repository and packaging checks;
-they are not evidence of a connected Ableton Live instance.
+Node platform support is reported for Darwin, Linux, and Windows. Windows ACL
+permission verification is reported unavailable rather than passed. Signing,
+notarization, real Live runtime, accessibility, hardware, and installer-runtime
+evidence remain unavailable without dedicated observed runners and identities.

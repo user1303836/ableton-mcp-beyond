@@ -106,9 +106,13 @@ test("bridge configuration and secrets are explicit and fail closed", () => {
 
 test("Remote Script installer is explicit, atomic, and preserves a recoverable backup", () => {
   const directory = mkdtempSync(join(tmpdir(), "ableton-mcp-install-"));
-  const source = join(directory, "source.py");
+  const sourceDirectory = join(directory, "source");
+  mkdirSync(sourceDirectory);
+  const source = join(sourceDirectory, "source.py");
   const destination = join(directory, "AbletonMcpBridge");
   writeFileSync(source, "production-remote-script");
+  mkdirSync(join(sourceDirectory, "AbletonMcpBridge"));
+  writeFileSync(join(sourceDirectory, "AbletonMcpBridge", "__init__.py"), "# production package");
   assert.deepEqual(installRemoteScript(source, destination, { dryRun: true }), { installed: destination, backup: null, dryRun: true });
   const first = installRemoteScript(source, destination);
   assert.equal(readFileSync(join(destination, "ableton_mcp_remote_script.py"), "utf8"), "production-remote-script");

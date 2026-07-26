@@ -17,6 +17,12 @@ class RemoteScriptTests(unittest.TestCase):
         self.assertTrue(remote.dispatch(request)["ok"])
         self.assertFalse(remote.dispatch(request)["ok"])
 
+    def test_sequence_must_be_positive_and_safe(self):
+        remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: method)
+        for sequence in (0, -1, 2**53, 2**53 + 1):
+            unsigned = {"version": PROTOCOL, "id": "sequence", "method": "status", "nonce": "sequence-nonce-0001", "sequence": sequence}
+            self.assertFalse(remote.dispatch({**unsigned, "mac": remote.sign(unsigned)})["ok"])
+
     def test_operation_failures_are_wire_errors(self):
         remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: (_ for _ in ()).throw(RuntimeError("not available")))
         unsigned = {"version": PROTOCOL, "id": "one", "method": "snapshot", "nonce": "0000000000000001", "sequence": 1}
@@ -123,12 +129,51 @@ class FakeSong:
         self.scenes = [FakeScene()]
 
 
+class FakeLocator:
+    def __init__(self, time, name=""):
+        self.time = time
+        self.name = name
+
+
+class FakeArrangementSong(FakeSong):
+    def __init__(self):
+        super().__init__()
+        self.cue_points = [FakeLocator(0, "Intro")]
+
+    def set_or_delete_cue(self, position):
+        for index, locator in enumerate(self.cue_points):
+            if locator.time == position:
+                self.cue_points.pop(index)
+                return
+        self.cue_points.append(FakeLocator(position))
+
+
 class FakeInstance:
     def __init__(self):
         self.song = FakeSong()
 
 
 class ControlSurfaceTests(unittest.TestCase):
+    def test_arrangement_locators_are_authoritative_and_reversible(self):
+        song = FakeArrangementSong()
+        mapper = LiveObjectMapper(song)
+        self.assertIn("arrangement.write", mapper.status()["capabilities"])
+        self.assertEqual(mapper.discover("locator")["items"][0]["name"], "Intro")
+        created = mapper.invoke("arrangement.locator.create", {"name": "Verse", "position": 8})
+        self.assertEqual(created["name"], "Verse")
+        self.assertEqual(mapper.discover("locator")["items"][-1]["position"], 8)
+        self.assertEqual(mapper.invoke("arrangement.locator.delete", {"ref": created["ref"]}), {"deleted": created["ref"]})
+        self.assertEqual([item["name"] for item in mapper.discover("locator")["items"]], ["Intro"])
+
+    def test_arrangement_locator_rejects_collisions_and_unsupported_shapes(self):
+        mapper = LiveObjectMapper(FakeArrangementSong())
+        with self.assertRaises(ValueError):
+            mapper.invoke("arrangement.locator.create", {"name": "Other", "position": 0})
+        with self.assertRaises(ValueError):
+            mapper.invoke("arrangement.locator.create", {"name": "Other", "position": float("nan")})
+        with self.assertRaises(ValueError):
+            LiveObjectMapper(FakeSong()).invoke("arrangement.locator.create", {"name": "Other", "position": 4})
+
     def test_entrypoint_requires_explicit_loopback_configuration(self):
         with self.assertRaises(ValueError):
             create_instance(FakeInstance())
@@ -151,6 +196,15 @@ class ControlSurfaceTests(unittest.TestCase):
         track = mapper.discover("track")["items"][0]["ref"]
         created = mapper.invoke("clip.create", {"trackRef": track, "sceneIndex": 0, "name": "Session slot", "length": 16})
         self.assertEqual(mapper.refs.get(created["ref"]).length, 16)
+
+    def test_mapper_rejects_unsafe_clip_and_note_mutations(self):
+        mapper = LiveObjectMapper(FakeSong())
+        track = mapper.discover("track")["items"][0]["ref"]
+        with self.assertRaises(ValueError):
+            mapper.invoke("clip.create", {"trackRef": track, "sceneIndex": 0, "name": "bad", "length": float("nan")})
+        created = mapper.invoke("clip.create", {"trackRef": track, "sceneIndex": 0, "name": "bounded", "length": 4})
+        with self.assertRaises(ValueError):
+            mapper.invoke("note.add", {"ref": created["ref"], "note": {"pitch": 36, "start": 3.5, "duration": 1, "velocity": 100, "channel": 1}})
 
     def test_discovery_pages_notes_and_rejects_stale_cursor(self):
         mapper = LiveObjectMapper(FakeSong())
@@ -186,6 +240,24 @@ class ControlSurfaceTests(unittest.TestCase):
         bridge.disconnect()
         self.assertTrue(bridge._stop.is_set())
         self.assertEqual(len(bridge._clients), 0)
+
+    def test_disconnect_releases_waiting_main_thread_work(self):
+        bridge = AbletonMcpBridge(FakeInstance(), {"host": "127.0.0.1", "port": 45679, "secret": "0123456789abcdef0123456789abcdef"})
+        result = []
+        import threading
+        worker = threading.Thread(target=lambda: result.append(self._dispatch_error(bridge)))
+        worker.start()
+        bridge.disconnect()
+        worker.join(1)
+        self.assertEqual(result, ["Live bridge is disconnected"])
+
+    @staticmethod
+    def _dispatch_error(bridge):
+        try:
+            bridge._dispatch("status", {})
+        except RuntimeError as error:
+            return str(error)
+        return "no error"
 
 
 if __name__ == "__main__":

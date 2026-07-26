@@ -3,7 +3,8 @@ import { randomBytes } from "node:crypto";
 import { analyzePcm, decodeFloat32Le } from "./analysis.js";
 import { LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_UNAVAILABLE_CAPABILITIES, UnavailableLiveAdapter, type LiveAdapter, type LiveCapability, type LiveRef, type LiveSnapshot, type LiveStatus } from "./live.js";
 import { serveStdio } from "./stdio.js";
-import { SessionMidiTransactionManager, discoverSession } from "./transactions/session-midi.js";
+import { SessionMidiTransactionManager, discoverSession, discoverSessionAsync } from "./transactions/session-midi.js";
+import type { AsyncLiveAdapter } from "./live.js";
 
 export const PROTOCOL_VERSION = "2025-11-25";
 export const MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
@@ -24,6 +25,11 @@ interface TempoTransaction {
   state: TempoTransactionState;
   applyKey?: string;
   undoKey?: string;
+}
+interface ArrangementTransaction {
+  id: string; epoch: number; revision: string; start: number; end: number; startName: string; endName: string;
+  prior: Array<{ ref: LiveRef; name: string; position: number }>; created?: Array<{ ref: LiveRef; name: string; position: number }>;
+  expiresAt: number; state: "previewed" | "applied" | "uncertain" | "undone"; applyKey?: string; undoKey?: string;
 }
 
 const REQUEST_ID_MAX_LENGTH = 128;
@@ -62,7 +68,7 @@ const safetyResource = [
 ].join("\n");
 
 export { UnavailableLiveAdapter } from "./live.js";
-export type { LiveAdapter, LiveRef, LiveSnapshot, LiveStatus } from "./live.js";
+export type { AsyncLiveAdapter, LiveAdapter, LiveRef, LiveSnapshot, LiveStatus } from "./live.js";
 
 const implementedTools = [
   {
@@ -120,6 +126,18 @@ const implementedTools = [
   {
     name: "live_midi_clip_apply",
     description: "Apply an exact, unexpired MIDI preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string" }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+  },
+  {
+    name: "live_arrangement_section_preview",
+    description: "Preview two named Arrangement locators for a bounded section without mutation.",
+    inputSchema: { type: "object", properties: { start: { type: "number", minimum: 0, maximum: 100000 }, end: { type: "number", minimum: 0, maximum: 100000 }, startName: { type: "string", minLength: 1, maxLength: 128 }, endName: { type: "string", minLength: 1, maxLength: 128 } }, required: ["start", "end", "startName", "endName"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  {
+    name: "live_arrangement_section_apply",
+    description: "Create the confirmed Arrangement section locators once and verify them authoritatively.",
     inputSchema: { type: "object", properties: { transactionId: { type: "string" }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
   },
@@ -221,9 +239,165 @@ export class McpHost {
   private readonly idOrder: string[] = [];
   private readonly toolCallTimes: number[] = [];
   private readonly transactions = new Map<string, TempoTransaction>();
+  private readonly arrangementTransactions = new Map<string, ArrangementTransaction>();
   private readonly midiTransactions: SessionMidiTransactionManager;
 
   public constructor(private readonly adapter: LiveAdapter = new UnavailableLiveAdapter()) { this.midiTransactions = new SessionMidiTransactionManager(adapter); }
+
+  /** Promise-based request entrypoint for process-backed adapters. The legacy
+   * handle() remains for deterministic in-process callers. */
+  public async handleAsync(input: unknown): Promise<JsonObject | null> {
+    if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handle(input);
+    const name = input.params.name;
+    if (!["live_snapshot", "live_discover", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"].includes(name)) return this.handle(input);
+    // Reuse the synchronous validator and request bookkeeping, then execute the
+    // adapter operation asynchronously. Invalid requests never reach Live.
+    const id = this.requestId(input.id);
+    if (id === null || input.jsonrpc !== "2.0" || !hasOnly(input, ["jsonrpc", "id", "method", "params", "_meta"])) return error(null, -32600, "Invalid Request");
+    const key = `${typeof id}:${String(id)}`;
+    if (this.seenIds.has(key)) return error(id, -32600, "Duplicate request identifier");
+    this.seenIds.add(key); this.idOrder.push(key);
+    if (this.idOrder.length > MAX_TRACKED_REQUEST_IDS) { const expired = this.idOrder.shift(); if (expired !== undefined) this.seenIds.delete(expired); }
+    if (!this.initialized) return error(id, -32002, "Server has not been initialized");
+    if (!this.initializedNotification && name !== "live_status") return error(id, -32002, "Server has not received initialized notification");
+    try {
+      if (name === "live_snapshot") return await this.liveSnapshotAsync(id, input.params.arguments);
+      if (name === "live_discover") return await this.liveDiscoverAsync(id, input.params.arguments);
+      if (name === "live_midi_clip_preview") return await this.liveMidiPreviewAsync(id, input.params.arguments);
+      if (name === "live_midi_clip_apply") return await this.liveMidiApplyAsync(id, input.params.arguments);
+      if (name === "live_arrangement_section_preview") return await this.liveArrangementPreviewAsync(id, input.params.arguments);
+      if (name === "live_arrangement_section_apply") return await this.liveArrangementApplyAsync(id, input.params.arguments);
+      if (name === "live_tempo_preview") return await this.liveTempoPreviewAsync(id, input.params.arguments);
+      if (name === "live_tempo_apply") return await this.liveTempoApplyAsync(id, input.params.arguments);
+      return await this.liveUndoAsync(id, input.params.arguments);
+    } catch (cause) { return this.adapterToolError(id, cause, "The asynchronous Live operation failed; inspect authoritative state before retrying."); }
+  }
+
+  private asyncAdapter(): AsyncLiveAdapter {
+    const value = this.adapter as Partial<AsyncLiveAdapter>;
+    if (typeof value.snapshotAsync !== "function" || typeof value.getAsync !== "function" || typeof value.setAsync !== "function" || typeof value.invokeAsync !== "function") throw new Error("live adapter does not support asynchronous operations");
+    return this.adapter as AsyncLiveAdapter;
+  }
+
+  private async liveSnapshotAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!this.utilityParams(params)) return error(id, -32602, "Invalid live_snapshot parameters");
+    const status = this.requireConnected("session.read");
+    return this.successText(id, { epoch: status.epoch, snapshot: await this.asyncAdapter().snapshotAsync() });
+  }
+
+  private async liveDiscoverAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, ["kind", "limit", "cursor"]) || !["track", "scene", "clip", "note"].includes(String(params.kind)) || (params.limit !== undefined && !isIntegerInRange(params.limit, 1, 100)) || (params.cursor !== undefined && !isNonEmptyString(params.cursor, 256))) return error(id, -32602, "kind, limit, and cursor are invalid");
+    return this.successText(id, await discoverSessionAsync(this.asyncAdapter(), params.kind as "track" | "scene" | "clip" | "note", (params.limit as number | undefined) ?? 50, params.cursor as string | undefined));
+  }
+
+  private async liveMidiPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, ["trackRef", "sceneIndex", "name", "length", "notes"]) || typeof params.trackRef !== "string" || !isIntegerInRange(params.sceneIndex, 0, 1023) || typeof params.name !== "string" || typeof params.length !== "number" || !Number.isFinite(params.length) || params.length <= 0 || params.length > 1024 || !Array.isArray(params.notes)) return error(id, -32602, "Invalid MIDI clip preview");
+    return this.successText(id, await this.midiTransactions.previewAsync(params));
+  }
+
+  private async liveMidiApplyAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    return this.successText(id, await this.midiTransactions.applyAsync(params.transactionId as string, params.confirmation, params.idempotencyKey as string));
+  }
+
+  private async liveArrangementPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, ["start", "end", "startName", "endName"]) || typeof params.start !== "number" || !Number.isFinite(params.start) || params.start < 0 || params.start > 100_000 || typeof params.end !== "number" || !Number.isFinite(params.end) || params.end <= params.start || params.end > 100_000 || !isNonEmptyString(params.startName, 128) || !isNonEmptyString(params.endName, 128) || params.startName === params.endName) return error(id, -32602, "Arrangement section range and distinct names are required");
+    try {
+      const status = this.requireConnected("arrangement.read");
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const prior = snapshot.arrangement.locators.map((locator) => ({ ...locator }));
+      if (prior.some((locator) => locator.name === params.startName || locator.name === params.endName || locator.position === params.start || locator.position === params.end)) throw new Error("Arrangement locator target collides with existing state");
+      const transaction: ArrangementTransaction = { id: `arrangement_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, revision: `${status.epoch}:${prior.map((locator) => `${locator.ref}:${locator.name}:${locator.position}`).join("|")}`, start: params.start, end: params.end, startName: params.startName, endName: params.endName, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.arrangementTransactions.set(transaction.id, transaction);
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, revision: transaction.revision, prior, proposed: [{ name: transaction.startName, position: transaction.start }, { name: transaction.endName, position: transaction.end }], impact: "creates-arrangement-locators", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Arrangement preview failed without mutation; discover locators and choose a collision-free range."); }
+  }
+
+  private async liveArrangementApplyAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.arrangementTransactions.get(params.transactionId as string);
+    if (!transaction) return this.transactionError(id, "Unknown or expired Arrangement transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", locators: transaction.created, idempotent: true });
+    if (transaction.state === "applied") return this.transactionError(id, "Arrangement idempotency key conflicts with the applied transaction");
+    if (transaction.state === "uncertain") return this.transactionError(id, "Arrangement apply is uncertain; read authoritative locators before retrying");
+    if (transaction.state !== "previewed" || transaction.expiresAt <= Date.now()) return this.transactionError(id, "Arrangement preview expired or is no longer applicable");
+    try {
+      const status = this.requireConnected("arrangement.write");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const current = (await adapter.snapshotAsync()).arrangement.locators;
+      const revision = `${status.epoch}:${current.map((locator) => `${locator.ref}:${locator.name}:${locator.position}`).join("|")}`;
+      if (revision !== transaction.revision) return this.transactionError(id, "Arrangement locators changed since preview");
+      const created: Array<{ ref: LiveRef; name: string; position: number }> = [];
+      try {
+        created.push(await adapter.invokeAsync({ operation: "locator.add", args: { name: transaction.startName, position: transaction.start } }) as { ref: LiveRef; name: string; position: number });
+        created.push(await adapter.invokeAsync({ operation: "locator.add", args: { name: transaction.endName, position: transaction.end } }) as { ref: LiveRef; name: string; position: number });
+      } catch (cause) {
+        for (const locator of created) { try { await adapter.invokeAsync({ operation: "locator.delete", args: { ref: locator.ref } }); } catch { transaction.state = "uncertain"; transaction.created = created; throw new Error("Arrangement apply compensation failed; read locators before retrying"); } }
+        throw cause;
+      }
+      const authoritative = (await adapter.snapshotAsync()).arrangement.locators;
+      if (!created.every((locator) => authoritative.some((item) => item.ref === locator.ref && item.name === locator.name && item.position === locator.position))) { transaction.state = "uncertain"; transaction.created = created; throw new Error("Live did not confirm Arrangement locators; read authoritative state before retrying"); }
+      transaction.created = created; transaction.applyKey = params.idempotencyKey as string; transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", locators: created, epoch: transaction.epoch, idempotent: false });
+    } catch (cause) { return this.adapterToolError(id, cause, "Arrangement apply uncertain; read authoritative locators before retrying."); }
+  }
+
+  private async liveTempoPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, ["tempo"]) || typeof params.tempo !== "number" || !Number.isFinite(params.tempo) || params.tempo < 20 || params.tempo > 999) return error(id, -32602, "tempo must be a finite number from 20 to 999");
+    const status = this.requireConnected("transport"); const snapshot = await this.asyncAdapter().snapshotAsync(); const transactionId = this.newTransactionId();
+    const transaction: TempoTransaction = { id: transactionId, setRef: snapshot.set.ref, priorTempo: snapshot.set.tempo, proposedTempo: params.tempo, epoch: status.epoch as number, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+    this.transactions.set(transactionId, transaction); this.evictTransactions();
+    return this.successText(id, { transactionId, epoch: transaction.epoch, target: transaction.setRef, priorTempo: transaction.priorTempo, proposedTempo: transaction.proposedTempo, impact: "audible-transport", confirmation: "apply", expiresAt: transaction.expiresAt });
+  }
+
+  private async liveTempoApplyAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.transactions.get(params.transactionId as string); if (!transaction) return this.transactionError(id, "Unknown or expired transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", tempo: transaction.appliedTempo, idempotent: true });
+    if (transaction.state !== "previewed") return this.transactionError(id, "Transaction is no longer applicable");
+    if (transaction.expiresAt <= Date.now()) return this.transactionError(id, "Tempo preview expired; preview again");
+    const status = this.requireConnected("transport"); if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+    const adapter = this.asyncAdapter(); const current = await adapter.getAsync(transaction.setRef) as LiveSnapshot["set"] | undefined;
+    if (!current || current.tempo !== transaction.priorTempo) return this.transactionError(id, "Tempo changed since preview; preview again");
+    await adapter.setAsync(transaction.setRef, "tempo", transaction.proposedTempo); const applied = await adapter.getAsync(transaction.setRef) as LiveSnapshot["set"] | undefined;
+    if (!applied || applied.tempo !== transaction.proposedTempo) return this.transactionError(id, "Live did not confirm the requested tempo");
+    transaction.appliedTempo = applied.tempo; transaction.applyKey = params.idempotencyKey as string; transaction.state = "applied";
+    return this.successText(id, { transactionId: transaction.id, state: "applied", tempo: applied.tempo, epoch: transaction.epoch, idempotent: false });
+  }
+
+  private async liveUndoAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!this.validTransactionParams(params, "undo")) return error(id, -32602, "transactionId, confirmation=undo, and idempotencyKey are required");
+    const transaction = this.transactions.get(params.transactionId as string);
+    if (!transaction && String(params.transactionId).startsWith("midi_")) return this.successText(id, await this.midiTransactions.undoAsync(params.transactionId as string, params.confirmation, params.idempotencyKey as string));
+    if (!transaction && String(params.transactionId).startsWith("arrangement_")) {
+      const arrangement = this.arrangementTransactions.get(params.transactionId as string);
+      if (!arrangement || arrangement.state === "uncertain") return this.transactionError(id, "Arrangement state is uncertain; read authoritative locators before undo");
+      if (arrangement.state !== "applied" || !arrangement.created) return this.transactionError(id, "Only an applied Arrangement transaction can be undone");
+      if (arrangement.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: arrangement.id, state: "undone", idempotent: true });
+      try {
+        const status = this.requireConnected("arrangement.write");
+        if (status.epoch !== arrangement.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+        const adapter = this.asyncAdapter();
+        const current = (await adapter.snapshotAsync()).arrangement.locators;
+        if (!arrangement.created.every((locator) => current.some((item) => item.ref === locator.ref && item.name === locator.name && item.position === locator.position))) return this.transactionError(id, "Arrangement locators changed after apply; undo refused");
+        try { for (const locator of arrangement.created) await adapter.invokeAsync({ operation: "locator.delete", args: { ref: locator.ref } }); }
+        catch (cause) { arrangement.state = "uncertain"; throw cause; }
+        arrangement.state = "undone"; arrangement.undoKey = params.idempotencyKey as string;
+        return this.successText(id, { transactionId: arrangement.id, state: "undone", restored: arrangement.prior, idempotent: false });
+      } catch (cause) { return this.adapterToolError(id, cause, "Arrangement undo refused; inspect authoritative locators."); }
+    }
+    if (!transaction) return this.transactionError(id, "Unknown or expired transaction");
+    if (transaction.state === "undone" && transaction.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "undone", tempo: transaction.priorTempo, idempotent: true });
+    if (transaction.state !== "applied") return this.transactionError(id, "Only an applied tempo transaction can be undone");
+    const status = this.requireConnected("transport"); if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+    const adapter = this.asyncAdapter(); const current = await adapter.getAsync(transaction.setRef) as LiveSnapshot["set"] | undefined;
+    if (!current || current.tempo !== transaction.appliedTempo) return this.transactionError(id, "Tempo changed after apply; undo refused");
+    await adapter.setAsync(transaction.setRef, "tempo", transaction.priorTempo); const restored = await adapter.getAsync(transaction.setRef) as LiveSnapshot["set"] | undefined;
+    if (!restored || restored.tempo !== transaction.priorTempo) return this.transactionError(id, "Live did not confirm tempo restoration");
+    transaction.undoKey = params.idempotencyKey as string; transaction.state = "undone";
+    return this.successText(id, { transactionId: transaction.id, state: "undone", tempo: restored.tempo, epoch: transaction.epoch, idempotent: false });
+  }
 
   public handle(input: unknown): JsonObject | null {
     if (!isObject(input) || input.jsonrpc !== "2.0" || !hasOnly(input, ["jsonrpc", "id", "method", "params", "_meta"])) {
@@ -314,7 +488,7 @@ export class McpHost {
       return error(id, -32602, "Invalid tools/call parameters");
     }
     if (params.arguments !== undefined && !isObject(params.arguments)) return error(id, -32602, "Tool arguments must be an object");
-    const argumentTools = new Set(["audio_analyze", "live_discover", "live_midi_clip_preview", "live_midi_clip_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+    const argumentTools = new Set(["audio_analyze", "live_discover", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
     if (!argumentTools.has(params.name) && params.arguments !== undefined && Object.keys(params.arguments as JsonObject).length !== 0) {
       return error(id, -32602, "Tool arguments must be an empty object");
     }
@@ -329,6 +503,8 @@ export class McpHost {
     if (params.name === "live_discover") return this.liveDiscover(id, params.arguments);
     if (params.name === "live_midi_clip_preview") return this.liveMidiPreview(id, params.arguments);
     if (params.name === "live_midi_clip_apply") return this.liveMidiApply(id, params.arguments);
+    if (params.name === "live_arrangement_section_preview") return this.liveArrangementPreview(id, params.arguments);
+    if (params.name === "live_arrangement_section_apply") return this.liveArrangementApply(id, params.arguments);
     if (params.name === "live_tempo_preview") return this.liveTempoPreview(id, params.arguments);
     if (params.name === "live_tempo_apply") return this.liveTempoApply(id, params.arguments);
     if (params.name === "live_undo") return this.liveUndo(id, params.arguments);
@@ -377,10 +553,12 @@ export class McpHost {
       ...(live.capabilities.includes("session.discovery") ? ["live.discover"] : []),
       ...(live.capabilities.includes("session.midi_clip.create") && live.capabilities.includes("session.midi_note.write") ? ["live.midi_clip.preview", "live.midi_clip.apply", "live.midi_clip.undo"] : []),
       ...(live.capabilities.includes("transport") ? ["live.tempo.preview", "live.tempo.apply", "live.undo"] : []),
+      ...(live.capabilities.includes("arrangement.read") ? ["live.arrangement.section.preview"] : []),
+      ...(live.capabilities.includes("arrangement.write") ? ["live.arrangement.section.apply", "live.arrangement.section.undo"] : []),
     ] : [];
     const liveUnavailable = live.connected ? [
       ...hostUnavailableCapabilities,
-      ...LIVE_UNAVAILABLE_CAPABILITIES,
+      ...LIVE_UNAVAILABLE_CAPABILITIES.filter((capability) => !live.capabilities.includes(capability)),
       ...(live.capabilities.includes("session.read") ? [] : ["live.snapshot"]),
       ...(live.capabilities.includes("session.discovery") ? [] : ["live.discover"]),
       ...(live.capabilities.includes("session.midi_clip.create") && live.capabilities.includes("session.midi_note.write") ? [] : ["live.midi_clip.preview", "live.midi_clip.apply", "live.midi_clip.undo"]),
@@ -420,6 +598,40 @@ export class McpHost {
     if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
     try { return this.successText(id, this.midiTransactions.apply(params.transactionId as string, params.confirmation, params.idempotencyKey as string)); }
     catch (cause) { return this.adapterToolError(id, cause, "MIDI apply did not complete; read the target slot before retrying."); }
+  }
+
+  private liveArrangementPreview(id: RequestId, params: unknown): JsonObject {
+    if (!isObject(params) || !hasOnly(params, ["start", "end", "startName", "endName"]) || typeof params.start !== "number" || !Number.isFinite(params.start) || params.start < 0 || params.start > 100_000 || typeof params.end !== "number" || !Number.isFinite(params.end) || params.end <= params.start || params.end > 100_000 || !isNonEmptyString(params.startName, 128) || !isNonEmptyString(params.endName, 128) || params.startName === params.endName) return error(id, -32602, "Arrangement section range and distinct names are required");
+    try {
+      const status = this.requireConnected("arrangement.read"); const snapshot = this.adapter.snapshot();
+      const prior = snapshot.arrangement.locators.map((locator) => ({ ...locator }));
+      if (prior.some((locator) => locator.name === params.startName || locator.name === params.endName || locator.position === params.start || locator.position === params.end)) throw new Error("Arrangement locator target collides with existing state");
+      const transaction: ArrangementTransaction = { id: `arrangement_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, revision: `${status.epoch}:${prior.map((locator) => `${locator.ref}:${locator.name}:${locator.position}`).join("|")}`, start: params.start, end: params.end, startName: params.startName, endName: params.endName, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.arrangementTransactions.set(transaction.id, transaction);
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, revision: transaction.revision, prior, proposed: [{ name: transaction.startName, position: transaction.start }, { name: transaction.endName, position: transaction.end }], impact: "creates-arrangement-locators", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Arrangement preview failed without mutation; discover locators and choose a collision-free range."); }
+  }
+
+  private liveArrangementApply(id: RequestId, params: unknown): JsonObject {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.arrangementTransactions.get(params.transactionId as string); if (!transaction) return this.transactionError(id, "Unknown or expired Arrangement transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", locators: transaction.created, idempotent: true });
+    if (transaction.state === "applied") return this.transactionError(id, "Arrangement idempotency key conflicts with the applied transaction");
+    if (transaction.state === "uncertain") return this.transactionError(id, "Arrangement apply is uncertain; read authoritative locators before retrying");
+    if (transaction.state !== "previewed" || transaction.expiresAt <= Date.now()) return this.transactionError(id, "Arrangement preview expired or is no longer applicable");
+    try {
+      const status = this.requireConnected("arrangement.write"); if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const current = this.adapter.snapshot().arrangement.locators; const revision = `${status.epoch}:${current.map((locator) => `${locator.ref}:${locator.name}:${locator.position}`).join("|")}`;
+      if (revision !== transaction.revision) return this.transactionError(id, "Arrangement locators changed since preview");
+      const created: Array<{ ref: LiveRef; name: string; position: number }> = [];
+      try {
+        created.push(this.adapter.invoke({ operation: "locator.add", args: { name: transaction.startName, position: transaction.start } }) as { ref: LiveRef; name: string; position: number });
+        created.push(this.adapter.invoke({ operation: "locator.add", args: { name: transaction.endName, position: transaction.end } }) as { ref: LiveRef; name: string; position: number });
+      } catch (cause) { for (const locator of created) { try { this.adapter.invoke({ operation: "locator.delete", args: { ref: locator.ref } }); } catch { transaction.state = "uncertain"; transaction.created = created; throw new Error("Arrangement apply compensation failed; read locators before retrying"); } } throw cause; }
+      const authoritative = this.adapter.snapshot().arrangement.locators; if (!created.every((locator) => authoritative.some((item) => item.ref === locator.ref && item.name === locator.name && item.position === locator.position))) { transaction.state = "uncertain"; transaction.created = created; throw new Error("Live did not confirm Arrangement locators; read authoritative state before retrying"); }
+      transaction.created = created; transaction.applyKey = params.idempotencyKey as string; transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", locators: created, epoch: transaction.epoch, idempotent: false });
+    } catch (cause) { return this.adapterToolError(id, cause, "Arrangement apply uncertain; read authoritative locators before retrying."); }
   }
 
   private liveTempoPreview(id: RequestId, params: unknown): JsonObject {
@@ -463,6 +675,21 @@ export class McpHost {
     if (!transaction && String(params.transactionId).startsWith("midi_")) {
       try { return this.successText(id, this.midiTransactions.undo(params.transactionId as string, params.confirmation, params.idempotencyKey as string)); }
       catch (cause) { return this.adapterToolError(id, cause, "MIDI undo refused; inspect the target clip and connection epoch."); }
+    }
+    if (!transaction && String(params.transactionId).startsWith("arrangement_")) {
+      const arrangement = this.arrangementTransactions.get(params.transactionId as string);
+      if (!arrangement || arrangement.state === "uncertain") return this.transactionError(id, "Arrangement state is uncertain; read authoritative locators before undo");
+      if (arrangement.state !== "applied" || !arrangement.created) return this.transactionError(id, "Only an applied Arrangement transaction can be undone");
+      if (arrangement.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: arrangement.id, state: "undone", idempotent: true });
+      try {
+        const status = this.requireConnected("arrangement.write"); if (status.epoch !== arrangement.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+        const current = this.adapter.snapshot().arrangement.locators;
+        if (!arrangement.created.every((locator) => current.some((item) => item.ref === locator.ref && item.name === locator.name && item.position === locator.position))) return this.transactionError(id, "Arrangement locators changed after apply; undo refused");
+        try { for (const locator of arrangement.created) this.adapter.invoke({ operation: "locator.delete", args: { ref: locator.ref } }); }
+        catch (cause) { arrangement.state = "uncertain"; throw cause; }
+        arrangement.state = "undone"; arrangement.undoKey = params.idempotencyKey as string;
+        return this.successText(id, { transactionId: arrangement.id, state: "undone", restored: arrangement.prior, idempotent: false });
+      } catch (cause) { return this.adapterToolError(id, cause, "Arrangement undo refused; inspect authoritative locators."); }
     }
     if (!transaction) return this.transactionError(id, "Unknown or expired transaction");
     if (transaction.state === "undone" && transaction.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "undone", tempo: transaction.priorTempo, idempotent: true });
@@ -578,18 +805,21 @@ export class McpHost {
   }
 }
 
-export function serve(input: Readable, output: Writable, diagnostics: Writable = process.stderr): Promise<void> {
-  const host = new McpHost();
-  return serveStdio(input, output, async (line) => {
+export async function serve(input: Readable, output: Writable, diagnostics: Writable = process.stderr, adapter: LiveAdapter = new UnavailableLiveAdapter()): Promise<void> {
+  const host = new McpHost(adapter);
+  try { await serveStdio(input, output, async (line) => {
     let value: unknown;
     try { value = JSON.parse(line) as unknown; }
     catch { diagnostics.write("mcp-host: malformed input\n"); return JSON.stringify(error(null, -32700, "Parse error")); }
     try {
-      const result = host.handle(value);
+      const result = await host.handleAsync(value);
       return result === null ? null : JSON.stringify(result);
     } catch {
       diagnostics.write("mcp-host: internal fault\n");
       return JSON.stringify(error(null, -32603, "Internal error"));
     }
-  });
+  }); } finally {
+    const close = (adapter as Partial<{ close: () => Promise<void> }>).close;
+    if (typeof close === "function") await close.call(adapter);
+  }
 }

@@ -1,12 +1,11 @@
 # Deterministic checkpoint
 
-This checkpoint validates repository-controlled behavior only. It is not a
-release, signing, notarization, or Ableton Live certification procedure.
+This is a repository-contract checkpoint, not Live certification or release
+approval.
 
-Run the following from the repository root:
+From `apps/mcp-server`, run serially:
 
 ```sh
-cd apps/mcp-server
 npm ci
 npm run typecheck
 npm test
@@ -14,56 +13,24 @@ npm run property-test
 npm run benchmark
 npm run compatibility
 npm run package:verify
-npm pack --dry-run
-git diff --check
+npm pack --dry-run --json
 ```
 
-From the repository root, validate the independent Python boundary:
+From the repository root, run:
 
 ```sh
 python3 -m unittest discover -s remote-script -p 'test_*.py'
+git diff --check
+git diff --cached --check
 ```
 
-A valid checkpoint requires every command to succeed and the diff to contain
-only the intended documentation and implementation changes. Review `git
-status --short` before any commit and preserve pre-existing user changes. Do
-not add local dependencies, generated `dist/` output, credentials, device
-artifacts, tarballs, or unavailable external test evidence.
+Before staging, verify the intended branch, an empty index, and an allowlisted
+diff. Exclude `dist/`, tarballs, credentials, device/platform artifacts,
+Smithers state, workflow files, and `extensions-sdk-1.0.0-beta.0`. Preserve
+unrelated changes.
 
-After the build, the executable smoke path is `node dist/src/cli.js`; verify
-that stdout contains only JSON-RPC responses and that valid traffic produces
-no stderr. `dist/src/index.js` is an import/export entrypoint, not the stdio
-server. The package `npm start` script launches the stdio server through
-`dist/src/cli.js`.
-
-The checkpoint proves local compilation and automated behavior only. It does
-not prove Ableton Live connectivity, Windows/macOS integration, signing,
-notarization, release readiness, performance at production scale, or any
-unimplemented capability. The benchmark proves only its fixed in-process
-budgets and NDJSON fixtures; it is not realtime or device performance
-evidence. A deterministic checkpoint may commit and push only validated
-changes on the existing feature branch when explicitly permitted. Never
-include `extensions-sdk-1.0.0-beta.0`, generated `dist/`, credentials, or
-external-runtime claims.
-
-Before recording completion, confirm that the working tree contains no changes
-to `extensions-sdk-1.0.0-beta.0` and that no generated `dist/`, tarball,
-credential, device, or platform artifact is staged. Preserve unrelated user
-changes when reviewing or committing the checkpoint.
-
-The package verifier installs the actual tarball and exercises the handshake,
-setup, migration, and diagnostics helpers. It also requires diagnostics to
-report external Ableton Live as `unavailable`. From the repository root, run
-`python3 -m unittest discover -s remote-script -p 'test_*.py'` for the
-independent transport shim tests.
-
-The connected-adapter tempo workflow is tested only with the deterministic
-in-memory simulator and injected adapter fakes. That evidence covers explicit
-confirmation, idempotency, negotiated capabilities, epoch conflict checks,
-postcondition verification, and guarded undo; it is not Ableton Live evidence.
-
-The loopback and Python tests prove a compatible authenticated message
-contract, including canonical HMAC verification, request sequencing, replay
-rejection, response authentication, and redacted operation failures. They do
-not prove a socket listener, Control Surface lifecycle, Live main-thread
-scheduling, or Live-object compatibility.
+The checks cover TypeScript, protocol framing, async adapter behavior,
+transactions, fake-Live mapping, analysis, packaging, configuration, and
+installer contracts. They do not prove real Live connectivity, a supported
+Live version, realtime performance, hardware, accessibility, signing,
+notarization, or installer runtime on every platform.

@@ -1,6 +1,10 @@
 #!/usr/bin/env node
-import { diagnostics } from "./delivery.js";
+import { diagnosticsAsync } from "./delivery.js";
 
 const configIndex = process.argv.indexOf("--config");
 const config = configIndex >= 0 ? process.argv[configIndex + 1] : undefined;
-console.log(JSON.stringify(diagnostics(undefined, config), null, 2));
+try {
+  console.log(JSON.stringify(await diagnosticsAsync(undefined, config), null, 2));
+} catch {
+  process.exitCode = 1;
+}

@@ -1,6 +1,6 @@
 import { performance } from "node:perf_hooks";
 import { PassThrough } from "node:stream";
-import { analyzePcm, MAX_ANALYSIS_CHANNELS } from "./analysis.js";
+import { analyzePcm, MAX_ANALYSIS_CHANNELS, MAX_TIME_FREQUENCY_BANDS, MAX_TIME_FREQUENCY_FRAMES, MAX_WAVEFORM_BINS } from "./analysis.js";
 import { McpHost, PROTOCOL_VERSION, serve } from "./host.js";
 
 export interface BenchmarkMeasurement {
@@ -35,6 +35,8 @@ export const BENCHMARK_BUDGETS = {
   recoveryMilliseconds: 100,
   analysisP95Milliseconds: 250,
   maxChannelAnalysisP95Milliseconds: 250,
+  waveformTimeFrequencyP95Milliseconds: 250,
+  waveformTimeFrequencyOutputBytes: 2_000_000,
   resumeMilliseconds: 100,
 } as const;
 const INITIALIZED = { jsonrpc: "2.0", method: "notifications/initialized" } as const;
@@ -174,13 +176,17 @@ export async function runBenchmarks(): Promise<BenchmarkReport> {
   }
   analyzePcm({ samples: maximumChannelSamples, sampleRate: 48_000, channels: MAX_ANALYSIS_CHANNELS });
   const maxChannelTimes: number[] = [];
+  let maximumOutputBytes = 0;
   for (let index = 0; index < 5; index += 1) {
     const started = performance.now();
     const result = analyzePcm({ samples: maximumChannelSamples, sampleRate: 48_000, channels: MAX_ANALYSIS_CHANNELS });
     maxChannelTimes.push(performance.now() - started);
-    if (result.channelsDetail.length !== MAX_ANALYSIS_CHANNELS || result.safety.projectMutated) throw new Error("maximum-channel analysis was incomplete or unsafe");
+    if (result.channelsDetail.length !== MAX_ANALYSIS_CHANNELS || result.safety.projectMutated || result.waveform.bins.length > MAX_WAVEFORM_BINS || result.timeFrequency.frames.length > MAX_TIME_FREQUENCY_FRAMES || result.timeFrequency.bandCount > MAX_TIME_FREQUENCY_BANDS) throw new Error("maximum-channel analysis was incomplete, unsafe, or unbounded");
+    maximumOutputBytes = Math.max(maximumOutputBytes, Buffer.byteLength(JSON.stringify({ waveform: result.waveform, timeFrequency: result.timeFrequency }), "utf8"));
   }
   measurements.push(measure("pcm_max_channel_analysis_p95_latency", percentile(maxChannelTimes, 0.95), "ms", BENCHMARK_BUDGETS.maxChannelAnalysisP95Milliseconds));
+  measurements.push(measure("pcm_waveform_time_frequency_p95_latency", percentile(maxChannelTimes, 0.95), "ms", BENCHMARK_BUDGETS.waveformTimeFrequencyP95Milliseconds));
+  measurements.push(measure("pcm_waveform_time_frequency_output_bytes", maximumOutputBytes, "bytes", BENCHMARK_BUDGETS.waveformTimeFrequencyOutputBytes));
 
   return { measurements, passed: measurements.every((item) => item.passed) };
 }

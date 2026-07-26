@@ -1,24 +1,12 @@
 # Ableton MCP Beyond
 
-A safety-first Model Context Protocol host for Ableton Live integrations.
+A safety-first MCP host for bounded Ableton Live integration.
 
-The current implementation is a local JSON-lines MCP server. Its protocol
-surface exposes host tools plus a guarded Live workflow, but the default
-adapter is unavailable:
-
-- `server_status`, `capabilities`, and `audio_analyze` are enabled locally.
-- `live_status`, `live_snapshot`, `live_tempo_preview`, `live_tempo_apply`, and
-  `live_undo` are exposed but fail safely until a connected adapter is supplied.
-- `resources/*` and `prompts/*` publish capability, safety, audio, and guarded
-  tempo workflow descriptions.
-
-No production Live adapter is installed or selected by the CLI. The repository
-does include a deterministic in-memory adapter and an authenticated
-`ableton-loopback/v1` adapter boundary for contract tests; neither is Live
-connectivity. No default-host call starts playback, changes a Live set, accesses
-a path, uses the network, or returns raw audio.
-See [`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md) and the other documents in
-[`docs/`](docs/) for setup, limits, recovery, and checkpoint procedures.
+The server speaks newline-delimited JSON-RPC over stdio. Without `--config`,
+it uses `UnavailableLiveAdapter`; no Live state is read or changed. With an
+explicit validated version-2 configuration, the packaged CLI connects to the
+loopback `AbletonMcpBridge` over the authenticated `ableton-loopback/v1`
+transport.
 
 ## Quick start
 
@@ -28,41 +16,48 @@ Requirements: Node.js 20 or newer.
 cd apps/mcp-server
 npm ci
 npm test
-npm run build
-node dist/src/cli.js
+npm start
 ```
 
-The host executable is `dist/src/cli.js`; `dist/src/index.js` is the library
-entrypoint used by the package export. `npm start` launches the stdio server
-after the package has been built.
+The MCP executable is `dist/src/cli.js`. It accepts one JSON-RPC message per
+line on stdin and writes only JSON-RPC responses to stdout. Initialize with
+protocol version `2025-11-25`, then send `notifications/initialized`.
 
-After building, generate an MCP client configuration without overwriting an
-existing file:
+Build a host-only client configuration:
 
 ```sh
 npm run build
-npm run setup -- --output "$PWD/client-config.json"
+npm run setup -- --output /absolute/path/client-config.json
 ```
 
-The package also provides `npm run migrate` for versioned configuration
-migration and `npm run diagnostics` for local readiness checks. Diagnostics
-separate host readiness from external Ableton Live, signing, and notarization,
-which remain unavailable without observed evidence.
+To enable the bridge, create a strong owner-only secret separately, then
+generate a version-2 configuration:
 
-The optional bridge configuration is version 2 and must name a loopback host,
-port, and owner-only secret file. Generate the secret out of band and do not
-place it on a command line. The Remote Script installer always requires an
-explicit destination; use `ableton-mcp-install-remote-script --dry-run` to
-inspect an installation, and `--force` only when replacing a known disposable
-destination. Existing installations are retained as recoverable backups.
+```sh
+npm run setup -- --output /absolute/path/bridge-config.json \
+  --bridge-host 127.0.0.1 --bridge-port 9000 \
+  --secret-file /absolute/path/bridge.secret --bridge-timeout 5000
+```
 
-The server reads one JSON-RPC request per line from stdin and writes one JSON
-response per line to stdout. Diagnostics are written to stderr. An MCP client
-must send `initialize` with protocol version `2025-11-25`, then the
-`notifications/initialized` notification, before calling tools.
+The CLI loads a bridge only when `--config /absolute/path/bridge-config.json`
+is supplied. Configuration, secret, and Remote Script installation are never
+selected from JSON-RPC arguments or client metadata.
 
-This repository is under active development. The shipped scope and known gaps
-are recorded in [`docs/OPERATIONS.md`](docs/OPERATIONS.md),
-[`docs/CHECKPOINT.md`](docs/CHECKPOINT.md), and the consolidated
-[`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md), not inferred
-from the project motivation references.
+The Remote Script installer requires an explicit destination:
+
+```sh
+npm run build
+node dist/src/install-remote-script.js --destination /absolute/path/ControlSurface --dry-run
+```
+
+Use `--force` only for a known disposable or recoverable destination. See
+[`docs/USER_GUIDE.md`](docs/USER_GUIDE.md), [`docs/OPERATIONS.md`](docs/OPERATIONS.md),
+and [`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md) for operating boundaries.
+
+## Evidence boundary
+
+The deterministic simulator, Python fake-Live mapper, package smoke tests,
+benchmarks, and authenticated loopback tests are contract evidence only. They
+do not prove a real Ableton Live version, disposable Set, audio device,
+hardware, accessibility, signing, notarization, or installer-runtime result.
+Those limitations are recorded in [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md).

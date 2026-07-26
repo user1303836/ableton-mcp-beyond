@@ -1,84 +1,40 @@
 # Ableton Live safety
 
-This document is a safety boundary for the shipped host. It does not grant
-authority to a real Live process and cannot turn unavailable evidence into a
-passing integration result.
+The default adapter is `UnavailableLiveAdapter`. It reports disconnected,
+performs no Live I/O, and cannot be enabled by caller metadata, JSON-RPC
+arguments, a local Ableton installation, or a simulator result.
 
-## Current guarantee
+## Mutation boundary
 
-The shipped CLI's default adapter is `UnavailableLiveAdapter`. It always reports
-`connected: false`, `adapter: "unavailable"`, and
-`reason: "live-adapter-not-installed"`. No current tool starts playback,
-records, edits a project, changes routing, accesses the filesystem or network,
-or returns raw audio.
+The implemented mutation workflows are Session MIDI clip/note creation,
+Arrangement locator creation, tempo change, and guarded undo. Each requires a
+connected adapter, negotiated operation capability, bounded validated input,
+preview, explicit confirmation, idempotency, epoch checks, and authoritative
+postcondition verification. Arrangement partial creation compensates only
+locators created by the current request.
 
-The Live tools are present in `tools/list`, but `live_status`,
-`live_snapshot`, `live_tempo_preview`, `live_tempo_apply`, and `live_undo`
-return safe unavailable errors with the default adapter. They do not become
-enabled from client metadata.
+`live_snapshot`, `live_discover`, previews, status, capability reads, and
+`audio_analyze` are read-only. Audio analysis uses only caller-supplied PCM and
+returns lossy aggregates; it is not a Live tap or realtime meter.
 
-`audio_analyze` operates only on PCM supplied in the request. It returns
-aggregates and remediation suggestions; remediation entries are marked
-reversible and `changesAudio: false`. Suggestions are advisory and never apply
-gain, limiting, deletion, or other edits automatically.
+## Bridge safety
 
-The analyzer also reports privacy and safety fields showing that raw audio was
-not returned or retained and that the project was not mutated. These fields are
-claims about this local code path, not proof that an unavailable external Live
-process was inspected.
+The bridge is loopback-only and uses a separate owner-controlled secret file.
+Requests and responses are authenticated, sequences are monotonic and bounded,
+frames are bounded, and malformed or unauthenticated work fails closed. Socket
+workers do not access Live objects. The Control Surface queues work and drains
+it on the scheduled Live main thread. Disconnect closes listeners and clients,
+releases queued work, invalidates references, and cleans up workers.
 
-The safe operating assumption is therefore offline analysis only: the input
-must be supplied as bounded PCM by the caller, and the returned remediation is
-advisory. A successful MCP handshake, a supported Node platform, or a local
-Ableton installation does not change the adapter status or authorize Live
-access.
+## Real Live boundary
 
-## Capability boundary
+The Python mapper is version-tolerant and omits unsupported operations. Its
+fake-Live tests prove mapping and lifecycle contracts, not Ableton behavior.
+No real Live Set, Live version, audible output, armed-track safety, audio
+device, hardware, accessibility runner, signing identity, or notarization
+credential is established by this repository. Treat those categories as
+unavailable until observed in a dedicated safe harness.
 
-The unavailable catalog includes Live mutations, transport, recording, routing,
-audio, MIDI, realtime features, resource subscriptions, filesystem, network,
-delivery, and Live audio analysis. A configured adapter is accepted only when
-its status has the exact `ableton-live/v1` protocol, a non-null epoch, a valid
-adapter kind, unique known capabilities, and `connected: true`. Operation
-dispatch additionally checks the specific negotiated capability. Do not infer
-capability from roadmap prose, caller-supplied authority fields, or a local
-Ableton installation.
-
-## Future adapter requirements
-
-Before adding a Live adapter, require explicit capability negotiation, read-only
-defaults, confirmation for every mutation, reversible operations where possible,
-bounded inputs, clear status/epoch reporting, and tests that prove failure does
-not alter Live state. The existing tempo workflow is the minimum mutation
-pattern: preview, explicit confirmation, idempotency, authoritative
-postcondition verification, epoch checks, and guarded undo. Add recovery
-instructions and update the capability catalog in the same change. Missing
-Live, device, platform, signing, or runner evidence is unavailable—not a pass.
-
-## Operational stop rule
-
-If observed client or device behavior contradicts `server_status` or the
-capability catalog, stop the client and treat the discrepancy as a defect. Do
-not enable a caller-supplied authority field or continue testing against a
-Live set until the implementation and recovery path have been reviewed.
-
-Missing Live, device, platform-runner, signing, or notarization evidence is an
-explicit limitation, not a safety pass. Do not promote any unavailable
-capability based on documentation, environment detection, or caller metadata.
-
-The repository also contains a deterministic simulator with a bounded adapter
-contract and an HMAC-authenticated `ableton-loopback/v1` boundary. Both are
-development/test components. The Python Remote Script shim likewise does not
-enable those capabilities in the MCP host, open a socket, create a Control
-Surface, or prove that Live is installed.
-
-When testing a future adapter, treat the loopback secret as a credential, use
-localhost-only transport, reject replayed or tampered messages, require
-strictly increasing request sequences, authenticate responses, bind responses
-to request IDs, and verify the status epoch after reconnect. Never place
-secrets, raw PCM, or Live project data in protocol logs or documentation.
-
-The simulator's connected status is intentionally scoped to its in-memory test
-state. It must not be copied into production status, used as a proxy for Live,
-or treated as proof that a Control Surface callback, localhost transport, or
-device is present.
+If observed behavior contradicts `server_status`, `live_status`, or
+`capabilities`, stop the client, preserve redacted evidence, inspect the Set,
+and treat the discrepancy as a defect.

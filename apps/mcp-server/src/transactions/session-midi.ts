@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { LiveAdapter, LiveRef, LiveSnapshot, Note, LiveStatus } from "../live.js";
+import type { AsyncLiveAdapter, LiveAdapter, LiveRef, LiveSnapshot, Note, LiveStatus } from "../live.js";
 
 export const SESSION_MIDI_TRANSACTION_TTL_MS = 30_000;
 export const MAX_SESSION_MIDI_NOTES = 512;
@@ -29,6 +29,71 @@ export class SessionMidiTransactionManager {
   private readonly records = new Map<string, SessionMidiRecord>();
   private readonly idempotency = new Map<string, { transactionId: string; result: unknown }>();
   constructor(private readonly adapter: LiveAdapter) {}
+
+  private asyncAdapter(): AsyncLiveAdapter {
+    const value = this.adapter as Partial<AsyncLiveAdapter>;
+    if (typeof value.snapshotAsync !== "function" || typeof value.getAsync !== "function" || typeof value.invokeAsync !== "function") throw new Error("live adapter does not support asynchronous operations");
+    return this.adapter as AsyncLiveAdapter;
+  }
+
+  async previewAsync(request: unknown): Promise<SessionMidiPreview> {
+    validateRequest(request);
+    const adapter = this.asyncAdapter();
+    const status = this.require("session.read");
+    const snapshot = await adapter.snapshotAsync();
+    const track = snapshot.tracks.find((item) => item.ref === (request as SessionMidiRequest).trackRef);
+    if (!track || track.kind !== "midi") throw new Error("MIDI track not found");
+    const typed = request as SessionMidiRequest;
+    const clip = track.clips.find((item) => item.start === typed.sceneIndex * 4);
+    if (clip) throw new Error("Session slot is occupied");
+    const result: SessionMidiPreview = { transactionId: `midi_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, revision: revision(snapshot, typed.trackRef, typed.sceneIndex), target: { trackRef: typed.trackRef, sceneIndex: typed.sceneIndex }, prior: { occupied: false }, proposed: clone(typed), impact: "creates-session-midi-clip", confirmation: "apply", expiresAt: Date.now() + SESSION_MIDI_TRANSACTION_TTL_MS };
+    this.records.set(result.transactionId, { ...result, state: "previewed" });
+    return clone(result);
+  }
+
+  async applyAsync(transactionId: string, confirmation: unknown, idempotencyKey: string): Promise<unknown> {
+    if (confirmation !== "apply") throw new Error("confirmation=apply is required");
+    const existing = this.idempotency.get(idempotencyKey);
+    if (existing) { if (existing.transactionId !== transactionId) throw new Error("idempotency key conflicts with another transaction"); return { ...clone(existing.result as object), idempotent: true }; }
+    const record = this.records.get(transactionId);
+    if (!record || record.expiresAt <= Date.now()) throw new Error("MIDI preview expired; preview again");
+    if (record.state !== "previewed") throw new Error("MIDI transaction is no longer applicable");
+    const adapter = this.asyncAdapter();
+    const status = this.require("session.write");
+    if (status.epoch !== record.epoch) throw new Error("Live connection epoch changed; preview again");
+    const snapshot = await adapter.snapshotAsync();
+    if (revision(snapshot, record.target.trackRef, record.target.sceneIndex) !== record.revision) throw new Error("Session slot changed since preview");
+    let clipRef: LiveRef | undefined;
+    try {
+      const created = await adapter.invokeAsync({ operation: "clip.create", args: { trackRef: record.target.trackRef, kind: "midi", name: record.proposed.name, sceneIndex: record.target.sceneIndex, length: record.proposed.length } }) as { ref?: LiveRef };
+      if (!created?.ref) throw new Error("Live did not return the created clip reference");
+      clipRef = created.ref;
+      for (const note of record.proposed.notes) await adapter.invokeAsync({ operation: "note.add", args: { ref: clipRef, note } });
+      const verified = await adapter.getAsync(clipRef) as { name?: string; length?: number; notes?: Note[] } | undefined;
+      if (!verified || verified.name !== record.proposed.name || verified.length !== record.proposed.length || JSON.stringify(verified.notes ?? []) !== JSON.stringify(record.proposed.notes)) throw new Error("Live did not confirm MIDI clip contents");
+      record.state = "applied"; record.clipRef = clipRef; record.appliedNotes = clone(verified.notes ?? []); record.applyKey = idempotencyKey;
+      const result = { transactionId, state: "applied", clipRef, notes: record.appliedNotes, epoch: record.epoch, idempotent: false };
+      this.idempotency.set(idempotencyKey, { transactionId, result: clone(result) });
+      return result;
+    } catch (cause) {
+      if (clipRef) { try { await adapter.invokeAsync({ operation: "clip.delete", args: { ref: clipRef } }); } catch { record.state = "uncertain"; throw new Error("MIDI apply failed and compensation failed; read the target slot before retrying"); } }
+      throw cause;
+    }
+  }
+
+  async undoAsync(transactionId: string, confirmation: unknown, idempotencyKey: string): Promise<unknown> {
+    if (confirmation !== "undo") throw new Error("confirmation=undo is required");
+    const record = this.records.get(transactionId);
+    if (!record || record.state !== "applied" || !record.clipRef) throw new Error("Only an applied MIDI transaction can be undone");
+    if (record.undoKey === idempotencyKey) return { transactionId, state: "undone", idempotent: true };
+    const adapter = this.asyncAdapter(); const status = this.require("session.write");
+    if (status.epoch !== record.epoch) throw new Error("Live connection epoch changed; undo refused");
+    const clip = await adapter.getAsync(record.clipRef) as { name?: string; length?: number; notes?: Note[] } | undefined;
+    if (!clip || clip.name !== record.proposed.name || clip.length !== record.proposed.length || JSON.stringify(clip.notes ?? []) !== JSON.stringify(record.appliedNotes ?? [])) throw new Error("MIDI clip changed after apply; undo refused");
+    await adapter.invokeAsync({ operation: "clip.delete", args: { ref: record.clipRef } });
+    record.state = "undone"; record.undoKey = idempotencyKey;
+    return { transactionId, state: "undone", deleted: record.clipRef, idempotent: false };
+  }
 
   preview(request: unknown): SessionMidiPreview {
     validateRequest(request);
@@ -101,4 +166,18 @@ export function discoverSession(adapter: LiveAdapter, kind: "track" | "scene" | 
   const offset = cursor ? Number.parseInt(Buffer.from(cursor, "base64url").toString("utf8"), 10) : 0; if (!Number.isInteger(offset) || offset < 0 || offset > items.length) throw new Error("invalid cursor");
   const page = items.slice(offset, offset + limit); const next = offset + page.length < items.length ? Buffer.from(String(offset + page.length)).toString("base64url") : undefined;
   return { epoch: status.epoch, revision: `${status.epoch}:${items.length}`, items: clone(page as unknown[]), ...(next ? { nextCursor: next } : {}), truncated: next !== undefined };
+}
+
+export async function discoverSessionAsync(adapter: AsyncLiveAdapter, kind: "track" | "scene" | "clip" | "note", limit: number, cursor?: string): Promise<{ epoch: number; revision: string; items: unknown[]; nextCursor?: string; truncated: boolean }> {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("limit must be from 1 to 100");
+  const status = adapter.status(); if (!status.connected || status.epoch === null || !status.capabilities.includes("session.read")) throw new Error("live-capability-unavailable:session.read");
+  const snapshot = await adapter.snapshotAsync(); let items: unknown[];
+  if (kind === "track") items = [...snapshot.tracks];
+  else if (kind === "scene") items = [...snapshot.scenes];
+  else if (kind === "clip") items = snapshot.tracks.flatMap((track) => track.clips);
+  else items = snapshot.tracks.flatMap((track) => track.clips.flatMap((clip) => clip.notes.map((note, index) => ({ ...note, ref: `note:${clip.ref}:${index}` }))));
+  const offset = cursor ? Number.parseInt(Buffer.from(cursor, "base64url").toString("utf8"), 10) : 0;
+  if (!Number.isInteger(offset) || offset < 0 || offset > items.length) throw new Error("invalid cursor");
+  const page = items.slice(offset, offset + limit); const next = offset + page.length < items.length ? Buffer.from(String(offset + page.length)).toString("base64url") : undefined;
+  return { epoch: status.epoch, revision: `${status.epoch}:${items.length}`, items: clone(page), ...(next ? { nextCursor: next } : {}), truncated: next !== undefined };
 }

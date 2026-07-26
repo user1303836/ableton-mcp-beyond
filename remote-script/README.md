@@ -1,29 +1,27 @@
-# Ableton Remote Script boundary
+# AbletonMcpBridge Remote Script
 
-`ableton_mcp_remote_script.py` is a dependency-light Python 3 authenticated
-boundary for an Ableton Control Surface. It does not import `ableton.v2` at
-module load, so fake-Live contract tests can run without Live. It provides an
-explicit `create_instance` entrypoint, loopback listener, main-thread queue,
-epoch-scoped references, discovery, and bounded MIDI clip/note mapping.
+This directory contains a dependency-light Control Surface package and its
+transport implementation. Live loads `AbletonMcpBridge/__init__.py` and calls
+`create_instance(c_instance)`. The entrypoint reads an explicit owner-only
+configuration reference from `ABLETON_MCP_CONFIG`; missing, malformed,
+symlinked, non-loopback, or weak-secret configuration fails closed.
 
-The wire contract is `ableton-loopback/v1`, with HMAC-SHA256 signatures,
-canonical JSON, strictly increasing request sequences, bounded request IDs and
-nonces, and error responses instead of tracebacks. Responses are also
-authenticated by the compatible TypeScript client boundary. Run deterministic
-tests with:
+The bridge uses the authenticated `ableton-loopback/v1` wire contract with
+HMAC-SHA256, canonical JSON, bounded frames and collections, positive safe
+sequences, replay rejection, and redacted errors. Socket workers only frame,
+authenticate, sequence, and enqueue. `update_display` or the scheduled
+Control Surface callback drains Live-facing work on the main thread.
+
+The mapper supports status, bounded track/scene/clip/note/locator discovery,
+Session MIDI clip/note operations, reconnect epoch invalidation, and
+Arrangement locator operations when the Live object exposes cue points and
+`set_or_delete_cue`. Unsupported shapes are unavailable, not fabricated.
+
+Run contract tests from the repository root:
 
 ```sh
 python3 -m unittest discover -s remote-script -p 'test_*.py'
 ```
 
-Install diagnostics must remain separate from capability status: the presence
-of this source file is not evidence that Ableton Live, a Control Surface, or a
-device is installed.
-
-`create_instance` fails closed without an explicit loopback host, valid port,
-and secret of at least 32 characters. Socket workers only frame, authenticate,
-sequence, and enqueue; `update_display` or `drain_main_thread` executes the
-Live-facing mapper work. Disconnect closes clients, resets the queue, and
-advances the reference epoch. Fake-Live and Python socket tests remain
-deterministic contract evidence, not proof of compatibility with a real Set or
-Live version.
+These tests and fake-Live objects do not prove a real Ableton Live version,
+Control Surface installation, or visible Set behavior.

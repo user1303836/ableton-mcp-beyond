@@ -1,10 +1,9 @@
 # Operations guide
 
-Operate the current release as a supervised local stdio process. A green
-local readiness report means the Node entrypoint is usable; it never means
-Ableton Live, signing, or notarization is available.
+Run the host as a supervised stdio process with stdout and stderr on separate
+channels.
 
-## Start and observe
+## Start
 
 ```sh
 cd apps/mcp-server
@@ -13,67 +12,43 @@ npm run build
 node dist/src/cli.js
 ```
 
-The process is intended to be supervised by an MCP client or process manager.
-Keep stdout connected to the protocol consumer and capture stderr separately.
-Do not parse human diagnostics as protocol messages.
+For an explicit bridge:
 
-There is no in-place session resume. If stdin, stdout, or the process fails,
-restart `cli.js`, repeat `initialize` and `notifications/initialized`, and
-retry with a new request ID. Treat an adapter request as uncertain if the
-connection failed after a mutation may have been sent; read authoritative
-state before retrying.
+```sh
+node dist/src/cli.js --config /absolute/path/bridge-config.json
+```
 
-Use `server_status` after initialization to verify the host state. In the
-current release a healthy status still reports the Live adapter as unavailable;
-this is expected and is not evidence of Live connectivity.
+The CLI loads only the supplied configuration path. It validates the version,
+loopback endpoint, timeout, secret path, and secret before connecting. Startup
+failure is written as redacted text to stderr and no protocol output is
+manufactured.
 
-Use `capabilities` as the authoritative enabled-feature list and `tools/list`
-as the protocol surface. The default host enables `server_status`,
-`capabilities`, and `audio_analyze`. It also exposes Live status, snapshot, and
-guarded tempo tools. Snapshot requires negotiated `session.read`; tempo
-preview/apply/undo require negotiated `transport`. Caller metadata or
-authority-like fields cannot enable them.
+## Observe
 
-## Resource and input limits
+Use `server_status` and `capabilities` after initialization. `live_status`
+reports the negotiated protocol, epoch, adapter kind, connection state, and
+operations. `npm run diagnostics -- --config <path>` performs local readiness
+checks and, for version 2, one authenticated read-only status probe. A port,
+file, process, simulator, or installed package is not Live connectivity.
 
-The host bounds each input line at 64 MiB. PCM analysis bounds decoded input at
-10,000,000 samples and 600 seconds, and limits sample rate, channels, and FFT
-frame size to the ranges in the user guide. Analysis examines at most 32
-spectral frames with an FFT of at most 4,096 points and does not retain audio.
+## Limits and shutdown
 
-Rate-limit handling returns JSON-RPC error `-32029` after 120 audio calls in a
-rolling minute. Other malformed or invalid requests return standard validation
-errors or an MCP tool error with remediation text.
+Input frames are limited to 64 MiB. Audio is limited as documented in the user
+guide and to 120 calls per rolling minute. The stdio path preserves response
+framing and observes output backpressure. Close stdin for normal completion or
+terminate the supervisor; the host closes the adapter and rejects pending
+remote requests. There is no durable session resume.
 
-The process accepts one newline-delimited JSON-RPC message per line. A malformed
-line returns parse error `-32700` and a redacted stderr diagnostic, then later
-lines can still be processed. Lines over 64 MiB receive an invalid-request
-error and are discarded through the next newline.
-Invalid UTF-8 is also rejected without exposing request contents. Keep stdout
-reserved for newline-delimited JSON-RPC responses and route stderr to a
-separate diagnostic log.
+## Remote Script installation
 
-## Shutdown and upgrades
+Use `node dist/src/install-remote-script.js --destination <absolute-path>`.
+`--dry-run` inspects the target. Installation refuses symlink trees and
+overwrite by default. `--force` moves an existing target to a recoverable
+timestamped backup before replacement. Never auto-select a Live destination.
 
-There is no legacy `shutdown` method and no installed Live adapter to stop.
-Terminate the supervising process using its normal service mechanism after
-allowing the MCP client to close stdin. For an upgrade, stop the process,
-install dependencies from the lockfile, run the checkpoint validation, and
-restart only after it passes. Use `npm start`, `node dist/src/cli.js`, or
-generated setup configuration as the server command.
+## Evidence
 
-For a packaged installation, use the `ableton-mcp-server` binary or `npm
-start` after build. The setup, migration, and diagnostics helpers write or
-inspect local configuration only; they do not install or launch Live. The
-deterministic simulator and authenticated loopback are development/test
-components and are not evidence that a Live set is connected. The Python
-Remote Script file is a transport contract shim, not an installable Live
-Control Surface.
-
-The independent Python boundary tests run from the repository root with
-`python3 -m unittest discover -s remote-script -p 'test_*.py'`. Passing them
-proves only deterministic transport validation and wire-safe errors.
-
-Do not attach the simulator or loopback directly to a production process based
-on a readiness result. They are deterministic development components, and the
-MCP host has no command-line option that enables them.
+Node/Python tests, the simulator, fake-Live mapper, package verification, and
+loopback handshake prove repository-controlled contracts only. They do not
+establish a real Live Set, Live version compatibility, audio capture,
+hardware, accessibility, signing, notarization, or installer-runtime support.

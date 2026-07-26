@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { analyzePcm, decodeFloat32Le, MAX_ANALYSIS_CHANNELS, MAX_ANALYSIS_SAMPLES, MAX_ANALYSIS_SECONDS, MAX_FFT_SIZE, MAX_SPECTRAL_FRAMES } from "../src/analysis.js";
-import { dcFixture, impulseFixture, sineFixture, stereoFixture } from "./fixtures.js";
+import { analyzePcm, decodeFloat32Le, MAX_ANALYSIS_CHANNELS, MAX_ANALYSIS_SAMPLES, MAX_ANALYSIS_SECONDS, MAX_FFT_SIZE, MAX_SPECTRAL_FRAMES, MAX_TIME_FREQUENCY_BANDS, MAX_TIME_FREQUENCY_FRAMES, MAX_WAVEFORM_BINS } from "../src/analysis.js";
+import { dcFixture, impulseFixture, silenceFixture, sineFixture, stereoFixture, sweepFixture } from "./fixtures.js";
 
 test("deterministically analyzes a fixture without exposing audio", () => {
   const fixture = sineFixture(4096, 440, 48000);
@@ -152,4 +152,48 @@ test("validates mutable array-like storage once and keeps the result determinist
   assert.equal(reads, 1);
   assert.equal(result.peak, 0.5);
   assert.equal(result.safety.projectMutated, false);
+});
+
+test("returns bounded lossy waveform, logarithmic time-frequency, and transient summaries", () => {
+  const result = analyzePcm({ samples: sineFixture(48_000, 440, 48_000), sampleRate: 48_000, frameSize: 1024 });
+  assert.ok(result.waveform.binCount <= MAX_WAVEFORM_BINS);
+  assert.ok(result.waveform.bins.length <= MAX_WAVEFORM_BINS);
+  assert.equal(result.waveform.channelAggregation, "per-channel");
+  assert.equal(result.waveform.lossy, true);
+  assert.ok(result.waveform.bins.every((bin) => bin.channels.every((channel) => channel.min <= channel.max && Number.isFinite(channel.rms))));
+  assert.ok(result.timeFrequency.frameCount <= MAX_TIME_FREQUENCY_FRAMES);
+  assert.equal(result.timeFrequency.bandCount, MAX_TIME_FREQUENCY_BANDS);
+  assert.equal(result.timeFrequency.channelAggregation, "per-channel-and-aggregate");
+  assert.equal(result.timeFrequency.normalization, "mean-square-per-frame");
+  assert.equal(result.timeFrequency.lossy, true);
+  assert.ok(result.timeFrequency.frames.every((frame) => frame.bands.length === MAX_TIME_FREQUENCY_BANDS && frame.bands.every((band) => band.lowHz < band.highHz && band.highHz <= result.sampleRate / 2 && Number.isFinite(band.energy) && band.channels.length === 1)));
+  assert.ok(result.timeFrequency.frames.some((frame) => frame.bands.some((band) => band.energy > 0)));
+  const toneFrame = result.timeFrequency.frames[Math.floor(result.timeFrequency.frames.length / 2)];
+  const strongestBand = toneFrame?.bands.reduce((strongest, band) => band.energy > strongest.energy ? band : strongest, toneFrame.bands[0]!);
+  assert.ok(strongestBand && strongestBand.lowHz <= 440 && strongestBand.highHz >= 440);
+  assert.ok(Number.isFinite(result.transients.peakCount) && result.transients.peakCount >= 0);
+  const sweep = analyzePcm({ samples: sweepFixture(48_000, 220, 1_760, 48_000), sampleRate: 48_000, frameSize: 1024 });
+  assert.ok(sweep.timeFrequency.frames.some((frame) => frame.bands.some((band) => band.energy > 0)));
+});
+
+test("keeps waveform and time-frequency channel separation deterministic", () => {
+  const stereo = stereoFixture(8192, (frame) => 0.5 * Math.sin((2 * Math.PI * 220 * frame) / 48_000), (frame) => 0.5 * Math.sin((2 * Math.PI * 1760 * frame) / 48_000));
+  const result = analyzePcm({ samples: stereo, sampleRate: 48_000, channels: 2, frameSize: 1024 });
+  const firstBin = result.waveform.bins[0];
+  assert.ok(firstBin);
+  assert.notDeepEqual(firstBin?.channels[0], firstBin?.channels[1]);
+  const bandWithSeparation = result.timeFrequency.frames[0]?.bands.find((band) => Math.abs((band.channels[0] ?? 0) - (band.channels[1] ?? 0)) > 0.001);
+  assert.ok(bandWithSeparation);
+  assert.deepEqual(result, analyzePcm({ samples: stereo, sampleRate: 48_000, channels: 2, frameSize: 1024 }));
+});
+
+test("summarizes transients without making event or mastering claims", () => {
+  const result = analyzePcm({ samples: impulseFixture(48_000, 0.8), sampleRate: 48_000 });
+  assert.equal(result.transients.peakCount, 1);
+  assert.equal(result.transients.strongest?.sampleIndex, 0);
+  assert.ok(Math.abs((result.transients.strongest?.amplitude ?? 0) - 0.8) < 1e-6);
+  assert.equal(result.timeFrequency.method, "hann-windowed-fft");
+  assert.equal(result.loudness.standardsCompliant, false);
+  const silence = analyzePcm({ samples: silenceFixture(2048), sampleRate: 48_000 });
+  assert.ok(silence.timeFrequency.frames.every((frame) => frame.bands.every((band) => band.energy === 0 && band.energyDb <= -200)));
 });

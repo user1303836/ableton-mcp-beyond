@@ -32,11 +32,19 @@ jobs:
       - run: npm run package:verify
       - run: npm pack --dry-run --json
   remote-script:
-    name: Python Remote Script contract
-    runs-on: ubuntu-latest
+    name: Python Remote Script contract / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+        working-directory: remote-script
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
-      - run: python -m unittest discover -s remote-script -p 'test_*.py'
+      - run: python -m unittest discover -s . -p 'test_*.py'

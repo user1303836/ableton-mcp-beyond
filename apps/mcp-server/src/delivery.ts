@@ -2,7 +2,7 @@ import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync,
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { platform, versions } from "node:process";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 export const CONFIG_VERSION = 1;
 export const BRIDGE_CONFIG_VERSION = 2;
@@ -34,12 +34,15 @@ export interface DiagnosticReport {
   hostReady: boolean;
   remoteScriptInstalled: boolean;
   bridgeConfigured: boolean;
-  authenticatedReachable: false;
+  secretPermissions: "owner-only" | "unavailable" | "invalid";
+  authenticatedReachable: boolean;
+  roundTripLatency: number | null;
   adapterProtocol: string | null;
   adapterEpoch: number | null;
-  adapterCapabilities: string[];
-  liveConnected: false;
+  adapterOperations: string[];
+  liveConnected: boolean;
   simulator: boolean;
+  evidence: "local-contract" | "authenticated-bridge" | "unavailable";
   external: {
     abletonLive: "unavailable";
     signing: "unavailable";
@@ -59,6 +62,16 @@ function validateSecretPath(path: string): void {
     if (lstatSync(path).isSymbolicLink()) throw new Error("secret file must not be a symbolic link");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+function secretPermissions(path: string): DiagnosticReport["secretPermissions"] {
+  if (platform === "win32") return "unavailable";
+  try {
+    const mode = statSync(path).mode & 0o777;
+    return (mode & 0o077) === 0 ? "owner-only" : "invalid";
+  } catch {
+    return "invalid";
   }
 }
 
@@ -115,7 +128,9 @@ function parseBridgeConfig(value: unknown): BridgeConfig {
   if (Object.keys(server).some((key) => !["command", "args"].includes(key)) || Object.keys(bridge).some((key) => !["host", "port", "secretFile", "timeoutMs"].includes(key))) throw new Error("unsupported configuration fields");
   if (typeof server.command !== "string" || !server.command || !Array.isArray(server.args) || !server.args.every((arg) => typeof arg === "string")) throw new Error("invalid server configuration");
   if (typeof bridge.host !== "string" || typeof bridge.port !== "number" || typeof bridge.secretFile !== "string" || typeof bridge.timeoutMs !== "number") throw new Error("invalid bridge configuration");
-  return configForBridge(server.args[0] ?? "", { host: bridge.host, port: bridge.port, secretFile: bridge.secretFile, timeoutMs: bridge.timeoutMs }, server.command);
+  const config = configForBridge(server.args[0] ?? "", { host: bridge.host, port: bridge.port, secretFile: bridge.secretFile, timeoutMs: bridge.timeoutMs }, server.command);
+  readSecretFile(config.bridge.secretFile);
+  return config;
 }
 
 export function configForEntrypoint(entrypoint: string, nodeCommand = process.execPath): ServerConfig {
@@ -224,7 +239,12 @@ export function installRemoteScript(sourceFile: string, destinationDirectory: st
     const stagedAsset = join(stagedPackage, REMOTE_SCRIPT_ASSET);
     copyFileSync(sourceFile, stagedAsset);
     if (platform !== "win32") chmodSync(stagedAsset, 0o600);
-    writeFileSync(join(stagedPackage, "manifest.json"), `${JSON.stringify({ package: REMOTE_SCRIPT_PACKAGE, files: [REMOTE_SCRIPT_ASSET] })}\n`, { mode: 0o600, flag: "wx" });
+    const init = join(dirname(sourceFile), REMOTE_SCRIPT_PACKAGE, "__init__.py");
+    if (!existsSync(init)) throw new Error("Remote Script package is missing __init__.py");
+    copyFileSync(init, join(stagedPackage, "__init__.py"));
+    const files = ["__init__.py", REMOTE_SCRIPT_ASSET] as const;
+    const hashes = Object.fromEntries(files.map((name) => [name, createHash("sha256").update(readFileSync(join(stagedPackage, name))).digest("hex")]));
+    writeFileSync(join(stagedPackage, "manifest.json"), `${JSON.stringify({ package: REMOTE_SCRIPT_PACKAGE, algorithm: "sha256", files: hashes })}\n`, { mode: 0o600, flag: "wx" });
     if (backup) renameSync(destinationDirectory, backup);
     renameSync(stagedPackage, destinationDirectory);
     return { installed: destinationDirectory, backup, dryRun: false };
@@ -247,8 +267,9 @@ export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.m
   const hostReady = nodeMajor >= MIN_NODE_MAJOR && isSupportedPlatform() && entrypointPresent;
   const remoteScriptInstalled = existsSync(join(packageRoot, "remote-script", REMOTE_SCRIPT_ASSET));
   let bridgeConfigured = false;
+  let permissions: DiagnosticReport["secretPermissions"] = "unavailable";
   if (configValid && configPath) {
-    try { const config = readAnyConfig(configPath); bridgeConfigured = "bridge" in config && readSecretFile((config as BridgeConfig).bridge.secretFile).length >= 32; } catch { bridgeConfigured = false; }
+    try { const config = readAnyConfig(configPath); bridgeConfigured = "bridge" in config && readSecretFile((config as BridgeConfig).bridge.secretFile).length >= 32; permissions = "bridge" in config ? secretPermissions((config as BridgeConfig).bridge.secretFile) : "unavailable"; } catch { bridgeConfigured = false; permissions = "invalid"; }
   }
   return {
     platform,
@@ -262,13 +283,51 @@ export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.m
     hostReady,
     remoteScriptInstalled,
     bridgeConfigured,
+    secretPermissions: permissions,
     authenticatedReachable: false,
+    roundTripLatency: null,
     adapterProtocol: null,
     adapterEpoch: null,
-    adapterCapabilities: [],
+    adapterOperations: [],
     liveConnected: false,
     simulator: false,
+    evidence: hostReady ? "local-contract" : "unavailable",
     external: { abletonLive: "unavailable", signing: "unavailable", notarization: "unavailable" },
     ready: hostReady,
   };
+}
+
+/**
+ * Performs the only active delivery probe: an authenticated, read-only status
+ * handshake. A failed or unavailable endpoint remains negative evidence.
+ */
+export async function diagnosticsAsync(packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../.."), configPath?: string): Promise<DiagnosticReport> {
+  const report = diagnostics(packageRoot, configPath);
+  if (!report.bridgeConfigured || !configPath) return report;
+  try {
+    const { RemoteScriptLiveAdapter } = await import("./bridge/remote-adapter.js");
+    const config = readAnyConfig(configPath);
+    if (!("bridge" in config)) return report;
+    const started = performance.now();
+    const adapter = await RemoteScriptLiveAdapter.connect({ ...config.bridge, secret: readSecretFile(config.bridge.secretFile) });
+    try {
+      const status = adapter.status();
+      return {
+        ...report,
+        authenticatedReachable: true,
+        roundTripLatency: Number((performance.now() - started).toFixed(3)),
+        adapterProtocol: status.protocol,
+        adapterEpoch: status.epoch,
+        adapterOperations: [...status.capabilities],
+        liveConnected: status.connected,
+        simulator: status.adapter === "simulator",
+        evidence: "authenticated-bridge",
+        ready: report.hostReady && status.connected,
+      };
+    } finally {
+      await adapter.close();
+    }
+  } catch {
+    return report;
+  }
 }

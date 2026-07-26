@@ -26,7 +26,7 @@ export const LIVE_UNAVAILABLE_CAPABILITIES = [
 ] as const;
 
 export const SIMULATOR_CAPABILITIES = [
-  "session.read", "session.write", "tracks", "scenes", "clips", "notes", "session.discovery", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write", "transport", "subscriptions", "reconnect",
+  "session.read", "session.write", "tracks", "scenes", "clips", "notes", "session.discovery", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write", "arrangement.read", "arrangement.write", "transport", "subscriptions", "reconnect",
 ] as const satisfies readonly LiveCapability[];
 
 export type LiveCapability = typeof LIVE_CAPABILITIES[number];
@@ -62,7 +62,7 @@ export interface LiveEvent { sequence: number; type: "state" | "transport" | "ob
 export type LiveOperation =
   | "transport.set" | "scene.launch" | "clip.create" | "clip.delete"
   | "note.add" | "automation.add" | "audio.warp" | "take.add"
-  | "parameter.set" | "routing.set" | "browser.search" | "locator.add"
+  | "parameter.set" | "routing.set" | "browser.search" | "locator.add" | "locator.delete"
   | "max.message" | "osc.message";
 
 export interface LiveInvocation { operation: LiveOperation; args: Record<string, unknown>; }
@@ -75,6 +75,17 @@ export interface LiveAdapter {
   invoke(invocation: LiveInvocation): unknown;
   subscribe(listener: (event: LiveEvent) => void): () => void;
   reconnect(): LiveStatus;
+}
+
+/** Promise-based boundary used by process-backed adapters. Synchronous methods
+ * remain available for deterministic in-process compatibility tests. */
+export interface AsyncLiveAdapter extends LiveAdapter {
+  snapshotAsync(): Promise<LiveSnapshot>;
+  getAsync(ref: LiveRef): Promise<unknown>;
+  setAsync(ref: LiveRef, property: string, value: unknown): Promise<void>;
+  invokeAsync(invocation: LiveInvocation): Promise<unknown>;
+  reconnectAsync(): Promise<LiveStatus>;
+  close(): Promise<void>;
 }
 
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
@@ -189,6 +200,14 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         const locator = { ref: ref("locator", `locator-${this.state.arrangement.locators.length + 1}`), name, position };
         this.state.arrangement.locators.push(locator); this.emit({ type: "object", ref: locator.ref, payload: { operation, locator } }); return structuredClone(locator);
       }
+      case "locator.delete": {
+        const locatorRef = objectRef("ref");
+        const index = this.state.arrangement.locators.findIndex((item) => item.ref === locatorRef);
+        if (index < 0) throw new Error(`unknown locator reference: ${locatorRef}`);
+        const [deleted] = this.state.arrangement.locators.splice(index, 1);
+        this.emit({ type: "object", ref: locatorRef, payload: { operation, locator: deleted } });
+        return { deleted: locatorRef };
+      }
       case "max.message": case "osc.message": {
         const address = stringArg("address"); const values = args.values;
         if (!Array.isArray(values) || values.length > 64 || values.some((value) => !["string", "number", "boolean"].includes(typeof value))) throw new TypeError("message values are bounded primitives");
@@ -198,6 +217,12 @@ export class DeterministicLiveSimulator implements LiveAdapter {
   }
   subscribe(listener: (event: LiveEvent) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   reconnect(): LiveStatus { this.epoch += 1; this.emit({ type: "state", payload: { epoch: this.epoch, snapshot: this.snapshot() } }); return this.status(); }
+  async snapshotAsync(): Promise<LiveSnapshot> { return this.snapshot(); }
+  async getAsync(objectRef: LiveRef): Promise<unknown> { return this.get(objectRef); }
+  async setAsync(objectRef: LiveRef, property: string, value: unknown): Promise<void> { this.set(objectRef, property, value); }
+  async invokeAsync(invocation: LiveInvocation): Promise<unknown> { return this.invoke(invocation); }
+  async reconnectAsync(): Promise<LiveStatus> { return this.reconnect(); }
+  async close(): Promise<void> { this.listeners.clear(); }
   addNote(clipRef: LiveRef, note: Note): void {
     const clip = this.findClip(clipRef);
     if (clip.kind !== "midi") throw new Error("notes require a MIDI clip");
@@ -227,4 +252,10 @@ export class UnavailableLiveAdapter implements LiveAdapter {
   invoke(): never { throw new Error("Live adapter unavailable"); }
   subscribe(): () => void { return () => undefined; }
   reconnect(): LiveStatus { return this.status(); }
+  async snapshotAsync(): Promise<never> { return this.snapshot(); }
+  async getAsync(): Promise<never> { return this.get(); }
+  async setAsync(): Promise<never> { return this.set(); }
+  async invokeAsync(): Promise<never> { return this.invoke(); }
+  async reconnectAsync(): Promise<LiveStatus> { return this.reconnect(); }
+  async close(): Promise<void> { return undefined; }
 }
