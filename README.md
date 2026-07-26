@@ -2,18 +2,20 @@
 
 A safety-first Model Context Protocol host for Ableton Live integrations.
 
-The current implementation is a local JSON-lines MCP server with a deliberately
-small, read-only surface:
+The current implementation is a local JSON-lines MCP server. Its protocol
+surface exposes host tools plus a guarded Live workflow, but the default
+adapter is unavailable:
 
-- `server_status` reports host readiness and the Live-adapter status.
-- `capabilities` reports implemented and unavailable capability families.
-- `audio_analyze` analyzes caller-supplied, normalized little-endian float32
-  PCM and returns aggregate measurements only.
+- `server_status`, `capabilities`, and `audio_analyze` are enabled locally.
+- `live_status`, `live_snapshot`, `live_tempo_preview`, `live_tempo_apply`, and
+  `live_undo` are exposed but fail safely until a connected adapter is supplied.
+- `resources/*` and `prompts/*` publish capability, safety, audio, and guarded
+  tempo workflow descriptions.
 
-The Live adapter is not installed yet. No tool starts playback, changes a Live
-set, accesses a path, uses the network, or returns raw audio. See the operator
-and safety documents in [`docs/`](docs/) for setup, limits, recovery, and
-checkpoint procedures.
+The Live adapter is not installed yet. No default-host call starts playback,
+changes a Live set, accesses a path, uses the network, or returns raw audio.
+See [`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md) and the other documents in
+[`docs/`](docs/) for setup, limits, recovery, and checkpoint procedures.
 
 ## Quick start
 

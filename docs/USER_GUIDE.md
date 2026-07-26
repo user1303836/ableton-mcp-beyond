@@ -15,13 +15,18 @@ The lifecycle is `initialize`, followed by the
 `initialize`; tools require the initialized notification. Notifications do not
 produce responses.
 
-After initialization, the available tools are:
+After initialization, `tools/list` exposes these tools:
 
 | Tool | Purpose | Live side effects |
 | --- | --- | --- |
 | `server_status` | Reports host readiness and adapter availability. | None |
 | `capabilities` | Reports implemented and unavailable capability families. | None |
 | `audio_analyze` | Analyzes supplied PCM and returns aggregate metrics. | None |
+| `live_status` | Reports adapter status and epoch. | None |
+| `live_snapshot` | Reads a bounded Live Set snapshot through the adapter. | None when enabled; unavailable with the default adapter |
+| `live_tempo_preview` | Previews a tempo change and returns a short-lived transaction. | None |
+| `live_tempo_apply` | Applies a confirmed preview and verifies the result. | Changes tempo only when a connected adapter is enabled |
+| `live_undo` | Restores a verified applied tempo transaction. | Changes tempo only when a connected adapter is enabled |
 
 `audio_analyze` requires `pcmBase64` and `sampleRate`. PCM must be little-endian
 float32, normalized to `[-1, 1]`. Optional `channels` defaults to 1 and
@@ -46,7 +51,8 @@ samples. Audio calls are limited to 120 per rolling minute.
 
 ## Important expectation
 
-The server does not currently control Ableton Live. `server_status` reports
+The server does not currently control Ableton Live. `server_status` and
+`live_status` report
 `connected: false`, `adapter: "unavailable"`, and
 `reason: "live-adapter-not-installed"`. Treat the capability catalog as the
 source of truth for what is actually enabled.
@@ -75,11 +81,13 @@ The `npm start` package script launches the stdio server after the package has
 been built. You can also use `node dist/src/cli.js` or a generated client
 configuration.
 
-The host also exposes read-only resources `ableton://capabilities` and
-`ableton://safety`. The `analyze_audio` prompt describes the same bounded tool;
-it does not accept audio or grant Live access.
+The host also exposes read-only resources `ableton://capabilities`,
+`ableton://safety`, and `ableton://live-workflow`. The `analyze_audio` prompt
+describes the same bounded tool; `change_tempo_safely` describes the guarded
+Live sequence. Prompts do not accept audio or grant Live access.
 
-The simulator and authenticated loopback modules are adapter-boundary test
+The guarded tempo tools are protocol and adapter-boundary code, but are not
+enabled by the default host. The simulator and authenticated loopback modules are adapter-boundary test
 components, not a shipped Live connection. The Python Remote Script is a
 dependency-free transport shim; a real Control Surface callback and
 authenticated localhost transport are still required.

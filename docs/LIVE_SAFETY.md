@@ -12,6 +12,11 @@ The shipped default adapter is `UnavailableLiveAdapter`. It always reports
 records, edits a project, changes routing, accesses the filesystem or network,
 or returns raw audio.
 
+The Live tools are present in `tools/list`, but `live_status`,
+`live_snapshot`, `live_tempo_preview`, `live_tempo_apply`, and `live_undo`
+return safe unavailable errors with the default adapter. They do not become
+enabled from client metadata.
+
 `audio_analyze` operates only on PCM supplied in the request. It returns
 aggregates and remediation suggestions; remediation entries are marked
 reversible and `changesAudio: false`. Suggestions are advisory and never apply
@@ -40,9 +45,11 @@ caller-supplied authority fields, or a local Ableton installation.
 Before adding a Live adapter, require explicit capability negotiation, read-only
 defaults, confirmation for every mutation, reversible operations where possible,
 bounded inputs, clear status/epoch reporting, and tests that prove failure does
-not alter Live state. Add recovery instructions and update the capability
-catalog in the same change. Missing Live, device, platform, signing, or runner
-evidence is unavailable—not a pass.
+not alter Live state. The existing tempo workflow is the minimum mutation
+pattern: preview, explicit confirmation, idempotency, authoritative
+postcondition verification, epoch checks, and guarded undo. Add recovery
+instructions and update the capability catalog in the same change. Missing
+Live, device, platform, signing, or runner evidence is unavailable—not a pass.
 
 ## Operational stop rule
 

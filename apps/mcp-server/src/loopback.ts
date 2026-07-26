@@ -13,7 +13,6 @@ function validId(value: unknown): value is string { return typeof value === "str
 /** Authenticated, bounded loopback transport used by Remote Script/Extension adapters. */
 export class AuthenticatedLoopback {
   private readonly seenNonces = new Set<string>();
-  private readonly nonceOrder: string[] = [];
   private unsubscribe: (() => void) | undefined;
   constructor(private readonly adapter: LiveAdapter, private readonly secret: string, private readonly emit: (response: LoopbackResponse) => void = () => undefined) {
     if (secret.length < 32) throw new Error("loopback secret must contain at least 32 characters");
@@ -24,11 +23,6 @@ export class AuthenticatedLoopback {
     delete (unsigned as Partial<LoopbackRequest>).mac;
     if (request.version !== LOOPBACK_PROTOCOL_VERSION || !validId(request.id) || request.nonce.length < 16 || request.nonce.length > MAX_NONCE_LENGTH || this.seenNonces.has(request.nonce) || !this.verify(body(unsigned), request.mac)) return this.response(request.id, false, "authentication or replay check failed");
     this.seenNonces.add(request.nonce);
-    this.nonceOrder.push(request.nonce);
-    if (this.nonceOrder.length > 4096) {
-      const expired = this.nonceOrder.shift();
-      if (expired !== undefined) this.seenNonces.delete(expired);
-    }
     try {
       let result: unknown;
       switch (request.method) {
@@ -41,7 +35,7 @@ export class AuthenticatedLoopback {
         case "subscribe": this.unsubscribe?.(); this.unsubscribe = this.adapter.subscribe((event) => this.emit(this.eventResponse(request.id, event))); result = { subscribed: true }; break;
       }
       return this.response(request.id, true, undefined, result);
-    } catch (error) { return this.response(request.id, false, error instanceof Error ? error.message : "request failed"); }
+    } catch { return this.response(request.id, false, "request failed"); }
   }
   authenticate(request: Omit<LoopbackRequest, "mac">): LoopbackRequest { return { ...request, mac: sign(this.secret, body(request)) }; }
   close(): void { this.unsubscribe?.(); this.unsubscribe = undefined; }

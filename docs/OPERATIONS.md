@@ -25,9 +25,12 @@ Use `server_status` after initialization to verify the host state. In the
 current release a healthy status still reports the Live adapter as unavailable;
 this is expected and is not evidence of Live connectivity.
 
-Use `capabilities` as the authoritative feature list. The only implemented
-tools are `server_status`, `capabilities`, and `audio_analyze`; caller metadata
-or authority-like fields cannot enable unavailable capabilities.
+Use `capabilities` as the authoritative enabled-feature list and `tools/list`
+as the protocol surface. The default host enables `server_status`,
+`capabilities`, and `audio_analyze`. It also exposes Live status, snapshot, and
+guarded tempo tools, but those calls remain unavailable while the adapter
+reports `connected: false`; caller metadata or authority-like fields cannot
+enable them.
 
 ## Resource and input limits
 

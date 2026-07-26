@@ -16,7 +16,7 @@ class RemoteScriptTests(unittest.TestCase):
         unsigned = {"version": PROTOCOL, "id": "one", "method": "snapshot", "nonce": "0000000000000001"}
         result = remote.dispatch({**unsigned, "mac": remote.sign(unsigned)})
         self.assertFalse(result["ok"])
-        self.assertEqual(result["error"], "not available")
+        self.assertEqual(result["error"], "request failed")
 
     def test_random_ordered_nonces_and_unknown_fields(self):
         remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: method)

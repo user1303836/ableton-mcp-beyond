@@ -28,7 +28,6 @@ class AuthenticatedRemoteScript:
         self._secret = secret.encode("utf-8")
         self._operation = operation
         self._seen_nonces: set[str] = set()
-        self._nonce_order: list[str] = []
 
     def sign(self, payload: dict[str, Any]) -> str:
         encoded = json.dumps(payload, separators=(",", ":"), sort_keys=False).encode("utf-8")
@@ -57,15 +56,11 @@ class AuthenticatedRemoteScript:
         if len(request["nonce"]) < 16 or len(request["nonce"]) > MAX_NONCE_LENGTH or request["nonce"] in self._seen_nonces or not hmac.compare_digest(self.sign(unsigned), request["mac"]):
             return self._error(request["id"], "authentication or replay check failed")
         self._seen_nonces.add(request["nonce"])
-        self._nonce_order.append(request["nonce"])
-        if len(self._nonce_order) > 4096:
-            expired = self._nonce_order.pop(0)
-            self._seen_nonces.remove(expired)
         try:
             result = self._operation(request["method"], unsigned)
             return self._response(request["id"], True, result=result)
-        except Exception as error:  # Remote Script must never leak a traceback into the wire.
-            return self._error(request["id"], str(error))
+        except Exception:  # Remote Script must never leak operation details into the wire.
+            return self._error(request["id"], "request failed")
 
     def new_nonce(self) -> str:
         return secrets.token_urlsafe(18)

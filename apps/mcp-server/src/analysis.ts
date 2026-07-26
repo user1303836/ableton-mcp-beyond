@@ -194,9 +194,13 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
   const p95 = quantile(0.95);
   const monoSamples = new Float64Array(sampleCount / channels);
   for (let frame = 0; frame < monoSamples.length; frame += 1) {
-    let sum = 0;
-    for (let channel = 0; channel < channels; channel += 1) sum += input.samples[frame * channels + channel] ?? 0;
-    monoSamples[frame] = sum / channels;
+    let loudest = 0;
+    let loudestMagnitude = -1;
+    for (let channel = 0; channel < channels; channel += 1) {
+      const sample = input.samples[frame * channels + channel] ?? 0;
+      if (Math.abs(sample) > loudestMagnitude) { loudest = sample; loudestMagnitude = Math.abs(sample); }
+    }
+    monoSamples[frame] = loudest;
   }
   const dynamicRangeDb = db(p95) - db(Math.max(p10, EPSILON));
   const analysis: PcmAnalysis = {

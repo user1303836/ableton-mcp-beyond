@@ -79,3 +79,13 @@ If a future adapter reports authentication, replay, epoch, or mutation
 behavior inconsistent with its contract, stop the client and isolate the
 adapter before retrying. The current host cannot enter that state because it
 does not instantiate the loopback or simulator adapters.
+
+## Guarded tempo recovery
+
+Treat a tempo apply as incomplete until the response confirms the requested
+tempo, then read `live_snapshot` and compare the authoritative value. Reusing
+the same idempotency key is safe for a repeated apply or undo response. A
+transaction error for expiry, an epoch change, or a changed tempo means the
+operation was refused; obtain a fresh status/snapshot and preview again. If an
+apply reports failure after contacting a future adapter, inspect the set before
+retrying. Never force an undo after the postcondition or epoch check fails.

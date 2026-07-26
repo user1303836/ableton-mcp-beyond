@@ -23,10 +23,12 @@ The current suite covers deterministic analysis, clipping remediation, invalid
 and unsafe PCM, mono/stereo spectral handling, MCP initialization, strict
 schemas, duplicate IDs, notifications, malformed JSON, the built process,
 metadata, unsupported methods, boundedness, delivery configuration, packaging
-compatibility, float32 decoding, static safety resources, and the audio-analysis
-prompt workflow.
-The package smoke test also runs setup, legacy migration, diagnostics, and a
-protocol handshake against the installed tarball on each CI operating system.
+compatibility, float32 decoding, static safety resources, the audio-analysis
+prompt workflow, the exposed Live tool list, and the connected-adapter tempo
+preview/apply/verify/undo workflow. The default adapter tests also prove
+unavailable Live calls do not mutate state. The package smoke test runs setup,
+legacy migration, diagnostics, and a protocol handshake against the installed
+tarball on the current runner.
 From the repository root, also run
 `python3 -m unittest discover -s remote-script -p 'test_*.py'`. Those tests
 cover HMAC authentication, replay protection, nonce ordering, unknown-field

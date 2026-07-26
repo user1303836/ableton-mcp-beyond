@@ -109,3 +109,14 @@ test("loopback rejects oversized nonces before retaining them", () => {
   const request = transport.authenticate({ version: LOOPBACK_PROTOCOL_VERSION, id: "large", method: "status", nonce: "x".repeat(257) });
   assert.equal(transport.handle(request).ok, false);
 });
+
+test("loopback retains replay protection beyond the old eviction threshold", () => {
+  const transport = new AuthenticatedLoopback(new DeterministicLiveSimulator(), secret);
+  const first = transport.authenticate({ version: LOOPBACK_PROTOCOL_VERSION, id: "first", method: "status", nonce: "persistent-nonce-0001" });
+  assert.equal(transport.handle(first).ok, true);
+  for (let index = 0; index < 4_096; index += 1) {
+    const request = transport.authenticate({ version: LOOPBACK_PROTOCOL_VERSION, id: `request-${index}`, method: "status", nonce: `nonce-${index.toString().padStart(16, "0")}` });
+    assert.equal(transport.handle(request).ok, true);
+  }
+  assert.equal(transport.handle(first).ok, false);
+});

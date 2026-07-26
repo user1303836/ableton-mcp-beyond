@@ -56,3 +56,8 @@ setup, migration, and diagnostics helpers. It also requires diagnostics to
 report external Ableton Live as `unavailable`. From the repository root, run
 `python3 -m unittest discover -s remote-script -p 'test_*.py'` for the
 independent transport shim tests.
+
+The connected-adapter tempo workflow is tested only with the deterministic
+in-memory simulator. That evidence covers explicit confirmation, idempotency,
+epoch conflict checks, postcondition verification, and guarded undo; it is not
+Ableton Live evidence.

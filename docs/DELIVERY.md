@@ -2,15 +2,15 @@
 
 The supported artifact is the npm package produced from `apps/mcp-server` with
 `npm pack`. It contains compiled TypeScript and uses no native extensions, so
-the same artifact is portable across the supported Node.js platforms: macOS
-(`darwin`), Windows (`win32`), and Linux (`linux`). The GitHub Actions matrix
-runs the compatibility check, typecheck, tests, benchmark, and package-install
-smoke check on Node 20 and 22 for all three platforms.
+the same artifact targets Node.js on macOS (`darwin`), Windows (`win32`), and
+Linux (`linux`). The repository provides local compatibility and package smoke
+checks; a passing local check is not evidence for an unavailable platform
+runner.
 
 `npm run compatibility` fails unless the current runner uses Node 20 or newer
 and is macOS, Windows, or Linux. This is a portable Node package, so no
-platform-specific installer or native extension is claimed. The same real
-tarball is installed and exercised on each CI runner.
+platform-specific installer or native extension is claimed. The real tarball
+is installed and exercised by `npm run package:verify` on the current runner.
 
 Run the local artifact check with:
 

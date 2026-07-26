@@ -52,7 +52,8 @@ Requests are JSON-RPC 2.0 objects with only `jsonrpc`, `id`, `method`, `params`,
 and `_meta` fields. Request IDs are non-empty strings up to 128 characters or
 safe integers. Duplicate IDs are rejected while tracked; up to 4,096 IDs are
 retained. Initialization is required before ordinary requests. The supported
-methods are `initialize`, `ping`, `tools/list`, and `tools/call`.
+methods are `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`,
+`resources/read`, `prompts/list`, and `prompts/get`.
 
 The host accepts notifications without manufacturing responses. Malformed JSON
 produces a JSON-RPC parse error and the redacted diagnostic
@@ -61,8 +62,13 @@ tool calls are limited to 120 calls per rolling minute. The initialize request
 must use exactly protocol version `2025-11-25`; unsupported versions are
 rejected. Read-only capability and safety resources are available through
 `resources/list` and `resources/read`; the bounded audio workflow is available
-as the `analyze_audio` prompt through `prompts/list` and `prompts/get`. The host
-has no persistent session or in-place resume mechanism.
+as the `analyze_audio` and `change_tempo_safely` prompts through `prompts/list`
+and `prompts/get`. The host
+has no persistent session or in-place resume mechanism. `shutdown` and
+`$/cancelRequest` are unsupported; `notifications/cancelled` is accepted as a
+no-response notification. The exposed tool set is `server_status`,
+`capabilities`, `audio_analyze`, `live_status`, `live_snapshot`,
+`live_tempo_preview`, `live_tempo_apply`, and `live_undo`.
 
 ## Extension rules
 
@@ -77,10 +83,13 @@ overwrite unless `--force` is supplied, require a non-empty command, and create
 files with owner-only permissions where supported. PCM base64 decoding requires
 canonical base64 and bounded little-endian float32 data.
 
-The complete method set additionally includes `resources/list`,
-`resources/read`, `prompts/list`, and `prompts/get`. `shutdown` and
-`$/cancelRequest` are not implemented; only `notifications/cancelled` is
-accepted as a no-response notification.
+The default host constructs `UnavailableLiveAdapter`, so the five Live tools
+are exposed for a stable contract but Live-dependent calls return safe tool
+errors. A connected adapter enables status, snapshot, and the guarded tempo
+workflow. A tempo preview expires after 30 seconds; apply and undo require the
+matching epoch, explicit confirmation, and an idempotency key. Undo also
+refuses if the tempo changed after apply. At most 256 transactions are retained
+and old entries are evicted.
 
 `src/live.ts` is an in-memory simulator and adapter contract, not a Live
 connection. `src/loopback.ts` and `remote-script/ableton_mcp_remote_script.py`

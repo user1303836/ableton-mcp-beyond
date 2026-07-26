@@ -93,3 +93,14 @@ test("deinterleaves channels for spectral analysis and handles silence", () => {
   assert.equal(silence.spectral.dominantFrequencyHz, 0);
   assert.equal(silence.spectral.centroidHz, 0);
 });
+
+test("preserves spectral evidence for antiphase stereo", () => {
+  const stereo = new Float32Array(4096 * 2);
+  for (let frame = 0; frame < 4096; frame += 1) {
+    const sample = 0.5 * Math.sin((2 * Math.PI * 440 * frame) / 48000);
+    stereo[frame * 2] = sample;
+    stereo[frame * 2 + 1] = -sample;
+  }
+  const result = analyzePcm({ samples: stereo, sampleRate: 48000, channels: 2 });
+  assert.ok(result.spectral.dominantFrequencyHz > 300);
+});
