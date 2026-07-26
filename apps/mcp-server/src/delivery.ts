@@ -83,8 +83,8 @@ function secretPermissions(path: string): DiagnosticReport["secretPermissions"] 
       const encodedPath = Buffer.from(path, "utf8").toString("base64");
       const script = "$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:ABLETON_MCP_ACL_PATH));" +
         "$a=Get-Acl -LiteralPath $p;" +
-        "$o=$a.GetOwner([Security.Principal.SecurityIdentifier]).Value;" +
-        "$r=@($a.Access|ForEach-Object @{sid=$_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value;inherited=$_.IsInherited;type=$_.AccessControlType.ToString();rights=$_.FileSystemRights.ToString()});" +
+        "$o=$a.GetOwner([System.Security.Principal.SecurityIdentifier]).Value;" +
+        "$r=@($a.Access|ForEach-Object @{sid=$_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value;inherited=$_.IsInherited;type=$_.AccessControlType.ToString();rights=$_.FileSystemRights.ToString()});" +
         "[ordered]@{owner=$o;protected=$a.AreAccessRulesProtected;rules=$r}|ConvertTo-Json -Compress -Depth 8";
       const output = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
         encoding: "utf8", env: { ...process.env, ABLETON_MCP_ACL_PATH: encodedPath }, stdio: ["ignore", "pipe", "ignore"],
@@ -112,11 +112,11 @@ function secureWindowsFile(path: string): void {
     const encodedPath = Buffer.from(path, "utf8").toString("base64");
     const script = "$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:ABLETON_MCP_ACL_PATH));" +
       "$a=Get-Acl -LiteralPath $p;" +
-      "$owner=$a.GetOwner([Security.Principal.SecurityIdentifier]);" +
+      "$owner=$a.GetOwner([System.Security.Principal.SecurityIdentifier]);" +
       "$a.SetAccessRuleProtection($true,$false);" +
-      "$a.Access | ForEach-Object { [void]$a.RemoveAccessRuleSpecific($_) };" +
-      "$rule=New-Object Security.AccessControl.FileSystemAccessRule($owner,'FullControl','Allow');" +
-      "$a.SetAccessRule($rule); Set-Acl -LiteralPath $p -AclObject $a";
+      "foreach($existing in @($a.Access)){[void]$a.RemoveAccessRuleSpecific($existing)};" +
+      "$rule=[System.Security.AccessControl.FileSystemAccessRule]::new($owner,[System.Security.AccessControl.FileSystemRights]::FullControl,[System.Security.AccessControl.AccessControlType]::Allow);" +
+      "[void]$a.AddAccessRule($rule);Set-Acl -LiteralPath $p -AclObject $a";
     execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], { encoding: "utf8", env: { ...process.env, ABLETON_MCP_ACL_PATH: encodedPath }, stdio: "ignore" });
     if (secretPermissions(path) !== "owner-only") throw new Error("could not establish an owner-only Windows ACL");
   } catch (error) {
