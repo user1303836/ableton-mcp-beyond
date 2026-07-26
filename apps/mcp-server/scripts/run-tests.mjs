@@ -10,6 +10,10 @@ const testFiles = readdirSync(testDirectory)
 
 if (testFiles.length === 0) throw new Error(`no compiled test files found in ${testDirectory}`);
 
-const result = spawnSync(process.execPath, ["--test", ...testFiles], { stdio: "inherit" });
+// Performance-gate tests share the same process resources as functional tests.
+// Run files serially so CI load from unrelated test workers cannot turn their
+// wall-clock budgets into flaky failures; `npm run benchmark` repeats the gates
+// in a dedicated process after this suite.
+const result = spawnSync(process.execPath, ["--test", "--test-concurrency=1", ...testFiles], { stdio: "inherit" });
 if (result.error) throw result.error;
 process.exitCode = result.status ?? 1;
