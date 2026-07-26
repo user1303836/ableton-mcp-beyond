@@ -85,7 +85,7 @@ function secretPermissions(path: string): DiagnosticReport["secretPermissions"] 
         "$a=Get-Acl -LiteralPath $p;" +
         "$o=$a.GetOwner([Security.Principal.SecurityIdentifier]).Value;" +
         "$r=@($a.Access|ForEach-Object @{sid=$_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value;inherited=$_.IsInherited;type=$_.AccessControlType.ToString();rights=$_.FileSystemRights.ToString()});" +
-        "[ordered]@{owner=$o;protected=(-not $a.AreAccessRulesProtected);rules=$r}|ConvertTo-Json -Compress -Depth 8";
+        "[ordered]@{owner=$o;protected=$a.AreAccessRulesProtected;rules=$r}|ConvertTo-Json -Compress -Depth 8";
       const output = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
         encoding: "utf8", env: { ...process.env, ABLETON_MCP_ACL_PATH: encodedPath }, stdio: ["ignore", "pipe", "ignore"],
       });
