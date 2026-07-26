@@ -29,6 +29,7 @@ describe("ableton-platform-build workflow shape", () => {
       },
     });
     expect(assessed.tasks.map((task) => task.nodeId)).toContain("research-repository");
+    expect(assessed.tasks.find((task) => task.nodeId === "research-repository")?.prompt).toContain("CURRENT PERSISTED WORKFLOW CONTEXT");
   });
 
   test("checkpoints stage eligible changes without addressing the ignored SDK", () => {
@@ -42,6 +43,8 @@ describe("ableton-platform-build workflow shape", () => {
     const source = readFileSync(join(root, "workflows/ableton-platform-build.tsx"), "utf8");
     expect(source).toContain("<Parallel maxConcurrency={4}>");
     expect(source).toContain("<Parallel maxConcurrency={3}>");
+    expect(source).toContain('currentSlice: ctx.latest(outputs.planArtifact, "slice-select")');
+    expect(source).toContain("context truncated at 80,000 characters");
     expect(source.indexOf('id="audit-requirements"')).toBeLessThan(source.indexOf('id="audit-moderation"'));
     expect(source.indexOf('id="final-release-review"')).toBeLessThan(source.indexOf('id="final-review-verdict"'));
   });

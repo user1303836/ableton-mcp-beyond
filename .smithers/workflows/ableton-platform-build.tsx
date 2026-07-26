@@ -453,9 +453,14 @@ const WORKING_CONTRACT = [
 ].join("\n");
 
 function guardedPrompt(Prompt: PromptComponent, context: unknown): ReactNode {
+  const serializedContext = JSON.stringify(context, null, 2) ?? "null";
+  const boundedContext = serializedContext.length > 80_000
+    ? `${serializedContext.slice(0, 80_000)}\n... [context truncated at 80,000 characters]`
+    : serializedContext;
   return (
     <>
       {WORKING_CONTRACT}
+      {`\n\nCURRENT PERSISTED WORKFLOW CONTEXT (authoritative inputs and prior typed outputs):\n${boundedContext}\n\n`}
       <Prompt context={context} />
     </>
   );
@@ -780,6 +785,10 @@ export default smithers((ctx) => {
     prNumber: TARGET_PR,
     liveTest,
     iterationBudget: budget,
+    iteration: loopIteration,
+    currentImplementationPlan: ctx.latest(outputs.planArtifact, "implementation-plan"),
+    currentUseCaseScan: ctx.latest(outputs.planArtifact, "use-case-scan"),
+    currentSlice: ctx.latest(outputs.planArtifact, "slice-select"),
     preflight,
     research: ctx.outputs.research,
     researchSynthesis: ctx.outputs.researchSynthesis,
