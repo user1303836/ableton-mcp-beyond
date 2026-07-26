@@ -40,6 +40,16 @@ test("isolated maximum-input analysis reports separate peak resource gates", asy
   assert.ok(measurements.every((measurement) => measurement.passed), JSON.stringify(measurements));
 });
 
+test("isolated slow regression fails its latency gate", async () => {
+  const measurements = await measureIsolatedMaximumInputAnalysis({ slowMilliseconds: 5, latencyBudgetMilliseconds: 1 });
+  assert.equal(measurements.find((measurement) => measurement.name === "pcm_isolated_latency_p95")?.passed, false);
+});
+
+test("isolated allocation regression fails its array-buffer gate", async () => {
+  const measurements = await measureIsolatedMaximumInputAnalysis({ allocate: true, arrayBuffersBudgetBytes: 1 });
+  assert.equal(measurements.find((measurement) => measurement.name === "pcm_isolated_peak_array_buffers")?.passed, false);
+});
+
 test("an injected slow analyzer fails the latency gate", () => {
   const measurements = measureMaximumInputAnalysis((input) => {
     const started = Date.now();

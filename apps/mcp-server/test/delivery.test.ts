@@ -150,6 +150,14 @@ test("Remote Script installer is explicit, atomic, and preserves a recoverable b
   assert.equal(readFileSync(join(destination, "ableton_mcp_remote_script.py"), "utf8"), "replacement");
   assert.equal(first.backup, null);
   assert.equal(existsSync(join(destination, "ableton-live-v1.operations.json")), true);
-  const manifest = JSON.parse(readFileSync(join(destination, "manifest.json"), "utf8")) as { files?: Record<string, string> };
+  const manifest = JSON.parse(readFileSync(join(destination, "manifest.json"), "utf8")) as { registryHash?: string; files?: Record<string, string> };
   assert.equal(typeof manifest.files?.["ableton-live-v1.operations.json"], "string");
+  assert.match(manifest.registryHash ?? "", /^[a-f0-9]{64}$/);
+});
+
+test("diagnostic evidence cannot promote an authenticated fake bridge to real Live", () => {
+  const source = readFileSync(new URL("../../src/delivery.ts", import.meta.url), "utf8");
+  assert.match(source, /provenance === \"real-live\"/);
+  assert.match(source, /adapterOperations: operations/);
+  assert.match(source, /session-playback/);
 });

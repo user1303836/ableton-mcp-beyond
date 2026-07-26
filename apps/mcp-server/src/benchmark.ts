@@ -29,6 +29,12 @@ export interface IsolatedAnalysisResources {
 }
 
 export type AnalysisBenchmarkFn = (input: Parameters<typeof analyzePcm>[0]) => ReturnType<typeof analyzePcm>;
+export interface IsolatedAnalysisOptions {
+  slowMilliseconds?: number;
+  allocate?: boolean;
+  latencyBudgetMilliseconds?: number;
+  arrayBuffersBudgetBytes?: number;
+}
 
 const PING_SAMPLES = 256;
 const BATCH_SIZE = 128;
@@ -134,10 +140,13 @@ export function measureMaximumInputAnalysis(analyzer: AnalysisBenchmarkFn = anal
  * hide peak resource use in a warmed test worker. The worker reports its
  * observed high-water values and never returns PCM.
  */
-export async function measureIsolatedMaximumInputAnalysis(): Promise<BenchmarkMeasurement[]> {
+export async function measureIsolatedMaximumInputAnalysis(options: IsolatedAnalysisOptions = {}): Promise<BenchmarkMeasurement[]> {
   const workerPath = fileURLToPath(new URL("./analysis-worker.js", import.meta.url));
   const started = performance.now();
-  const child = spawn(process.execPath, [workerPath], { stdio: ["ignore", "pipe", "pipe"] });
+  const workerArguments = [workerPath];
+  if (options.slowMilliseconds !== undefined) workerArguments.push(`--slow=${options.slowMilliseconds}`);
+  if (options.allocate) workerArguments.push("--allocate");
+  const child = spawn(process.execPath, workerArguments, { stdio: ["ignore", "pipe", "pipe"] });
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
   child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
@@ -153,11 +162,11 @@ export async function measureIsolatedMaximumInputAnalysis(): Promise<BenchmarkMe
   catch { throw new Error("isolated analysis worker returned invalid resource evidence"); }
   const result: IsolatedAnalysisResources = { ...resources, elapsedMilliseconds };
   return [
-    measure("pcm_isolated_latency_p95", percentile(result.latencyMeasurements, 0.95), "ms", BENCHMARK_BUDGETS.isolatedLatencyP95Milliseconds),
+    measure("pcm_isolated_latency_p95", percentile(result.latencyMeasurements, 0.95), "ms", options.latencyBudgetMilliseconds ?? BENCHMARK_BUDGETS.isolatedLatencyP95Milliseconds),
     measure("pcm_isolated_peak_rss", result.peakRssBytes, "bytes", BENCHMARK_BUDGETS.isolatedPeakRssBytes),
     measure("pcm_isolated_peak_heap_used", result.peakHeapUsedBytes, "bytes", BENCHMARK_BUDGETS.isolatedPeakHeapUsedBytes),
     measure("pcm_isolated_peak_external", result.peakExternalBytes, "bytes", BENCHMARK_BUDGETS.isolatedPeakExternalBytes),
-    measure("pcm_isolated_peak_array_buffers", result.peakArrayBuffersBytes, "bytes", BENCHMARK_BUDGETS.isolatedPeakArrayBuffersBytes),
+    measure("pcm_isolated_peak_array_buffers", result.peakArrayBuffersBytes, "bytes", options.arrayBuffersBudgetBytes ?? BENCHMARK_BUDGETS.isolatedPeakArrayBuffersBytes),
     measure("pcm_isolated_output_bytes", result.outputBytes, "bytes", BENCHMARK_BUDGETS.analysisOutputBytes),
   ];
 }

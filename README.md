@@ -30,13 +30,14 @@ handling, see [`docs/OPERATIONS.md`](docs/OPERATIONS.md) and
 
 The source-controlled operation contract is
 [`protocol/ableton-live-v1.operations.json`](protocol/ableton-live-v1.operations.json).
-The bridge negotiates its exact SHA-256 before serving Live operations. The
-current host surface includes bounded discovery, Session structure and MIDI,
-Arrangement locators, tempo, and guarded numeric device-parameter adjustment.
-The Python mapper additionally supports bounded parent-scoped discovery of the
-observed hierarchy, including empty Session clip slots and playback metadata,
-when those object attributes exist. The MCP host has not yet delegated every
-mapper kind, and unsupported or unobserved domains remain unavailable.
+The bridge negotiates its canonical SHA-256 before serving Live operations. The
+current host surface includes bounded discovery, guarded Session scene
+audition, Session structure and MIDI, Arrangement locators, tempo, and guarded
+numeric device-parameter adjustment. The Python mapper supports bounded,
+epoch-scoped discovery for the observed hierarchy, including regular/group,
+return and main tracks, scenes, parent-scoped clip slots and clips, notes,
+locators, devices, parameters, selection, routing choices, and Session
+playback. Unsupported or unobserved Live shapes remain unavailable.
 
 Build a host-only client configuration:
 
@@ -62,6 +63,14 @@ The CLI loads a bridge only when `--config /absolute/path/bridge-config.json`
 is supplied. Configuration, secret, and Remote Script installation are never
 selected from JSON-RPC arguments or client metadata.
 
+For an installed artifact, run `npm run diagnostics -- --config
+/absolute/path/bridge-config.json`. Diagnostics validate the package manifest's
+raw asset hashes and canonical registry hash, then perform authenticated,
+bounded Set, scene, track, child clip-slot, and Session-playback discovery.
+They report adapter operations separately from capabilities. `fake-live`,
+simulator, unavailable, and unknown provenance remain non-passing evidence for
+`liveConnected`, real Live state, audible state, or restoration.
+
 The Remote Script installer requires an explicit destination:
 
 ```sh
@@ -72,6 +81,15 @@ node dist/src/install-remote-script.js --destination /absolute/path/ControlSurfa
 Use `--force` only for a known disposable or recoverable destination. See
 [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) and
 [`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md) for operating boundaries.
+
+Scene audition is a potentially audible workflow. Preview is read-only and
+requires an exact Set name, authoritative stopped/non-recording playback,
+unarmed and non-input-monitored tracks, safe launch quantization, callable
+launch/stop operations, and explicit output-safety evidence. Apply requires
+the returned confirmation and idempotency key, verifies fresh playback, and
+must be stopped with the returned stop confirmation. It is not real-Live
+evidence unless a real authenticated bridge and disposable Set have been
+independently established.
 
 ## Evidence boundary
 

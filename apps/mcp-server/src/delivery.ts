@@ -4,6 +4,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { platform, versions } from "node:process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import type { LiveStatus } from "./live.js";
 
 export const CONFIG_VERSION = 1;
 export const BRIDGE_CONFIG_VERSION = 2;
@@ -24,7 +25,7 @@ export interface BridgeConfig {
   bridge: { host: string; port: number; secretFile: string; timeoutMs: number };
 }
 
-type LiveStatusWithRegistry = { registryHash?: unknown };
+type LiveStatusWithRegistry = { registryHash?: unknown; provenance?: unknown };
 
 export interface DiagnosticReport {
   platform: NodeJS.Platform;
@@ -46,6 +47,8 @@ export interface DiagnosticReport {
   adapterEpoch: number | null;
   adapterOperations: string[];
   registryHash: string | null;
+  discoveryKinds: string[];
+  provenance: "real-live" | "fake-live" | "simulator" | "unknown";
   discoveryReachable: boolean;
   liveConnected: boolean;
   simulator: boolean;
@@ -75,12 +78,21 @@ function validateSecretPath(path: string): void {
 function secretPermissions(path: string): DiagnosticReport["secretPermissions"] {
   if (platform === "win32") {
     try {
-      const owner = process.env.USERNAME;
-      if (!owner) return "unavailable";
-      const output = execFileSync("icacls.exe", [path], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-      const lower = output.toLowerCase();
-      const broadPrincipals = ["everyone", "authenticated users", "builtin\\users", "nt authority\\users", "\u00a0users"];
-      if (!lower.includes(owner.toLowerCase()) || broadPrincipals.some((principal) => lower.includes(principal))) return "invalid";
+      // Do not parse localized icacls output.  Ask the Windows security API
+      // for the owner SID and every DACL entry, including inheritance state.
+      const encodedPath = Buffer.from(path, "utf8").toString("base64");
+      const script = "$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:ABLETON_MCP_ACL_PATH));" +
+        "$a=Get-Acl -LiteralPath $p;" +
+        "$o=$a.GetOwner([Security.Principal.SecurityIdentifier]).Value;" +
+        "$r=@($a.Access|ForEach-Object @{sid=$_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value;inherited=$_.IsInherited;type=$_.AccessControlType.ToString();rights=$_.FileSystemRights.ToString()});" +
+        "[ordered]@{owner=$o;protected=(-not $a.AreAccessRulesProtected);rules=$r}|ConvertTo-Json -Compress -Depth 8";
+      const output = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
+        encoding: "utf8", env: { ...process.env, ABLETON_MCP_ACL_PATH: encodedPath }, stdio: ["ignore", "pipe", "ignore"],
+      });
+      const descriptor = JSON.parse(output) as { owner?: unknown; protected?: unknown; rules?: Array<{ sid?: unknown; inherited?: unknown; type?: unknown; rights?: unknown }> };
+      const rules = Array.isArray(descriptor.rules) ? descriptor.rules : [];
+      if (typeof descriptor.owner !== "string" || descriptor.protected !== true || rules.length === 0 ||
+          rules.some((rule) => rule.sid !== descriptor.owner || rule.inherited !== false || rule.type !== "Allow" || typeof rule.rights !== "string" || !rule.rights.includes("FullControl"))) return "invalid";
       return "owner-only";
     } catch {
       return "unavailable";
@@ -96,10 +108,16 @@ function secretPermissions(path: string): DiagnosticReport["secretPermissions"] 
 
 function secureWindowsFile(path: string): void {
   if (platform !== "win32") return;
-  const owner = process.env.USERNAME;
-  if (!owner) throw new Error("Windows owner identity is unavailable");
   try {
-    execFileSync("icacls.exe", [path, "/inheritance:r", "/grant:r", `${owner}:(F)`], { stdio: "ignore" });
+    const encodedPath = Buffer.from(path, "utf8").toString("base64");
+    const script = "$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:ABLETON_MCP_ACL_PATH));" +
+      "$a=Get-Acl -LiteralPath $p;" +
+      "$owner=$a.GetOwner([Security.Principal.SecurityIdentifier]);" +
+      "$a.SetAccessRuleProtection($true,$false);" +
+      "$a.Access | ForEach-Object { [void]$a.RemoveAccessRuleSpecific($_) };" +
+      "$rule=New-Object Security.AccessControl.FileSystemAccessRule($owner,'FullControl','Allow');" +
+      "$a.SetAccessRule($rule); Set-Acl -LiteralPath $p -AclObject $a";
+    execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], { encoding: "utf8", env: { ...process.env, ABLETON_MCP_ACL_PATH: encodedPath }, stdio: "ignore" });
     if (secretPermissions(path) !== "owner-only") throw new Error("could not establish an owner-only Windows ACL");
   } catch (error) {
     throw new Error("could not establish an owner-only Windows ACL", { cause: error });
@@ -269,7 +287,7 @@ export function writeBridgeReference(path: string, configPath: string, force = f
 
 function operationRegistrySource(): string {
   const base = dirname(fileURLToPath(import.meta.url));
-  const candidates = [resolve(base, "../../../protocol", OPERATION_REGISTRY_ASSET), resolve(base, "../../../../protocol", OPERATION_REGISTRY_ASSET)];
+  const candidates = [resolve(base, "../../../protocol", OPERATION_REGISTRY_ASSET), resolve(base, "../../../../protocol", OPERATION_REGISTRY_ASSET), resolve(base, "../..", "remote-script", REMOTE_SCRIPT_PACKAGE, OPERATION_REGISTRY_ASSET)];
   const candidate = candidates.find((path) => existsSync(path));
   if (!candidate) throw new Error("operation registry is unavailable");
   return candidate;
@@ -279,6 +297,19 @@ function copyOperationRegistry(destination: string): void {
   const source = operationRegistrySource();
   if (!lstatSync(source).isFile()) throw new Error("operation registry is unavailable");
   copyFileSync(source, destination);
+}
+
+function registryDigest(): string {
+  const canonical = (value: unknown): string => {
+    if (value === null || typeof value === "boolean" || typeof value === "string" || typeof value === "number") return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+    if (typeof value === "object") {
+      const object = value as Record<string, unknown>;
+      return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${canonical(object[key])}`).join(",")}}`;
+    }
+    throw new Error("operation registry contains an unsupported value");
+  };
+  return createHash("sha256").update(canonical(JSON.parse(readFileSync(operationRegistrySource(), "utf8")))).digest("hex");
 }
 
 function rejectSymlinkTree(path: string): void {
@@ -318,7 +349,7 @@ export function installRemoteScript(sourceFile: string, destinationDirectory: st
     copyOperationRegistry(join(stagedPackage, OPERATION_REGISTRY_ASSET));
     const files = ["__init__.py", REMOTE_SCRIPT_ASSET, OPERATION_REGISTRY_ASSET] as const;
     const hashes = Object.fromEntries(files.map((name) => [name, createHash("sha256").update(readFileSync(join(stagedPackage, name))).digest("hex")]));
-    writeFileSync(join(stagedPackage, "manifest.json"), `${JSON.stringify({ package: REMOTE_SCRIPT_PACKAGE, algorithm: "sha256", files: hashes })}\n`, { mode: 0o600, flag: "wx" });
+    writeFileSync(join(stagedPackage, "manifest.json"), `${JSON.stringify({ package: REMOTE_SCRIPT_PACKAGE, algorithm: "sha256", registryHash: registryDigest(), files: hashes })}\n`, { mode: 0o600, flag: "wx" });
     if (referencePath && options.configPath) writeBridgeReference(join(stagedPackage, "bridge-reference.json"), options.configPath);
     if (backup) renameSync(destinationDirectory, backup);
     renameSync(stagedPackage, destinationDirectory);
@@ -343,8 +374,8 @@ export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.m
   const packageDirectory = join(packageRoot, "remote-script", REMOTE_SCRIPT_PACKAGE);
   let packageAssetsValid = false;
   try {
-    const manifest = JSON.parse(readFileSync(join(packageDirectory, "manifest.json"), "utf8")) as { algorithm?: string; files?: Record<string, string> };
-    packageAssetsValid = manifest.algorithm === "sha256" && ["__init__.py", REMOTE_SCRIPT_ASSET, OPERATION_REGISTRY_ASSET].every((name) => manifest.files?.[name] === createHash("sha256").update(readFileSync(join(packageDirectory, name))).digest("hex"));
+    const manifest = JSON.parse(readFileSync(join(packageDirectory, "manifest.json"), "utf8")) as { algorithm?: string; registryHash?: string; files?: Record<string, string> };
+    packageAssetsValid = manifest.algorithm === "sha256" && manifest.registryHash === registryDigest() && ["__init__.py", REMOTE_SCRIPT_ASSET, OPERATION_REGISTRY_ASSET].every((name) => manifest.files?.[name] === createHash("sha256").update(readFileSync(join(packageDirectory, name))).digest("hex"));
   } catch { packageAssetsValid = false; }
   let bridgeConfigured = false;
   let permissions: DiagnosticReport["secretPermissions"] = "unavailable";
@@ -371,6 +402,8 @@ export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.m
     adapterEpoch: null,
     adapterOperations: [],
     registryHash: null,
+    discoveryKinds: [],
+    provenance: "unknown",
     discoveryReachable: false,
     liveConnected: false,
     simulator: false,
@@ -395,18 +428,39 @@ export async function diagnosticsAsync(packageRoot = resolve(dirname(fileURLToPa
     const adapter = await RemoteScriptLiveAdapter.connect({ ...config.bridge, secret: readSecretFile(config.bridge.secretFile) });
     try {
       const status = adapter.status();
-      const discovery = await adapter.invokeAsync({ operation: "session.discover" as never, args: { kind: "scene", limit: 1 } });
-      if (!discovery || typeof discovery !== "object") throw new Error("bounded discovery returned no result");
+      const operations = [...(status.operations ?? [])];
+      if (!operations.includes("session.discover") || !operations.includes("session.playback")) throw new Error("required read-only discovery operations are unavailable");
+      const discoveredKinds: string[] = [];
+      const discover = async (kind: string, parent?: string) => {
+        const args: Record<string, unknown> = { kind, limit: 16, traversalBudget: 256 };
+        if (parent) args.parent = parent;
+        const result = await adapter.invokeAsync({ operation: "session.discover" as never, args });
+        if (!result || typeof result !== "object" || !Array.isArray((result as { items?: unknown }).items)) throw new Error(`bounded ${kind} discovery returned no result`);
+        discoveredKinds.push(kind);
+        return (result as { items: Array<Record<string, unknown>> }).items;
+      };
+      await discover("set");
+      const scenes = await discover("scene");
+      const tracks = await discover("track");
+      await adapter.invokeAsync({ operation: "session.playback" as never, args: {} });
+      discoveredKinds.push("session-playback");
+      const firstTrack = tracks.find((item) => typeof item.ref === "string");
+      if (firstTrack) await discover("clip_slot", firstTrack.ref as string);
+      if (scenes.length === 0) throw new Error("scene discovery returned no authoritative scenes");
+      const statusWithEvidence = status as LiveStatus & LiveStatusWithRegistry;
+      const provenance = statusWithEvidence.provenance === "real-live" ? "real-live" : statusWithEvidence.adapter === "simulator" ? "simulator" : statusWithEvidence.adapter === "remote-script" ? "fake-live" : "unknown";
       return {
         ...report,
         authenticatedReachable: true,
         roundTripLatency: Number((performance.now() - started).toFixed(3)),
         adapterProtocol: status.protocol,
         adapterEpoch: status.epoch,
-        adapterOperations: [...status.capabilities],
+        adapterOperations: operations,
         registryHash: typeof (status as LiveStatusWithRegistry).registryHash === "string" ? (status as LiveStatusWithRegistry).registryHash as string : null,
         discoveryReachable: true,
-        liveConnected: status.connected && status.adapter === "remote-script",
+        discoveryKinds: discoveredKinds,
+        provenance,
+        liveConnected: status.connected && status.adapter === "remote-script" && provenance === "real-live",
         simulator: status.adapter === "simulator",
         evidence: "authenticated-bridge",
         ready: report.hostReady && status.connected,

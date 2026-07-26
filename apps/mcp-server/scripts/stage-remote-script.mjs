@@ -22,4 +22,6 @@ copyFileSync(source, join(packageDestination, "ableton_mcp_remote_script.py"));
 copyFileSync(registrySource, join(packageDestination, "ableton-live-v1.operations.json"));
 const manifestFiles = ["__init__.py", "ableton_mcp_remote_script.py", "ableton-live-v1.operations.json"];
 const manifest = Object.fromEntries(manifestFiles.map((name) => [name, createHash("sha256").update(readFileSync(join(packageDestination, name))).digest("hex")]));
-writeFileSync(join(packageDestination, "manifest.json"), `${JSON.stringify({ package: "AbletonMcpBridge", algorithm: "sha256", files: manifest })}\n`, { flag: "w" });
+const canonical = (value) => value === null || typeof value !== "object" ? JSON.stringify(value) : Array.isArray(value) ? `[${value.map(canonical).join(",")}]` : `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
+const registryHash = createHash("sha256").update(canonical(JSON.parse(readFileSync(join(packageDestination, "ableton-live-v1.operations.json"), "utf8")))).digest("hex");
+writeFileSync(join(packageDestination, "manifest.json"), `${JSON.stringify({ package: "AbletonMcpBridge", algorithm: "sha256", registryHash, files: manifest })}\n`, { flag: "w" });

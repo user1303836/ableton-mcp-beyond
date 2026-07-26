@@ -11,7 +11,7 @@ npm run build
 node dist/src/cli.js --config /absolute/path/bridge-config.json
 ```
 
-Use `server_status`, `capabilities`, and `live_status` after initialization. A valid `live_status` must identify `ableton-live/v1`, a connected `remote-script` adapter, a non-null epoch, the expected registry hash, and the negotiated operations. `live_snapshot` and bounded discovery provide the active read-only check.
+Use `server_status`, `capabilities`, and `live_status` after initialization. A valid `live_status` must identify `ableton-live/v1`, a connected `remote-script` adapter, a non-null epoch, the expected registry hash, and the negotiated operations. `live_snapshot` and bounded discovery provide the active read-only check. For audition, discover the exact Set, scene, target tracks/slots, and Session playback before preview; diagnostics discovery is not authorization to launch.
 
 Diagnostics accepts no arguments or exactly one `--config PATH`:
 
@@ -23,7 +23,7 @@ Diagnostics separates local host/package/configuration readiness from authentica
 
 ## Limits and shutdown
 
-The host bounds JSON-RPC frames at 64 MiB, remote frames at 1 MiB, remote pending work at 64 requests, tracked request identifiers at 4096, and tool calls at 120 per rolling minute. Stdio allows bounded concurrent work (default 16, maximum 64), preserves response order, observes output backpressure, and treats cancellation after dispatch as non-retracting. Audio analysis is bounded to the limits in `USER_GUIDE.md`. Close stdin for normal completion. On EOF, signal, initialization failure, cancellation, output failure, timeout, or disconnect, close the adapter and settle pending work; reinitialize to obtain a new epoch.
+The host bounds JSON-RPC frames at 64 MiB, remote frames at 1 MiB, remote pending work at 64 requests, tracked request identifiers at 4096, and tool calls at 120 per rolling minute. Stdio allows bounded concurrent work (default 16, maximum 64), preserves response order, observes output backpressure, and treats cancellation after dispatch as non-retracting. Audio analysis is bounded to the limits in `USER_GUIDE.md`. Close stdin for normal completion. On EOF, signal, initialization failure, cancellation, output failure, timeout, or disconnect, close the adapter and settle pending work; reinitialize to obtain a new epoch. A scene-audition disconnect, timeout, or acknowledgement loss is uncertain playback state, not a safe retry condition.
 
 ## Installation
 

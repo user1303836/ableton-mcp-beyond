@@ -243,7 +243,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "a1bb484dcf9e685cd743b0414589c8f2cb0e422613cf2a62814698a78efb8241")
+        self.assertEqual(digest, "ad916d5dc560fb9f5a46b029f4edca3160ba9488c53f54df99535e0386f51c9b")
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
 
     def test_references_remain_stable_across_fresh_discovery(self):
@@ -263,8 +263,9 @@ class ControlSurfaceTests(unittest.TestCase):
 
     def test_device_parameter_discovery_and_guarded_mutation(self):
         mapper = LiveObjectMapper(FakeSong())
-        device = mapper.discover("device")["items"][0]
-        parameter = mapper.discover("parameter")["items"][0]
+        track = mapper.discover("track")["items"][0]
+        device = mapper.discover("device", parent=track["ref"])["items"][0]
+        parameter = mapper.discover("parameter", parent=device["ref"])["items"][0]
         self.assertEqual(parameter["parentRef"], device["ref"])
         self.assertEqual(parameter["revision"], 1)
         changed = mapper.invoke("device.parameter.set", {"ref": parameter["ref"], "value": 0.75})
@@ -335,7 +336,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(track["parentRef"], song["ref"])
         self.assertEqual(slot["parentRef"], track["ref"])
         self.assertTrue(slot["empty"])
-        self.assertEqual(mapper.discover("clip_slot", requested_fields=["empty"])["items"][0], {"ref": slot["ref"], "parentRef": track["ref"], "empty": True})
+        self.assertEqual(mapper.discover("clip_slot", parent=track["ref"], requested_fields=["empty"])["items"][0], {"ref": slot["ref"], "parentRef": track["ref"], "empty": True})
 
     def test_discovery_cursor_is_opaque_authenticated_and_revision_bound(self):
         mapper = LiveObjectMapper(FakeSong())
@@ -429,11 +430,11 @@ class ControlSurfaceTests(unittest.TestCase):
         track = mapper.discover("track")["items"][0]["ref"]
         created = mapper.invoke("clip.create", {"trackRef": track, "sceneIndex": 0, "name": "Paged", "length": 16})
         mapper.invoke("note.add", {"ref": created["ref"], "note": {"pitch": 36, "start": 0, "duration": 0.25, "velocity": 100, "channel": 1}})
-        page = mapper.discover("note", 1)
+        page = mapper.discover("note", 1, parent=created["ref"])
         self.assertEqual(len(page["items"]), 1)
         mapper.invoke("session.reconnect", {})
         with self.assertRaises(ValueError):
-            mapper.discover("note", 1, page.get("nextCursor", "invalid"))
+            mapper.discover("note", 1, page.get("nextCursor", "invalid"), parent=created["ref"])
 
     def test_bridge_lifecycle_and_main_thread_queue_cleanup(self):
         bridge = AbletonMcpBridge(FakeInstance(), {"host": "127.0.0.1", "port": 45678, "secret": "0123456789abcdef0123456789abcdef"})

@@ -46,14 +46,48 @@ def operation_registry() -> tuple[dict[str, Any], str]:
     except (OSError, StopIteration, UnicodeError, json.JSONDecodeError) as error:
         raise ValueError("operation registry is unavailable or malformed") from error
     operations = registry.get("operations") if isinstance(registry, dict) else None
-    if registry.get("version") != 1 or registry.get("protocol") != "ableton-live/v1" or not isinstance(operations, list):
+    if not isinstance(registry, dict) or set(registry) != {"version", "protocol", "operations"} or registry.get("version") != 1 or registry.get("protocol") != "ableton-live/v1" or not isinstance(operations, list):
         raise ValueError("unsupported operation registry")
     identifiers = [item.get("id") for item in operations if isinstance(item, dict)]
     if len(identifiers) != len(operations) or identifiers != sorted(identifiers) or len(set(identifiers)) != len(identifiers):
         raise ValueError("operation registry identifiers are not canonical")
+    allowed_schema = {"type", "properties", "required", "additionalProperties", "items", "enum", "const", "minLength", "maxLength", "minimum", "maximum", "maxItems", "maxProperties", "pattern"}
+    types = {"object", "array", "string", "number", "integer", "boolean", "null"}
+    def validate_schema(schema: Any, depth: int = 0) -> None:
+        if not isinstance(schema, dict) or depth > 8 or set(schema) - allowed_schema:
+            raise ValueError("invalid operation schema")
+        declared = schema.get("type")
+        declared_types = declared if isinstance(declared, list) else [declared]
+        if not declared_types or len(declared_types) > 4 or any(item not in types for item in declared_types):
+            raise ValueError("invalid operation schema type")
+        for key in ("minLength", "maxLength", "maxItems", "maxProperties"):
+            value = schema.get(key)
+            if value is not None and (not isinstance(value, int) or isinstance(value, bool) or value < 0 or value > 2**53 - 1):
+                raise ValueError("invalid operation schema bound")
+        for key in ("minimum", "maximum"):
+            value = schema.get(key)
+            if value is not None and (not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not -2**53 < float(value) < 2**53):
+                raise ValueError("invalid operation schema bound")
+        if "object" in declared_types:
+            if not isinstance(schema.get("additionalProperties"), bool) or schema["additionalProperties"] and "maxProperties" not in schema:
+                raise ValueError("object schema must be bounded")
+            properties = schema.get("properties", {})
+            if not isinstance(properties, dict) or len(properties) > 64:
+                raise ValueError("invalid operation schema properties")
+            required = schema.get("required", [])
+            if not isinstance(required, list) or len(required) > 64 or any(not isinstance(item, str) for item in required):
+                raise ValueError("invalid operation schema required fields")
+            for child in properties.values(): validate_schema(child, depth + 1)
+        if "array" in declared_types:
+            if not isinstance(schema.get("items"), dict): raise ValueError("array schema items are required")
+            validate_schema(schema["items"], depth + 1)
+        if "enum" in schema and (not isinstance(schema["enum"], list) or not 0 < len(schema["enum"]) <= 32):
+            raise ValueError("invalid operation schema enum")
     for item in operations:
         if set(item) != {"id", "method", "request", "result"} or not isinstance(item["id"], str) or not isinstance(item["method"], str) or not isinstance(item["request"], dict) or not isinstance(item["result"], dict):
             raise ValueError("operation registry entry is malformed")
+        validate_schema(item["request"])
+        validate_schema(item["result"])
     if not REQUIRED_REGISTRY_OPERATIONS.issubset(identifiers):
         raise ValueError("operation registry is missing required operations")
     canonical_registry = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -237,6 +271,7 @@ class LiveObjectMapper:
             "capabilities": self.capabilities(),
             "registryHash": registry_hash,
             "operations": operations,
+            "provenance": "fake-live",
         }
 
     def _operation_supported(self, operation: str) -> bool:
@@ -245,6 +280,12 @@ class LiveObjectMapper:
             return operation in {"status", "reconnect"}
         if operation in {"status", "discover", "get", "reconnect"}:
             return True
+        if operation == "session.playback":
+            return True
+        if operation == "scene.launch":
+            return any(callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None)) for scene in self._items(getattr(self.song, "scenes", [])))
+        if operation in {"stop-all-clips", "transport.stop"}:
+            return callable(getattr(self.song, "stop_all_clips", None)) if operation == "stop-all-clips" else callable(getattr(self.song, "stop_playing", None))
         if operation == "set":
             return True
         if operation == "locator.add" or operation == "locator.delete":
@@ -326,6 +367,8 @@ class LiveObjectMapper:
             "sessionRecord": getattr(self.song, "session_record", None),
             "launchQuantization": getattr(self.song, "clip_trigger_quantization", getattr(self.song, "launch_quantization", None)),
             "position": getattr(self.song, "current_song_time", getattr(self.song, "song_time", None)),
+            "firedTargets": getattr(self.song, "fired_targets", None),
+            "playingTargets": getattr(self.song, "playing_targets", None),
         }
         result: dict[str, Any] = {"ref": self.refs.put("session_playback", self.song, "playback"), "epoch": self.refs.epoch}
         for key, value in values.items():
@@ -335,6 +378,10 @@ class LiveObjectMapper:
                 checked = self._authoritative(value, lambda item: isinstance(item, (int, float)) and not isinstance(item, bool) and math.isfinite(float(item)) and float(item) >= 0)
                 if checked is not None:
                     checked = float(checked)
+            elif key in {"firedTargets", "playingTargets"}:
+                checked = self._authoritative(value, lambda item: isinstance(item, (list, tuple)) and len(item) <= MAX_WIRE_COLLECTION_LENGTH and all(isinstance(ref, str) and 1 <= len(ref) <= 256 for ref in item))
+                if checked is not None:
+                    checked = list(checked)
             else:
                 checked = self._authoritative(value, lambda item: isinstance(item, (str, int, float)) and not isinstance(item, bool))
             if checked is not None:
@@ -380,7 +427,13 @@ class LiveObjectMapper:
     def _device_items(self, track: Any) -> list[dict[str, Any]]:
         devices = self._items(getattr(track, "devices", getattr(track, "device_chain", [])))
         rows: list[dict[str, Any]] = []
+        # Song exposes these collections separately; retaining them here makes
+        # safety discovery include return and main tracks as authoritative rows.
         tracks = self._items(getattr(self.song, "tracks", []))
+        tracks += self._items(getattr(self.song, "return_tracks", []))
+        main_track = getattr(self.song, "master_track", getattr(self.song, "main_track", None))
+        if main_track is not None:
+            tracks.append(main_track)
         track_index = tracks.index(track) if track in tracks else -1
         track_ref = self.refs.put("track", track, str(track_index))
         for index, device in enumerate(devices):
@@ -430,16 +483,31 @@ class LiveObjectMapper:
 
     def snapshot(self) -> dict[str, Any]:
         set_ref = self.refs.put("set", self.song, "song")
-        tempo = getattr(self.song, "tempo", 120.0)
-        position = getattr(self.song, "current_song_time", getattr(self.song, "song_time", 0.0))
-        playing = getattr(self.song, "is_playing", False)
-        if not isinstance(tempo, (int, float)) or isinstance(tempo, bool) or not math.isfinite(float(tempo)):
-            tempo = 120.0
-        if not isinstance(position, (int, float)) or isinstance(position, bool) or not math.isfinite(float(position)) or float(position) < 0:
-            position = 0.0
-        if not isinstance(playing, bool):
-            playing = False
+        set_row: dict[str, Any] = {"ref": set_ref, "name": str(getattr(self.song, "name", "Live Set"))}
+        tempo = getattr(self.song, "tempo", None)
+        if isinstance(tempo, (int, float)) and not isinstance(tempo, bool) and math.isfinite(float(tempo)):
+            set_row["tempo"] = float(tempo)
+        position = getattr(self.song, "current_song_time", getattr(self.song, "song_time", None))
+        if isinstance(position, (int, float)) and not isinstance(position, bool) and math.isfinite(float(position)) and float(position) >= 0:
+            set_row["position"] = float(position)
+        playing = getattr(self.song, "is_playing", None)
+        if isinstance(playing, bool):
+            set_row["playing"] = playing
+        loop_row: dict[str, Any] = {}
+        loop_enabled = getattr(self.song, "loop", None)
+        loop_length = getattr(self.song, "loop_length", None)
+        if isinstance(loop_enabled, bool):
+            loop_row["enabled"] = loop_enabled
+        if isinstance(loop_length, (int, float)) and not isinstance(loop_length, bool) and math.isfinite(float(loop_length)) and float(loop_length) > 0:
+            loop_row["length"] = float(loop_length)
+        if loop_row:
+            set_row["loop"] = loop_row
+        # Song exposes regular/group, return, and main tracks separately.
         tracks = self._items(getattr(self.song, "tracks", []))
+        tracks += self._items(getattr(self.song, "return_tracks", []))
+        main_track = getattr(self.song, "master_track", getattr(self.song, "main_track", None))
+        if main_track is not None:
+            tracks.append(main_track)
         scenes = self._items(getattr(self.song, "scenes", []))
         track_rows = []
         for index, track in enumerate(tracks):
@@ -461,7 +529,7 @@ class LiveObjectMapper:
             track_rows.append({"ref": track_ref, "parentRef": self.refs.put("set", self.song, "song"), "name": str(getattr(track, "name", f"Track {index + 1}")), "kind": track_kind, "mediaKind": "midi" if bool(getattr(track, "has_midi_input", True)) else "audio", "armed": self._authoritative(getattr(track, "arm", getattr(track, "armed", None)), lambda item: isinstance(item, bool)), "monitoring": self._authoritative(getattr(track, "current_monitoring_state", getattr(track, "monitoring", None)), lambda item: isinstance(item, (bool, int)) and not isinstance(item, bool) or isinstance(item, bool)), "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track)})
         scene_rows = [{"ref": self.refs.put("scene", scene, str(i)), "parentRef": self.refs.put("set", self.song, "song"), "name": str(getattr(scene, "name", f"Scene {i + 1}")), "index": i, "triggerable": callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None))} for i, scene in enumerate(scenes)]
         locators = self._locator_items()
-        return {"set": {"ref": set_ref, "name": str(getattr(self.song, "name", "Live Set")), "tempo": float(tempo), "playing": playing, "position": float(position), "loop": {"enabled": bool(getattr(self.song, "loop", False)), "start": 0.0, "length": float(getattr(self.song, "loop_length", 4.0) or 4.0)}}, "tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators}, "playback": self._playback(), "epoch": self.refs.epoch}
+        return {"set": set_row, "tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators}, "playback": self._playback(), "epoch": self.refs.epoch}
 
     def _read_notes(self, clip: Any) -> list[dict[str, Any]]:
         if hasattr(clip, "get_notes"):
@@ -537,6 +605,9 @@ class LiveObjectMapper:
         supported = {"set", "song", "track", "group_track", "return_track", "main_track", "scene", "clip_slot", "clip", "session_clip", "arrangement_clip", "note", "locator", "device", "parameter", "selection", "routing_choice", "session_playback"}
         if kind not in supported:
             raise ValueError("unsupported discovery kind")
+        parent_required = {"clip_slot", "clip", "session_clip", "arrangement_clip", "note", "device", "parameter", "routing_choice"}
+        if kind in parent_required and parent is None:
+            raise ValueError("a kind-specific parent reference is required")
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
             raise ValueError("discovery limit is invalid")
         if not isinstance(traversal_budget, int) or isinstance(traversal_budget, bool) or not 1 <= traversal_budget <= 10_000:
@@ -597,6 +668,30 @@ class LiveObjectMapper:
         return {"epoch": self.refs.epoch, "items": page, "truncated": next_cursor is not None, "revision": revision, "kind": kind, **({"nextCursor": next_cursor} if next_cursor else {})}
 
     def invoke(self, operation: str, args: dict[str, Any]) -> Any:
+        if operation == "scene.launch":
+            reference = args.get("ref")
+            if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:scene:"):
+                raise ValueError("scene reference is stale or invalid")
+            scene = self.refs.get(reference)
+            fire = getattr(scene, "fire", getattr(scene, "launch", None))
+            if not callable(fire):
+                raise ValueError("scene launch is unavailable")
+            fire()
+            return {"launched": reference, "fired": True}
+        if operation == "stop-all-clips":
+            stop = getattr(self.song, "stop_all_clips", None)
+            if not callable(stop):
+                raise ValueError("stop-all-clips is unavailable")
+            stop()
+            return {"stopped": True}
+        if operation == "transport.stop":
+            stop = getattr(self.song, "stop_playing", None)
+            if not callable(stop):
+                raise ValueError("transport stop is unavailable")
+            stop()
+            return {"stopped": True}
+        if operation == "session.playback":
+            return self._playback()
         if operation == "session.discover":
             if not isinstance(args, dict) or set(args) - {"kind", "limit", "cursor", "parent", "filters", "requestedFields", "traversalBudget"}:
                 raise ValueError("discovery arguments are invalid")

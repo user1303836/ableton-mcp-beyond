@@ -6,8 +6,10 @@ package, its bridge module, the versioned operation registry, README, and packag
 Installation requires an explicit absolute destination. It refuses symlink
 trees and overwrite by default; forced replacement moves an existing target to
 a timestamped recoverable backup. It installs a manifest containing SHA-256
-hashes for every bridge asset, including the registry, and never embeds the
-bridge secret. Supplying `--config` also installs
+hashes for every bridge asset, including the registry, plus the canonical
+registry digest negotiated by the TypeScript host and Python mapper. The
+verifier rejects either a raw-file hash or canonical-registry mismatch and
+never embeds the bridge secret. Supplying `--config` also installs
 `AbletonMcpBridge/bridge-reference.json`; that file contains only the absolute
 path to the separately protected bridge configuration.
 
@@ -16,14 +18,20 @@ Version 2 configuration references a separate secret file, emits the explicit
 safe path, and bounded timeout. Diagnostics report
 host/package/configuration readiness separately from authenticated reachability
 and `liveConnected`. Only the optional authenticated status handshake followed
-by bounded read-only discovery can set those active bridge fields; files, ports,
-processes, or simulators cannot.
+by bounded read-only discovery of the Set, scenes, tracks, child clip slots, and
+Session playback can set those active bridge fields. Adapter operations are
+reported separately from capabilities. An authenticated fake mapper is
+reported as `fake-live` and cannot set `liveConnected` or establish a Live
+version, audible state, or restoration evidence; files, ports, processes, and
+simulators cannot do so.
 
 Node platform support is reported for Darwin, Linux, and Windows, with Node 22
 as the minimum maintained runtime and Node 22/24 in CI. Windows ACL
 permission verification is reported unavailable rather than passed when the
-native security descriptor cannot be observed; creation applies and verifies
-an owner-only DACL through `icacls.exe` when available. Signing,
+native security descriptor cannot be observed. Creation and diagnostics use
+the Windows security-descriptor API to verify the owner SID, protected
+inheritance, non-inherited entries, and owner-only FullControl DACL; localized
+`icacls.exe` text is not evidence. Signing,
 notarization, real Live runtime, accessibility, hardware, and installer-runtime
 evidence remain unavailable without dedicated observed runners and identities.
 

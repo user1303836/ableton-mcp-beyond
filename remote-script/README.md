@@ -22,10 +22,11 @@ Arrangement locator operations when the Live object exposes cue points and
 main tracks, scenes, empty clip slots, Session clips, Arrangement clips,
 notes, locators, devices, parameters, selection, routing choices, and Session
 playback. Parent references, filters, requested fields, traversal budgets, and
-opaque epoch-bound cursors are bounded and validated. Unsupported shapes are
-unavailable, not fabricated. Discovery is not a complete Live object graph and
-does not imply support for routing mutation, recording, scene launch, or other
-unimplemented domains.
+opaque epoch-bound cursors are bounded and validated. When the observed shape
+exposes them, the mapper can invoke scene launch, stop-all-clips, and
+transport-stop; unsupported shapes are unavailable, not fabricated. Discovery
+is not a complete Live object graph and does not imply support for routing
+mutation, recording, or general clip-launch workflows.
 
 It also loads and hashes the canonical operation registry, advertises only
 supported operations, and provides bounded device/parameter discovery plus

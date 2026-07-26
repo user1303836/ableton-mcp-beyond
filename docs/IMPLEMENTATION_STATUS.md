@@ -26,6 +26,9 @@
   time-frequency, and transient summaries.
 - Explicit-target Remote Script packaging/installation with manifest hashes,
   symlink refusal, overwrite protection, and recoverable replacement.
+- Guarded asynchronous Session scene audition with read-only preflight,
+  exact confirmation, idempotent apply, fresh fired/playing verification, and
+  mapper-owned stop/restore checks.
 
 ## Operating procedure
 
@@ -36,20 +39,23 @@ Use `docs/USER_GUIDE.md` for clients, `docs/OPERATIONS.md` for supervision,
 ## Known limitations
 
 The production bridge has not been validated against a real Ableton Live
-runtime or disposable Set in this checkout. The host `live_discover` tool
-currently accepts track, scene, clip, and note pages. The Python bridge mapper
-also has bounded parent/filter/field/traversal-budget discovery for the
-observed hierarchy, including empty clip slots, Session/Arrangement clip
-distinction, selection, routing choices, and playback metadata, but this is
-not the full Live object graph and the host has not delegated every mapper
-kind.
+runtime or disposable Set in this checkout. The asynchronous host delegates
+expanded mapper discovery when the adapter provides `discoverAsync`, but its
+compatibility fallback accepts only track, scene, clip, and note pages. The
+Python bridge mapper has bounded parent/filter/field/traversal-budget
+discovery for the observed hierarchy, including empty clip slots,
+Session/Arrangement clip distinction, selection, routing choices, and playback
+metadata; this is not the full Live object graph.
 Session structure is limited to bounded named track/scene creation and guarded
 removal. Arrangement support is limited to named locator operations. Device
 support is limited to discovery and guarded numeric parameter adjustment; it
 does not insert, delete, move, load presets, traverse racks/chains, or control
-plug-in UI. Scene/clip launch and stop, recording, audio capture, warp/takes, automation, routing,
+plug-in UI. Scene audition is the only implemented playback workflow and
+requires the guarded preflight/confirmation/verification/stop sequence; broad
+clip launch, recording, audio capture, warp/takes, automation, routing,
 projects, realtime delivery, Max/OSC, performance mode, accessibility
-certification, signing, notarization, and release publication are unavailable.
+certification, signing, notarization, and release publication remain
+unavailable.
 
 The RMS loudness field is explicitly a proxy, not LUFS or true peak. Simulator,
 fake-Live, package, benchmark, and CI results are deterministic contract

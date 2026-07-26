@@ -1,3 +1,5 @@
+import { liveRegistryHash, liveRegistryOperations } from "./registry.js";
+
 /**
  * Live-domain contract and deterministic simulator.
  *
@@ -10,12 +12,8 @@
 export const LIVE_PROTOCOL_VERSION = "ableton-live/v1";
 // SHA-256 of canonical sorted-key JSON, so negotiation is invariant to the
 // checkout's LF/CRLF policy on macOS and Windows.
-export const LIVE_REGISTRY_HASH = "a1bb484dcf9e685cd743b0414589c8f2cb0e422613cf2a62814698a78efb8241";
-export const LIVE_REGISTRY_OPERATIONS = [
-  "clip.create", "clip.delete", "device.parameter.set", "discover", "get", "locator.add", "locator.delete",
-  "note.add", "reconnect", "scene.create", "scene.delete", "session.discover", "set", "status", "subscribe",
-  "track.create", "track.delete",
-] as const;
+export const LIVE_REGISTRY_HASH = liveRegistryHash();
+export const LIVE_REGISTRY_OPERATIONS = liveRegistryOperations();
 
 export const LIVE_CAPABILITIES = [
   "session.read", "session.write", "tracks", "scenes", "clips", "notes",
@@ -50,6 +48,7 @@ export interface LiveStatus {
   reason?: string;
   registryHash?: string;
   operations?: readonly string[];
+  provenance?: "real-live" | "fake-live" | "simulator" | "unknown";
 }
 
 export interface Note { pitch: number; start: number; duration: number; velocity: number; channel: number; }
@@ -60,7 +59,7 @@ export interface Clip { ref: LiveRef; name: string; kind: "midi" | "audio"; star
 export interface Track { ref: LiveRef; name: string; kind: "audio" | "midi" | "return" | "master"; volume: number; pan: number; mute: boolean; solo: boolean; armed: boolean; clips: Clip[]; devices: Device[]; sends: number[]; input?: string; output?: string; }
 export interface Scene { ref: LiveRef; name: string; index: number; }
 export interface LiveSnapshot {
-  set: { ref: LiveRef; name: string; tempo: number; playing: boolean; position: number; loop: { enabled: boolean; start: number; length: number }; };
+  set: { ref: LiveRef; name: string; tempo?: number; playing?: boolean; position?: number; loop?: { enabled: boolean; start?: number; length?: number }; [key: string]: unknown };
   tracks: Track[];
   scenes: Scene[];
   arrangement: { length: number; locators: { ref: LiveRef; name: string; position: number }[] };

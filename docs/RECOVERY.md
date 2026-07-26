@@ -16,7 +16,15 @@ For a cancelled stdio request, no cancellation response is emitted. Cancellation
 
 ## Transaction recovery
 
-Preview expiry, stale epoch, stale revision, invalid parent, occupied Session slot, duplicate structure name, locator collision, unsupported or disabled parameter, out-of-range or incorrectly quantized value, failed verification, or failed compensation requires fresh authoritative discovery and a new preview. `live_undo` refuses uncertain or externally changed state. For device parameters, verify the same device-child relationship, applied value, and applied revision before undo; reconnects, automation changes, or external edits require manual inspection. Scene launch, stop-all-clips, and transport-stop recovery are not currently exposed as host transactions; do not simulate them with unrelated tools.
+Preview expiry, stale epoch, stale revision, invalid parent, occupied Session slot, duplicate structure name, locator collision, unsupported or disabled parameter, out-of-range or incorrectly quantized value, failed verification, or failed compensation requires fresh authoritative discovery and a new preview. `live_undo` refuses uncertain or externally changed state. For device parameters, verify the same device-child relationship, applied value, and applied revision before undo; reconnects, automation changes, or external edits require manual inspection.
+
+For scene audition, never replay an uncertain apply or stop. First perform
+fresh authenticated playback discovery. If the connection epoch, Set name,
+scene revision, recording state, arm/monitoring state, output evidence, or
+active targets differ from the transaction, stop is refused and the operator
+must inspect the Set manually. If playback is proven to be only the mapper-
+owned scene, use the original stop confirmation and a new bounded idempotency
+key; a successful exact replay returns the prior result without dispatch.
 
 ## Restart
 

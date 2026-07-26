@@ -76,6 +76,9 @@ try {
   if (!readFileSync(join(remotePackageDirectory, "__init__.py"), "utf8").includes("def create_instance")) throw new Error("installed Remote Script package has no loadable create_instance");
   if (!readFileSync(join(remotePackageDirectory, "ableton_mcp_remote_script.py"), "utf8").includes("class AbletonMcpBridge")) throw new Error("installed Remote Script package has no production bridge");
   const manifest = JSON.parse(readFileSync(join(remotePackageDirectory, "manifest.json"), "utf8"));
+  const canonical = (value) => value === null || typeof value !== "object" ? JSON.stringify(value) : Array.isArray(value) ? `[${value.map(canonical).join(",")}]` : `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
+  const expectedRegistryHash = createHash("sha256").update(canonical(JSON.parse(readFileSync(join(remotePackageDirectory, "ableton-live-v1.operations.json"), "utf8")))).digest("hex");
+  if (manifest.registryHash !== expectedRegistryHash) throw new Error("Remote Script manifest registry hash mismatch");
   for (const name of ["__init__.py", "ableton_mcp_remote_script.py", "ableton-live-v1.operations.json"]) {
     const digest = createHash("sha256").update(readFileSync(join(remotePackageDirectory, name))).digest("hex");
     if (manifest.algorithm !== "sha256" || manifest.files?.[name] !== digest) throw new Error(`Remote Script manifest hash mismatch for ${name}`);

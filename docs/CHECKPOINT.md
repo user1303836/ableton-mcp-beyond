@@ -29,4 +29,16 @@ Before any checkpoint commit, verify the intended feature branch, an empty index
 
 ## Evidence interpretation
 
-The gates cover TypeScript, registry constants and hash negotiation, protocol framing, async remote-adapter behavior, bounded stdio, transactions, fake-Live mapping, hierarchical mapper discovery, shape-dependent operation advertisement, device-parameter validation, analysis, configuration, packaging, and installer contracts. The authenticated package smoke observes an installed production Python mapper and fake scene discovery. A missing, skipped, cancelled, stale-SHA, failed, or unavailable external job is not passing evidence. The gates do not prove a real Live runtime, supported Live version, disposable Set, visible or audible state, realtime performance, hardware, accessibility, installer runtime on every platform, signing, notarization, or publication.
+The gates cover TypeScript, registry loading and hash negotiation, protocol
+framing, async remote-adapter behavior, bounded stdio, transactions,
+fake-Live mapping, hierarchical mapper discovery, shape-dependent operation
+advertisement, Session audition contracts, device-parameter validation,
+analysis, configuration, packaging, and installer contracts. The
+authenticated package smoke observes an installed production Python mapper
+and fake Set, scene, track, child-slot, and playback discovery. A missing,
+skipped, cancelled, stale-SHA, failed, or unavailable external job is not
+passing evidence. The gates do not prove a real Live runtime, supported Live
+version, disposable Set, visible or audible state, realtime performance,
+hardware, accessibility, installer runtime on every platform, signing,
+notarization, or publication. No packed production journey currently proves
+scene audition end to end across the TypeScript CLI and Python listener.

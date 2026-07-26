@@ -4,11 +4,28 @@ The default is `UnavailableLiveAdapter`: disconnected, no Live I/O, and not sele
 
 ## Mutation boundary
 
-Read-only operations are status, capabilities, snapshot, discovery, previews, resources, prompts, and caller-supplied PCM analysis. Confirmed mutation tools are bounded tempo change; named Session MIDI/audio track and scene creation; MIDI clip/note creation in an empty Session slot; Arrangement locator creation; and numeric adjustment of an already-discovered published device parameter. `live_undo` is guarded and transaction-specific. Scene-audition preview/apply/stop is not implemented in the current host and must not be represented as available.
+Read-only operations are status, capabilities, snapshot, discovery, previews, resources, prompts, and caller-supplied PCM analysis. Confirmed mutation tools are bounded tempo change; named Session MIDI/audio track and scene creation; MIDI clip/note creation in an empty Session slot; Arrangement locator creation; numeric adjustment of an already-discovered published device parameter; and guarded Session scene audition. `live_undo` is guarded and transaction-specific.
+
+Scene audition is potentially audible and is available only through the
+asynchronous host path. Preview requires an exact disposable Set name,
+authoritative stopped transport, disabled Arrangement and Session recording,
+no armed or input-monitored track, no fired or playing Session target, safe
+launch quantization, callable `scene.launch`, `session.playback`,
+`stop-all-clips`, and `transport.stop` operations, and explicit output-safety
+evidence whose provenance is not unknown or simulator-only. Apply rechecks
+those conditions, launches exactly one scene, and requires fresh fired/playing
+readback. Stop is allowed only for mapper-owned playback, invokes stop-all-
+clips and transport-stop once, and verifies the stopped baseline. Any stale,
+external, disconnected, cancelled-after-dispatch, failed, or unknown state is
+uncertain and must be read back before further action.
 
 Every mutation requires an explicit configured adapter, exact protocol and registry negotiation, fresh authoritative discovery, bounded input, an expiring preview, exact confirmation, idempotency, epoch/revision checks, and post-mutation readback. Structure compensation deletes only objects created by that transaction. Parameter undo refuses when the epoch, parentage, applied value, or revision no longer matches.
 
-No implemented host workflow launches scenes or individual clips, stops clips, inserts or deletes devices, loads browser results, edits racks/chains, changes routing, starts recording, controls plug-in UI, captures Live audio, or provides realtime performance authority.
+No implemented host workflow launches individual clips, inserts or deletes
+devices, loads browser results, edits racks/chains, changes routing, starts
+recording, controls plug-in UI, captures Live audio, or provides realtime
+performance authority. Scene audition does not provide general clip launch or
+recording control.
 
 ## Bridge safety
 

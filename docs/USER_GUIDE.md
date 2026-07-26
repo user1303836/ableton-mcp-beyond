@@ -27,7 +27,7 @@ The only accepted CLI option is one `--config PATH`. Secrets, endpoints, adapter
 - `server_status` and `capabilities` report host state and the negotiated catalog.
 - `live_status` reports protocol, adapter, epoch, registry hash, operations, and connection state.
 - `live_snapshot` returns a bounded set snapshot when `session.read` is negotiated. Treat fallback values in a fake or incomplete Live shape as unavailable evidence, not proof of Live state.
-- `live_discover` currently accepts `track`, `scene`, `clip`, and `note` on the MCP host and uses bounded paging. The Python mapper additionally accepts `set`/`song`, `group_track`, `return_track`, `main_track`, `clip_slot`, `session_clip`, `arrangement_clip`, `locator`, `device`, `parameter`, `selection`, `routing_choice`, and `session_playback`, with optional parent, filters, requested fields, traversal budget, and opaque epoch-bound cursors. These extra mapper kinds are not all reachable through the current host tool.
+- `live_discover` validates all negotiated kinds and requires a parent for child kinds. When the adapter exposes mapper discovery, it accepts `set`, `track`, `return-track`, `main-track`, `scene`, `clip-slot`, `session-clip`, `arrangement-clip`, `note`, `locator`, `device`, `parameter`, `selection`, `routing-choice`, and `session-playback`, with bounded parent, filters, requested fields, traversal budget, paging, and epoch/revision-bound cursors. The compatibility fallback remains limited to `track`, `scene`, `clip`, and `note`.
 - `audio_analyze` accepts caller-supplied little-endian float32 PCM and returns bounded aggregate, waveform, logarithmic-band, and transient summaries. It never captures Live audio or returns raw samples.
 
 ## Mutation workflow
@@ -40,8 +40,15 @@ All Live mutations require a connected negotiated adapter, fresh discovery, a re
 - `live_arrangement_section_preview/apply` for two named locators in a bounded non-colliding range.
 - `live_tempo_preview/apply` for a bounded tempo change.
 - `live_undo` for an applied transaction whose epoch and verified postcondition still match.
+- `live_session_audition_preview/apply/stop` for one guarded, potentially audible Session scene launch. Preview is read-only; it requires the exact Set name, authoritative stopped/non-recording playback, no armed or input-monitored track, safe launch quantization, callable launch/stop operations, and explicit output-safety evidence. Apply requires the exact preview confirmation and idempotency key, launches once, and verifies fresh fired/playing state. Stop requires the returned stop confirmation, stops only mapper-owned playback, and verifies the stopped baseline.
 
-Preview records expire after 30 seconds. A lost acknowledgement, timeout, disconnect, failed verification, or failed compensation is uncertain state: stop mutation, read authoritative state, and do not blindly retry. An epoch change invalidates old references, cursors, previews, confirmations, idempotency inputs, and undo inputs. The current host does not implement the planned scene-audition preview/apply/stop workflow.
+Preview records expire after 30 seconds. A lost acknowledgement, timeout,
+disconnect, failed verification, or failed compensation is uncertain state:
+stop mutation, read authoritative state, and do not blindly retry. An epoch
+change invalidates old references, cursors, previews, confirmations,
+idempotency inputs, and undo inputs. Scene audition is not a general-purpose
+clip launcher or recording control; uncertainty requires fresh authoritative
+playback discovery.
 
 ## Configuration and installation
 
