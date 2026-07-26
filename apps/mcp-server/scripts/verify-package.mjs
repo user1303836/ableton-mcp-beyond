@@ -111,9 +111,13 @@ try {
   writeFileSync(secretPath, `${bridgeSecret}\n`, { encoding: "utf8", mode: 0o600 });
   if (process.platform !== "win32") chmodSync(secretPath, 0o600);
   if (process.platform === "win32") {
-    const owner = process.env.USERNAME;
-    if (!owner) throw new Error("package smoke could not identify the Windows owner");
-    execFileSync("icacls.exe", [secretPath, "/inheritance:r", "/grant:r", `${owner}:(F)`], { stdio: "ignore" });
+    const encodedPath = Buffer.from(secretPath, "utf8").toString("base64");
+    const aclScript = "$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:ABLETON_MCP_ACL_PATH));" +
+      "$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User;$a=New-Object System.Security.AccessControl.FileSecurity;" +
+      "$a.SetOwner($sid);$a.SetAccessRuleProtection($true,$false);" +
+      "$rule=New-Object System.Security.AccessControl.FileSystemAccessRule -ArgumentList @($sid,[System.Security.AccessControl.FileSystemRights]::FullControl,[System.Security.AccessControl.AccessControlType]::Allow);" +
+      "[void]$a.AddAccessRule($rule);[System.IO.File]::SetAccessControl($p,$a)";
+    execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", aclScript], { env: { ...process.env, ABLETON_MCP_ACL_PATH: encodedPath }, stdio: "pipe" });
   }
   const bridgeScript = join(temporaryDirectory, "bridge-smoke.py");
   writeFileSync(bridgeScript, `
@@ -174,7 +178,7 @@ finally: bridge.disconnect()
     if (authenticatedResponses.length !== 3 || authenticatedResponses[0]?.id !== 1 || authenticatedResponses[1]?.id !== 2 || authenticatedResponses[2]?.id !== 3) throw new Error("authenticated package discovery did not return ordered MCP responses");
     const statusText = authenticatedResponses[1]?.result?.content?.[0]?.text ?? "";
     const sceneText = authenticatedResponses[2]?.result?.content?.[0]?.text ?? "";
-    if (!statusText.includes("remote-script") || !sceneText.includes("Package Smoke Scene")) throw new Error("authenticated package smoke did not observe production bridge state");
+    if (!statusText.includes("remote-script") || !statusText.includes("fake-live") || statusText.includes("real-live") || !sceneText.includes("Package Smoke Scene")) throw new Error("authenticated package smoke did not observe explicit fake bridge state");
   } finally {
     terminateChildProcess(bridgeProcess);
     try { bridgeProcess.unref(); } catch {}

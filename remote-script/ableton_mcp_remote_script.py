@@ -23,12 +23,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 PROTOCOL = "ableton-loopback/v1"
-METHODS = {"status", "snapshot", "get", "set", "invoke", "subscribe", "reconnect"}
-SUPPORTED_OPERATIONS = {
-    "session.discover", "session.reconnect", "clip.create", "clip.delete", "note.add",
-    "locator.add", "locator.delete", "track.create", "track.delete", "scene.create", "scene.delete", "device.parameter.set",
-}
-REQUIRED_REGISTRY_OPERATIONS = {"status", "discover", "get", "set", "reconnect"}
+METHODS = {"status", "snapshot", "discover", "get", "set", "invoke", "subscribe", "reconnect"}
+REQUIRED_REGISTRY_OPERATIONS = {"status", "snapshot", "discover", "get", "set", "reconnect", "session.playback"}
 _MODULE_PATH = Path(__file__).resolve()
 _REGISTRY_CANDIDATES = (
     _MODULE_PATH.with_name("ableton-live-v1.operations.json"),
@@ -84,7 +80,7 @@ def operation_registry() -> tuple[dict[str, Any], str]:
         if "enum" in schema and (not isinstance(schema["enum"], list) or not 0 < len(schema["enum"]) <= 32):
             raise ValueError("invalid operation schema enum")
     for item in operations:
-        if set(item) != {"id", "method", "request", "result"} or not isinstance(item["id"], str) or not isinstance(item["method"], str) or not isinstance(item["request"], dict) or not isinstance(item["result"], dict):
+        if set(item) != {"id", "method", "request", "result"} or not isinstance(item["id"], str) or item["method"] not in METHODS or not isinstance(item["request"], dict) or not isinstance(item["result"], dict):
             raise ValueError("operation registry entry is malformed")
         validate_schema(item["request"])
         validate_schema(item["result"])
@@ -92,6 +88,50 @@ def operation_registry() -> tuple[dict[str, Any], str]:
         raise ValueError("operation registry is missing required operations")
     canonical_registry = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return registry, hashlib.sha256(canonical_registry).hexdigest()
+
+
+def _matches_schema_type(value: Any, declared: str) -> bool:
+    if declared == "null": return value is None
+    if declared == "object": return isinstance(value, dict)
+    if declared == "array": return isinstance(value, list)
+    if declared == "boolean": return isinstance(value, bool)
+    if declared == "integer": return isinstance(value, int) and not isinstance(value, bool) and -(2**53 - 1) <= value <= 2**53 - 1
+    if declared == "number": return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+    if declared == "string": return isinstance(value, str)
+    return False
+
+
+def validate_registry_value(schema: dict[str, Any], value: Any, path: str = "$") -> None:
+    declared = schema.get("type")
+    declared_types = declared if isinstance(declared, list) else [declared]
+    if not any(_matches_schema_type(value, item) for item in declared_types): raise ValueError(f"{path} does not match registry type")
+    if "const" in schema and value != schema["const"]: raise ValueError(f"{path} does not match registry constant")
+    if "enum" in schema and value not in schema["enum"]: raise ValueError(f"{path} is outside registry enum")
+    if isinstance(value, str):
+        if "minLength" in schema and len(value) < schema["minLength"]: raise ValueError(f"{path} is too short")
+        if "maxLength" in schema and len(value) > schema["maxLength"]: raise ValueError(f"{path} is too long")
+        if "pattern" in schema and re.fullmatch(schema["pattern"], value) is None: raise ValueError(f"{path} does not match pattern")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if not math.isfinite(float(value)) or ("minimum" in schema and value < schema["minimum"]) or ("maximum" in schema and value > schema["maximum"]): raise ValueError(f"{path} is outside numeric bounds")
+    if isinstance(value, list):
+        if "maxItems" in schema and len(value) > schema["maxItems"]: raise ValueError(f"{path} exceeds item bound")
+        for index, item in enumerate(value): validate_registry_value(schema["items"], item, f"{path}[{index}]")
+    if isinstance(value, dict):
+        if "maxProperties" in schema and len(value) > schema["maxProperties"]: raise ValueError(f"{path} exceeds property bound")
+        properties = schema.get("properties", {})
+        for required in schema.get("required", []):
+            if required not in value: raise ValueError(f"{path}.{required} is required")
+        if schema.get("additionalProperties") is False and set(value) - set(properties): raise ValueError(f"{path} contains unknown properties")
+        for key, child in properties.items():
+            if key in value: validate_registry_value(child, value[key], f"{path}.{key}")
+
+
+def validate_operation_payload(operation_id: str, side: str, value: Any) -> None:
+    registry, _ = operation_registry()
+    operation = next((item for item in registry["operations"] if item["id"] == operation_id), None)
+    if operation is None: raise ValueError("operation is not in canonical registry")
+    validate_registry_value(operation[side], value, f"{operation_id}.{side}")
+
 MAX_NONCE_LENGTH = 256
 MAX_WIRE_BYTES = 1_048_576
 MAX_WIRE_DEPTH = 16
@@ -102,12 +142,17 @@ DEFAULT_TIMEOUT_SECONDS = 5.0
 
 
 class AuthenticatedRemoteScript:
-    def __init__(self, secret: str, operation: Callable[[str, dict[str, Any]], Any]):
+    def __init__(self, secret: str, operation: Callable[[str, dict[str, Any]], Any], bridge_epoch: str | None = None, connection_challenge: str | None = None):
         if len(secret) < 32:
             raise ValueError("loopback secret must contain at least 32 characters")
         self._secret = secret.encode("utf-8")
         self._operation = operation
         self._last_sequence = 0
+        self.invalid = False
+        self.bridge_epoch = bridge_epoch or secrets.token_urlsafe(24)
+        self.connection_challenge = connection_challenge or secrets.token_urlsafe(24)
+        if len(self.bridge_epoch) < 16 or len(self.connection_challenge) < 16:
+            raise ValueError("authenticated channel binding is too short")
 
     def sign(self, payload: dict[str, Any]) -> str:
         encoded = self._bounded_canonical(payload).encode("utf-8")
@@ -126,8 +171,6 @@ class AuthenticatedRemoteScript:
         if isinstance(value, float):
             if not math.isfinite(value):
                 raise ValueError("non-finite wire number")
-            # Match JSON.stringify's integer range: decimal notation is used
-            # below 1e21, while larger values retain exponent notation.
             if value == 0 or (value.is_integer() and abs(value) < 1e21):
                 return str(int(value))
             encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
@@ -149,26 +192,48 @@ class AuthenticatedRemoteScript:
             raise ValueError("wire payload is too large")
         return encoded
 
+    def bound(self, payload: dict[str, Any], deadline_ms: int | None = None) -> dict[str, Any]:
+        return {**payload, "bridgeEpoch": self.bridge_epoch, "connectionChallenge": self.connection_challenge, "deadlineMs": deadline_ms or int(time.time() * 1000) + 5000}
+
+    def hello_response(self) -> dict[str, Any]:
+        _, registry_hash = operation_registry()
+        return self._response("hello", True, {"protocol": "ableton-live/v1", "registryHash": registry_hash, "maxDeadlineMs": 60000})
+
+    def _operation_contract(self, request: dict[str, Any]) -> tuple[str, Any]:
+        method = request["method"]
+        if method in {"status", "snapshot", "reconnect"}: return method, {}
+        if method == "discover":
+            args = dict(request.get("args", {}))
+            return ("session.playback", {}) if args.get("kind") == "session_playback" else ("discover", args)
+        if method == "get": return "get", {"ref": request.get("ref")}
+        if method == "set": return "set", {"ref": request.get("ref"), "property": request.get("property"), "value": request.get("value")}
+        if method == "invoke": return str(request.get("operation")), dict(request.get("args", {}))
+        return method, dict(request.get("args", {}))
+
     def dispatch(self, request: dict[str, Any]) -> dict[str, Any]:
-        required = {"version", "id", "method", "nonce", "sequence", "mac"}
-        if not isinstance(request, dict) or set(request) - required - {"ref", "property", "value", "operation", "args"} or not required <= set(request):
+        required = {"version", "id", "method", "nonce", "sequence", "bridgeEpoch", "connectionChallenge", "deadlineMs", "mac"}
+        optional = {"ref", "property", "value", "operation", "args"}
+        if not isinstance(request, dict) or set(request) - required - optional or not required <= set(request):
             return self._error("invalid", "invalid request")
         unsigned = {key: value for key, value in request.items() if key != "mac"}
+        now_ms = int(time.time() * 1000)
         if (
             request["version"] != PROTOCOL
+            or request["bridgeEpoch"] != self.bridge_epoch
+            or request["connectionChallenge"] != self.connection_challenge
+            or not isinstance(request["deadlineMs"], int) or isinstance(request["deadlineMs"], bool)
+            or not now_ms <= request["deadlineMs"] <= now_ms + 60000
             or not isinstance(request["id"], str)
             or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", request["id"])
-            or not isinstance(request["method"], str)
             or request["method"] not in METHODS
             or not isinstance(request["nonce"], str)
-            or not isinstance(request["sequence"], int)
-            or isinstance(request["sequence"], bool)
+            or not isinstance(request["sequence"], int) or isinstance(request["sequence"], bool)
             or not 1 <= request["sequence"] <= (2**53 - 1)
             or not isinstance(request["mac"], str)
         ):
             return self._error(request.get("id", "invalid"), "invalid request")
-        if request["method"] == "invoke":
-            if not isinstance(request.get("operation"), str) or not re.fullmatch(r"[a-z]+(?:\.[a-z]+)+", request["operation"]):
+        if request["method"] in {"invoke", "discover"}:
+            if request["method"] == "invoke" and (not isinstance(request.get("operation"), str) or not re.fullmatch(r"[a-z]+(?:[.-][a-z]+)+", request["operation"])):
                 return self._error(request["id"], "operation is required")
             if not isinstance(request.get("args", {}), dict) or len(request.get("args", {})) > 32:
                 return self._error(request["id"], "args must be a bounded object")
@@ -180,28 +245,32 @@ class AuthenticatedRemoteScript:
             return self._error(request["id"], "authentication or replay check failed")
         self._last_sequence = request["sequence"]
         try:
+            operation_id, operation_request = self._operation_contract(request)
+            validate_operation_payload(operation_id, "request", operation_request)
             result = self._operation(request["method"], unsigned)
-            return self._response(request["id"], True, result=result)
-        except Exception:  # Remote Script must never leak operation details into the wire.
+        except Exception:
             return self._error(request["id"], "request failed")
+        try:
+            validate_operation_payload(operation_id, "result", result)
+        except Exception:
+            self.invalid = True
+            return self._error(request["id"], "response contract failed")
+        return self._response(request["id"], True, result=result)
 
     def new_nonce(self) -> str:
         return secrets.token_urlsafe(18)
 
     def _response(self, request_id: str, ok: bool, result: Any = None, error: str | None = None) -> dict[str, Any]:
-        response: dict[str, Any] = {"version": PROTOCOL, "id": request_id, "ok": ok}
-        if result is not None:
-            response["result"] = result
-        if error is not None:
-            response["error"] = error
+        response: dict[str, Any] = {"version": PROTOCOL, "id": request_id, "ok": ok, "bridgeEpoch": self.bridge_epoch, "connectionChallenge": self.connection_challenge}
+        if result is not None: response["result"] = result
+        if error is not None: response["error"] = error
         response["mac"] = self.sign(response)
         return response
 
     def _error(self, request_id: str, message: str) -> dict[str, Any]:
-        return self._response(request_id, False, error=message)
+        return self._response(request_id if isinstance(request_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", request_id) else "invalid", False, error=message)
 
     def error_response(self, message: str = "malformed request") -> dict[str, Any]:
-        """Return a MAC-bearing, redacted response for an unparseable frame."""
         return self._error("invalid", message)
 
 
@@ -256,9 +325,12 @@ class ReferenceRegistry:
 class LiveObjectMapper:
     """Small, version-tolerant Live object mapper used only on Live's main thread."""
 
-    def __init__(self, song: Any, registry: ReferenceRegistry | None = None):
+    def __init__(self, song: Any, registry: ReferenceRegistry | None = None, provenance: str = "fake-live"):
+        if provenance not in {"fake-live", "real-live"}:
+            raise ValueError("invalid Live provenance")
         self.song = song
         self.refs = registry or ReferenceRegistry()
+        self.provenance = provenance
 
     def status(self) -> dict[str, Any]:
         registry, registry_hash = operation_registry()
@@ -271,21 +343,21 @@ class LiveObjectMapper:
             "capabilities": self.capabilities(),
             "registryHash": registry_hash,
             "operations": operations,
-            "provenance": "fake-live",
+            "provenance": self.provenance,
         }
 
     def _operation_supported(self, operation: str) -> bool:
         """Advertise only operations executable against this observed Live shape."""
         if self.song is None:
             return operation in {"status", "reconnect"}
-        if operation in {"status", "discover", "get", "reconnect"}:
+        if operation in {"status", "snapshot", "discover", "get", "reconnect"}:
             return True
         if operation == "session.playback":
             return True
-        if operation == "scene.launch":
+        if operation == "session.audition-launch":
             return any(callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None)) for scene in self._items(getattr(self.song, "scenes", [])))
-        if operation in {"stop-all-clips", "transport.stop"}:
-            return callable(getattr(self.song, "stop_all_clips", None)) if operation == "stop-all-clips" else callable(getattr(self.song, "stop_playing", None))
+        if operation in {"session.audition-stop", "session.emergency-stop"}:
+            return callable(getattr(self.song, "stop_all_clips", None)) and callable(getattr(self.song, "stop_playing", None))
         if operation == "set":
             return True
         if operation == "locator.add" or operation == "locator.delete":
@@ -318,7 +390,7 @@ class LiveObjectMapper:
         capabilities = [
             "session.read", "session.write", "tracks", "scenes", "clips", "notes", "session.discovery", "session.structure",
             "session.midi_clip.create", "session.midi_clip.delete",
-            "session.midi_note.read", "session.midi_note.write", "reconnect",
+            "session.midi_note.read", "session.midi_note.write", "transport", "reconnect",
         ]
         if self._locator_supported():
             capabilities.extend(("arrangement.read", "arrangement.write"))
@@ -359,34 +431,55 @@ class LiveObjectMapper:
     def _authoritative(value: Any, predicate: Callable[[Any], bool]) -> Any:
         return value if predicate(value) else None
 
-    def _playback(self) -> dict[str, Any]:
-        values = {
-            "playing": getattr(self.song, "is_playing", None),
-            "recording": getattr(self.song, "record_mode", getattr(self.song, "session_record", None)),
-            "arrangementRecord": getattr(self.song, "record_mode", None),
-            "sessionRecord": getattr(self.song, "session_record", None),
-            "launchQuantization": getattr(self.song, "clip_trigger_quantization", getattr(self.song, "launch_quantization", None)),
-            "position": getattr(self.song, "current_song_time", getattr(self.song, "song_time", None)),
-            "firedTargets": getattr(self.song, "fired_targets", None),
-            "playingTargets": getattr(self.song, "playing_targets", None),
+    @staticmethod
+    def _monitoring_state(value: Any) -> str | None:
+        if isinstance(value, bool) or value is None: return None
+        if isinstance(value, int): return {0: "in", 1: "auto", 2: "off"}.get(value)
+        if isinstance(value, str):
+            normalized = value.strip().lower().replace("_", "-")
+            return normalized if normalized in {"in", "auto", "off"} else None
+        return None
+
+    @staticmethod
+    def _slot_index(value: Any) -> int | None:
+        return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+    @staticmethod
+    def _quantization(value: Any) -> dict[str, Any]:
+        raw = value if isinstance(value, (str, int, float)) and not isinstance(value, bool) and (not isinstance(value, float) or math.isfinite(value)) else None
+        if isinstance(raw, str):
+            normalized = raw.strip().lower().replace("_", "-").replace(" ", "-") or None
+        elif isinstance(raw, (int, float)):
+            normalized = str(raw)
+        else:
+            normalized = None
+        return {"raw": raw, "normalized": normalized}
+
+    def _playback(self, track_rows: list[dict[str, Any]] | None = None, scene_rows: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        if track_rows is None or scene_rows is None:
+            snapshot = self.snapshot()
+            return snapshot["playback"]
+        transport = {
+            "playing": getattr(self.song, "is_playing", None) if isinstance(getattr(self.song, "is_playing", None), bool) else None,
+            "arrangementRecord": getattr(self.song, "record_mode", None) if isinstance(getattr(self.song, "record_mode", None), bool) else None,
+            "sessionRecord": getattr(self.song, "session_record", None) if isinstance(getattr(self.song, "session_record", None), bool) else None,
+            "position": float(getattr(self.song, "current_song_time", getattr(self.song, "song_time", 0))) if isinstance(getattr(self.song, "current_song_time", getattr(self.song, "song_time", None)), (int, float)) and not isinstance(getattr(self.song, "current_song_time", getattr(self.song, "song_time", None)), bool) and math.isfinite(float(getattr(self.song, "current_song_time", getattr(self.song, "song_time", 0)))) and float(getattr(self.song, "current_song_time", getattr(self.song, "song_time", 0))) >= 0 else None,
+            "launchQuantization": self._quantization(getattr(self.song, "clip_trigger_quantization", getattr(self.song, "launch_quantization", None))),
         }
-        result: dict[str, Any] = {"ref": self.refs.put("session_playback", self.song, "playback"), "epoch": self.refs.epoch}
-        for key, value in values.items():
-            if key in {"playing", "recording", "arrangementRecord", "sessionRecord"}:
-                checked = self._authoritative(value, lambda item: isinstance(item, bool))
-            elif key == "position":
-                checked = self._authoritative(value, lambda item: isinstance(item, (int, float)) and not isinstance(item, bool) and math.isfinite(float(item)) and float(item) >= 0)
-                if checked is not None:
-                    checked = float(checked)
-            elif key in {"firedTargets", "playingTargets"}:
-                checked = self._authoritative(value, lambda item: isinstance(item, (list, tuple)) and len(item) <= MAX_WIRE_COLLECTION_LENGTH and all(isinstance(ref, str) and 1 <= len(ref) <= 256 for ref in item))
-                if checked is not None:
-                    checked = list(checked)
-            else:
-                checked = self._authoritative(value, lambda item: isinstance(item, (str, int, float)) and not isinstance(item, bool))
-            if checked is not None:
-                result[key] = checked
-        return result
+        fired: list[dict[str, Any]] = []
+        playing: list[dict[str, Any]] = []
+        for track in track_rows:
+            for field, destination in (("firedSlotIndex", fired), ("playingSlotIndex", playing)):
+                index = track.get(field)
+                if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(scene_rows): continue
+                slot = next((item for item in track.get("clipSlots", []) if item.get("sceneIndex") == index), None)
+                if slot is None: continue
+                destination.append({"trackRef": track["ref"], "clipSlotRef": slot["ref"], "sceneRef": scene_rows[index]["ref"], "sceneIndex": index, "clipRef": slot.get("clipRef")})
+        fired.sort(key=lambda item: (item["sceneIndex"], item["trackRef"], item["clipSlotRef"]))
+        playing.sort(key=lambda item: (item["sceneIndex"], item["trackRef"], item["clipSlotRef"]))
+        revision_payload = {"transport": transport, "firedTargets": fired, "playingTargets": playing}
+        revision = f"{self.refs.epoch}:playback:{hashlib.sha256(json.dumps(revision_payload, sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()[:24]}"
+        return {"ref": self.refs.put("session_playback", self.song, "playback"), "epoch": self.refs.epoch, "revision": revision, "transport": transport, "firedTargets": fired, "playingTargets": playing}
 
     def _cursor(self, offset: int, revision: str) -> str:
         payload = f"{self.refs.epoch}|{revision}|{offset}".encode("ascii")
@@ -526,10 +619,20 @@ class LiveObjectMapper:
                 notes = self._read_notes(clip)
                 clips.append({"ref": clip_ref, "parentRef": slot_ref, "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": slot_index * 4, "length": float(getattr(clip, "length", 0.0)), "notes": notes})
                 slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "sceneIndex": slot_index, "clipRef": clip_ref, "empty": False})
-            track_rows.append({"ref": track_ref, "parentRef": self.refs.put("set", self.song, "song"), "name": str(getattr(track, "name", f"Track {index + 1}")), "kind": track_kind, "mediaKind": "midi" if bool(getattr(track, "has_midi_input", True)) else "audio", "armed": self._authoritative(getattr(track, "arm", getattr(track, "armed", None)), lambda item: isinstance(item, bool)), "monitoring": self._authoritative(getattr(track, "current_monitoring_state", getattr(track, "monitoring", None)), lambda item: isinstance(item, (bool, int)) and not isinstance(item, bool) or isinstance(item, bool)), "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track)})
+            armed_value = getattr(track, "arm", getattr(track, "armed", None))
+            track_rows.append({
+                "ref": track_ref, "parentRef": self.refs.put("set", self.song, "song"),
+                "name": str(getattr(track, "name", f"Track {index + 1}")), "kind": track_kind,
+                "mediaKind": "midi" if bool(getattr(track, "has_midi_input", True)) else "audio",
+                "armed": armed_value if isinstance(armed_value, bool) else None,
+                "monitoringState": self._monitoring_state(getattr(track, "current_monitoring_state", getattr(track, "monitoring", None))),
+                "playingSlotIndex": self._slot_index(getattr(track, "playing_slot_index", None)),
+                "firedSlotIndex": self._slot_index(getattr(track, "fired_slot_index", None)),
+                "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track),
+            })
         scene_rows = [{"ref": self.refs.put("scene", scene, str(i)), "parentRef": self.refs.put("set", self.song, "song"), "name": str(getattr(scene, "name", f"Scene {i + 1}")), "index": i, "triggerable": callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None))} for i, scene in enumerate(scenes)]
         locators = self._locator_items()
-        return {"set": set_row, "tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators}, "playback": self._playback(), "epoch": self.refs.epoch}
+        return {"set": set_row, "tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators}, "playback": self._playback(track_rows, scene_rows), "epoch": self.refs.epoch}
 
     def _read_notes(self, clip: Any) -> list[dict[str, Any]]:
         if hasattr(clip, "get_notes"):
@@ -667,29 +770,150 @@ class LiveObjectMapper:
             page = [{key: value for key, value in item.items() if key in allowed} for item in page]
         return {"epoch": self.refs.epoch, "items": page, "truncated": next_cursor is not None, "revision": revision, "kind": kind, **({"nextCursor": next_cursor} if next_cursor else {})}
 
+    _MONITORABLE_KINDS = {"regular", "audio", "midi"}
+
+    @staticmethod
+    def _target_key(target: dict[str, Any]) -> str:
+        return f"{target['trackRef']}|{target['clipSlotRef']}|{target['sceneRef']}"
+
+    def _active_targets(self, playback: dict[str, Any]) -> list[dict[str, Any]]:
+        seen: dict[str, dict[str, Any]] = {}
+        for target in list(playback.get("firedTargets", [])) + list(playback.get("playingTargets", [])):
+            seen[self._target_key(target)] = target
+        return [seen[key] for key in sorted(seen)]
+
+    def _check_audition_safety(self, snapshot: dict[str, Any]) -> None:
+        playback = snapshot["playback"]
+        transport = playback["transport"]
+        if transport.get("playing") is not False or transport.get("arrangementRecord") is not False or transport.get("sessionRecord") is not False:
+            raise ValueError("audition requires a stopped, non-recording authoritative state")
+        quantization = (transport.get("launchQuantization") or {}).get("normalized")
+        if not isinstance(quantization, str) or quantization in {"none", "unknown", "free"}:
+            raise ValueError("launch quantization is unsafe or unknown")
+        if playback["firedTargets"] or playback["playingTargets"]:
+            raise ValueError("existing Session playback prevents audition")
+        for track in snapshot["tracks"]:
+            armed = track.get("armed")
+            monitoring = track.get("monitoringState")
+            if track.get("kind") in self._MONITORABLE_KINDS:
+                if armed is not False or monitoring != "off":
+                    raise ValueError("armed, input-monitored, or unknown-state track prevents audition")
+            elif armed is True or monitoring == "in":
+                raise ValueError("armed or input-monitored track prevents audition")
+
+    def _check_eligible_targets(self, snapshot: dict[str, Any], reference: str, scene_index: int, eligible: set[str]) -> None:
+        tracks = {track["ref"]: track for track in snapshot["tracks"]}
+        for key in eligible:
+            parts = key.split("|")
+            if len(parts) != 3:
+                raise ValueError("eligible target key is malformed")
+            track_ref, slot_ref, scene_ref = parts
+            if scene_ref != reference:
+                raise ValueError("eligible target references a different scene")
+            track = tracks.get(track_ref)
+            slot = next((item for item in (track or {}).get("clipSlots", []) if item.get("ref") == slot_ref), None)
+            if slot is None or slot.get("sceneIndex") != scene_index or not slot.get("clipRef"):
+                raise ValueError("eligible target is not an authoritative clip slot with a clip")
+
+    def _stop_playback(self) -> None:
+        stop_all = getattr(self.song, "stop_all_clips", None)
+        stop_transport = getattr(self.song, "stop_playing", None)
+        if not callable(stop_all) or not callable(stop_transport):
+            raise ValueError("guarded stop is unavailable")
+        stop_all()
+        stop_transport()
+
+    def _verify_stopped(self) -> None:
+        playback = self._playback()
+        if playback["transport"].get("playing") is not False or playback["firedTargets"] or playback["playingTargets"]:
+            raise ValueError("stop was not confirmed by fresh authoritative state")
+
+    def _guarded_audition_launch(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        set_name = args.get("setName")
+        scene_name = args.get("sceneName")
+        scene_index = args.get("sceneIndex")
+        playback_revision = args.get("playbackRevision")
+        eligible = args.get("eligibleTargets")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:scene:"):
+            raise ValueError("scene reference is stale or invalid")
+        if not isinstance(set_name, str) or not 1 <= len(set_name) <= 256:
+            raise ValueError("set identity is invalid")
+        if not isinstance(scene_name, str) or len(scene_name) > 256:
+            raise ValueError("scene identity is invalid")
+        if not isinstance(scene_index, int) or isinstance(scene_index, bool) or not 0 <= scene_index <= 10000:
+            raise ValueError("scene index is invalid")
+        if not isinstance(playback_revision, str) or not 1 <= len(playback_revision) <= 256:
+            raise ValueError("playback revision is invalid")
+        if not isinstance(eligible, list) or not 1 <= len(eligible) <= 256 or len(set(eligible)) != len(eligible) or not all(isinstance(item, str) and 1 <= len(item) <= 1024 for item in eligible):
+            raise ValueError("eligible targets are invalid")
+        eligible_keys = set(eligible)
+        snapshot = self.snapshot()
+        if snapshot["set"].get("name") != set_name:
+            raise ValueError("disposable Set identity does not match")
+        scenes = snapshot["scenes"]
+        if not 0 <= scene_index < len(scenes):
+            raise ValueError("scene is not authoritative")
+        scene_row = scenes[scene_index]
+        if scene_row.get("ref") != reference or scene_row.get("name") != scene_name or scene_row.get("index") != scene_index:
+            raise ValueError("scene identity changed since preview")
+        self._check_audition_safety(snapshot)
+        if snapshot["playback"].get("revision") != playback_revision:
+            raise ValueError("playback state changed since preview")
+        self._check_eligible_targets(snapshot, reference, scene_index, eligible_keys)
+        scene = self.refs.get(reference)
+        fire = getattr(scene, "fire", getattr(scene, "launch", None))
+        if not callable(fire):
+            raise ValueError("scene launch is unavailable")
+        fire()
+        active = self._active_targets(self._playback())
+        if not active or any(self._target_key(target) not in eligible_keys or target.get("sceneIndex") != scene_index for target in active):
+            try:
+                self._stop_playback()
+            finally:
+                raise ValueError("launch verification failed; stop was attempted")
+        return {"launched": reference, "targets": active}
+
+    def _guarded_audition_stop(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        set_name = args.get("setName")
+        eligible = args.get("eligibleTargets")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:scene:"):
+            raise ValueError("scene reference is stale or invalid")
+        if not isinstance(set_name, str) or not 1 <= len(set_name) <= 256:
+            raise ValueError("set identity is invalid")
+        if not isinstance(eligible, list) or len(eligible) > 256 or len(set(eligible)) != len(eligible) or not all(isinstance(item, str) and 1 <= len(item) <= 1024 for item in eligible):
+            raise ValueError("eligible targets are invalid")
+        eligible_keys = set(eligible)
+        snapshot = self.snapshot()
+        if snapshot["set"].get("name") != set_name:
+            raise ValueError("disposable Set identity does not match")
+        active = self._active_targets(snapshot["playback"])
+        if any(self._target_key(target) not in eligible_keys or target.get("sceneRef") != reference for target in active):
+            raise ValueError("external or unknown playback is active; owned stop refused")
+        self._stop_playback()
+        self._verify_stopped()
+        return {"stopped": True}
+
+    def _guarded_emergency_stop(self, args: dict[str, Any]) -> dict[str, Any]:
+        expected = args.get("expectedTargets")
+        if not isinstance(expected, list) or len(expected) > 256 or len(set(expected)) != len(expected) or not all(isinstance(item, str) and 1 <= len(item) <= 1024 for item in expected):
+            raise ValueError("expected targets are invalid")
+        active = self._active_targets(self._playback())
+        active_keys = {self._target_key(target) for target in active}
+        if not active_keys <= set(expected):
+            raise ValueError("active playback exceeds the separately authorized observation; perform fresh discovery")
+        self._stop_playback()
+        self._verify_stopped()
+        return {"stopped": True, "stoppedTargets": sorted(active_keys)}
+
     def invoke(self, operation: str, args: dict[str, Any]) -> Any:
-        if operation == "scene.launch":
-            reference = args.get("ref")
-            if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:scene:"):
-                raise ValueError("scene reference is stale or invalid")
-            scene = self.refs.get(reference)
-            fire = getattr(scene, "fire", getattr(scene, "launch", None))
-            if not callable(fire):
-                raise ValueError("scene launch is unavailable")
-            fire()
-            return {"launched": reference, "fired": True}
-        if operation == "stop-all-clips":
-            stop = getattr(self.song, "stop_all_clips", None)
-            if not callable(stop):
-                raise ValueError("stop-all-clips is unavailable")
-            stop()
-            return {"stopped": True}
-        if operation == "transport.stop":
-            stop = getattr(self.song, "stop_playing", None)
-            if not callable(stop):
-                raise ValueError("transport stop is unavailable")
-            stop()
-            return {"stopped": True}
+        if operation == "session.audition-launch":
+            return self._guarded_audition_launch(args)
+        if operation == "session.audition-stop":
+            return self._guarded_audition_stop(args)
+        if operation == "session.emergency-stop":
+            return self._guarded_emergency_stop(args)
         if operation == "session.playback":
             return self._playback()
         if operation == "session.discover":
@@ -837,51 +1061,81 @@ class LiveObjectMapper:
         return {"added": True}
 
 
+class _DispatchToken:
+    def __init__(self, deadline_ms: int):
+        self.deadline_ms = deadline_ms
+        self.state = "queued"
+        self._lock = threading.Lock()
+
+    def claim(self) -> bool:
+        with self._lock:
+            if self.state != "queued" or int(time.time() * 1000) > self.deadline_ms:
+                if self.state == "queued": self.state = "cancelled"
+                return False
+            self.state = "running"
+            return True
+
+    def cancel(self) -> bool:
+        with self._lock:
+            if self.state == "queued":
+                self.state = "cancelled"
+                return True
+            return False
+
+    def complete(self) -> None:
+        with self._lock:
+            if self.state == "running": self.state = "completed"
+
+
 class _MainThreadQueue:
     def __init__(self) -> None:
-        self.items: queue.Queue[tuple[Callable[[], Any], threading.Event, list[Any]]] = queue.Queue(MAX_QUEUE_ITEMS)
+        self.items: queue.Queue[tuple[Callable[[], Any], threading.Event, list[Any], _DispatchToken]] = queue.Queue(MAX_QUEUE_ITEMS)
         self._closed = False
         self._lock = threading.Lock()
 
-    def submit(self, callback: Callable[[], Any], timeout: float = DEFAULT_TIMEOUT_SECONDS) -> Any:
+    def submit(self, callback: Callable[[], Any], timeout: float = DEFAULT_TIMEOUT_SECONDS, deadline_ms: int | None = None) -> Any:
+        now_ms = int(time.time() * 1000)
+        deadline_ms = deadline_ms if isinstance(deadline_ms, int) and not isinstance(deadline_ms, bool) else now_ms + int(timeout * 1000)
+        if deadline_ms <= now_ms or deadline_ms > now_ms + 60000: raise TimeoutError("Live main-thread operation deadline expired")
         event = threading.Event()
         result: list[Any] = []
+        token = _DispatchToken(deadline_ms)
         with self._lock:
-            if self._closed:
-                raise RuntimeError("Live bridge is disconnected")
-            self.items.put_nowait((callback, event, result))
-        if not event.wait(timeout):
-            raise TimeoutError("Live main-thread operation timed out")
-        if result and isinstance(result[0], BaseException):
-            raise result[0]
+            if self._closed: raise RuntimeError("Live bridge is disconnected")
+            self.items.put_nowait((callback, event, result, token))
+        wait_seconds = max(0.0, min(timeout, (deadline_ms - int(time.time() * 1000)) / 1000.0))
+        if not event.wait(wait_seconds):
+            if token.cancel(): raise TimeoutError("Live main-thread operation timed out before dispatch")
+            raise RuntimeError("Live main-thread operation state uncertain after dispatch")
+        if result and isinstance(result[0], BaseException): raise result[0]
         return result[0] if result else None
 
     def close(self) -> None:
         with self._lock:
             self._closed = True
             while True:
-                try:
-                    _, event, result = self.items.get_nowait()
-                except queue.Empty:
-                    break
-                result.append(RuntimeError("Live bridge is disconnected"))
-                event.set()
+                try: _, event, result, token = self.items.get_nowait()
+                except queue.Empty: break
+                token.cancel(); result.append(RuntimeError("Live bridge is disconnected")); event.set()
 
     def drain(self, budget: int = MAX_QUEUE_ITEMS) -> int:
         count = 0
         while count < budget:
-            try: callback, event, result = self.items.get_nowait()
+            try: callback, event, result, token = self.items.get_nowait()
             except queue.Empty: break
+            if not token.claim():
+                event.set(); count += 1; continue
             try: result.append(callback())
             except BaseException as exc: result.append(exc)
-            event.set(); count += 1
+            finally: token.complete(); event.set()
+            count += 1
         return count
 
 
 class AbletonMcpBridge:
     """Installable Control Surface boundary with fail-closed loopback listener."""
 
-    def __init__(self, c_instance: Any, config: dict[str, Any] | None = None, song: Any = None):
+    def __init__(self, c_instance: Any, config: dict[str, Any] | None = None, song: Any = None, provenance: str = "fake-live"):
         config = config or {}
         host = config.get("host", "")
         port = config.get("port", 0)
@@ -890,8 +1144,9 @@ class AbletonMcpBridge:
             raise ValueError("explicit loopback host, port, and strong secret are required")
         self.c_instance = c_instance
         self.queue = _MainThreadQueue()
-        self.mapper = LiveObjectMapper(song if song is not None else getattr(c_instance, "song", None))
-        self.auth = AuthenticatedRemoteScript(secret, self._dispatch)
+        self.mapper = LiveObjectMapper(song if song is not None else getattr(c_instance, "song", None), provenance=provenance)
+        self._bridge_epoch = secrets.token_urlsafe(24)
+        self.auth = AuthenticatedRemoteScript(secret, self._dispatch, self._bridge_epoch, "internal-bridge-channel")
         self._server = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET, socket.SOCK_STREAM)
         self._server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._server.bind((host, port))
@@ -905,7 +1160,7 @@ class AbletonMcpBridge:
         self._thread.start()
 
     def _dispatch(self, method: str, request: dict[str, Any]) -> Any:
-        return self.queue.submit(lambda: self._dispatch_main(method, request))
+        return self.queue.submit(lambda: self._dispatch_main(method, request), deadline_ms=request.get("deadlineMs"))
 
     def _dispatch_main(self, method: str, request: dict[str, Any]) -> Any:
         return self._dispatch_main_for(method, request, self.mapper)
@@ -914,6 +1169,10 @@ class AbletonMcpBridge:
     def _dispatch_main_for(method: str, request: dict[str, Any], mapper: LiveObjectMapper) -> Any:
         if method == "status": return mapper.status()
         if method == "snapshot": return mapper.snapshot()
+        if method == "discover":
+            args = dict(request.get("args", {}))
+            if args.get("kind") == "session_playback": return mapper._playback()
+            return mapper.discover(args.get("kind", "track"), args.get("limit", 100), args.get("cursor"), args.get("parent"), args.get("filters"), args.get("requestedFields"), args.get("traversalBudget", 1000))
         if method == "get": return mapper.get(str(request.get("ref")))
         if method == "set": return mapper.set(str(request.get("ref")), str(request.get("property")), request.get("value"))
         if method == "reconnect": return mapper.invoke("session.reconnect", {})
@@ -939,9 +1198,10 @@ class AbletonMcpBridge:
 
     def _client(self, client: socket.socket) -> None:
         client.settimeout(0.2); buffer = b""
-        mapper = LiveObjectMapper(self.mapper.song)
-        auth = AuthenticatedRemoteScript(self._secret_value, lambda method, request: self.queue.submit(lambda: self._dispatch_main_for(method, request, mapper)))
+        challenge = secrets.token_urlsafe(24)
+        auth = AuthenticatedRemoteScript(self._secret_value, lambda method, request: self.queue.submit(lambda: self._dispatch_main_for(method, request, self.mapper), deadline_ms=request.get("deadlineMs")), self._bridge_epoch, challenge)
         try:
+            client.sendall(json.dumps(auth.hello_response(), ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n")
             while not self._stop.is_set():
                 try: chunk = client.recv(65536)
                 except socket.timeout: continue
@@ -952,8 +1212,9 @@ class AbletonMcpBridge:
                     line, buffer = buffer.split(b"\n", 1)
                     if not line: continue
                     try: request = json.loads(line.decode("utf-8")); response = auth.dispatch(request)
-                    except Exception: response = self.auth.error_response()
+                    except Exception: response = auth.error_response()
                     client.sendall(json.dumps(response, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n")
+                    if auth.invalid: return
         finally:
             self._clients.discard(client); client.close(); self._workers.discard(threading.current_thread())
 

@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { analyzePcm, decodeFloat32Le } from "./analysis.js";
 import { LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_UNAVAILABLE_CAPABILITIES, UnavailableLiveAdapter, type LiveAdapter, type LiveCapability, type LiveRef, type LiveSnapshot, type LiveStatus } from "./live.js";
 import { serveStdio, type RecordContext } from "./stdio.js";
-import { SessionMidiTransactionManager, discoverSession, discoverSessionAsync } from "./transactions/session-midi.js";
+import { SessionMidiTransactionManager, discoverSession } from "./transactions/session-midi.js";
 import type { AsyncLiveAdapter } from "./live.js";
 
 export const PROTOCOL_VERSION = "2025-11-25";
@@ -60,6 +60,7 @@ interface SessionAuditionTransaction {
   sceneRef: LiveRef;
   sceneRevision: string;
   playbackRevision: string;
+  eligibleTargetKeys: string[];
   setName: string;
   outputSafety: JsonObject;
   confirmation: string;
@@ -67,8 +68,9 @@ interface SessionAuditionTransaction {
   expiresAt: number;
   applyKey?: string;
   stopKey?: string;
-  state: "previewed" | "applied" | "stopped" | "uncertain";
+  state: "previewed" | "applying" | "applied" | "stopping" | "stopped" | "uncertain";
   launched?: unknown;
+  inflight?: Promise<JsonObject>;
 }
 
 const REQUEST_ID_MAX_LENGTH = 128;
@@ -76,6 +78,8 @@ const SERVER_VERSION = "0.1.0";
 const TRANSACTION_TTL_MS = 30_000;
 const MAX_TRANSACTIONS = 256;
 const AUDITION_TTL_MS = 30_000;
+const MAX_AUDITION_TRANSACTIONS = 64;
+const MONITORABLE_TRACK_KINDS = new Set(["regular", "audio", "midi"]);
 
 const resources = [
   { uri: "ableton://capabilities", name: "Capability catalog", description: "Implemented and unavailable host capabilities.", mimeType: "application/json" },
@@ -160,7 +164,7 @@ const implementedTools = [
   {
     name: "live_session_audition_preview",
     description: "Read-only preflight for one potentially audible Session scene launch. Requires explicit output-safety evidence.",
-    inputSchema: { type: "object", properties: { sceneRef: { type: "string", minLength: 1, maxLength: 256 }, setName: { type: "string", minLength: 1, maxLength: 256 }, outputSafety: { type: "object", additionalProperties: false } }, required: ["sceneRef", "setName", "outputSafety"], additionalProperties: false },
+    inputSchema: { type: "object", properties: { sceneRef: { type: "string", minLength: 1, maxLength: 256 }, setName: { type: "string", minLength: 1, maxLength: 256 }, outputSafety: { type: "object", properties: { safe: { type: "boolean", const: true }, provenance: { type: "string", minLength: 1, maxLength: 512 }, observedAt: { type: "string", minLength: 1, maxLength: 128 }, scope: { type: "string", minLength: 1, maxLength: 256 } }, required: ["safe", "provenance"], additionalProperties: false } }, required: ["sceneRef", "setName", "outputSafety"], additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   },
   {
@@ -172,7 +176,13 @@ const implementedTools = [
   {
     name: "live_session_audition_stop",
     description: "Stop only the mapper-owned audition once and verify fresh stopped state.",
-    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["stop"] }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", minLength: 32, maxLength: 128, description: "The exact unpredictable stopConfirmation token returned by preview/apply." }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+  },
+  {
+    name: "live_session_emergency_stop",
+    description: "Independently authorized emergency stop of exactly the Session playback targets observed in fresh discovery. Requires no transaction and survives host restart.",
+    inputSchema: { type: "object", properties: { confirmation: { type: "string", const: "emergency-stop" }, expectedTargets: { type: "array", items: { type: "string", minLength: 1, maxLength: 1024 }, maxItems: 256, description: "Exact active playback target keys (trackRef|clipSlotRef|sceneRef) observed in a fresh live_discover/live_snapshot read; the stop is refused if Live has anything else playing." }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } }, required: ["confirmation", "expectedTargets"], additionalProperties: false },
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
   },
   {
@@ -335,7 +345,7 @@ export class McpHost {
     if (signal?.aborted) return null;
     if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handle(input);
     const name = input.params.name;
-    if (![ "live_session_structure_preview", "live_session_structure_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop"].includes(name)) return this.handle(input);
+    if (![ "live_session_structure_preview", "live_session_structure_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop"].includes(name)) return this.handle(input);
     // Reuse the synchronous validator and request bookkeeping, then execute the
     // adapter operation asynchronously. Invalid requests never reach Live.
     const id = this.requestId(input.id);
@@ -355,6 +365,7 @@ export class McpHost {
       if (name === "live_session_audition_preview") return await this.liveSessionAuditionPreviewAsync(id, input.params.arguments);
       if (name === "live_session_audition_apply") return await this.liveSessionAuditionApplyAsync(id, input.params.arguments, signal);
       if (name === "live_session_audition_stop") return await this.liveSessionAuditionStopAsync(id, input.params.arguments, signal);
+      if (name === "live_session_emergency_stop") return await this.liveSessionEmergencyStopAsync(id, input.params.arguments, signal);
       if (name === "live_device_parameter_preview") return await this.liveDeviceParameterPreviewAsync(id, input.params.arguments);
       if (name === "live_device_parameter_apply") return await this.liveDeviceParameterApplyAsync(id, input.params.arguments);
       if (name === "live_midi_clip_preview") return await this.liveMidiPreviewAsync(id, input.params.arguments);
@@ -370,7 +381,7 @@ export class McpHost {
 
   private asyncAdapter(): AsyncLiveAdapter {
     const value = this.adapter as Partial<AsyncLiveAdapter>;
-    if (typeof value.snapshotAsync !== "function" || typeof value.getAsync !== "function" || typeof value.setAsync !== "function" || typeof value.invokeAsync !== "function") throw new Error("live adapter does not support asynchronous operations");
+    if (typeof value.snapshotAsync !== "function" || typeof value.discoverAsync !== "function" || typeof value.getAsync !== "function" || typeof value.setAsync !== "function" || typeof value.invokeAsync !== "function") throw new Error("live adapter does not support asynchronous operations");
     return this.adapter as AsyncLiveAdapter;
   }
 
@@ -452,31 +463,32 @@ export class McpHost {
   private async liveDiscoverAsync(id: RequestId, params: unknown): Promise<JsonObject> {
     const kinds = ["set", "track", "return-track", "main-track", "scene", "clip-slot", "session-clip", "arrangement-clip", "note", "locator", "device", "parameter", "selection", "routing-choice", "session-playback"] as const;
     if (!isObject(params) || !hasOnly(params, ["kind", "parent", "filter", "fields", "budget", "limit", "cursor"]) || !kinds.includes(params.kind as typeof kinds[number]) || (["clip-slot", "session-clip", "arrangement-clip", "note", "device", "parameter", "routing-choice"].includes(String(params.kind)) && !isNonEmptyString(params.parent, 256)) || (params.parent !== undefined && !isNonEmptyString(params.parent, 256)) || (params.filter !== undefined && (!isObject(params.filter) || Object.keys(params.filter).length > 8)) || (params.fields !== undefined && (!Array.isArray(params.fields) || params.fields.length > 32 || params.fields.some((field) => !isNonEmptyString(field, 64)))) || (params.budget !== undefined && !isIntegerInRange(params.budget, 1, 10_000)) || (params.limit !== undefined && !isIntegerInRange(params.limit, 1, 100)) || (params.cursor !== undefined && !isNonEmptyString(params.cursor, 1024))) return error(id, -32602, "kind, parent, filters, fields, budget, limit, and cursor are invalid");
-    const adapter = this.asyncAdapter() as AsyncLiveAdapter & { discoverAsync?: (request: unknown) => Promise<unknown> };
-    if (typeof adapter.discoverAsync === "function") return this.successText(id, await adapter.discoverAsync({ kind: params.kind, parent: params.parent, filter: params.filter, fields: params.fields, budget: params.budget ?? 1000, limit: params.limit ?? 50, cursor: params.cursor }));
-    if (!["track", "scene", "clip", "note"].includes(String(params.kind)) || params.parent !== undefined || params.filter !== undefined || params.fields !== undefined || params.budget !== undefined) throw new Error("authoritative mapper discovery is unavailable");
-    return this.successText(id, await discoverSessionAsync(adapter, params.kind as "track" | "scene" | "clip" | "note", (params.limit as number | undefined) ?? 50, params.cursor as string | undefined));
+    return this.successText(id, await this.asyncAdapter().discoverAsync({ kind: params.kind as import("./live.js").LiveDiscoveryKind, parent: params.parent as string | undefined, filter: params.filter as Record<string, unknown> | undefined, fields: params.fields as string[] | undefined, budget: (params.budget as number | undefined) ?? 1000, limit: (params.limit as number | undefined) ?? 50, cursor: params.cursor as string | undefined }));
   }
 
-  private auditionSnapshot(snapshot: LiveSnapshot, sceneRef: LiveRef): { set: JsonObject; scene: JsonObject; tracks: JsonObject[]; playbackRevision: string } {
+  private auditionSnapshot(snapshot: LiveSnapshot, sceneRef: LiveRef): { set: JsonObject; scene: JsonObject; tracks: JsonObject[]; playback: LiveSnapshot["playback"]; playbackRevision: string; eligibleTargetKeys: string[] } {
     const set = snapshot.set as unknown as JsonObject;
     const scene = snapshot.scenes.find((item) => item.ref === sceneRef) as unknown as JsonObject | undefined;
-    if (!scene) throw new Error("audition scene is not authoritative");
+    if (!scene || !Number.isInteger(scene.index)) throw new Error("audition scene is not authoritative");
     const tracks = snapshot.tracks as unknown as JsonObject[];
-    const playbackRevision = JSON.stringify({ set, tracks: tracks.map((track) => ({ ref: track.ref, armed: track.armed, inputMonitoring: track.inputMonitoring, playingSlotIndex: track.playingSlotIndex, firedSlotIndex: track.firedSlotIndex })), scenes: snapshot.scenes });
-    return { set, scene, tracks, playbackRevision };
+    const playback = snapshot.playback;
+    if (!playback || !Array.isArray(playback.firedTargets) || !Array.isArray(playback.playingTargets)) throw new Error("authoritative Session playback is unavailable");
+    const eligibleTargetKeys = tracks.flatMap((track) => Array.isArray(track.clipSlots) ? (track.clipSlots as unknown[]).filter(isObject).filter((slot) => slot.sceneIndex === scene.index && typeof slot.ref === "string" && typeof track.ref === "string" && typeof slot.clipRef === "string").map((slot) => `${track.ref}|${slot.ref}|${sceneRef}`) : []);
+    if (eligibleTargetKeys.some((key) => key.split("|").length !== 3)) throw new Error("audition references are not encodable as target keys");
+    const playbackRevision = JSON.stringify({ playback, tracks: tracks.map((track) => ({ ref: track.ref, armed: track.armed, monitoringState: track.monitoringState, playingSlotIndex: track.playingSlotIndex, firedSlotIndex: track.firedSlotIndex })), scenes: snapshot.scenes });
+    return { set, scene, tracks, playback, playbackRevision, eligibleTargetKeys };
   }
 
-  private validateAuditionSafety(status: LiveStatus, set: JsonObject, tracks: JsonObject[], outputSafety: unknown, setName: string): void {
+  private validateAuditionSafety(status: LiveStatus, set: JsonObject, tracks: JsonObject[], playback: LiveSnapshot["playback"], outputSafety: unknown, setName: string): void {
     if (!isObject(outputSafety) || !hasOnly(outputSafety, ["safe", "provenance", "observedAt", "scope"]) || outputSafety.safe !== true || !isNonEmptyString(outputSafety.provenance, 512) || outputSafety.provenance === "unknown" || outputSafety.provenance === "simulator") throw new Error("explicit authoritative output-safety evidence is required");
     if (set.name !== setName) throw new Error("disposable Set identity does not match authoritative state");
-    for (const field of ["playing", "arrangementRecord", "sessionRecord", "launchQuantization"] as const) if (!(field in set)) throw new Error(`authoritative playback field unavailable: ${field}`);
-    if (set.playing !== false || set.arrangementRecord !== false || set.sessionRecord !== false) throw new Error("audition requires stopped, non-recording state");
-    if (typeof set.launchQuantization !== "string" || ["none", "unknown", "free"].includes(set.launchQuantization)) throw new Error("launch quantization is unsafe or unknown");
-    if (tracks.some((track) => track.armed !== false || track.inputMonitoring !== false)) throw new Error("armed or input-monitored target prevents audition");
-    if ((Array.isArray(set.firedTargets) && set.firedTargets.length > 0) || (Array.isArray(set.playingTargets) && set.playingTargets.length > 0)) throw new Error("existing Session playback prevents audition");
+    const transport = playback.transport;
+    if (transport.playing !== false || transport.arrangementRecord !== false || transport.sessionRecord !== false) throw new Error("audition requires stopped, non-recording authoritative playback state");
+    if (!transport.launchQuantization.normalized || ["none", "unknown", "free"].includes(transport.launchQuantization.normalized)) throw new Error("launch quantization is unsafe or unknown");
+    if (tracks.some((track) => MONITORABLE_TRACK_KINDS.has(String(track.kind)) ? (track.armed !== false || track.monitoringState !== "off") : (track.armed === true || track.monitoringState === "in"))) throw new Error("armed, input-monitored, or unknown-monitoring target prevents audition");
+    if (playback.firedTargets.length > 0 || playback.playingTargets.length > 0) throw new Error("existing Session playback prevents audition");
     const operations = status.operations ?? [];
-    if (!(operations.includes("scene.launch") && operations.includes("session.playback") && operations.includes("stop-all-clips") && operations.includes("transport.stop"))) throw new Error("required scene launch, playback inspection, and stop operations are unavailable");
+    if (!(operations.includes("session.audition-launch") && operations.includes("session.audition-stop") && operations.includes("session.emergency-stop") && operations.includes("session.playback"))) throw new Error("required guarded audition, emergency stop, and playback inspection operations are unavailable");
   }
 
   private async liveSessionAuditionPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
@@ -485,11 +497,23 @@ export class McpHost {
       const status = this.requireConnected("session.read");
       const snapshot = await this.asyncAdapter().snapshotAsync();
       const state = this.auditionSnapshot(snapshot, params.sceneRef as LiveRef);
-      this.validateAuditionSafety(status, state.set, state.tracks, params.outputSafety, params.setName);
-      const transaction: SessionAuditionTransaction = { id: `audition_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, sceneRef: params.sceneRef as LiveRef, sceneRevision: JSON.stringify(state.scene), playbackRevision: state.playbackRevision, setName: params.setName, outputSafety: structuredClone(params.outputSafety as JsonObject), confirmation: randomBytes(32).toString("base64url"), stopConfirmation: randomBytes(32).toString("base64url"), expiresAt: Date.now() + AUDITION_TTL_MS, state: "previewed" };
-      this.auditionTransactions.set(transaction.id, transaction);
-      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, scene: state.scene, sceneRevision: transaction.sceneRevision, playbackRevision: transaction.playbackRevision, disposableSet: { expected: transaction.setName, observed: state.set.name, matches: true }, baseline: { stopped: true, arrangementRecord: false, sessionRecord: false }, launchQuantization: state.set.launchQuantization, outputSafety: transaction.outputSafety, audibleImpact: "potentially-audible-session-scene-launch", confirmation: transaction.confirmation, stopConfirmation: transaction.stopConfirmation, expiresAt: transaction.expiresAt });
+      this.validateAuditionSafety(status, state.set, state.tracks, state.playback, params.outputSafety, params.setName);
+      if (state.eligibleTargetKeys.length === 0) throw new Error("audition scene has no authoritative playable clip slots");
+      const transaction: SessionAuditionTransaction = { id: `audition_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, sceneRef: params.sceneRef as LiveRef, sceneRevision: JSON.stringify(state.scene), playbackRevision: state.playbackRevision, eligibleTargetKeys: state.eligibleTargetKeys, setName: params.setName, outputSafety: structuredClone(params.outputSafety as JsonObject), confirmation: randomBytes(32).toString("base64url"), stopConfirmation: randomBytes(32).toString("base64url"), expiresAt: Date.now() + AUDITION_TTL_MS, state: "previewed" };
+      this.retainAuditionTransaction(transaction);
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, scene: state.scene, sceneRevision: transaction.sceneRevision, playbackRevision: transaction.playbackRevision, eligibleTargets: transaction.eligibleTargetKeys, disposableSet: { expected: transaction.setName, observed: state.set.name, matches: true }, baseline: { stopped: true, arrangementRecord: false, sessionRecord: false }, launchQuantization: state.playback.transport.launchQuantization, outputSafety: transaction.outputSafety, audibleImpact: "potentially-audible-session-scene-launch", confirmation: transaction.confirmation, stopConfirmation: transaction.stopConfirmation, expiresAt: transaction.expiresAt });
     } catch (cause) { return this.adapterToolError(id, cause, "Audition preview refused; obtain fresh authoritative discovery and explicit output-safety evidence."); }
+  }
+
+  private retainAuditionTransaction(transaction: SessionAuditionTransaction): void {
+    const now = Date.now();
+    for (const [key, candidate] of this.auditionTransactions) if (candidate.expiresAt <= now && candidate.state !== "applying" && candidate.state !== "stopping") this.auditionTransactions.delete(key);
+    while (this.auditionTransactions.size >= MAX_AUDITION_TRANSACTIONS) {
+      const oldest = [...this.auditionTransactions].find(([, candidate]) => candidate.state !== "applying" && candidate.state !== "stopping");
+      if (!oldest) throw new Error("audition transaction capacity is exhausted by in-flight auditions");
+      this.auditionTransactions.delete(oldest[0]);
+    }
+    this.auditionTransactions.set(transaction.id, transaction);
   }
 
   private async liveSessionAuditionApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
@@ -497,28 +521,63 @@ export class McpHost {
     const transaction = this.auditionTransactions.get(params.transactionId as string);
     if (!transaction || transaction.expiresAt <= Date.now()) return this.transactionError(id, "Unknown or expired audition transaction");
     if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey && transaction.confirmation === params.confirmation) return this.successText(id, { transactionId: transaction.id, state: "applied", launched: transaction.launched, stopConfirmation: transaction.stopConfirmation, idempotent: true });
+    if (transaction.state === "applying") {
+      if (transaction.applyKey !== params.idempotencyKey || transaction.confirmation !== params.confirmation || !transaction.inflight) return this.transactionError(id, "Audition apply is already in progress with a different request");
+      try {
+        const outcome = await transaction.inflight;
+        return this.successText(id, { ...outcome, idempotent: true });
+      } catch (cause) {
+        return this.adapterToolError(id, cause, "Audition state is uncertain; do not retry. Perform fresh playback discovery before stopping or recovering.");
+      }
+    }
     if (transaction.state !== "previewed" || transaction.confirmation !== params.confirmation) return this.transactionError(id, "Exact audition confirmation is required");
     if (signal?.aborted) return null;
+    // Reserve the transaction synchronously before any await so a concurrent
+    // duplicate cannot observe "previewed" and dispatch a second launch.
+    transaction.state = "applying";
+    transaction.applyKey = params.idempotencyKey as string;
+    const inflight = this.dispatchAuditionApply(transaction, signal);
+    transaction.inflight = inflight;
+    inflight.catch(() => undefined);
+    try {
+      const outcome = await inflight;
+      return this.successText(id, { ...outcome, idempotent: false });
+    } catch (cause) {
+      return this.adapterToolError(id, cause, "Audition state is uncertain; do not retry. Perform fresh playback discovery before stopping or recovering.");
+    }
+  }
+
+  private async dispatchAuditionApply(transaction: SessionAuditionTransaction, signal?: AbortSignal): Promise<JsonObject> {
     try {
       const status = this.requireConnected("session.read");
       if (status.epoch !== transaction.epoch) throw new Error("Live connection epoch changed; preview again");
       const adapter = this.asyncAdapter();
-      const before = await adapter.snapshotAsync();
+      const context = { signal, deadlineMs: Date.now() + 5_000 };
+      const before = await adapter.snapshotAsync(context);
       const state = this.auditionSnapshot(before, transaction.sceneRef);
       if (JSON.stringify(state.scene) !== transaction.sceneRevision || state.playbackRevision !== transaction.playbackRevision) throw new Error("audition state changed since preview");
       // Safety evidence and all dynamic preconditions are rechecked immediately
-      // before the single potentially audible dispatch.
-      this.validateAuditionSafety(status, state.set, state.tracks, transaction.outputSafety, transaction.setName);
-      if (signal?.aborted) return null;
-      transaction.launched = await adapter.invokeAsync({ operation: "scene.launch", args: { ref: transaction.sceneRef } });
-      transaction.applyKey = params.idempotencyKey as string;
-      const after = await adapter.snapshotAsync() as LiveSnapshot & { set: JsonObject };
-      const afterSet = after.set as unknown as JsonObject;
-      const fired = (Array.isArray(afterSet.firedTargets) && afterSet.firedTargets.includes(transaction.sceneRef)) || (Array.isArray(afterSet.playingTargets) && afterSet.playingTargets.includes(transaction.sceneRef)) || afterSet.playing === true;
-      if (!fired) throw new Error("scene launch acknowledged without fresh fired or playing verification");
+      // before the single potentially audible dispatch; the mapper then rechecks
+      // the same conditions atomically on Live's main thread before firing.
+      this.validateAuditionSafety(status, state.set, state.tracks, state.playback, transaction.outputSafety, transaction.setName);
+      if (signal?.aborted) throw new Error("audition apply cancelled before dispatch");
+      const scene = state.scene as { name?: unknown; index?: unknown };
+      const result = await adapter.invokeAsync({ operation: "session.audition-launch", args: { ref: transaction.sceneRef, setName: transaction.setName, sceneName: scene.name, sceneIndex: scene.index, playbackRevision: state.playback.revision, eligibleTargets: transaction.eligibleTargetKeys } }, context) as { launched?: unknown; targets?: unknown };
+      const targets = Array.isArray(result?.targets) ? result.targets : [];
+      if (result?.launched !== transaction.sceneRef || targets.length === 0 || targets.some((target) => !isObject(target) || target.sceneRef !== transaction.sceneRef || !transaction.eligibleTargetKeys.includes(`${target.trackRef}|${target.clipSlotRef}|${target.sceneRef}`))) throw new Error("guarded launch result does not match the audition target");
+      transaction.launched = { launched: result.launched, targets };
+      const after = await adapter.snapshotAsync(context);
+      const activeTargets = [...after.playback.firedTargets, ...after.playback.playingTargets];
+      if (activeTargets.length === 0 || activeTargets.some((target) => target.sceneRef !== transaction.sceneRef || !transaction.eligibleTargetKeys.includes(`${target.trackRef}|${target.clipSlotRef}|${target.sceneRef}`))) throw new Error("scene launch acknowledged without exact fresh fired or playing target verification");
       transaction.state = "applied";
-      return this.successText(id, { transactionId: transaction.id, state: "applied", launched: transaction.launched, verified: { sceneRef: transaction.sceneRef, firedOrPlaying: true }, stopConfirmation: transaction.stopConfirmation, idempotent: false });
-    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Audition state is uncertain; do not retry. Perform fresh playback discovery before stopping or recovering."); }
+      return { transactionId: transaction.id, state: "applied", launched: transaction.launched, verified: { sceneRef: transaction.sceneRef, firedOrPlaying: true }, stopConfirmation: transaction.stopConfirmation };
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      // A failure proven to be pre-dispatch restores the preview; anything else
+      // is an explicitly uncertain audible state.
+      transaction.state = /cancelled before dispatch/.test(message) ? "previewed" : "uncertain";
+      throw cause;
+    }
   }
 
   private async liveSessionAuditionStopAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
@@ -527,26 +586,74 @@ export class McpHost {
     if (!transaction) return this.transactionError(id, "Unknown audition transaction");
     if (transaction.state === "stopped" && transaction.stopKey === params.idempotencyKey && params.confirmation === transaction.stopConfirmation) return this.successText(id, { transactionId: transaction.id, state: "stopped", idempotent: true });
     if (params.confirmation !== transaction.stopConfirmation) return this.transactionError(id, "Exact audition stop confirmation is required");
+    if (transaction.state === "stopping") {
+      if (transaction.stopKey !== params.idempotencyKey || !transaction.inflight) return this.transactionError(id, "Audition stop is already in progress with a different request");
+      try {
+        const outcome = await transaction.inflight;
+        return this.successText(id, { ...outcome, idempotent: true });
+      } catch (cause) {
+        return this.adapterToolError(id, cause, "Stop is uncertain; do not retry. Perform fresh authoritative playback discovery.");
+      }
+    }
     if (!(transaction.state === "applied" || transaction.state === "uncertain")) return this.transactionError(id, "Only mapper-owned applied or uncertain audition playback can be stopped");
     if (signal?.aborted) return null;
+    transaction.state = "stopping";
+    transaction.stopKey = params.idempotencyKey as string;
+    const inflight = this.dispatchAuditionStop(transaction, signal);
+    transaction.inflight = inflight;
+    inflight.catch(() => undefined);
+    try {
+      const outcome = await inflight;
+      return this.successText(id, { ...outcome, idempotent: false });
+    } catch (cause) {
+      return this.adapterToolError(id, cause, "Stop is uncertain; do not retry. Perform fresh authoritative playback discovery.");
+    }
+  }
+
+  private async dispatchAuditionStop(transaction: SessionAuditionTransaction, signal?: AbortSignal): Promise<JsonObject> {
     try {
       const status = this.requireConnected("session.read");
       if (status.epoch !== transaction.epoch) throw new Error("Live connection epoch changed; stop refused");
       const adapter = this.asyncAdapter();
-      const before = this.auditionSnapshot(await adapter.snapshotAsync(), transaction.sceneRef);
-      if (JSON.stringify(before.scene) !== transaction.sceneRevision || before.set.name !== transaction.setName || before.set.arrangementRecord !== false || before.set.sessionRecord !== false || before.tracks.some((track) => track.armed !== false || track.inputMonitoring !== false)) throw new Error("audition ownership or safety state changed; stop refused");
-      const firedTargets = Array.isArray(before.set.firedTargets) ? before.set.firedTargets : [];
-      const playingTargets = Array.isArray(before.set.playingTargets) ? before.set.playingTargets : [];
-      const activeTargets = [...new Set([...firedTargets, ...playingTargets])];
-      if (activeTargets.length === 0 || activeTargets.some((target) => target !== transaction.sceneRef)) throw new Error("owned playback is unknown or external playback is active; global stop refused");
-      await adapter.invokeAsync({ operation: "stop-all-clips" as never, args: {} });
-      await adapter.invokeAsync({ operation: "transport.stop" as never, args: {} });
-      const state = await adapter.snapshotAsync() as LiveSnapshot & { set: JsonObject };
-      const set = state.set as unknown as JsonObject;
-      if (set.playing !== false || (Array.isArray(set.firedTargets) && set.firedTargets.length > 0) || (Array.isArray(set.playingTargets) && set.playingTargets.length > 0)) throw new Error("stop acknowledged without fresh stopped verification");
-      transaction.stopKey = params.idempotencyKey as string; transaction.state = "stopped";
-      return this.successText(id, { transactionId: transaction.id, state: "stopped", restoredBaseline: true, idempotent: false });
-    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Stop is uncertain; do not retry. Perform fresh authoritative playback discovery."); }
+      const context = { signal, deadlineMs: Date.now() + 5_000 };
+      const before = this.auditionSnapshot(await adapter.snapshotAsync(context), transaction.sceneRef);
+      if (JSON.stringify(before.scene) !== transaction.sceneRevision || before.set.name !== transaction.setName || before.playback.transport.arrangementRecord !== false || before.playback.transport.sessionRecord !== false || before.tracks.some((track) => MONITORABLE_TRACK_KINDS.has(String(track.kind)) ? (track.armed !== false || track.monitoringState !== "off") : (track.armed === true || track.monitoringState === "in"))) throw new Error("audition ownership or safety state changed; stop refused");
+      const activeTargets = [...before.playback.firedTargets, ...before.playback.playingTargets];
+      if (activeTargets.length > 0) {
+        if (activeTargets.some((target) => target.sceneRef !== transaction.sceneRef || !transaction.eligibleTargetKeys.includes(`${target.trackRef}|${target.clipSlotRef}|${target.sceneRef}`))) throw new Error("owned playback is unknown or external playback is active; global stop refused");
+        if (signal?.aborted) throw new Error("audition stop cancelled before dispatch");
+        await adapter.invokeAsync({ operation: "session.audition-stop", args: { ref: transaction.sceneRef, setName: transaction.setName, eligibleTargets: transaction.eligibleTargetKeys } }, context);
+      }
+      const state = await adapter.snapshotAsync(context);
+      if (state.playback.transport.playing !== false || state.playback.firedTargets.length > 0 || state.playback.playingTargets.length > 0) throw new Error("stop acknowledged without fresh stopped verification");
+      transaction.state = "stopped";
+      return { transactionId: transaction.id, state: "stopped", restoredBaseline: true };
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      transaction.state = /cancelled before dispatch/.test(message) ? "applied" : "uncertain";
+      throw cause;
+    }
+  }
+
+  private async liveSessionEmergencyStopAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!isObject(params) || !hasOnly(params, ["confirmation", "expectedTargets", "idempotencyKey"]) || params.confirmation !== "emergency-stop" || !Array.isArray(params.expectedTargets) || params.expectedTargets.length > 256 || new Set(params.expectedTargets).size !== params.expectedTargets.length || !params.expectedTargets.every((item) => isNonEmptyString(item, 1024)) || (params.idempotencyKey !== undefined && !isNonEmptyString(params.idempotencyKey, 128))) return error(id, -32602, "confirmation=emergency-stop and the exact freshly observed active playback targets are required");
+    try {
+      const status = this.requireConnected("session.read");
+      if (!(status.operations ?? []).includes("session.emergency-stop")) throw new Error("emergency stop operation is unavailable");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + 5_000 };
+      const snapshot = await adapter.snapshotAsync(context);
+      const playback = snapshot.playback;
+      if (!playback || !Array.isArray(playback.firedTargets) || !Array.isArray(playback.playingTargets)) throw new Error("authoritative Session playback is unavailable");
+      const activeKeys = [...new Set([...playback.firedTargets, ...playback.playingTargets].map((target) => `${target.trackRef}|${target.clipSlotRef}|${target.sceneRef}`))].sort();
+      const expectedKeys = [...(params.expectedTargets as string[])].sort();
+      if (activeKeys.length !== expectedKeys.length || activeKeys.some((key, index) => key !== expectedKeys[index])) throw new Error("expected targets do not match fresh authoritative playback; perform fresh discovery");
+      if (signal?.aborted) return null;
+      const result = await adapter.invokeAsync({ operation: "session.emergency-stop", args: { expectedTargets: activeKeys } }, context) as { stopped?: unknown; stoppedTargets?: unknown };
+      const after = await adapter.snapshotAsync(context);
+      if (after.playback.transport.playing !== false || after.playback.firedTargets.length > 0 || after.playback.playingTargets.length > 0) throw new Error("emergency stop was not confirmed by fresh authoritative state");
+      return this.successText(id, { stopped: true, stoppedTargets: result.stoppedTargets ?? activeKeys });
+    } catch (cause) { return this.adapterToolError(id, cause, "Emergency stop is uncertain; perform fresh authoritative playback discovery before any further action."); }
   }
 
   private parameterTarget(snapshot: LiveSnapshot, deviceRef: string, parameterRef: string): { device: LiveSnapshot["tracks"][number]["devices"][number]; parameter: LiveSnapshot["tracks"][number]["devices"][number]["parameters"][number]; trackRef: LiveRef } {
@@ -838,7 +945,7 @@ export class McpHost {
       return error(id, -32602, "Invalid tools/call parameters");
     }
     if (params.arguments !== undefined && !isObject(params.arguments)) return error(id, -32602, "Tool arguments must be an object");
-    const argumentTools = new Set(["audio_analyze", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+    const argumentTools = new Set(["audio_analyze", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
     if (!argumentTools.has(params.name) && params.arguments !== undefined && Object.keys(params.arguments as JsonObject).length !== 0) {
       return error(id, -32602, "Tool arguments must be an empty object");
     }
@@ -851,7 +958,7 @@ export class McpHost {
     if (params.name === "live_status") return this.liveStatus(id);
     if (params.name === "live_snapshot") return this.liveSnapshot(id);
     if (params.name === "live_discover") return this.liveDiscover(id, params.arguments);
-    if (["live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop"].includes(params.name)) return error(id, -32001, "Session audition requires the asynchronous host request path");
+    if (["live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop"].includes(params.name)) return error(id, -32001, "Session audition requires the asynchronous host request path");
     if (params.name === "live_device_parameter_preview") return this.liveDeviceParameterPreview(id, params.arguments);
     if (params.name === "live_device_parameter_apply") return this.liveDeviceParameterApply(id, params.arguments);
     if (params.name === "live_session_structure_preview") return this.liveSessionStructurePreview(id, params.arguments);

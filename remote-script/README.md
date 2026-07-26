@@ -10,7 +10,12 @@ malformed, symlinked, non-loopback, or weak-secret configuration fails closed.
 
 The bridge uses the authenticated `ableton-loopback/v1` wire contract with
 HMAC-SHA256, canonical JSON, bounded frames and collections, positive safe
-sequences, replay rejection, and redacted errors. Socket workers only frame,
+sequences, replay rejection, and redacted errors. An authenticated server
+hello binds every frame to a bridge authentication epoch and one connection
+challenge, so captured frames cannot cross connections or bridge restarts.
+Absolute deadlines fence queued callbacks; a timed-out queued callback is
+cancelled and skipped by the main-thread drain, while a callback already
+claimed by Live is reported as uncertain. Socket workers only frame,
 authenticate, sequence, and enqueue. `update_display` or the scheduled
 Control Surface callback drains Live-facing work on the main thread.
 
@@ -21,15 +26,27 @@ Arrangement locator operations when the Live object exposes cue points and
 `set_or_delete_cue`. Discovery can represent the song, regular/group/return/
 main tracks, scenes, empty clip slots, Session clips, Arrangement clips,
 notes, locators, devices, parameters, selection, routing choices, and Session
-playback. Parent references, filters, requested fields, traversal budgets, and
-opaque epoch-bound cursors are bounded and validated. When the observed shape
-exposes them, the mapper can invoke scene launch, stop-all-clips, and
-transport-stop; unsupported shapes are unavailable, not fabricated. Discovery
+playback through one canonical top-level payload. Playback targets contain
+exact track, scene, clip-slot, scene-index, and nullable clip references derived
+from authoritative track slot indexes. Unknown arm, monitoring, transport, or
+quantization values remain null rather than becoming safe defaults. Parent references, filters, requested fields, traversal budgets, and
+opaque epoch-bound cursors are bounded and validated. Generic audible
+invocation is not a production capability: the wire exposes one purpose-specific
+guarded audition launch, one owned audition stop, and one separately authorized
+emergency stop. Each rechecks Set identity, scene identity, playback revision,
+recording state, arm/monitoring state, quantization, existing playback, and
+target eligibility atomically on Live's main thread immediately before firing,
+and verifies fresh authoritative state after acting. Unsupported shapes are
+unavailable, not fabricated. Discovery
 is not a complete Live object graph and does not imply support for routing
 mutation, recording, or general clip-launch workflows.
 
-It also loads and hashes the canonical operation registry, advertises only
-supported operations, and provides bounded device/parameter discovery plus
+Direct/package construction reports `fake-live`; only the installed Control
+Surface wrapper supplies `real-live` provenance, which still requires external
+visible evidence before it counts as a real-Live test.
+
+It also loads and hashes the canonical operation registry, validates request
+and result payloads at runtime, advertises only supported operations, and provides bounded device/parameter discovery plus
 guarded writes to enabled, automatable, bounded, quantized numeric parameters.
 
 Run contract tests from the repository root:

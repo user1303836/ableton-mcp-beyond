@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { AuthenticatedLoopback, LoopbackLiveAdapter, LOOPBACK_PROTOCOL_VERSION } from "../src/loopback.js";
+import { AuthenticatedLoopback, LoopbackLiveAdapter, LOOPBACK_PROTOCOL_VERSION, type LoopbackResponse } from "../src/loopback.js";
 import { DeterministicLiveSimulator, LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_UNAVAILABLE_CAPABILITIES, SIMULATOR_CAPABILITIES } from "../src/live.js";
 
 const secret = "0123456789abcdef0123456789abcdef";
@@ -132,7 +132,7 @@ test("loopback retains replay protection beyond the old eviction threshold", () 
 
 test("loopback adapter negotiates the domain contract and receives authenticated events", () => {
   const live = new DeterministicLiveSimulator();
-  const events: Array<{ version: string; id: string; ok: boolean; result?: unknown; error?: string; mac: string }> = [];
+  const events: LoopbackResponse[] = [];
   const server = new AuthenticatedLoopback(live, secret, (event) => events.push(event));
   const adapter = new LoopbackLiveAdapter(secret, (request) => server.handle(request));
   const initial = adapter.snapshot();
@@ -155,6 +155,6 @@ test("loopback adapter binds responses to request ids and rejects stale events",
   const adapter = new LoopbackLiveAdapter(secret, (request) => server.handle(request));
   const first = adapter.snapshot();
   assert.equal(first.set.tempo, 120);
-  assert.throws(() => adapter.receive({ version: LOOPBACK_PROTOCOL_VERSION, id: "client-999", ok: true, result: { event: { sequence: 1, type: "state", payload: {} } }, mac: "bad" }), /authentication/);
+  assert.throws(() => adapter.receive({ version: LOOPBACK_PROTOCOL_VERSION, id: "client-999", ok: true, bridgeEpoch: "in-process", connectionChallenge: "in-process", result: { event: { sequence: 1, type: "state", payload: {} } }, mac: "bad" }), /authentication/);
   assert.equal(SIMULATOR_CAPABILITIES.includes("transport"), true);
 });

@@ -7,8 +7,8 @@ const MAX_WIRE_BYTES = 1_048_576;
 const MAX_WIRE_DEPTH = 16;
 const MAX_WIRE_STRING_LENGTH = 16_384;
 const MAX_WIRE_COLLECTION_LENGTH = 256;
-export type LoopbackRequest = { version: string; id: string; method: "status" | "snapshot" | "get" | "set" | "invoke" | "subscribe" | "reconnect"; ref?: LiveRef; property?: string; value?: unknown; operation?: LiveInvocation["operation"]; args?: Record<string, unknown>; nonce: string; sequence: number; mac: string };
-export type LoopbackResponse = { version: string; id: string; ok: boolean; result?: unknown; error?: string; mac: string };
+export type LoopbackRequest = { version: string; id: string; method: "status" | "snapshot" | "discover" | "get" | "set" | "invoke" | "subscribe" | "reconnect"; ref?: LiveRef; property?: string; value?: unknown; operation?: LiveInvocation["operation"]; args?: Record<string, unknown>; nonce: string; sequence: number; bridgeEpoch: string; connectionChallenge: string; deadlineMs: number; mac: string };
+export type LoopbackResponse = { version: string; id: string; ok: boolean; bridgeEpoch: string; connectionChallenge: string; result?: unknown; error?: string; mac: string };
 export type LoopbackExchange = (request: LoopbackRequest) => LoopbackResponse;
 
 function canonical(value: unknown, depth = 0): string {
@@ -46,6 +46,8 @@ function isObject(value: unknown): value is Record<string, unknown> { return typ
 /** Authenticated, bounded loopback transport used by Remote Script/Extension adapters. */
 export class AuthenticatedLoopback {
   private lastSequence = 0;
+  private readonly bridgeEpoch = "in-process";
+  private readonly connectionChallenge = "in-process";
   private authSequence = 0;
   private unsubscribe: (() => void) | undefined;
   constructor(private readonly adapter: LiveAdapter, private readonly secret: string, private readonly emit: (response: LoopbackResponse) => void = () => undefined) {
@@ -56,7 +58,7 @@ export class AuthenticatedLoopback {
     const unsigned = { ...request } as Omit<LoopbackRequest, "mac">;
     delete (unsigned as Partial<LoopbackRequest>).mac;
     let authenticated = false;
-    try { authenticated = request.version === LOOPBACK_PROTOCOL_VERSION && validId(request.id) && request.nonce.length >= 16 && request.nonce.length <= MAX_NONCE_LENGTH && Number.isSafeInteger(request.sequence) && request.sequence > this.lastSequence && this.verify(body(unsigned), request.mac); }
+    try { authenticated = request.version === LOOPBACK_PROTOCOL_VERSION && request.bridgeEpoch === this.bridgeEpoch && request.connectionChallenge === this.connectionChallenge && Number.isSafeInteger(request.deadlineMs) && request.deadlineMs >= Date.now() && validId(request.id) && request.nonce.length >= 16 && request.nonce.length <= MAX_NONCE_LENGTH && Number.isSafeInteger(request.sequence) && request.sequence > this.lastSequence && this.verify(body(unsigned), request.mac); }
     catch { authenticated = false; }
     if (!authenticated) return this.response(request.id, false, "authentication or replay check failed");
     this.lastSequence = request.sequence;
@@ -65,6 +67,7 @@ export class AuthenticatedLoopback {
       switch (request.method) {
         case "status": result = this.adapter.status(); break;
         case "snapshot": result = this.adapter.snapshot(); break;
+        case "discover": throw new Error("in-process discovery requires the asynchronous adapter contract");
         case "get": if (!request.ref) throw new Error("ref is required"); result = this.adapter.get(request.ref); break;
         case "set": if (!request.ref || !request.property) throw new Error("ref and property are required"); this.adapter.set(request.ref, request.property, request.value); result = { changed: true }; break;
         case "invoke": if (!request.operation || !request.args || typeof request.args !== "object" || Array.isArray(request.args)) throw new Error("operation and args are required"); result = this.adapter.invoke({ operation: request.operation, args: request.args }); break;
@@ -74,16 +77,16 @@ export class AuthenticatedLoopback {
       return this.response(request.id, true, undefined, result);
     } catch { return this.response(request.id, false, "request failed"); }
   }
-  authenticate(request: Omit<LoopbackRequest, "mac" | "sequence"> & { sequence?: number }): LoopbackRequest { const unsigned = { ...request, sequence: request.sequence ?? ++this.authSequence } as Omit<LoopbackRequest, "mac">; return { ...unsigned, mac: sign(this.secret, body(unsigned)) }; }
+  authenticate(request: Omit<LoopbackRequest, "mac" | "sequence" | "bridgeEpoch" | "connectionChallenge" | "deadlineMs"> & { sequence?: number; deadlineMs?: number }): LoopbackRequest { const unsigned = { ...request, sequence: request.sequence ?? ++this.authSequence, bridgeEpoch: this.bridgeEpoch, connectionChallenge: this.connectionChallenge, deadlineMs: request.deadlineMs ?? Date.now() + 5_000 } as Omit<LoopbackRequest, "mac">; return { ...unsigned, mac: sign(this.secret, body(unsigned)) }; }
   close(): void { this.unsubscribe?.(); this.unsubscribe = undefined; }
   private verify(value: string, mac: string): boolean { const expected = Buffer.from(sign(this.secret, value)); const supplied = Buffer.from(mac); return expected.length === supplied.length && timingSafeEqual(expected, supplied); }
   private response(id: string, ok: boolean, error?: string, result?: unknown): LoopbackResponse {
-    const unsigned = { version: LOOPBACK_PROTOCOL_VERSION, id: validId(id) ? id : "invalid", ok, ...(result === undefined ? {} : { result }), ...(error === undefined ? {} : { error }) };
+    const unsigned = { version: LOOPBACK_PROTOCOL_VERSION, id: validId(id) ? id : "invalid", ok, bridgeEpoch: this.bridgeEpoch, connectionChallenge: this.connectionChallenge, ...(result === undefined ? {} : { result }), ...(error === undefined ? {} : { error }) };
     try { return { ...unsigned, mac: sign(this.secret, boundedCanonical(unsigned)) }; }
-    catch { const fallback = { version: LOOPBACK_PROTOCOL_VERSION, id: unsigned.id, ok: false, error: "response exceeds wire limits" }; return { ...fallback, mac: sign(this.secret, boundedCanonical(fallback)) }; }
+    catch { const fallback = { version: LOOPBACK_PROTOCOL_VERSION, id: unsigned.id, ok: false, bridgeEpoch: this.bridgeEpoch, connectionChallenge: this.connectionChallenge, error: "response exceeds wire limits" }; return { ...fallback, mac: sign(this.secret, boundedCanonical(fallback)) }; }
   }
   private eventResponse(id: string, event: LiveEvent): LoopbackResponse { return this.response(id, true, undefined, { event }); }
-  private isRequest(value: unknown): value is LoopbackRequest { if (!value || typeof value !== "object" || Array.isArray(value)) return false; const request = value as Partial<LoopbackRequest>; return Object.keys(value).every((key) => ["version", "id", "method", "ref", "property", "value", "operation", "args", "nonce", "sequence", "mac"].includes(key)) && typeof request.version === "string" && typeof request.id === "string" && typeof request.method === "string" && typeof request.nonce === "string" && typeof request.sequence === "number" && typeof request.mac === "string" && ["status", "snapshot", "get", "set", "invoke", "subscribe", "reconnect"].includes(request.method); }
+  private isRequest(value: unknown): value is LoopbackRequest { if (!value || typeof value !== "object" || Array.isArray(value)) return false; const request = value as Partial<LoopbackRequest>; return Object.keys(value).every((key) => ["version", "id", "method", "ref", "property", "value", "operation", "args", "nonce", "sequence", "bridgeEpoch", "connectionChallenge", "deadlineMs", "mac"].includes(key)) && typeof request.version === "string" && typeof request.id === "string" && typeof request.method === "string" && typeof request.nonce === "string" && typeof request.sequence === "number" && typeof request.bridgeEpoch === "string" && typeof request.connectionChallenge === "string" && typeof request.deadlineMs === "number" && typeof request.mac === "string" && ["status", "snapshot", "discover", "get", "set", "invoke", "subscribe", "reconnect"].includes(request.method); }
 }
 
 /**
@@ -126,13 +129,13 @@ export class LoopbackLiveAdapter implements LiveAdapter {
     for (const listener of this.listeners) listener(result.event as unknown as LiveEvent);
   }
 
-  private request(fields: Omit<LoopbackRequest, "version" | "id" | "nonce" | "sequence" | "mac">): unknown {
-    const unsigned = { version: LOOPBACK_PROTOCOL_VERSION, id: `client-${++this.requestNumber}`, ...fields, nonce: randomBytes(18).toString("base64url"), sequence: this.requestNumber } as Omit<LoopbackRequest, "mac">;
+  private request(fields: Omit<LoopbackRequest, "version" | "id" | "nonce" | "sequence" | "bridgeEpoch" | "connectionChallenge" | "deadlineMs" | "mac">): unknown {
+    const unsigned = { version: LOOPBACK_PROTOCOL_VERSION, id: `client-${++this.requestNumber}`, ...fields, nonce: randomBytes(18).toString("base64url"), sequence: this.requestNumber, bridgeEpoch: "in-process", connectionChallenge: "in-process", deadlineMs: Date.now() + 5_000 } as Omit<LoopbackRequest, "mac">;
     return this.verifyResponse(this.exchange({ ...unsigned, mac: sign(this.secret, body(unsigned)) }), unsigned.id);
   }
 
   private verifyResponse(response: LoopbackResponse, expectedId?: string): unknown {
-    if (!response || response.version !== LOOPBACK_PROTOCOL_VERSION || !validId(response.id) || (expectedId !== undefined && response.id !== expectedId) || typeof response.ok !== "boolean" || typeof response.mac !== "string") throw new Error("invalid loopback response");
+    if (!response || response.version !== LOOPBACK_PROTOCOL_VERSION || response.bridgeEpoch !== "in-process" || response.connectionChallenge !== "in-process" || !validId(response.id) || (expectedId !== undefined && response.id !== expectedId) || typeof response.ok !== "boolean" || typeof response.mac !== "string") throw new Error("invalid loopback response");
     const unsigned = { ...response } as Partial<LoopbackResponse>;
     delete unsigned.mac;
     if (!this.verify(boundedCanonical(unsigned), response.mac)) throw new Error("loopback response authentication failed");

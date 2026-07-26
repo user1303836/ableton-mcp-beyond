@@ -1,6 +1,8 @@
+import base64
 import hashlib
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,11 +11,15 @@ from unittest.mock import patch
 from ableton_mcp_remote_script import (
     AbletonMcpBridge,
     AuthenticatedRemoteScript,
-    LiveObjectMapper, operation_registry,
+    LiveObjectMapper, _MainThreadQueue, operation_registry,
     PROTOCOL,
     create_instance,
 )
 from AbletonMcpBridge import _owner_controlled
+
+
+def fake_status_result():
+    return {"connected": False, "adapter": "unavailable", "epoch": None, "protocol": "ableton-live/v1", "registryHash": operation_registry()[1], "operations": ["status", "snapshot", "discover", "get", "set", "reconnect", "session.playback"], "capabilities": []}
 
 
 class RemoteScriptTests(unittest.TestCase):
@@ -25,6 +31,10 @@ class RemoteScriptTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 path = Path(directory, "bridge-config.json")
                 path.write_text("{}", encoding="utf-8")
+                encoded = base64.b64encode(str(path).encode("utf-8")).decode("ascii")
+                script = "$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:ABLETON_MCP_ACL_PATH));$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User;$a=New-Object System.Security.AccessControl.FileSecurity;$a.SetOwner($sid);$a.SetAccessRuleProtection($true,$false);$rule=New-Object System.Security.AccessControl.FileSystemAccessRule -ArgumentList @($sid,[System.Security.AccessControl.FileSystemRights]::FullControl,[System.Security.AccessControl.AccessControlType]::Allow);[void]$a.AddAccessRule($rule);[System.IO.File]::SetAccessControl($p,$a)"
+                environment = dict(os.environ); environment["ABLETON_MCP_ACL_PATH"] = encoded
+                subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], check=True, env=environment)
                 self.assertTrue(_owner_controlled(path))
                 with patch("AbletonMcpBridge._windows_owner_controlled", return_value=False):
                     self.assertFalse(_owner_controlled(path))
@@ -50,29 +60,46 @@ class RemoteScriptTests(unittest.TestCase):
         self.assertEqual(surface._bridge.calls, 0)
 
     def test_authentication_and_replay_protection(self):
-        remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: {"method": method})
-        unsigned = {"version": PROTOCOL, "id": "one", "method": "status", "nonce": "0000000000000001", "sequence": 1}
+        remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: fake_status_result())
+        unsigned = remote.bound({"version": PROTOCOL, "id": "one", "method": "status", "nonce": "0000000000000001", "sequence": 1})
         request = {**unsigned, "mac": remote.sign(unsigned)}
         self.assertTrue(remote.dispatch(request)["ok"])
         self.assertFalse(remote.dispatch(request)["ok"])
 
+    def test_channel_binding_rejects_cross_connection_and_bridge_epoch_replay(self):
+        secret = "0123456789abcdef0123456789abcdef"
+        first = AuthenticatedRemoteScript(secret, lambda method, request: {"connected": False, "adapter": "unavailable", "epoch": None, "protocol": "ableton-live/v1", "registryHash": operation_registry()[1], "operations": ["status", "snapshot", "discover", "get", "set", "reconnect", "session.playback"]}, "bridge-epoch-0000000000000001", "connection-one-0000000000001")
+        second = AuthenticatedRemoteScript(secret, first._operation, "bridge-epoch-0000000000000001", "connection-two-0000000000002")
+        restarted = AuthenticatedRemoteScript(secret, first._operation, "bridge-epoch-0000000000000002", "connection-one-0000000000001")
+        unsigned = first.bound({"version": PROTOCOL, "id": "bound", "method": "status", "nonce": "bound-nonce-00001", "sequence": 1})
+        frame = {**unsigned, "mac": first.sign(unsigned)}
+        self.assertTrue(first.dispatch(frame)["ok"])
+        self.assertFalse(second.dispatch(frame)["ok"])
+        self.assertFalse(restarted.dispatch(frame)["ok"])
+
     def test_sequence_must_be_positive_and_safe(self):
         remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: method)
         for sequence in (0, -1, 2**53, 2**53 + 1):
-            unsigned = {"version": PROTOCOL, "id": "sequence", "method": "status", "nonce": "sequence-nonce-0001", "sequence": sequence}
+            unsigned = remote.bound({"version": PROTOCOL, "id": "sequence", "method": "status", "nonce": "sequence-nonce-0001", "sequence": sequence})
             self.assertFalse(remote.dispatch({**unsigned, "mac": remote.sign(unsigned)})["ok"])
 
     def test_operation_failures_are_wire_errors(self):
         remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: (_ for _ in ()).throw(RuntimeError("not available")))
-        unsigned = {"version": PROTOCOL, "id": "one", "method": "snapshot", "nonce": "0000000000000001", "sequence": 1}
+        unsigned = remote.bound({"version": PROTOCOL, "id": "one", "method": "snapshot", "nonce": "0000000000000001", "sequence": 1})
         result = remote.dispatch({**unsigned, "mac": remote.sign(unsigned)})
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"], "request failed")
 
+    def test_result_schema_violation_invalidates_authenticated_channel(self):
+        remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: {"connected": "yes"})
+        unsigned = remote.bound({"version": PROTOCOL, "id": "schema", "method": "status", "nonce": "schema-nonce-0001", "sequence": 1})
+        result = remote.dispatch({**unsigned, "mac": remote.sign(unsigned)})
+        self.assertFalse(result["ok"]); self.assertEqual(result["error"], "response contract failed"); self.assertTrue(remote.invalid)
+
     def test_random_ordered_nonces_and_unknown_fields(self):
-        remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: method)
-        first = {"version": PROTOCOL, "id": "one", "method": "status", "nonce": "zzzzzzzzzzzzzzzz1", "sequence": 1}
-        second = {"version": PROTOCOL, "id": "two", "method": "status", "nonce": "aaaaaaaaaaaaaaaa2", "sequence": 2}
+        remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: fake_status_result())
+        first = remote.bound({"version": PROTOCOL, "id": "one", "method": "status", "nonce": "zzzzzzzzzzzzzzzz1", "sequence": 1})
+        second = remote.bound({"version": PROTOCOL, "id": "two", "method": "status", "nonce": "aaaaaaaaaaaaaaaa2", "sequence": 2})
         self.assertTrue(remote.dispatch({**first, "mac": remote.sign(first)})["ok"])
         self.assertTrue(remote.dispatch({**second, "mac": remote.sign(second)})["ok"])
         extra = {**second, "id": "three", "nonce": "bbbbbbbbbbbbbbbb3", "unexpected": True}
@@ -81,14 +108,14 @@ class RemoteScriptTests(unittest.TestCase):
     def test_unknown_method_is_rejected_before_operation(self):
         called = []
         remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: called.append(method))
-        request = {"version": PROTOCOL, "id": "one", "method": "delete", "nonce": "cccccccccccccccc4", "sequence": 1}
+        request = remote.bound({"version": PROTOCOL, "id": "one", "method": "delete", "nonce": "cccccccccccccccc4", "sequence": 1})
         self.assertFalse(remote.dispatch({**request, "mac": remote.sign(request)})["ok"])
         self.assertEqual(called, [])
 
     def test_malformed_requests_are_wire_errors_and_nonces_are_bounded(self):
         remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: method)
         self.assertFalse(remote.dispatch(None)["ok"])
-        unsigned = {"version": PROTOCOL, "id": "large", "method": "status", "nonce": "x" * 257, "sequence": 1}
+        unsigned = remote.bound({"version": PROTOCOL, "id": "large", "method": "status", "nonce": "x" * 257, "sequence": 1})
         self.assertFalse(remote.dispatch({**unsigned, "mac": remote.sign(unsigned)})["ok"])
 
     def test_malformed_frame_error_is_authenticated_and_redacted(self):
@@ -113,15 +140,15 @@ class RemoteScriptTests(unittest.TestCase):
 
     def test_invoke_forwards_domain_operations_with_bounded_args(self):
         calls = []
-        remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: calls.append((method, request["operation"])) or {"accepted": True})
-        unsigned = {"version": PROTOCOL, "id": "invoke", "method": "invoke", "operation": "browser.search", "args": {"query": "utility"}, "nonce": "invoke-nonce-0001", "sequence": 1}
+        remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: calls.append((method, request["operation"])) or {"stopped": True, "stoppedTargets": []})
+        unsigned = remote.bound({"version": PROTOCOL, "id": "invoke", "method": "invoke", "operation": "session.emergency-stop", "args": {"expectedTargets": []}, "nonce": "invoke-nonce-0001", "sequence": 1})
         result = remote.dispatch({**unsigned, "mac": remote.sign(unsigned)})
         self.assertTrue(result["ok"])
-        self.assertEqual(calls, [("invoke", "browser.search")])
+        self.assertEqual(calls, [("invoke", "session.emergency-stop")])
 
     def test_invoke_rejects_unbounded_or_malformed_arguments(self):
         remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: method)
-        unsigned = {"version": PROTOCOL, "id": "invoke", "method": "invoke", "operation": "invalid", "args": {}, "nonce": "invoke-nonce-0002", "sequence": 1}
+        unsigned = remote.bound({"version": PROTOCOL, "id": "invoke", "method": "invoke", "operation": "invalid", "args": {}, "nonce": "invoke-nonce-0002", "sequence": 1})
         self.assertFalse(remote.dispatch({**unsigned, "mac": remote.sign(unsigned)})["ok"])
 
 
@@ -155,6 +182,10 @@ class FakeTrack:
 
     def __init__(self):
         self.name = "Drums"
+        self.arm = False
+        self.current_monitoring_state = 2
+        self.playing_slot_index = -1
+        self.fired_slot_index = -1
         self.clip_slots = [FakeSlot()]
         self.devices = [FakeDevice()]
 
@@ -186,7 +217,14 @@ class FakeScene:
 class FakeSong:
     def __init__(self):
         self.tracks = [FakeTrack()]
+        self.return_tracks = []
+        self.master_track = None
         self.scenes = [FakeScene()]
+        self.is_playing = False
+        self.record_mode = False
+        self.session_record = False
+        self.current_song_time = 0.0
+        self.clip_trigger_quantization = "1_bar"
 
     def create_midi_track(self, index):
         track = FakeTrack()
@@ -219,6 +257,32 @@ class FakeLocator:
         self.name = name
 
 
+class FakeAuditionSong(FakeSong):
+    def __init__(self):
+        super().__init__()
+        song = self
+        scene = FakeScene("Scene 1")
+
+        def fire():
+            song.is_playing = True
+            song.tracks[0].playing_slot_index = 0
+            song.tracks[0].fired_slot_index = 0
+
+        scene.fire = fire
+        self.scenes = [scene]
+        self.tracks[0].clip_slots[0].clip = FakeClip(4.0)
+        self.stopped_all = 0
+
+    def stop_all_clips(self):
+        self.stopped_all += 1
+        for track in self.tracks:
+            track.playing_slot_index = -1
+            track.fired_slot_index = -1
+
+    def stop_playing(self):
+        self.is_playing = False
+
+
 class FakeArrangementSong(FakeSong):
     def __init__(self):
         super().__init__()
@@ -243,8 +307,15 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "ad916d5dc560fb9f5a46b029f4edca3160ba9488c53f54df99535e0386f51c9b")
+        self.assertEqual(digest, "4d0448742077dce889fc496767b3b6e3a9c408e37902629f3c21eb61f166257f")
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
+        self.assertNotIn("scene.launch", [item["id"] for item in registry["operations"]])
+
+    def test_provenance_is_explicit_and_fake_is_the_direct_default(self):
+        self.assertEqual(LiveObjectMapper(FakeSong()).status()["provenance"], "fake-live")
+        self.assertEqual(LiveObjectMapper(FakeSong(), provenance="real-live").status()["provenance"], "real-live")
+        with self.assertRaises(ValueError): LiveObjectMapper(FakeSong(), provenance="unknown")
+        self.assertIn('provenance="real-live"', Path(__file__).with_name("AbletonMcpBridge").joinpath("__init__.py").read_text(encoding="utf-8"))
 
     def test_references_remain_stable_across_fresh_discovery(self):
         mapper = LiveObjectMapper(FakeSong())
@@ -359,8 +430,130 @@ class ControlSurfaceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             mapper.discover("clip_slot", parent=stale)
         playback = mapper.discover("session_playback")["items"][0]
-        self.assertNotIn("playing", playback)
-        self.assertNotIn("recording", playback)
+        self.assertIs(playback["transport"]["playing"], False)
+        self.assertEqual(playback["transport"]["launchQuantization"]["normalized"], "1-bar")
+        self.assertEqual(playback["firedTargets"], [])
+
+    def test_playback_derives_exact_targets_from_track_slot_indexes(self):
+        song = FakeSong()
+        song.tracks[0].clip_slots[0].create_clip(4)
+        song.tracks[0].playing_slot_index = 0
+        song.tracks[0].fired_slot_index = 0
+        mapper = LiveObjectMapper(song)
+        snapshot = mapper.snapshot()
+        track = snapshot["tracks"][0]
+        self.assertEqual(track["monitoringState"], "off")
+        self.assertEqual(track["playingSlotIndex"], 0)
+        for target in snapshot["playback"]["playingTargets"] + snapshot["playback"]["firedTargets"]:
+            self.assertEqual(target["trackRef"], track["ref"])
+            self.assertEqual(target["clipSlotRef"], track["clipSlots"][0]["ref"])
+            self.assertEqual(target["sceneRef"], snapshot["scenes"][0]["ref"])
+            self.assertEqual(target["sceneIndex"], 0)
+            self.assertEqual(target["clipRef"], track["clipSlots"][0]["clipRef"])
+
+    def test_unknown_monitoring_and_arm_remain_unavailable(self):
+        song = FakeSong()
+        del song.tracks[0].arm
+
+    def _audition_args(self, mapper):
+        snapshot = mapper.snapshot()
+        scene = snapshot["scenes"][0]
+        track = snapshot["tracks"][0]
+        slot = track["clipSlots"][0]
+        return snapshot, {
+            "ref": scene["ref"],
+            "setName": snapshot["set"]["name"],
+            "sceneName": scene["name"],
+            "sceneIndex": scene["index"],
+            "playbackRevision": snapshot["playback"]["revision"],
+            "eligibleTargets": [f"{track['ref']}|{slot['ref']}|{scene['ref']}"],
+        }
+
+    def test_guarded_audition_launch_rechecks_identity_safety_and_eligibility(self):
+        mapper = LiveObjectMapper(FakeAuditionSong())
+        snapshot, args = self._audition_args(mapper)
+        self.assertIn("session.audition-launch", mapper.status()["operations"])
+        self.assertIn("session.audition-stop", mapper.status()["operations"])
+        self.assertIn("session.emergency-stop", mapper.status()["operations"])
+        self.assertNotIn("scene.launch", mapper.status()["operations"])
+        self.assertNotIn("stop-all-clips", mapper.status()["operations"])
+        self.assertNotIn("transport.stop", mapper.status()["operations"])
+        with self.assertRaises(ValueError):
+            mapper.invoke("session.audition-launch", {**args, "playbackRevision": "stale"})
+        with self.assertRaises(ValueError):
+            mapper.invoke("session.audition-launch", {**args, "setName": "Other Set"})
+        with self.assertRaises(ValueError):
+            mapper.invoke("session.audition-launch", {**args, "eligibleTargets": [f"{snapshot['tracks'][0]['ref']}|{snapshot['tracks'][0]['clipSlots'][0]['ref']}|1:scene:9"]})
+        result = mapper.invoke("session.audition-launch", args)
+        self.assertEqual(result["launched"], args["ref"])
+        self.assertEqual(len(result["targets"]), 1)
+        self.assertTrue(mapper.song.is_playing)
+        with self.assertRaises(ValueError):
+            mapper.invoke("session.audition-launch", args)
+
+    def test_guarded_audition_launch_refuses_armed_or_monitored_tracks(self):
+        song = FakeAuditionSong()
+        song.tracks[0].arm = True
+        mapper = LiveObjectMapper(song)
+        _, args = self._audition_args(mapper)
+        with self.assertRaises(ValueError):
+            mapper.invoke("session.audition-launch", args)
+        song.tracks[0].arm = False
+        song.tracks[0].current_monitoring_state = 0
+        mapper = LiveObjectMapper(song)
+        _, args = self._audition_args(mapper)
+        with self.assertRaises(ValueError):
+            mapper.invoke("session.audition-launch", args)
+
+    def test_guarded_audition_stop_requires_owned_playback_and_verifies_stopped(self):
+        mapper = LiveObjectMapper(FakeAuditionSong())
+        _, launch = self._audition_args(mapper)
+        mapper.invoke("session.audition-launch", launch)
+        stop_args = {"ref": launch["ref"], "setName": launch["setName"], "eligibleTargets": launch["eligibleTargets"]}
+        with self.assertRaises(ValueError):
+            mapper.invoke("session.audition-stop", {**stop_args, "setName": "Other Set"})
+        self.assertTrue(mapper.song.is_playing)
+        self.assertEqual(mapper.invoke("session.audition-stop", stop_args), {"stopped": True})
+        self.assertFalse(mapper.song.is_playing)
+        self.assertEqual(mapper.song.stopped_all, 1)
+        # Stopping again with no active playback is an idempotent no-op.
+        self.assertEqual(mapper.invoke("session.audition-stop", stop_args), {"stopped": True})
+        # External playback outside the owned target set refuses the owned stop.
+        mapper.invoke("session.audition-launch", launch)
+        scene2 = FakeScene("Scene 2")
+        mapper.song.scenes.append(scene2)
+        mapper.song.tracks[0].clip_slots.append(FakeSlot())
+        with self.assertRaises(ValueError):
+            mapper.invoke("session.audition-stop", {**stop_args, "eligibleTargets": []})
+        self.assertTrue(mapper.song.is_playing)
+
+    def test_guarded_emergency_stop_requires_exact_observation_and_stops(self):
+        mapper = LiveObjectMapper(FakeAuditionSong())
+        _, launch = self._audition_args(mapper)
+        mapper.invoke("session.audition-launch", launch)
+        with self.assertRaises(ValueError):
+            mapper.invoke("session.emergency-stop", {"expectedTargets": []})
+        self.assertTrue(mapper.song.is_playing)
+        result = mapper.invoke("session.emergency-stop", {"expectedTargets": launch["eligibleTargets"]})
+        self.assertEqual(result["stopped"], True)
+        self.assertEqual(result["stoppedTargets"], launch["eligibleTargets"])
+        self.assertFalse(mapper.song.is_playing)
+        # An empty observation is exact when nothing is playing.
+        self.assertEqual(mapper.invoke("session.emergency-stop", {"expectedTargets": []})["stopped"], True)
+
+    def test_generic_audible_operations_are_not_mapper_capabilities(self):
+        mapper = LiveObjectMapper(FakeAuditionSong())
+        for operation in ("scene.launch", "stop-all-clips", "transport.stop"):
+            with self.assertRaises(ValueError):
+                mapper.invoke(operation, {})
+
+    def test_unknown_monitoring_and_arm_remain_unavailable(self):
+        song = FakeSong()
+        del song.tracks[0].arm
+        song.tracks[0].current_monitoring_state = 99
+        row = LiveObjectMapper(song).snapshot()["tracks"][0]
+        self.assertIsNone(row["armed"])
+        self.assertIsNone(row["monitoringState"])
 
     def test_arrangement_locators_are_authoritative_and_reversible(self):
         song = FakeArrangementSong()
@@ -435,6 +628,22 @@ class ControlSurfaceTests(unittest.TestCase):
         mapper.invoke("session.reconnect", {})
         with self.assertRaises(ValueError):
             mapper.discover("note", 1, page.get("nextCursor", "invalid"), parent=created["ref"])
+
+    def test_timed_out_main_thread_callback_is_fenced_from_late_drain(self):
+        work = _MainThreadQueue()
+        mutations = []
+        errors = []
+        import threading
+        worker = threading.Thread(target=lambda: self._capture_queue_error(work, mutations, errors))
+        worker.start(); worker.join(1)
+        self.assertEqual(errors, ["Live main-thread operation timed out before dispatch"])
+        self.assertEqual(work.drain(), 1)
+        self.assertEqual(mutations, [])
+
+    @staticmethod
+    def _capture_queue_error(work, mutations, errors):
+        try: work.submit(lambda: mutations.append("mutated"), timeout=0.01)
+        except TimeoutError as error: errors.append(str(error))
 
     def test_bridge_lifecycle_and_main_thread_queue_cleanup(self):
         bridge = AbletonMcpBridge(FakeInstance(), {"host": "127.0.0.1", "port": 45678, "secret": "0123456789abcdef0123456789abcdef"})

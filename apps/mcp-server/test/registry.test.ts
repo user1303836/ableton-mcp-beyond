@@ -1,0 +1,56 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { loadLiveRegistry, validateLiveOperationRequest, validateLiveOperationResult } from "../src/registry.js";
+
+const playback = {
+  ref: "1:session_playback:playback",
+  epoch: 1,
+  revision: "1:playback:abc",
+  transport: {
+    playing: false,
+    arrangementRecord: null,
+    sessionRecord: false,
+    position: 0,
+    launchQuantization: { raw: "1_bar", normalized: "1-bar" },
+  },
+  firedTargets: [],
+  playingTargets: [{ trackRef: "1:track:0", clipSlotRef: "1:clip_slot:0:0", sceneRef: "1:scene:0", sceneIndex: 0, clipRef: "1:clip:0:0" }],
+};
+
+test("canonical registry includes strict snapshot and playback contracts", () => {
+  const registry = loadLiveRegistry();
+  assert.equal(registry.operations.find((item) => item.id === "snapshot")?.method, "snapshot");
+  assert.equal(registry.operations.find((item) => item.id === "session.playback")?.method, "discover");
+  validateLiveOperationRequest("session.playback", {});
+  validateLiveOperationResult("session.playback", playback);
+});
+
+test("runtime registry validation rejects missing, unknown, and weak playback fields", () => {
+  assert.throws(() => validateLiveOperationResult("session.playback", { ...playback, revision: undefined }), /type/);
+  assert.throws(() => validateLiveOperationResult("session.playback", { ...playback, extra: true }), /not allowed/);
+  assert.throws(() => validateLiveOperationResult("session.playback", { ...playback, transport: { ...playback.transport, playing: "false" } }), /type/);
+  assert.throws(() => validateLiveOperationResult("session.playback", { ...playback, playingTargets: [{ ...playback.playingTargets[0], clipSlotRef: "" }] }), /shorter/);
+});
+
+test("runtime registry validation rejects noncanonical discovery requests and results", () => {
+  validateLiveOperationRequest("discover", { kind: "return_track", parent: "1:set:song", filters: { name: "Return" }, requestedFields: ["name"], traversalBudget: 10, limit: 4 });
+  validateLiveOperationResult("discover", { epoch: 1, items: [], truncated: false, revision: "1:return_track:0", kind: "return_track" });
+  assert.throws(() => validateLiveOperationRequest("discover", { kind: "track", unknown: true }), /not allowed/);
+  assert.throws(() => validateLiveOperationResult("discover", { epoch: 1, items: [], truncated: false, revision: "", kind: "track" }), /shorter/);
+});
+
+test("guarded audition and emergency operations replace generic audible invocation", () => {
+  const registry = loadLiveRegistry();
+  const ids = registry.operations.map((item) => item.id);
+  assert.ok(!ids.includes("scene.launch") && !ids.includes("stop-all-clips") && !ids.includes("transport.stop"));
+  const launch = { ref: "1:scene:0", setName: "Disposable Set", sceneName: "Scene 1", sceneIndex: 0, playbackRevision: "1:playback:abc", eligibleTargets: ["1:track:0|1:clip_slot:0:0|1:scene:0"] };
+  validateLiveOperationRequest("session.audition-launch", launch);
+  validateLiveOperationResult("session.audition-launch", { launched: "1:scene:0", targets: [{ trackRef: "1:track:0", clipSlotRef: "1:clip_slot:0:0", sceneRef: "1:scene:0", sceneIndex: 0, clipRef: "1:clip:0:0" }] });
+  assert.throws(() => validateLiveOperationRequest("session.audition-launch", { ...launch, eligibleTargets: [42] }), /type/);
+  validateLiveOperationRequest("session.audition-stop", { ref: "1:scene:0", setName: "Disposable Set", eligibleTargets: [] });
+  validateLiveOperationResult("session.audition-stop", { stopped: true });
+  assert.throws(() => validateLiveOperationResult("session.audition-stop", { stopped: false }), /constant/);
+  validateLiveOperationRequest("session.emergency-stop", { expectedTargets: [] });
+  validateLiveOperationResult("session.emergency-stop", { stopped: true, stoppedTargets: ["1:track:0|1:clip_slot:0:0|1:scene:0"] });
+  assert.throws(() => validateLiveOperationRequest("session.emergency-stop", {}), /required/);
+});

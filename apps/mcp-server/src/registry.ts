@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 export interface LiveRegistryOperation {
   id: string;
-  method: "status" | "discover" | "get" | "set" | "invoke" | "subscribe" | "reconnect";
+  method: "status" | "snapshot" | "discover" | "get" | "set" | "invoke" | "subscribe" | "reconnect";
   request: Record<string, unknown>;
   result: Record<string, unknown>;
 }
@@ -62,7 +62,7 @@ export function loadLiveRegistry(): LiveRegistry {
     if (value.const !== undefined && (typeof value.const === "object" || typeof value.const === "function")) throw new Error("const is invalid");
   };
   for (const operation of parsed.operations) {
-    if (!operation || !["status", "discover", "get", "set", "invoke", "subscribe", "reconnect"].includes(operation.method) || !operation.request || !operation.result) throw new Error(`invalid registry operation: ${operation?.id ?? "unknown"}`);
+    if (!operation || !["status", "snapshot", "discover", "get", "set", "invoke", "subscribe", "reconnect"].includes(operation.method) || !operation.request || !operation.result) throw new Error(`invalid registry operation: ${operation?.id ?? "unknown"}`);
     validateSchema(operation.request);
     validateSchema(operation.result);
   }
@@ -75,4 +75,54 @@ export function liveRegistryHash(registry = loadLiveRegistry()): string {
 
 export function liveRegistryOperations(registry = loadLiveRegistry()): readonly string[] {
   return registry.operations.map((operation) => operation.id);
+}
+
+function matchesType(value: unknown, type: string): boolean {
+  if (type === "null") return value === null;
+  if (type === "object") return typeof value === "object" && value !== null && !Array.isArray(value);
+  if (type === "array") return Array.isArray(value);
+  if (type === "integer") return typeof value === "number" && Number.isSafeInteger(value);
+  if (type === "number") return typeof value === "number" && Number.isFinite(value);
+  return typeof value === type;
+}
+
+/** Validate production wire values against the exact canonical registry subset. */
+export function validateRegistryValue(schema: Record<string, unknown>, value: unknown, path = "$"): void {
+  const declared = Array.isArray(schema.type) ? schema.type as string[] : [schema.type as string];
+  if (!declared.some((type) => matchesType(value, type))) throw new Error(`${path} does not match registry type`);
+  if (schema.const !== undefined && value !== schema.const) throw new Error(`${path} does not match registry constant`);
+  if (Array.isArray(schema.enum) && !schema.enum.some((item) => item === value)) throw new Error(`${path} is outside registry enum`);
+  if (typeof value === "string") {
+    if (typeof schema.minLength === "number" && value.length < schema.minLength) throw new Error(`${path} is shorter than registry minimum`);
+    if (typeof schema.maxLength === "number" && value.length > schema.maxLength) throw new Error(`${path} exceeds registry maximum`);
+    if (typeof schema.pattern === "string" && !new RegExp(schema.pattern).test(value)) throw new Error(`${path} does not match registry pattern`);
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || (typeof schema.minimum === "number" && value < schema.minimum) || (typeof schema.maximum === "number" && value > schema.maximum)) throw new Error(`${path} is outside registry numeric bounds`);
+  }
+  if (Array.isArray(value)) {
+    if (typeof schema.maxItems === "number" && value.length > schema.maxItems) throw new Error(`${path} exceeds registry item bound`);
+    const itemSchema = schema.items as Record<string, unknown>;
+    value.forEach((item, index) => validateRegistryValue(itemSchema, item, `${path}[${index}]`));
+  }
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    const object = value as Record<string, unknown>;
+    if (typeof schema.maxProperties === "number" && Object.keys(object).length > schema.maxProperties) throw new Error(`${path} exceeds registry property bound`);
+    const properties = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
+    for (const required of (schema.required ?? []) as string[]) if (!(required in object)) throw new Error(`${path}.${required} is required by registry`);
+    if (schema.additionalProperties === false) for (const key of Object.keys(object)) if (!(key in properties)) throw new Error(`${path}.${key} is not allowed by registry`);
+    for (const [key, child] of Object.entries(properties)) if (key in object) validateRegistryValue(child, object[key], `${path}.${key}`);
+  }
+}
+
+export function validateLiveOperationRequest(operationId: string, value: unknown, registry = loadLiveRegistry()): void {
+  const operation = registry.operations.find((item) => item.id === operationId);
+  if (!operation) throw new Error(`operation is not in canonical registry: ${operationId}`);
+  validateRegistryValue(operation.request, value, `${operationId}.request`);
+}
+
+export function validateLiveOperationResult(operationId: string, value: unknown, registry = loadLiveRegistry()): void {
+  const operation = registry.operations.find((item) => item.id === operationId);
+  if (!operation) throw new Error(`operation is not in canonical registry: ${operationId}`);
+  validateRegistryValue(operation.result, value, `${operationId}.result`);
 }

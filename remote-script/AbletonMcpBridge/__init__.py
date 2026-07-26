@@ -8,9 +8,11 @@ The package keeps configuration outside the Remote Script.  Live invokes
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import stat
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -74,10 +76,39 @@ def _read_config() -> dict[str, Any]:
 def _owner_controlled(path: Path) -> bool:
     """Require the current account to own each security-sensitive file."""
     if os.name == "nt":
-        return _windows_owner_controlled(path)
+        return _windows_owner_controlled(path) and _windows_acl_owner_only(path)
     try:
         return path.stat().st_uid == os.getuid()
     except (AttributeError, OSError):
+        return False
+
+
+def _windows_acl_owner_only(path: Path) -> bool:
+    """Require a protected DACL containing explicit owner-only FullControl ACEs."""
+    try:
+        encoded = base64.b64encode(str(path).encode("utf-8")).decode("ascii")
+        script = (
+            "$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:ABLETON_MCP_ACL_PATH));"
+            "$a=Get-Acl -LiteralPath $p;"
+            "$o=$a.GetOwner([System.Security.Principal.SecurityIdentifier]).Value;"
+            "$r=@($a.Access|ForEach-Object @{sid=$_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value;inherited=$_.IsInherited;type=$_.AccessControlType.ToString();rights=$_.FileSystemRights.ToString()});"
+            "[ordered]@{owner=$o;protected=$a.AreAccessRulesProtected;rules=$r}|ConvertTo-Json -Compress -Depth 8"
+        )
+        environment = dict(os.environ)
+        environment["ABLETON_MCP_ACL_PATH"] = encoded
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+            capture_output=True, text=True, check=True, timeout=5, env=environment,
+        )
+        descriptor = json.loads(result.stdout)
+        rules = descriptor.get("rules") if isinstance(descriptor, dict) else None
+        return bool(
+            isinstance(descriptor.get("owner"), str)
+            and descriptor.get("protected") is True
+            and isinstance(rules, list) and rules
+            and all(rule.get("sid") == descriptor["owner"] and rule.get("inherited") is False and rule.get("type") == "Allow" and "FullControl" in str(rule.get("rights")) for rule in rules)
+        )
+    except (AttributeError, OSError, ValueError, TypeError, subprocess.SubprocessError, json.JSONDecodeError):
         return False
 
 
@@ -187,7 +218,7 @@ class AbletonMcpBridge(_ControlSurface):
 
     def __init__(self, c_instance: Any) -> None:
         super().__init__(c_instance)
-        self._bridge = _Bridge(c_instance, _read_config())
+        self._bridge = _Bridge(c_instance, _read_config(), provenance="real-live")
         self._disconnected = False
         self._schedule_next()
 
