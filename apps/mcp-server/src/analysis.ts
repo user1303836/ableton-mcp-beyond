@@ -168,6 +168,7 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
   let clippingCount = 0;
   let silenceCount = 0;
   const histogram = new Uint32Array(2048);
+  const monoSamples = new Float64Array(sampleCount / channels);
   for (let i = 0; i < sampleCount; i += 1) {
     const sample = input.samples[i] ?? 0;
     finite(sample, `samples[${i}]`);
@@ -179,6 +180,8 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
     peak = Math.max(peak, magnitude);
     if (magnitude >= 0.999999) clippingCount += 1;
     if (magnitude < 0.0001) silenceCount += 1;
+    if (i % channels === 0) monoSamples[i / channels] = sample;
+    else if (magnitude > Math.abs(monoSamples[Math.floor(i / channels)] ?? 0)) monoSamples[Math.floor(i / channels)] = sample;
   }
   const rms = Math.sqrt(sumSquares / sampleCount);
   const quantile = (fraction: number): number => {
@@ -192,16 +195,6 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
   };
   const p10 = quantile(0.1);
   const p95 = quantile(0.95);
-  const monoSamples = new Float64Array(sampleCount / channels);
-  for (let frame = 0; frame < monoSamples.length; frame += 1) {
-    let loudest = 0;
-    let loudestMagnitude = -1;
-    for (let channel = 0; channel < channels; channel += 1) {
-      const sample = input.samples[frame * channels + channel] ?? 0;
-      if (Math.abs(sample) > loudestMagnitude) { loudest = sample; loudestMagnitude = Math.abs(sample); }
-    }
-    monoSamples[frame] = loudest;
-  }
   const dynamicRangeDb = db(p95) - db(Math.max(p10, EPSILON));
   const analysis: PcmAnalysis = {
     version: ANALYSIS_VERSION,

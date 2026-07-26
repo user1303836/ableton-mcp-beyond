@@ -17,5 +17,5 @@ export type {
   LiveSnapshot,
   LiveStatus as DomainLiveStatus,
 } from "./live.js";
-export { AuthenticatedLoopback, LOOPBACK_PROTOCOL_VERSION } from "./loopback.js";
-export type { LoopbackRequest, LoopbackResponse } from "./loopback.js";
+export { AuthenticatedLoopback, AuthenticatedLoopbackClient, LoopbackLiveAdapter, LOOPBACK_PROTOCOL_VERSION } from "./loopback.js";
+export type { LoopbackExchange, LoopbackRequest, LoopbackResponse } from "./loopback.js";

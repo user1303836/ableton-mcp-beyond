@@ -25,7 +25,8 @@ test("refuses to replace a configuration directory", () => {
   const directory = mkdtempSync(join(tmpdir(), "ableton-mcp-"));
   const destination = join(directory, "config.json");
   mkdirSync(destination);
-  assert.throws(() => writeConfig(destination, configForEntrypoint("/opt/server.js"), true), /EISDIR|directory|exist/i);
+  assert.throws(() => writeConfig(destination, configForEntrypoint("/opt/server.js"), true), /refusing to replace configuration directory/);
+  assert.equal(existsSync(destination), true);
 });
 
 test("does not follow configuration symlinks", () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { AuthenticatedLoopback, LOOPBACK_PROTOCOL_VERSION } from "../src/loopback.js";
+import { AuthenticatedLoopback, LoopbackLiveAdapter, LOOPBACK_PROTOCOL_VERSION } from "../src/loopback.js";
 import { DeterministicLiveSimulator, LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_UNAVAILABLE_CAPABILITIES } from "../src/live.js";
 
 const secret = "0123456789abcdef0123456789abcdef";
@@ -119,4 +119,23 @@ test("loopback retains replay protection beyond the old eviction threshold", () 
     assert.equal(transport.handle(request).ok, true);
   }
   assert.equal(transport.handle(first).ok, false);
+});
+
+test("loopback adapter negotiates the domain contract and receives authenticated events", () => {
+  const live = new DeterministicLiveSimulator();
+  const events: Array<{ version: string; id: string; ok: boolean; result?: unknown; error?: string; mac: string }> = [];
+  const server = new AuthenticatedLoopback(live, secret, (event) => events.push(event));
+  const adapter = new LoopbackLiveAdapter(secret, (request) => server.handle(request));
+  const initial = adapter.snapshot();
+  assert.equal(initial.set.tempo, 120);
+  assert.equal(adapter.status().adapter, "simulator");
+  const seen: unknown[] = [];
+  const unsubscribe = adapter.subscribe((event) => seen.push(event));
+  adapter.set(initial.set.ref, "tempo", 123);
+  assert.equal((adapter.get(initial.set.ref) as typeof initial.set).tempo, 123);
+  assert.equal(events.length, 1);
+  adapter.receive(events[0]!);
+  assert.equal((seen[0] as { payload: { value: number } }).payload.value, 123);
+  unsubscribe();
+  assert.throws(() => adapter.receive({ ...events[0]!, mac: "tampered" }), /authentication/);
 });

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import { McpHost, PROTOCOL_VERSION, serve } from "../src/host.js";
-import { DeterministicLiveSimulator } from "../src/live.js";
+import { DeterministicLiveSimulator, type LiveAdapter } from "../src/live.js";
 
 const initialize = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "test", version: "1" } } };
 const initialized = { jsonrpc: "2.0", method: "notifications/initialized" };
@@ -127,6 +127,22 @@ test("keeps new Live tools fail-closed with the default unavailable adapter", ()
   const catalog = JSON.parse((host.handle({ jsonrpc: "2.0", id: 52, method: "tools/call", params: { name: "capabilities", arguments: {} } }) as any).result.content[0].text);
   assert.equal(catalog.live.connected, false);
   assert.equal(catalog.implemented.includes("live.tempo.apply"), false);
+});
+
+test("fails closed when an adapter cannot report status", () => {
+  const brokenAdapter = {
+    status(): never { throw new Error("adapter process unavailable"); },
+  } as unknown as LiveAdapter;
+  const host = new McpHost(brokenAdapter);
+  ready(host);
+  const status = host.handle({ jsonrpc: "2.0", id: 53, method: "tools/call", params: { name: "server_status", arguments: {} } });
+  const statusValue = JSON.parse((status as any).result.content[0].text) as { live: { connected: boolean; reason: string } };
+  assert.equal(statusValue.live.connected, false);
+  assert.equal(statusValue.live.reason, "live-adapter-status-unavailable");
+  const capabilities = host.handle({ jsonrpc: "2.0", id: 54, method: "tools/call", params: { name: "capabilities", arguments: {} } });
+  assert.equal(JSON.parse((capabilities as any).result.content[0].text).live.connected, false);
+  const snapshot = host.handle({ jsonrpc: "2.0", id: 55, method: "tools/call", params: { name: "live_snapshot", arguments: {} } });
+  assert.equal((snapshot as any).result.isError, true);
 });
 
 test("keeps stdout protocol-only and emits redacted parse diagnostics on stderr", async () => {

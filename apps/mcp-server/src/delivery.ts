@@ -59,6 +59,7 @@ export function writeConfig(path: string, config: ServerConfig, force = false): 
   let destinationExists = false;
   try {
     const destination = lstatSync(path);
+    if (destination.isDirectory()) throw new Error(`refusing to replace configuration directory: ${path}`);
     destinationExists = destination.isFile() || destination.isSymbolicLink();
     if (destination.isSymbolicLink()) throw new Error(`refusing to write through symbolic link: ${path}`);
   } catch (error) {

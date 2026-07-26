@@ -104,3 +104,18 @@ test("preserves spectral evidence for antiphase stereo", () => {
   const result = analyzePcm({ samples: stereo, sampleRate: 48000, channels: 2 });
   assert.ok(result.spectral.dominantFrequencyHz > 300);
 });
+
+test("validates mutable array-like storage once and keeps the result deterministic", () => {
+  let reads = 0;
+  const samples = {
+    length: 2048,
+    get 0() { reads += 1; return reads === 1 ? 0.5 : Number.NaN; },
+  } as unknown as ArrayLike<number>;
+  for (let index = 1; index < samples.length; index += 1) {
+    Object.defineProperty(samples, index, { value: 0, enumerable: false });
+  }
+  const result = analyzePcm({ samples, sampleRate: 48_000, frameSize: 1024 });
+  assert.equal(reads, 1);
+  assert.equal(result.peak, 0.5);
+  assert.equal(result.safety.projectMutated, false);
+});

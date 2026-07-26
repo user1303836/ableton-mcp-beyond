@@ -299,7 +299,7 @@ export class McpHost {
       return error(id, -32602, "Tool arguments must be an empty object");
     }
     if (params.name === "server_status") {
-      return response(id, { content: [{ type: "text", text: JSON.stringify({ host: "ready", live: this.adapter.status() }) }], isError: false });
+      return response(id, { content: [{ type: "text", text: JSON.stringify({ host: "ready", live: this.safeAdapterStatus() }) }], isError: false });
     }
     if (params.name === "capabilities") {
       return response(id, { content: [{ type: "text", text: JSON.stringify(this.capabilityCatalog()) }], isError: false });
@@ -347,7 +347,7 @@ export class McpHost {
   }
 
   private capabilityCatalog(): JsonObject {
-    const live = this.adapter.status();
+    const live = this.safeAdapterStatus();
     const liveImplemented = live.connected ? ["live.status", "live.snapshot", "live.tempo.preview", "live.tempo.apply", "live.undo"] : [];
     return {
       implemented: ["server.status", "capabilities", "audio.analyze", ...liveImplemented],
@@ -357,7 +357,7 @@ export class McpHost {
   }
 
   private liveStatus(id: RequestId): JsonObject {
-    return response(id, { content: [{ type: "text", text: JSON.stringify(this.adapter.status()) }], isError: false });
+    return response(id, { content: [{ type: "text", text: JSON.stringify(this.safeAdapterStatus()) }], isError: false });
   }
 
   private liveSnapshot(id: RequestId): JsonObject {
@@ -422,9 +422,24 @@ export class McpHost {
   }
 
   private requireConnected(): LiveStatus {
-    const status = this.adapter.status();
+    const status = this.safeAdapterStatus();
     if (!status.connected || status.epoch === null) throw new Error("live-adapter-unavailable");
     return status;
+  }
+
+  private safeAdapterStatus(): LiveStatus {
+    try {
+      return this.adapter.status();
+    } catch {
+      return {
+        connected: false,
+        adapter: "unavailable",
+        epoch: null,
+        protocol: LIVE_PROTOCOL_VERSION,
+        capabilities: [],
+        reason: "live-adapter-status-unavailable",
+      };
+    }
   }
 
   private validTransactionParams(params: unknown, confirmation: "apply" | "undo"): params is JsonObject {
