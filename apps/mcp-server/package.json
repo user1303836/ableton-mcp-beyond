@@ -26,6 +26,7 @@
     "compatibility": "node scripts/check-compatibility.mjs",
     "package": "npm pack --json",
     "package:verify": "npm run build && node scripts/verify-package.mjs",
+    "journey:verify": "npm run build && node scripts/verify-production-journey.mjs",
     "setup": "node dist/src/setup.js",
     "migrate": "node dist/src/migrate.js",
     "diagnostics": "node dist/src/diagnostics.js",

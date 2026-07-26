@@ -33,6 +33,7 @@ jobs:
       - run: npm run benchmark
       - run: npm run compatibility
       - run: npm run package:verify
+      - run: npm run journey:verify
       - run: npm pack --dry-run --json
       - run: npm run setup -- --output "${{ runner.temp }}/ableton-mcp-host.json"
       - shell: bash

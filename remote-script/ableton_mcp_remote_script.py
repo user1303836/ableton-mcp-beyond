@@ -724,7 +724,7 @@ class LiveObjectMapper:
         snapshot = self.snapshot()
         set_row = snapshot["set"]
         if kind in {"set", "song"}: items = [set_row]
-        elif kind == "track": items = snapshot["tracks"]
+        elif kind == "track": items = [item for item in snapshot["tracks"] if item["kind"] in {"regular", "group"}]
         elif kind == "group_track": items = [item for item in snapshot["tracks"] if item["kind"] == "group"]
         elif kind == "return_track": items = [item for item in snapshot["tracks"] if item["kind"] == "return"]
         elif kind == "main_track": items = [item for item in snapshot["tracks"] if item["kind"] == "main"]

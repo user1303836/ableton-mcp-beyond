@@ -70,8 +70,8 @@ function verifySigned(secret: string, response: LoopbackResponse): void {
   if (expected.length !== received.length || !timingSafeEqual(expected, received)) throw new Error("remote response authentication failed");
 }
 function registryRequest(operationId: string, fields: Omit<LoopbackRequest, "version" | "id" | "nonce" | "sequence" | "bridgeEpoch" | "connectionChallenge" | "deadlineMs" | "mac">): unknown {
-  if (operationId === "status" || operationId === "snapshot" || operationId === "reconnect") return {};
-  if (operationId === "discover" || operationId === "session.playback") return fields.args ?? {};
+  if (operationId === "status" || operationId === "snapshot" || operationId === "reconnect" || operationId === "session.playback") return {};
+  if (operationId === "discover") return fields.args ?? {};
   if (operationId === "get") return { ref: fields.ref };
   if (operationId === "set") return { ref: fields.ref, property: fields.property, value: fields.value };
   return fields.args ?? {};
