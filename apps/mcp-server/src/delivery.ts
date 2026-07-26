@@ -1,5 +1,5 @@
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { platform, versions } from "node:process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -34,6 +34,7 @@ export interface DiagnosticReport {
   hostReady: boolean;
   remoteScriptInstalled: boolean;
   bridgeConfigured: boolean;
+  packageAssetsValid: boolean;
   secretPermissions: "owner-only" | "unavailable" | "invalid";
   authenticatedReachable: boolean;
   roundTripLatency: number | null;
@@ -212,7 +213,19 @@ export function migrateConfig(inputPath: string, outputPath: string, force = fal
   return config;
 }
 
-export interface InstallResult { installed: string; backup: string | null; dryRun: boolean; }
+export interface InstallResult { installed: string; backup: string | null; reference: string | null; dryRun: boolean; }
+
+export function writeBridgeReference(path: string, configPath: string, force = false): void {
+  if (!isAbsolute(path) || !isAbsolute(configPath) || path.includes("\0") || configPath.includes("\0")) throw new Error("bridge reference paths must be absolute");
+  if (lstatSync(configPath).isSymbolicLink() || !statSync(configPath).isFile()) throw new Error("bridge configuration must be a regular file");
+  if (existsSync(path)) {
+    if (lstatSync(path).isSymbolicLink() || !force) throw new Error(`refusing to overwrite existing bridge reference: ${path}`);
+  }
+  const parent = dirname(path);
+  if (!existsSync(parent)) throw new Error(`configuration directory does not exist: ${parent}`);
+  writeFileSync(path, `${JSON.stringify({ config: configPath })}\n`, { encoding: "utf8", mode: 0o600, flag: force ? "w" : "wx" });
+  if (platform !== "win32") chmodSync(path, 0o600);
+}
 
 function rejectSymlinkTree(path: string): void {
   const entry = lstatSync(path);
@@ -220,7 +233,7 @@ function rejectSymlinkTree(path: string): void {
   if (entry.isDirectory()) for (const child of readdirSync(path)) rejectSymlinkTree(join(path, child));
 }
 
-export function installRemoteScript(sourceFile: string, destinationDirectory: string, options: { dryRun?: boolean; force?: boolean } = {}): InstallResult {
+export function installRemoteScript(sourceFile: string, destinationDirectory: string, options: { dryRun?: boolean; force?: boolean; configPath?: string } = {}): InstallResult {
   if (!isAbsolute(sourceFile) || !isAbsolute(destinationDirectory)) throw new Error("installer paths must be absolute");
   const source = lstatSync(sourceFile);
   if (!source.isFile() || source.isSymbolicLink()) throw new Error("Remote Script source must be a regular file");
@@ -230,7 +243,9 @@ export function installRemoteScript(sourceFile: string, destinationDirectory: st
   }
   const parent = dirname(destinationDirectory);
   if (!existsSync(parent)) throw new Error(`destination parent does not exist: ${parent}`);
-  if (options.dryRun) return { installed: destinationDirectory, backup: existsSync(destinationDirectory) ? `${destinationDirectory}.backup` : null, dryRun: true };
+  if (options.configPath !== undefined && !isAbsolute(options.configPath)) throw new Error("bridge configuration path must be absolute");
+  const referencePath = options.configPath ? join(destinationDirectory, "bridge-reference.json") : null;
+  if (options.dryRun) return { installed: destinationDirectory, backup: existsSync(destinationDirectory) ? `${destinationDirectory}.backup` : null, reference: referencePath, dryRun: true };
   const staging = mkdtempSync(join(parent, `.ableton-mcp-install-${randomUUID()}-`));
   const stagedPackage = join(staging, REMOTE_SCRIPT_PACKAGE);
   const backup = existsSync(destinationDirectory) ? `${destinationDirectory}.backup-${Date.now()}` : null;
@@ -239,15 +254,20 @@ export function installRemoteScript(sourceFile: string, destinationDirectory: st
     const stagedAsset = join(stagedPackage, REMOTE_SCRIPT_ASSET);
     copyFileSync(sourceFile, stagedAsset);
     if (platform !== "win32") chmodSync(stagedAsset, 0o600);
-    const init = join(dirname(sourceFile), REMOTE_SCRIPT_PACKAGE, "__init__.py");
+    const packageSource = basename(dirname(sourceFile)) === REMOTE_SCRIPT_PACKAGE ? dirname(sourceFile) : join(dirname(sourceFile), REMOTE_SCRIPT_PACKAGE);
+    const init = join(packageSource, "__init__.py");
     if (!existsSync(init)) throw new Error("Remote Script package is missing __init__.py");
     copyFileSync(init, join(stagedPackage, "__init__.py"));
+    const moduleSource = join(packageSource, REMOTE_SCRIPT_ASSET);
+    if (existsSync(moduleSource)) copyFileSync(moduleSource, join(stagedPackage, REMOTE_SCRIPT_ASSET));
+    else copyFileSync(sourceFile, join(stagedPackage, REMOTE_SCRIPT_ASSET));
     const files = ["__init__.py", REMOTE_SCRIPT_ASSET] as const;
     const hashes = Object.fromEntries(files.map((name) => [name, createHash("sha256").update(readFileSync(join(stagedPackage, name))).digest("hex")]));
     writeFileSync(join(stagedPackage, "manifest.json"), `${JSON.stringify({ package: REMOTE_SCRIPT_PACKAGE, algorithm: "sha256", files: hashes })}\n`, { mode: 0o600, flag: "wx" });
+    if (referencePath && options.configPath) writeBridgeReference(join(stagedPackage, "bridge-reference.json"), options.configPath);
     if (backup) renameSync(destinationDirectory, backup);
     renameSync(stagedPackage, destinationDirectory);
-    return { installed: destinationDirectory, backup, dryRun: false };
+    return { installed: destinationDirectory, backup, reference: referencePath, dryRun: false };
   } catch (error) {
     if (backup && !existsSync(destinationDirectory) && existsSync(backup)) renameSync(backup, destinationDirectory);
     throw error;
@@ -265,7 +285,13 @@ export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.m
   const nodeMajor = Number.parseInt(versions.node.split(".")[0] ?? "0", 10);
   const entrypointPresent = existsSync(entrypoint) && statSync(entrypoint).isFile();
   const hostReady = nodeMajor >= MIN_NODE_MAJOR && isSupportedPlatform() && entrypointPresent;
-  const remoteScriptInstalled = existsSync(join(packageRoot, "remote-script", REMOTE_SCRIPT_ASSET));
+  const remoteScriptInstalled = existsSync(join(packageRoot, "remote-script", REMOTE_SCRIPT_PACKAGE, "__init__.py")) && existsSync(join(packageRoot, "remote-script", REMOTE_SCRIPT_PACKAGE, REMOTE_SCRIPT_ASSET));
+  const packageDirectory = join(packageRoot, "remote-script", REMOTE_SCRIPT_PACKAGE);
+  let packageAssetsValid = false;
+  try {
+    const manifest = JSON.parse(readFileSync(join(packageDirectory, "manifest.json"), "utf8")) as { algorithm?: string; files?: Record<string, string> };
+    packageAssetsValid = manifest.algorithm === "sha256" && ["__init__.py", REMOTE_SCRIPT_ASSET].every((name) => manifest.files?.[name] === createHash("sha256").update(readFileSync(join(packageDirectory, name))).digest("hex"));
+  } catch { packageAssetsValid = false; }
   let bridgeConfigured = false;
   let permissions: DiagnosticReport["secretPermissions"] = "unavailable";
   if (configValid && configPath) {
@@ -283,6 +309,7 @@ export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.m
     hostReady,
     remoteScriptInstalled,
     bridgeConfigured,
+    packageAssetsValid,
     secretPermissions: permissions,
     authenticatedReachable: false,
     roundTripLatency: null,
@@ -293,7 +320,7 @@ export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.m
     simulator: false,
     evidence: hostReady ? "local-contract" : "unavailable",
     external: { abletonLive: "unavailable", signing: "unavailable", notarization: "unavailable" },
-    ready: hostReady,
+    ready: hostReady && packageAssetsValid,
   };
 }
 

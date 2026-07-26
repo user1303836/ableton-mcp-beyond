@@ -15,7 +15,8 @@
   fail-closed configuration, Control Surface scheduling, socket lifecycle,
   main-thread queue, epoch-scoped references, Session discovery/MIDI mapping,
   and version-negotiated Arrangement locator support when the Live shape exists.
-- Bounded Session discovery, MIDI preview/apply/undo, Arrangement locator
+- Bounded Session discovery, Session-structure track/scene
+  preview/apply/undo, MIDI preview/apply/undo, Arrangement locator
   preview/apply/undo, and tempo preview/apply/undo contracts in the host.
 - Privacy-preserving PCM aggregate, waveform envelope, logarithmic
   time-frequency, and transient summaries.
@@ -32,9 +33,10 @@ Use `docs/USER_GUIDE.md` for clients, `docs/OPERATIONS.md` for supervision,
 
 The production bridge has not been validated against a real Ableton Live
 runtime or disposable Set in this checkout. Discovery is currently limited to
-the implemented track/scene/clip/note pages and the Python mapper's supported
-objects; it is not the full Live hierarchy. Arrangement support is limited to
-named locator operations. Track/scene CRUD, launch/recording, audio capture,
+the implemented track/scene/clip/note/locator pages and the Python mapper's
+supported objects; it is not the full Live hierarchy. Session structure is
+limited to bounded named track/scene creation and guarded removal. Arrangement
+support is limited to named locator operations. Launch/recording, audio capture,
 warp/takes, automation, devices/racks, routing, projects, realtime delivery,
 Max/OSC, plug-in UI fallback, performance mode, accessibility certification,
 signing, notarization, and release publication are unavailable.

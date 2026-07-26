@@ -17,6 +17,30 @@ test("remote adapter fails closed before opening non-loopback or weakly authenti
   await assert.rejects(RemoteScriptLiveAdapter.connect({ host: "127.999.0.1", port: 9000, secret: "0123456789abcdef0123456789abcdef" }), /loopback/);
   await assert.rejects(RemoteScriptLiveAdapter.connect({ host: "127.0.0.1", port: 9000, secret: "short" }), /strong secret/);
   await assert.rejects(RemoteScriptLiveAdapter.connect({ host: "127.0.0.1", port: 0, secret: "0123456789abcdef0123456789abcdef" }), /loopback/);
+  await assert.rejects(RemoteScriptLiveAdapter.connect({ host: "localhost", port: 9000, secret }), /loopback/);
+});
+
+test("remote adapter rejects an invalid negotiated status", async () => {
+  const server = createServer((socket) => socket.on("data", (chunk) => {
+    const request = JSON.parse(chunk.toString("utf8")) as { id: string };
+    const base = { version: "ableton-loopback/v1", id: request.id, ok: true, result: { connected: true, adapter: "remote-script", epoch: -1, protocol: "ableton-live/v1", capabilities: [42] } };
+    socket.write(`${JSON.stringify({ ...base, mac: signed(base) })}\n`);
+  }));
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  try { await assert.rejects(RemoteScriptLiveAdapter.connect({ host: "127.0.0.1", port: address.port, secret, timeoutMs: 200 }), /handshake or negotiation/); }
+  finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
+});
+
+test("remote adapter closes the session on timeout instead of continuing a sequenced stream", async () => {
+  const sockets = new Set<import("node:net").Socket>();
+  const server = createServer((socket) => { sockets.add(socket); socket.on("close", () => sockets.delete(socket)); });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  try { await assert.rejects(RemoteScriptLiveAdapter.connect({ host: "127.0.0.1", port: address.port, secret, timeoutMs: 25 }), /timed out|disconnected/); }
+  finally { for (const socket of sockets) socket.destroy(); await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
 });
 
 test("remote adapter reports connection refusal as unavailable evidence", async () => {

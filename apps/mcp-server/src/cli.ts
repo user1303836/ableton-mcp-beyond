@@ -4,12 +4,21 @@ import { readAnyConfig, readSecretFile } from "./delivery.js";
 import { RemoteScriptLiveAdapter } from "./bridge/remote-adapter.js";
 import { serve } from "./host.js";
 
+const userArgs = process.argv.slice(2);
+const repeatedConfig = userArgs.filter((arg) => arg === "--config").length > 1;
+const validShape = userArgs.length === 0 || (userArgs.length === 2 && userArgs[0] === "--config" && !userArgs[1]?.startsWith("-"));
+if (repeatedConfig) {
+  process.stderr.write("mcp-host: repeated --config\n"); process.exitCode = 2;
+} else if (!validShape) {
+  process.stderr.write("mcp-host: unknown option\n"); process.exitCode = 2;
+}
 const configIndex = process.argv.indexOf("--config");
 const configPath = configIndex >= 0 ? process.argv[configIndex + 1] : undefined;
-if (configIndex >= 0 && (!configPath || configPath.startsWith("-"))) {
+if (process.exitCode === undefined && configIndex >= 0 && (!configPath || configPath.startsWith("-"))) {
   process.stderr.write("mcp-host: --config requires a path\n");
   process.exitCode = 2;
-} else {
+}
+if (process.exitCode === undefined) {
   let adapter;
   try {
     if (configPath) {

@@ -15,7 +15,6 @@ import secrets
 import base64
 import re
 import math
-import os
 import queue
 import socket
 import threading
@@ -24,6 +23,10 @@ from typing import Any, Callable
 
 PROTOCOL = "ableton-loopback/v1"
 METHODS = {"status", "snapshot", "get", "set", "invoke", "subscribe", "reconnect"}
+SUPPORTED_OPERATIONS = {
+    "session.discover", "session.reconnect", "clip.create", "clip.delete", "note.add",
+    "locator.add", "locator.delete", "track.create", "track.delete", "scene.create", "scene.delete",
+}
 MAX_NONCE_LENGTH = 256
 MAX_WIRE_BYTES = 1_048_576
 MAX_WIRE_DEPTH = 16
@@ -141,12 +144,12 @@ class ReferenceRegistry:
     """Epoch-scoped opaque references; references never expose Live objects."""
 
     def __init__(self) -> None:
-        self.epoch = 1
+        self.epoch = secrets.randbelow(2**53 - 1) + 1
         self._objects: dict[str, Any] = {}
         self._revisions: dict[str, int] = {}
 
     def reset(self) -> None:
-        self.epoch += 1
+        self.epoch = secrets.randbelow(2**53 - 1) + 1
         self._objects.clear()
         self._revisions.clear()
 
@@ -191,12 +194,12 @@ class LiveObjectMapper:
         if self.song is None:
             return []
         capabilities = [
-            "session.read", "session.write", "session.discovery",
+            "session.read", "session.write", "tracks", "scenes", "clips", "notes", "session.discovery", "session.structure",
             "session.midi_clip.create", "session.midi_clip.delete",
             "session.midi_note.read", "session.midi_note.write", "reconnect",
         ]
         if self._locator_supported():
-            capabilities.extend(("arrangement.read", "arrangement.write", "arrangement.locator.create", "arrangement.locator.delete"))
+            capabilities.extend(("arrangement.read", "arrangement.write"))
         return capabilities
 
     def _locator_supported(self) -> bool:
@@ -230,14 +233,17 @@ class LiveObjectMapper:
             track_ref = self.refs.put("track", track, str(index))
             slots = self._items(getattr(track, "clip_slots", []))
             clips = []
+            slot_rows = []
             for slot_index, slot in enumerate(slots):
                 clip = getattr(slot, "clip", None)
                 if clip is None:
+                    slot_rows.append({"ref": f"{self.refs.epoch}:clip_slot:{index}:{slot_index}", "trackRef": track_ref, "sceneIndex": slot_index, "empty": True})
                     continue
                 clip_ref = self.refs.put("clip", clip, f"{index}:{slot_index}")
                 notes = self._read_notes(clip)
                 clips.append({"ref": clip_ref, "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": slot_index * 4, "length": float(getattr(clip, "length", 0.0)), "notes": notes})
-            track_rows.append({"ref": track_ref, "name": str(getattr(track, "name", f"Track {index + 1}")), "kind": "midi" if bool(getattr(track, "has_midi_input", True)) else "audio", "clips": clips})
+                slot_rows.append({"ref": f"{self.refs.epoch}:clip_slot:{index}:{slot_index}", "trackRef": track_ref, "sceneIndex": slot_index, "clipRef": clip_ref, "empty": False})
+            track_rows.append({"ref": track_ref, "name": str(getattr(track, "name", f"Track {index + 1}")), "kind": "midi" if bool(getattr(track, "has_midi_input", True)) else "audio", "clips": clips, "clipSlots": slot_rows})
         scene_rows = [{"ref": self.refs.put("scene", scene, str(i)), "name": str(getattr(scene, "name", f"Scene {i + 1}")), "index": i} for i, scene in enumerate(scenes)]
         locators = self._locator_items()
         return {"tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators}, "epoch": self.refs.epoch}
@@ -247,6 +253,41 @@ class LiveObjectMapper:
             raw = clip.get_notes(0, 0, 0, 128)
             return [dict(note) if isinstance(note, dict) else {"pitch": int(getattr(note, "pitch", 0)), "start": float(getattr(note, "start", 0)), "duration": float(getattr(note, "duration", 0)), "velocity": int(getattr(note, "velocity", 0)), "channel": int(getattr(note, "channel", 1))} for note in self._items(raw)][:MAX_WIRE_COLLECTION_LENGTH]
         return []
+
+    def get(self, reference: str) -> Any:
+        if not isinstance(reference, str):
+            raise ValueError("object reference is required")
+        obj = self.refs.get(reference)
+        if obj is None:
+            raise ValueError("object reference is stale or unknown")
+        kind = reference.split(":", 2)[1] if reference.count(":") >= 2 else ""
+        if kind == "clip":
+            return next((clip for track in self.snapshot()["tracks"] for clip in track["clips"] if clip["ref"] == reference), None)
+        if kind == "locator":
+            return next((item for item in self._locator_items() if item["ref"] == reference), None)
+        if kind == "scene":
+            scenes = self._items(getattr(self.song, "scenes", []))
+            return {"ref": reference, "name": str(getattr(obj, "name", "")), "index": scenes.index(obj)}
+        if kind == "track":
+            tracks = self._items(getattr(self.song, "tracks", []))
+            return next(row for row in self.snapshot()["tracks"] if row["ref"] == reference) if obj in tracks else None
+        return None
+
+    def set(self, reference: str, property_name: str, value: Any) -> dict[str, Any]:
+        if property_name not in {"name", "tempo"}:
+            raise ValueError("property is unavailable")
+        obj = self.refs.get(reference)
+        if obj is None:
+            raise ValueError("object reference is stale or unknown")
+        if property_name == "name":
+            if not isinstance(value, str) or not 1 <= len(value) <= 128:
+                raise ValueError("name is invalid")
+            obj.name = value
+        elif obj is not self.song or not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not 20 <= float(value) <= 999:
+            raise ValueError("tempo is invalid")
+        else:
+            obj.tempo = float(value)
+        return {"changed": True, "ref": reference, "property": property_name, "value": value}
 
     def discover(self, kind: str, limit: int = 100, cursor: str | None = None) -> dict[str, Any]:
         if kind not in {"track", "scene", "clip", "note", "locator"}:
@@ -284,13 +325,55 @@ class LiveObjectMapper:
         if operation == "session.reconnect":
             self.refs.reset()
             return self.status()
-        if operation == "arrangement.locator.create":
+        if operation in {"locator.add", "arrangement.locator.create"}:
             return self._locator_mutate(args, delete=False)
-        if operation == "arrangement.locator.delete":
+        if operation in {"locator.delete", "arrangement.locator.delete"}:
             return self._locator_mutate(args, delete=True)
         if operation in {"clip.create", "clip.delete", "note.add"}:
             return self._mutate(operation, args)
+        if operation in {"track.create", "track.delete", "scene.create", "scene.delete"}:
+            return self._structure_mutate(operation, args)
         raise ValueError("live operation unavailable")
+
+    def _structure_mutate(self, operation: str, args: dict[str, Any]) -> dict[str, Any]:
+        if operation == "track.create":
+            name, kind, index = args.get("name"), args.get("kind"), args.get("index")
+            if not isinstance(name, str) or not 1 <= len(name) <= 128 or kind not in {"audio", "midi"}:
+                raise ValueError("track name or kind is invalid")
+            tracks = self._items(getattr(self.song, "tracks", []))
+            if any(str(getattr(track, "name", "")) == name for track in tracks): raise ValueError("track name already exists")
+            if index is None: index = len(tracks)
+            if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index <= len(tracks): raise ValueError("track index is invalid")
+            creator = getattr(self.song, "create_midi_track" if kind == "midi" else "create_audio_track", None)
+            if not callable(creator): raise ValueError("track creation is unavailable")
+            track = creator(index)
+            if hasattr(track, "name"): track.name = name
+            if track is None: track = self._items(getattr(self.song, "tracks", []))[index]
+            ref = self.refs.put("track", track, f"created:{id(track)}")
+            return {"ref": ref, "name": str(getattr(track, "name", name)), "kind": kind, "index": self._items(getattr(self.song, "tracks", [])).index(track)}
+        if operation == "scene.create":
+            name, index = args.get("name"), args.get("index")
+            scenes = self._items(getattr(self.song, "scenes", []))
+            if not isinstance(name, str) or not 1 <= len(name) <= 128 or any(str(getattr(scene, "name", "")) == name for scene in scenes): raise ValueError("scene name is invalid or already exists")
+            if index is None: index = len(scenes)
+            if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index <= len(scenes): raise ValueError("scene index is invalid")
+            creator = getattr(self.song, "create_scene", None)
+            if not callable(creator): raise ValueError("scene creation is unavailable")
+            scene = creator(index)
+            if scene is None: scene = self._items(getattr(self.song, "scenes", []))[index]
+            if hasattr(scene, "name"): scene.name = name
+            ref = self.refs.put("scene", scene, f"created:{id(scene)}")
+            return {"ref": ref, "name": str(getattr(scene, "name", name)), "index": self._items(getattr(self.song, "scenes", [])).index(scene)}
+        reference = args.get("ref")
+        if not isinstance(reference, str): raise ValueError("object reference is required")
+        obj = self.refs.get(reference)
+        collection = self._items(getattr(self.song, "tracks" if operation == "track.delete" else "scenes", []))
+        if obj not in collection: raise ValueError("object is not a current Session object")
+        deleter = getattr(self.song, "delete_track" if operation == "track.delete" else "delete_scene", None)
+        if not callable(deleter): raise ValueError("object deletion is unavailable")
+        deleter(obj)
+        self.refs.delete(reference)
+        return {"deleted": reference}
 
     def _locator_mutate(self, args: dict[str, Any], delete: bool) -> dict[str, Any]:
         if not self._locator_supported():
@@ -420,10 +503,10 @@ class AbletonMcpBridge:
 
     def __init__(self, c_instance: Any, config: dict[str, Any] | None = None, song: Any = None):
         config = config or {}
-        host = config.get("host", os.environ.get("ABLETON_MCP_HOST", ""))
-        port = config.get("port", int(os.environ.get("ABLETON_MCP_PORT", "0") or 0))
-        secret = config.get("secret", os.environ.get("ABLETON_MCP_SECRET", ""))
-        if host not in {"127.0.0.1", "::1", "localhost"} or not isinstance(port, int) or not 1 <= port <= 65535 or not isinstance(secret, str) or len(secret) < 32:
+        host = config.get("host", "")
+        port = config.get("port", 0)
+        secret = config.get("secret", "")
+        if host not in {"127.0.0.1", "::1"} or not isinstance(port, int) or not 1 <= port <= 65535 or not isinstance(secret, str) or len(secret) < 32:
             raise ValueError("explicit loopback host, port, and strong secret are required")
         self.c_instance = c_instance
         self.queue = _MainThreadQueue()
@@ -445,10 +528,16 @@ class AbletonMcpBridge:
         return self.queue.submit(lambda: self._dispatch_main(method, request))
 
     def _dispatch_main(self, method: str, request: dict[str, Any]) -> Any:
-        if method == "status": return self.mapper.status()
-        if method == "snapshot": return self.mapper.snapshot()
-        if method == "reconnect": return self.mapper.invoke("session.reconnect", {})
-        if method == "invoke": return self.mapper.invoke(str(request.get("operation")), dict(request.get("args", {})))
+        return self._dispatch_main_for(method, request, self.mapper)
+
+    @staticmethod
+    def _dispatch_main_for(method: str, request: dict[str, Any], mapper: LiveObjectMapper) -> Any:
+        if method == "status": return mapper.status()
+        if method == "snapshot": return mapper.snapshot()
+        if method == "get": return mapper.get(str(request.get("ref")))
+        if method == "set": return mapper.set(str(request.get("ref")), str(request.get("property")), request.get("value"))
+        if method == "reconnect": return mapper.invoke("session.reconnect", {})
+        if method == "invoke": return mapper.invoke(str(request.get("operation")), dict(request.get("args", {})))
         raise ValueError("operation unavailable")
 
     def drain_main_thread(self) -> int:
@@ -469,7 +558,9 @@ class AbletonMcpBridge:
             worker.start()
 
     def _client(self, client: socket.socket) -> None:
-        client.settimeout(0.2); buffer = b""; auth = AuthenticatedRemoteScript(self._secret_value, self._dispatch)
+        client.settimeout(0.2); buffer = b""
+        mapper = LiveObjectMapper(self.mapper.song)
+        auth = AuthenticatedRemoteScript(self._secret_value, lambda method, request: self.queue.submit(lambda: self._dispatch_main_for(method, request, mapper)))
         try:
             while not self._stop.is_set():
                 try: chunk = client.recv(65536)

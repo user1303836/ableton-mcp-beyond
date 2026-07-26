@@ -18,7 +18,8 @@ export interface BenchmarkReport {
 
 const PING_SAMPLES = 256;
 const BATCH_SIZE = 128;
-const ANALYSIS_SAMPLES = 96_000;
+// Exercise the declared production limit, not a convenient small fixture.
+const ANALYSIS_SAMPLES = 10_000_000;
 const MAX_CHANNEL_ANALYSIS_SAMPLES = 96_000;
 
 /**
@@ -33,7 +34,9 @@ export const BENCHMARK_BUDGETS = {
   responseLossPercent: 0,
   cancellationP95Milliseconds: 5,
   recoveryMilliseconds: 100,
-  analysisP95Milliseconds: 250,
+  // This gate covers the declared ten-million-sample maximum, including one
+  // bounded copy and the capped spectral summaries.
+  analysisP95Milliseconds: 1_000,
   maxChannelAnalysisP95Milliseconds: 250,
   waveformTimeFrequencyP95Milliseconds: 250,
   waveformTimeFrequencyOutputBytes: 2_000_000,
@@ -162,7 +165,10 @@ export async function runBenchmarks(): Promise<BenchmarkReport> {
   const samples = audioFixture();
   analyzePcm({ samples, sampleRate: 48_000 });
   const analysisTimes: number[] = [];
-  for (let index = 0; index < 5; index += 1) {
+  // The maximum-input gate is intentionally a single sample: repeating a
+  // ten-million-sample allocation would measure allocator pressure rather
+  // than the production analysis path and would make CI needlessly fragile.
+  for (let index = 0; index < 1; index += 1) {
     const started = performance.now();
     const result = analyzePcm({ samples, sampleRate: 48_000 });
     analysisTimes.push(performance.now() - started);

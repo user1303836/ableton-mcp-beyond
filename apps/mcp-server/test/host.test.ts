@@ -16,7 +16,54 @@ test("requires initialization and exposes only read-only tools", () => {
   assert.equal((host.handle({ ...initialize, id: 2 }) as any).result.protocolVersion, PROTOCOL_VERSION);
   assert.equal(host.handle(initialized), null);
   const tools = (host.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
-  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "live_status", "live_snapshot", "live_discover", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "live_status", "live_snapshot", "live_discover", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+});
+
+test("previews, applies idempotently, verifies, and guardedly undoes Session structure", () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const preview = host.handle({ jsonrpc: "2.0", id: 80, method: "tools/call", params: { name: "live_session_structure_preview", arguments: { tracks: [{ name: "Bass", kind: "midi", index: 1 }, { name: "Vocal", kind: "audio", index: 2 }], scenes: [{ name: "Verse", index: 1 }, { name: "Chorus", index: 2 }] } } });
+  const value = JSON.parse((preview as any).result.content[0].text) as { transactionId: string; proposed: unknown[]; confirmation: string };
+  assert.equal((preview as any).result.isError, false);
+  assert.equal(value.proposed.length, 4);
+  assert.equal(value.confirmation, "apply");
+  assert.deepEqual(simulator.snapshot().tracks.map((track) => track.name), ["Drums"]);
+  const applied = host.handle({ jsonrpc: "2.0", id: 81, method: "tools/call", params: { name: "live_session_structure_apply", arguments: { transactionId: value.transactionId, confirmation: "apply", idempotencyKey: "structure-1" } } });
+  const appliedValue = JSON.parse((applied as any).result.content[0].text) as { created: Array<{ ref: string }>; idempotent: boolean };
+  assert.equal(appliedValue.created.length, 4);
+  assert.equal(appliedValue.idempotent, false);
+  const repeated = host.handle({ jsonrpc: "2.0", id: 82, method: "tools/call", params: { name: "live_session_structure_apply", arguments: { transactionId: value.transactionId, confirmation: "apply", idempotencyKey: "structure-1" } } });
+  assert.equal(JSON.parse((repeated as any).result.content[0].text).idempotent, true);
+  assert.deepEqual(simulator.snapshot().tracks.map((track) => track.name), ["Drums", "Bass", "Vocal"]);
+  assert.deepEqual(simulator.snapshot().scenes.map((scene) => scene.name), ["Scene 1", "Verse", "Chorus"]);
+  const undone = host.handle({ jsonrpc: "2.0", id: 83, method: "tools/call", params: { name: "live_undo", arguments: { transactionId: value.transactionId, confirmation: "undo", idempotencyKey: "structure-undo-1" } } });
+  assert.equal((undone as any).result.isError, false);
+  assert.deepEqual(simulator.snapshot().tracks.map((track) => track.name), ["Drums"]);
+  assert.deepEqual(simulator.snapshot().scenes.map((scene) => scene.name), ["Scene 1"]);
+});
+
+test("refuses Session-structure mutation when the precondition revision changes", () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const preview = host.handle({ jsonrpc: "2.0", id: 84, method: "tools/call", params: { name: "live_session_structure_preview", arguments: { tracks: [{ name: "Lead", kind: "midi" }], scenes: [] } } });
+  const transactionId = JSON.parse((preview as any).result.content[0].text).transactionId as string;
+  simulator.set("track:track-1", "name", "Externally renamed");
+  const applied = host.handle({ jsonrpc: "2.0", id: 85, method: "tools/call", params: { name: "live_session_structure_apply", arguments: { transactionId, confirmation: "apply", idempotencyKey: "structure-conflict" } } });
+  assert.equal((applied as any).result.isError, true);
+  assert.match((applied as any).result.content[0].text, /changed since preview/);
+});
+
+test("routes Session-structure preview and apply through the asynchronous adapter contract", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const preview = await host.handleAsync({ jsonrpc: "2.0", id: 86, method: "tools/call", params: { name: "live_session_structure_preview", arguments: { tracks: [{ name: "Async Bass", kind: "midi" }], scenes: [{ name: "Async Verse" }] } } });
+  const transactionId = JSON.parse((preview as any).result.content[0].text).transactionId as string;
+  const applied = await host.handleAsync({ jsonrpc: "2.0", id: 87, method: "tools/call", params: { name: "live_session_structure_apply", arguments: { transactionId, confirmation: "apply", idempotencyKey: "async-structure-1" } } });
+  assert.equal((applied as any).result.isError, false);
+  assert.equal(JSON.parse((applied as any).result.content[0].text).created.length, 2);
 });
 
 test("advertises and serves static safety resources and a complete audio workflow prompt", () => {
@@ -81,7 +128,7 @@ test("analyzes supplied PCM through the MCP tool without Live side effects", () 
 test("rejects duplicates, unsupported methods, and unknown fields", () => {
   const host = new McpHost();
   ready(host);
-  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 13);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 15);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).error.message, "Duplicate request identifier");
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set", arguments: {} } }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 4, method: "tools/list", debug: true }) as any).error.code, -32600);
@@ -272,6 +319,14 @@ test("built process performs a read-only handshake and exits without non-protoco
   assert.equal(records[2].result.content[0].text.includes("live.mutations"), true);
   assert.deepEqual(records[3].result, {});
   assert.equal(child.stderr, "");
+});
+
+test("CLI refuses invalid arguments before starting the stdio server", () => {
+  const entry = fileURLToPath(new URL("../src/cli.js", import.meta.url));
+  const child = spawnSync(process.execPath, [entry, "--bogus"], { input: "", encoding: "utf8", timeout: 1_000 });
+  assert.equal(child.status, 2, child.stderr);
+  assert.equal(child.stdout, "");
+  assert.match(child.stderr, /unknown option/);
 });
 
 test("accepts MCP metadata and reports value errors as tool errors", () => {

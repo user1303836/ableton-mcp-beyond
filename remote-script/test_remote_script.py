@@ -120,13 +120,38 @@ class FakeTrack:
 
 
 class FakeScene:
-    name = "Scene 1"
+    def __init__(self, name="Scene 1"):
+        self.name = name
 
 
 class FakeSong:
     def __init__(self):
         self.tracks = [FakeTrack()]
         self.scenes = [FakeScene()]
+
+    def create_midi_track(self, index):
+        track = FakeTrack()
+        track.name = "MIDI Track"
+        self.tracks.insert(index, track)
+        return track
+
+    def create_audio_track(self, index):
+        track = FakeTrack()
+        track.name = "Audio Track"
+        track.has_midi_input = False
+        self.tracks.insert(index, track)
+        return track
+
+    def create_scene(self, index):
+        scene = FakeScene()
+        self.scenes.insert(index, scene)
+        return scene
+
+    def delete_track(self, track):
+        self.tracks.remove(track)
+
+    def delete_scene(self, scene):
+        self.scenes.remove(scene)
 
 
 class FakeLocator:
@@ -154,6 +179,25 @@ class FakeInstance:
 
 
 class ControlSurfaceTests(unittest.TestCase):
+    def test_session_structure_lifecycle_and_empty_slots_are_authoritative(self):
+        mapper = LiveObjectMapper(FakeSong())
+        track = mapper.discover("track")["items"][0]
+        self.assertTrue(track["clipSlots"][0]["empty"])
+        created_track = mapper.invoke("track.create", {"name": "Strings", "kind": "midi", "index": 1})
+        created_scene = mapper.invoke("scene.create", {"name": "Verse", "index": 1})
+        self.assertEqual(created_track["name"], "Strings")
+        self.assertEqual(created_scene["name"], "Verse")
+        self.assertEqual(mapper.invoke("track.delete", {"ref": created_track["ref"]}), {"deleted": created_track["ref"]})
+        self.assertEqual(mapper.invoke("scene.delete", {"ref": created_scene["ref"]}), {"deleted": created_scene["ref"]})
+
+    def test_structure_operations_fail_closed_when_live_shape_is_unsupported(self):
+        class UnsupportedSong:
+            tracks = []
+            scenes = []
+        mapper = LiveObjectMapper(UnsupportedSong())
+        with self.assertRaises(ValueError):
+            mapper.invoke("track.create", {"name": "Nope", "kind": "midi", "index": 0})
+
     def test_arrangement_locators_are_authoritative_and_reversible(self):
         song = FakeArrangementSong()
         mapper = LiveObjectMapper(song)
@@ -177,6 +221,17 @@ class ControlSurfaceTests(unittest.TestCase):
     def test_entrypoint_requires_explicit_loopback_configuration(self):
         with self.assertRaises(ValueError):
             create_instance(FakeInstance())
+
+    def test_bridge_rejects_ambient_environment_configuration(self):
+        with self.assertRaises(ValueError):
+            AbletonMcpBridge(FakeInstance())
+
+    def test_mapper_get_and_set_support_remote_verification(self):
+        mapper = LiveObjectMapper(FakeSong())
+        track_ref = mapper.discover("track")["items"][0]["ref"]
+        self.assertEqual(mapper.get(track_ref)["name"], "Drums")
+        mapper.set(track_ref, "name", "Percussion")
+        self.assertEqual(mapper.get(track_ref)["name"], "Percussion")
 
     def test_mapper_discovery_and_midi_lifecycle_use_fake_live_objects(self):
         mapper = LiveObjectMapper(FakeSong())

@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,8 +8,8 @@ const sourceRoot = resolve(packageRoot, "..", "..", "remote-script");
 const destinationRoot = join(packageRoot, "remote-script");
 const source = join(sourceRoot, "ableton_mcp_remote_script.py");
 const destination = join(destinationRoot, "ableton_mcp_remote_script.py");
+rmSync(destinationRoot, { recursive: true, force: true });
 mkdirSync(dirname(destination), { recursive: true });
-copyFileSync(source, destination);
 copyFileSync(join(sourceRoot, "README.md"), join(destinationRoot, "README.md"));
 const packageSource = join(sourceRoot, "AbletonMcpBridge");
 const packageDestination = join(destinationRoot, "AbletonMcpBridge");

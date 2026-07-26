@@ -31,6 +31,8 @@ jobs:
       - run: npm run compatibility
       - run: npm run package:verify
       - run: npm pack --dry-run --json
+      - run: git diff --check
+        working-directory: .
   remote-script:
     name: Python Remote Script contract / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -48,3 +50,4 @@ jobs:
         with:
           python-version: "3.x"
       - run: python -m unittest discover -s . -p 'test_*.py'
+      - run: python -m compileall -q AbletonMcpBridge

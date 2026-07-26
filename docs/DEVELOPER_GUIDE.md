@@ -7,8 +7,9 @@ capability unless its tool, adapter contract, and tests support it.
 
 - `src/host.ts`: MCP lifecycle, schemas, tool dispatch, transactions, and
   safe error text.
-- `src/live.ts`: Live contracts, the in-memory simulator, and async adapter
-  compatibility methods.
+- `src/live.ts`: Live contracts, the in-memory simulator, and the
+  promise-based adapter boundary. Synchronous methods exist only for legacy
+  in-process compatibility tests and are not the process-backed path.
 - `src/bridge/remote-adapter.ts`: authenticated asynchronous TCP client,
   response correlation, deadlines, frame limits, and cleanup.
 - `src/transactions/session-midi.ts`: bounded Session MIDI preview/apply/undo
@@ -53,8 +54,12 @@ callback.
 `RemoteScriptLiveAdapter` is asynchronous (`snapshotAsync`, `getAsync`,
 `setAsync`, `invokeAsync`, `reconnectAsync`, `close`). Its synchronous methods
 intentionally throw. `McpHost.handleAsync` is the process-backed dispatch path;
-the synchronous path remains for in-process compatibility tests.
+the synchronous host path is retained only for in-process compatibility tests.
+New host work must use the async path and close the adapter on startup, EOF,
+cancellation, and output-failure paths.
 
 Capability negotiation is the source of truth. Unsupported Live object shapes
 must be omitted or reported unavailable, never fabricated. Epochs bind
-references, cursors, previews, and undo inputs.
+references, cursors, previews, idempotency records, and undo inputs. Keep
+discovery bounded: validate kind, limit, cursor, and parent before traversing
+a Live object graph.

@@ -165,6 +165,8 @@ test("returns bounded lossy waveform, logarithmic time-frequency, and transient 
   assert.equal(result.timeFrequency.bandCount, MAX_TIME_FREQUENCY_BANDS);
   assert.equal(result.timeFrequency.channelAggregation, "per-channel-and-aggregate");
   assert.equal(result.timeFrequency.normalization, "mean-square-per-frame");
+  assert.equal(result.timeFrequency.window, "hann");
+  assert.equal(result.timeFrequency.hopSamples, 1024);
   assert.equal(result.timeFrequency.lossy, true);
   assert.ok(result.timeFrequency.frames.every((frame) => frame.bands.length === MAX_TIME_FREQUENCY_BANDS && frame.bands.every((band) => band.lowHz < band.highHz && band.highHz <= result.sampleRate / 2 && Number.isFinite(band.energy) && band.channels.length === 1)));
   assert.ok(result.timeFrequency.frames.some((frame) => frame.bands.some((band) => band.energy > 0)));
@@ -174,6 +176,33 @@ test("returns bounded lossy waveform, logarithmic time-frequency, and transient 
   assert.ok(Number.isFinite(result.transients.peakCount) && result.transients.peakCount >= 0);
   const sweep = analyzePcm({ samples: sweepFixture(48_000, 220, 1_760, 48_000), sampleRate: 48_000, frameSize: 1024 });
   assert.ok(sweep.timeFrequency.frames.some((frame) => frame.bands.some((band) => band.energy > 0)));
+});
+
+test("never emits one waveform bin per source frame, including shortest inputs", () => {
+  for (const frameCount of [1, 2, 3, 257, 1024]) {
+    const result = analyzePcm({ samples: new Float32Array(frameCount), sampleRate: 48_000 });
+    assert.ok(result.waveform.bins.length < frameCount);
+    assert.equal(result.waveform.binCount, result.waveform.bins.length);
+  }
+});
+
+test("independent golden checks keep logarithmic energy finite and tone-localized", () => {
+  const sampleRate = 48_000;
+  const frequency = 1_000;
+  const amplitude = 0.5;
+  const samples = sineFixture(16_384, frequency, sampleRate, amplitude);
+  const result = analyzePcm({ samples, sampleRate, frameSize: 1024 });
+  const frame = result.timeFrequency.frames[Math.floor(result.timeFrequency.frames.length / 2)];
+  assert.ok(frame);
+  const containing = frame.bands.find((band) => band.lowHz <= frequency && frequency < band.highHz);
+  assert.ok(containing);
+  // Independently calculated RMS power for a full-scale sine is A²/2. The
+  // Hann window and logarithmic band aggregation retain a bounded fraction
+  // of that energy, while silence remains exactly zero.
+  assert.ok((containing?.energy ?? 0) > (amplitude * amplitude) / 100);
+  assert.ok(frame.bands.every((band) => Number.isFinite(band.energy) && Number.isFinite(band.energyDb)));
+  const silence = analyzePcm({ samples: new Float32Array(16_384), sampleRate, frameSize: 1024 });
+  assert.ok(silence.timeFrequency.frames.every((item) => item.bands.every((band) => band.energy === 0)));
 });
 
 test("keeps waveform and time-frequency channel separation deterministic", () => {

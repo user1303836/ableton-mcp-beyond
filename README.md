@@ -23,6 +23,11 @@ The MCP executable is `dist/src/cli.js`. It accepts one JSON-RPC message per
 line on stdin and writes only JSON-RPC responses to stdout. Initialize with
 protocol version `2025-11-25`, then send `notifications/initialized`.
 
+For the client-facing tool list and mutation sequence, see
+[`docs/USER_GUIDE.md`](docs/USER_GUIDE.md). For supervision and failure
+handling, see [`docs/OPERATIONS.md`](docs/OPERATIONS.md) and
+[`docs/RECOVERY.md`](docs/RECOVERY.md).
+
 Build a host-only client configuration:
 
 ```sh
@@ -51,8 +56,8 @@ node dist/src/install-remote-script.js --destination /absolute/path/ControlSurfa
 ```
 
 Use `--force` only for a known disposable or recoverable destination. See
-[`docs/USER_GUIDE.md`](docs/USER_GUIDE.md), [`docs/OPERATIONS.md`](docs/OPERATIONS.md),
-and [`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md) for operating boundaries.
+[`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) and
+[`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md) for operating boundaries.
 
 ## Evidence boundary
 

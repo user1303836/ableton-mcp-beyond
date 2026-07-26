@@ -1,7 +1,8 @@
 # Deterministic checkpoint
 
 This is a repository-contract checkpoint, not Live certification or release
-approval.
+approval. It must describe the exact tested checkout; a green historical SHA
+does not validate later working-tree changes.
 
 From `apps/mcp-server`, run serially:
 
@@ -31,6 +32,9 @@ unrelated changes.
 
 The checks cover TypeScript, protocol framing, async adapter behavior,
 transactions, fake-Live mapping, analysis, packaging, configuration, and
-installer contracts. They do not prove real Live connectivity, a supported
-Live version, realtime performance, hardware, accessibility, signing,
-notarization, or installer runtime on every platform.
+installer contracts. Confirm the branch and empty index before staging; review
+the explicit ownership allowlist and inspect the packed file list. They do not
+prove real Live connectivity, a supported Live version, realtime performance,
+hardware, accessibility, signing, notarization, or installer runtime on every
+platform. Missing, skipped, cancelled, stale-SHA, or unavailable jobs are not
+passing evidence.

@@ -11,7 +11,7 @@ export const LIVE_PROTOCOL_VERSION = "ableton-live/v1";
 
 export const LIVE_CAPABILITIES = [
   "session.read", "session.write", "tracks", "scenes", "clips", "notes",
-  "session.discovery", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write",
+  "session.discovery", "session.structure", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write",
   "arrangement.read", "arrangement.write", "audio", "warp", "takes",
   "automation", "devices", "racks", "chains", "parameters", "browser",
   "routing", "recording", "projects", "mixing", "transport", "max", "osc",
@@ -26,7 +26,7 @@ export const LIVE_UNAVAILABLE_CAPABILITIES = [
 ] as const;
 
 export const SIMULATOR_CAPABILITIES = [
-  "session.read", "session.write", "tracks", "scenes", "clips", "notes", "session.discovery", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write", "arrangement.read", "arrangement.write", "transport", "subscriptions", "reconnect",
+  "session.read", "session.write", "tracks", "scenes", "clips", "notes", "session.discovery", "session.structure", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write", "arrangement.read", "arrangement.write", "transport", "subscriptions", "reconnect",
 ] as const satisfies readonly LiveCapability[];
 
 export type LiveCapability = typeof LIVE_CAPABILITIES[number];
@@ -63,6 +63,7 @@ export type LiveOperation =
   | "transport.set" | "scene.launch" | "clip.create" | "clip.delete"
   | "note.add" | "automation.add" | "audio.warp" | "take.add"
   | "parameter.set" | "routing.set" | "browser.search" | "locator.add" | "locator.delete"
+  | "track.create" | "track.delete" | "scene.create" | "scene.delete"
   | "max.message" | "osc.message";
 
 export interface LiveInvocation { operation: LiveOperation; args: Record<string, unknown>; }
@@ -177,6 +178,46 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         const clipRef = objectRef("ref");
         for (const track of this.state.tracks) { const index = track.clips.findIndex((clip) => clip.ref === clipRef); if (index >= 0) { track.clips.splice(index, 1); this.emit({ type: "object", ref: track.ref, payload: { operation, ref: clipRef } }); return { deleted: clipRef }; } }
         throw new Error(`unknown clip reference: ${clipRef}`);
+      }
+      case "track.create": {
+        const kind = args.kind === "audio" || args.kind === "midi" ? args.kind : undefined;
+        if (!kind) throw new TypeError("track kind must be audio or midi");
+        const name = stringArg("name");
+        const index = args.index === undefined ? this.state.tracks.length : args.index;
+        if (!Number.isInteger(index) || (index as number) < 0 || (index as number) > this.state.tracks.length) throw new RangeError("track index is invalid");
+        if (this.state.tracks.some((track) => track.name === name)) throw new Error("track name already exists");
+        const track: Track = { ref: ref("track", `track-${this.state.tracks.length + this.sequence + 1}`), name, kind, volume: 0.85, pan: 0, mute: false, solo: false, armed: false, clips: [], devices: [], sends: [0, 0] };
+        this.state.tracks.splice(index as number, 0, track);
+        this.emit({ type: "object", ref: track.ref, payload: { operation, track } });
+        return structuredClone(track);
+      }
+      case "track.delete": {
+        const trackRef = objectRef("ref");
+        const index = this.state.tracks.findIndex((track) => track.ref === trackRef);
+        if (index < 0) throw new Error(`unknown track reference: ${trackRef}`);
+        const [deleted] = this.state.tracks.splice(index, 1);
+        this.emit({ type: "object", ref: trackRef, payload: { operation, track: deleted } });
+        return { deleted: trackRef };
+      }
+      case "scene.create": {
+        const name = stringArg("name");
+        const index = args.index === undefined ? this.state.scenes.length : args.index;
+        if (!Number.isInteger(index) || (index as number) < 0 || (index as number) > this.state.scenes.length) throw new RangeError("scene index is invalid");
+        if (this.state.scenes.some((scene) => scene.name === name)) throw new Error("scene name already exists");
+        const scene: Scene = { ref: ref("scene", `scene-${this.state.scenes.length + this.sequence + 1}`), name, index: index as number };
+        this.state.scenes.splice(index as number, 0, scene);
+        this.state.scenes.forEach((item, itemIndex) => { item.index = itemIndex; });
+        this.emit({ type: "object", ref: scene.ref, payload: { operation, scene } });
+        return structuredClone(this.state.scenes.find((item) => item.ref === scene.ref) as Scene);
+      }
+      case "scene.delete": {
+        const sceneRef = objectRef("ref");
+        const index = this.state.scenes.findIndex((scene) => scene.ref === sceneRef);
+        if (index < 0) throw new Error(`unknown scene reference: ${sceneRef}`);
+        this.state.scenes.splice(index, 1);
+        this.state.scenes.forEach((item, itemIndex) => { item.index = itemIndex; });
+        this.emit({ type: "object", ref: sceneRef, payload: { operation, ref: sceneRef } });
+        return { deleted: sceneRef };
       }
       case "note.add": this.addNote(objectRef("ref"), args.note as Note); return { added: true };
       case "automation.add": this.setAutomation(objectRef("ref"), args.point as AutomationPoint); return { added: true };

@@ -26,14 +26,16 @@ after creating and validating a version-2 configuration. The MCP lifecycle is
 | `audio_analyze` | Bounded analysis of caller-supplied PCM. | None |
 | `live_status` | Adapter protocol, epoch, connection, and capabilities. | None |
 | `live_snapshot` | Bounded authoritative snapshot when `session.read` is negotiated. | None |
-| `live_discover` | Paged track, scene, clip, or note discovery. | None |
+| `live_discover` | Bounded paged track, scene, clip, note, or locator discovery. | None |
+| `live_session_structure_preview` | Read-only plan for named MIDI/audio tracks and scenes. | None |
+| `live_session_structure_apply` | Confirmed, idempotent track/scene creation with verification. | Creates tracks/scenes |
 | `live_midi_clip_preview` | Read-only Session MIDI clip preview. | None |
 | `live_midi_clip_apply` | Confirmed, idempotent MIDI clip creation with verification. | Creates a clip and notes |
 | `live_arrangement_section_preview` | Read-only named start/end locator preview. | None |
 | `live_arrangement_section_apply` | Confirmed locator creation with compensation and verification. | Creates locators |
 | `live_tempo_preview` | Read-only tempo transaction preview. | None |
 | `live_tempo_apply` | Confirmed tempo change with postcondition verification. | Changes tempo |
-| `live_undo` | Guarded undo for applied tempo, MIDI, or Arrangement transactions. | Reverts a prior mutation |
+| `live_undo` | Guarded undo for structure, tempo, MIDI, or Arrangement transactions. | Reverts a prior mutation |
 
 Live tools remain unavailable unless the adapter reports the exact
 `ableton-live/v1` protocol, `connected: true`, a non-null epoch, and the
@@ -44,7 +46,9 @@ required negotiated capability.
 For any mutation: read status, discover current state, preview, confirm with
 the exact confirmation value, supply a fresh bounded idempotency key, verify
 authoritative state, and undo only if the captured epoch and postcondition
-still match. Arrangement section apply creates two distinct locators within
+still match. Session structure accepts bounded named MIDI/audio tracks and
+scenes; it does not mutate clips, devices, routing, transport, or existing
+objects. Arrangement section apply creates two distinct locators within
 `0..100000`, requires `start < end`, rejects name/position collisions, and
 compensates a partial creation where possible.
 
@@ -75,6 +79,10 @@ unsafe or missing secrets are rejected.
 Install the packaged Remote Script only to an explicit destination. The
 installer copies `AbletonMcpBridge/__init__.py`, the bridge module, and a
 manifest with hashes; it does not choose a Live folder automatically.
+
+When a bridge configuration is supplied to the installer, it also writes the
+non-secret `bridge-reference.json` beside the package. The reference points to
+the separate host configuration; the secret remains outside the package.
 
 ## Resources and prompts
 

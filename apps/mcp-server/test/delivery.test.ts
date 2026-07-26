@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFil
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { configForBridge, configForEntrypoint, diagnostics, generateSecret, installRemoteScript, isSupportedPlatform, migrateConfig, readConfig, readSecretFile, writeConfig, writeSecretFile } from "../src/delivery.js";
+import { configForBridge, configForEntrypoint, diagnostics, generateSecret, installRemoteScript, isSupportedPlatform, migrateConfig, readConfig, readSecretFile, writeBridgeReference, writeConfig, writeSecretFile } from "../src/delivery.js";
 import { npmExecutable } from "../src/platform.js";
 
 test("writes a versioned config and replaces it only with explicit force", () => {
@@ -104,6 +104,18 @@ test("bridge configuration and secrets are explicit and fail closed", () => {
   assert.throws(() => configForBridge("/opt/cli.js", { host: "127.999.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000 }), /loopback/);
 });
 
+test("writes only an absolute non-secret bridge reference", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ableton-mcp-reference-"));
+  const config = join(directory, "bridge.json");
+  const reference = join(directory, "AbletonMcpBridge", "bridge-reference.json");
+  mkdirSync(join(directory, "AbletonMcpBridge"));
+  writeFileSync(config, "{}", { mode: 0o600 });
+  writeBridgeReference(reference, config);
+  assert.deepEqual(JSON.parse(readFileSync(reference, "utf8")), { config });
+  assert.doesNotMatch(readFileSync(reference, "utf8"), /secret|password/i);
+  assert.throws(() => writeBridgeReference(reference, config), /overwrite/);
+});
+
 test("Remote Script installer is explicit, atomic, and preserves a recoverable backup", () => {
   const directory = mkdtempSync(join(tmpdir(), "ableton-mcp-install-"));
   const sourceDirectory = join(directory, "source");
@@ -113,7 +125,7 @@ test("Remote Script installer is explicit, atomic, and preserves a recoverable b
   writeFileSync(source, "production-remote-script");
   mkdirSync(join(sourceDirectory, "AbletonMcpBridge"));
   writeFileSync(join(sourceDirectory, "AbletonMcpBridge", "__init__.py"), "# production package");
-  assert.deepEqual(installRemoteScript(source, destination, { dryRun: true }), { installed: destination, backup: null, dryRun: true });
+  assert.deepEqual(installRemoteScript(source, destination, { dryRun: true }), { installed: destination, backup: null, reference: null, dryRun: true });
   const first = installRemoteScript(source, destination);
   assert.equal(readFileSync(join(destination, "ableton_mcp_remote_script.py"), "utf8"), "production-remote-script");
   writeFileSync(source, "replacement");

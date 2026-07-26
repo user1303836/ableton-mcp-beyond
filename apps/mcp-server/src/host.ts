@@ -31,6 +31,14 @@ interface ArrangementTransaction {
   prior: Array<{ ref: LiveRef; name: string; position: number }>; created?: Array<{ ref: LiveRef; name: string; position: number }>;
   expiresAt: number; state: "previewed" | "applied" | "uncertain" | "undone"; applyKey?: string; undoKey?: string;
 }
+interface SessionStructureItem { kind: "track" | "scene"; name: string; trackKind?: "audio" | "midi"; index: number; }
+interface SessionStructureTransaction {
+  id: string; epoch: number; revision: string; proposed: SessionStructureItem[];
+  priorTracks: Array<{ ref: LiveRef; name: string; kind: string; index: number }>;
+  priorScenes: Array<{ ref: LiveRef; name: string; index: number }>;
+  created?: Array<{ ref: LiveRef; kind: "track" | "scene"; name: string; index: number }>;
+  expiresAt: number; state: "previewed" | "applied" | "uncertain" | "undone"; applyKey?: string; undoKey?: string;
+}
 
 const REQUEST_ID_MAX_LENGTH = 128;
 const SERVER_VERSION = "0.1.0";
@@ -116,6 +124,18 @@ const implementedTools = [
     description: "Read bounded, deterministic Session objects without changing Live state.",
     inputSchema: { type: "object", properties: { kind: { type: "string", enum: ["track", "scene", "clip", "note"] }, limit: { type: "integer", minimum: 1, maximum: 100 }, cursor: { type: "string", maxLength: 256 } }, required: ["kind"], additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  {
+    name: "live_session_structure_preview",
+    description: "Preview bounded MIDI/audio track and named scene creation without mutation.",
+    inputSchema: { type: "object", properties: { tracks: { type: "array", maxItems: 16 }, scenes: { type: "array", maxItems: 32 } }, required: ["tracks", "scenes"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  {
+    name: "live_session_structure_apply",
+    description: "Apply a confirmed Session-structure preview once, verify authoritative ordering, and support guarded undo.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string" }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
   },
   {
     name: "live_midi_clip_preview",
@@ -240,6 +260,7 @@ export class McpHost {
   private readonly toolCallTimes: number[] = [];
   private readonly transactions = new Map<string, TempoTransaction>();
   private readonly arrangementTransactions = new Map<string, ArrangementTransaction>();
+  private readonly sessionStructureTransactions = new Map<string, SessionStructureTransaction>();
   private readonly midiTransactions: SessionMidiTransactionManager;
 
   public constructor(private readonly adapter: LiveAdapter = new UnavailableLiveAdapter()) { this.midiTransactions = new SessionMidiTransactionManager(adapter); }
@@ -249,7 +270,7 @@ export class McpHost {
   public async handleAsync(input: unknown): Promise<JsonObject | null> {
     if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handle(input);
     const name = input.params.name;
-    if (!["live_snapshot", "live_discover", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"].includes(name)) return this.handle(input);
+    if (![ "live_session_structure_preview", "live_session_structure_apply", "live_snapshot", "live_discover", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"].includes(name)) return this.handle(input);
     // Reuse the synchronous validator and request bookkeeping, then execute the
     // adapter operation asynchronously. Invalid requests never reach Live.
     const id = this.requestId(input.id);
@@ -261,6 +282,8 @@ export class McpHost {
     if (!this.initialized) return error(id, -32002, "Server has not been initialized");
     if (!this.initializedNotification && name !== "live_status") return error(id, -32002, "Server has not received initialized notification");
     try {
+      if (name === "live_session_structure_preview") return await this.liveSessionStructurePreviewAsync(id, input.params.arguments);
+      if (name === "live_session_structure_apply") return await this.liveSessionStructureApplyAsync(id, input.params.arguments);
       if (name === "live_snapshot") return await this.liveSnapshotAsync(id, input.params.arguments);
       if (name === "live_discover") return await this.liveDiscoverAsync(id, input.params.arguments);
       if (name === "live_midi_clip_preview") return await this.liveMidiPreviewAsync(id, input.params.arguments);
@@ -277,6 +300,75 @@ export class McpHost {
     const value = this.adapter as Partial<AsyncLiveAdapter>;
     if (typeof value.snapshotAsync !== "function" || typeof value.getAsync !== "function" || typeof value.setAsync !== "function" || typeof value.invokeAsync !== "function") throw new Error("live adapter does not support asynchronous operations");
     return this.adapter as AsyncLiveAdapter;
+  }
+
+  private validateStructureItems(params: unknown): { tracks: SessionStructureItem[]; scenes: SessionStructureItem[] } | undefined {
+    if (!isObject(params) || !hasOnly(params, ["tracks", "scenes"]) || !Array.isArray(params.tracks) || !Array.isArray(params.scenes) || params.tracks.length > 16 || params.scenes.length > 32) return undefined;
+    const names = new Set<string>();
+    const parse = (items: unknown[], kind: "track" | "scene"): SessionStructureItem[] | undefined => {
+      const result: SessionStructureItem[] = [];
+      for (const [position, item] of items.entries()) {
+        if (!isObject(item) || !hasOnly(item, kind === "track" ? ["name", "kind", "index"] : ["name", "index"]) || !isNonEmptyString(item.name, 128) || names.has(item.name)) return undefined;
+        names.add(item.name);
+        if (kind === "track" && item.kind !== "audio" && item.kind !== "midi") return undefined;
+        const index = item.index === undefined ? position : item.index;
+        if (!isIntegerInRange(index, 0, kind === "track" ? 1024 : 1024)) return undefined;
+        result.push({ kind, name: item.name, ...(kind === "track" ? { trackKind: item.kind as "audio" | "midi" } : {}), index });
+      }
+      return result;
+    };
+    const tracks = parse(params.tracks, "track"); const scenes = parse(params.scenes, "scene");
+    return tracks && scenes ? { tracks, scenes } : undefined;
+  }
+
+  private structureRevision(snapshot: LiveSnapshot): string {
+    return `${snapshot.tracks.map((item, index) => `${item.ref}:${item.name}:${item.kind}:${index}`).join("|")}#${snapshot.scenes.map((item, index) => `${item.ref}:${item.name}:${index}`).join("|")}`;
+  }
+
+  private async liveSessionStructurePreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    const proposed = this.validateStructureItems(params);
+    if (!proposed) return error(id, -32602, "tracks and scenes must contain bounded, unique, valid entries");
+    try {
+      const status = this.requireConnected("session.structure"); const snapshot = await this.asyncAdapter().snapshotAsync();
+      const existingNames = new Set([...snapshot.tracks.map((item) => item.name), ...snapshot.scenes.map((item) => item.name)]);
+      if ([...proposed.tracks, ...proposed.scenes].some((item) => existingNames.has(item.name))) throw new Error("track or scene name already exists");
+      const transaction: SessionStructureTransaction = {
+        id: `structure_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, revision: this.structureRevision(snapshot),
+        proposed: [...proposed.tracks, ...proposed.scenes], priorTracks: snapshot.tracks.map((item, index) => ({ ref: item.ref, name: item.name, kind: item.kind, index })),
+        priorScenes: snapshot.scenes.map((item, index) => ({ ref: item.ref, name: item.name, index })), expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed",
+      };
+      this.sessionStructureTransactions.set(transaction.id, transaction);
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, revision: transaction.revision, prior: { tracks: transaction.priorTracks, scenes: transaction.priorScenes }, proposed: transaction.proposed, impact: "creates-session-structure", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Session structure preview failed without mutation; discover current names and ordering."); }
+  }
+
+  private async liveSessionStructureApplyAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.sessionStructureTransactions.get(params.transactionId as string);
+    if (!transaction) return this.transactionError(id, "Unknown or expired Session-structure transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", created: transaction.created, idempotent: true });
+    if (transaction.state !== "previewed" || transaction.expiresAt <= Date.now()) return this.transactionError(id, "Session-structure preview expired or is no longer applicable");
+    try {
+      const status = this.requireConnected("session.structure"); if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter(); const current = await adapter.snapshotAsync();
+      if (this.structureRevision(current) !== transaction.revision) return this.transactionError(id, "Session structure changed since preview");
+      const created: NonNullable<SessionStructureTransaction["created"]> = [];
+      try {
+        for (const item of transaction.proposed) {
+          const operation = item.kind === "track" ? "track.create" : "scene.create";
+          const result = await adapter.invokeAsync({ operation, args: { name: item.name, ...(item.kind === "track" ? { kind: item.trackKind } : {}), index: item.index } }) as { ref?: LiveRef; name?: string; index?: number };
+          if (!result?.ref || result.name !== item.name) throw new Error(`Live did not confirm created ${item.kind}`);
+          created.push({ ref: result.ref, kind: item.kind, name: result.name, index: result.index ?? item.index });
+        }
+        const verified = await adapter.snapshotAsync();
+        if (!created.every((item) => item.kind === "track" ? verified.tracks.some((track) => track.ref === item.ref && track.name === item.name) : verified.scenes.some((scene) => scene.ref === item.ref && scene.name === item.name))) throw new Error("Live did not confirm Session structure");
+      } catch (cause) {
+        for (const item of [...created].reverse()) { try { await adapter.invokeAsync({ operation: item.kind === "track" ? "track.delete" : "scene.delete", args: { ref: item.ref } }); } catch { transaction.state = "uncertain"; transaction.created = created; throw new Error("Session-structure apply compensation failed; read authoritative structure before retrying"); } }
+        throw cause;
+      }
+      transaction.created = created; transaction.applyKey = params.idempotencyKey as string; transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", created, epoch: transaction.epoch, idempotent: false });
+    } catch (cause) { return this.adapterToolError(id, cause, "Session-structure apply is uncertain; read authoritative tracks and scenes before retrying."); }
   }
 
   private async liveSnapshotAsync(id: RequestId, params: unknown): Promise<JsonObject> {
@@ -370,6 +462,19 @@ export class McpHost {
     if (!this.validTransactionParams(params, "undo")) return error(id, -32602, "transactionId, confirmation=undo, and idempotencyKey are required");
     const transaction = this.transactions.get(params.transactionId as string);
     if (!transaction && String(params.transactionId).startsWith("midi_")) return this.successText(id, await this.midiTransactions.undoAsync(params.transactionId as string, params.confirmation, params.idempotencyKey as string));
+    if (!transaction && String(params.transactionId).startsWith("structure_")) {
+      const structure = this.sessionStructureTransactions.get(params.transactionId as string);
+      if (!structure || structure.state === "uncertain") return this.transactionError(id, "Session-structure state is uncertain; read authoritative tracks and scenes before undo");
+      if (structure.state !== "applied" || !structure.created) return this.transactionError(id, "Only an applied Session-structure transaction can be undone");
+      if (structure.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: structure.id, state: "undone", idempotent: true });
+      const status = this.requireConnected("session.structure"); if (status.epoch !== structure.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+      const adapter = this.asyncAdapter(); const current = await adapter.snapshotAsync();
+      if (!structure.created.every((item) => item.kind === "track" ? current.tracks.some((track) => track.ref === item.ref && track.name === item.name) : current.scenes.some((scene) => scene.ref === item.ref && scene.name === item.name))) return this.transactionError(id, "Session structure changed after apply; undo refused");
+      try { for (const item of [...structure.created].reverse()) await adapter.invokeAsync({ operation: item.kind === "track" ? "track.delete" : "scene.delete", args: { ref: item.ref } }); }
+      catch (cause) { structure.state = "uncertain"; return this.adapterToolError(id, cause, "Session-structure undo is uncertain; inspect authoritative tracks and scenes."); }
+      structure.state = "undone"; structure.undoKey = params.idempotencyKey as string;
+      return this.successText(id, { transactionId: structure.id, state: "undone", restored: { tracks: structure.priorTracks, scenes: structure.priorScenes }, idempotent: false });
+    }
     if (!transaction && String(params.transactionId).startsWith("arrangement_")) {
       const arrangement = this.arrangementTransactions.get(params.transactionId as string);
       if (!arrangement || arrangement.state === "uncertain") return this.transactionError(id, "Arrangement state is uncertain; read authoritative locators before undo");
@@ -488,7 +593,7 @@ export class McpHost {
       return error(id, -32602, "Invalid tools/call parameters");
     }
     if (params.arguments !== undefined && !isObject(params.arguments)) return error(id, -32602, "Tool arguments must be an object");
-    const argumentTools = new Set(["audio_analyze", "live_discover", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+    const argumentTools = new Set(["audio_analyze", "live_discover", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
     if (!argumentTools.has(params.name) && params.arguments !== undefined && Object.keys(params.arguments as JsonObject).length !== 0) {
       return error(id, -32602, "Tool arguments must be an empty object");
     }
@@ -501,6 +606,8 @@ export class McpHost {
     if (params.name === "live_status") return this.liveStatus(id);
     if (params.name === "live_snapshot") return this.liveSnapshot(id);
     if (params.name === "live_discover") return this.liveDiscover(id, params.arguments);
+    if (params.name === "live_session_structure_preview") return this.liveSessionStructurePreview(id, params.arguments);
+    if (params.name === "live_session_structure_apply") return this.liveSessionStructureApply(id, params.arguments);
     if (params.name === "live_midi_clip_preview") return this.liveMidiPreview(id, params.arguments);
     if (params.name === "live_midi_clip_apply") return this.liveMidiApply(id, params.arguments);
     if (params.name === "live_arrangement_section_preview") return this.liveArrangementPreview(id, params.arguments);
@@ -551,6 +658,7 @@ export class McpHost {
       "live.status",
       ...(live.capabilities.includes("session.read") ? ["live.snapshot"] : []),
       ...(live.capabilities.includes("session.discovery") ? ["live.discover"] : []),
+      ...(live.capabilities.includes("session.structure") ? ["live.session.structure.preview", "live.session.structure.apply", "live.session.structure.undo"] : []),
       ...(live.capabilities.includes("session.midi_clip.create") && live.capabilities.includes("session.midi_note.write") ? ["live.midi_clip.preview", "live.midi_clip.apply", "live.midi_clip.undo"] : []),
       ...(live.capabilities.includes("transport") ? ["live.tempo.preview", "live.tempo.apply", "live.undo"] : []),
       ...(live.capabilities.includes("arrangement.read") ? ["live.arrangement.section.preview"] : []),
@@ -561,6 +669,7 @@ export class McpHost {
       ...LIVE_UNAVAILABLE_CAPABILITIES.filter((capability) => !live.capabilities.includes(capability)),
       ...(live.capabilities.includes("session.read") ? [] : ["live.snapshot"]),
       ...(live.capabilities.includes("session.discovery") ? [] : ["live.discover"]),
+      ...(live.capabilities.includes("session.structure") ? [] : ["live.session.structure.preview", "live.session.structure.apply", "live.session.structure.undo"]),
       ...(live.capabilities.includes("session.midi_clip.create") && live.capabilities.includes("session.midi_note.write") ? [] : ["live.midi_clip.preview", "live.midi_clip.apply", "live.midi_clip.undo"]),
       ...(live.capabilities.includes("transport") ? [] : ["live.tempo.preview", "live.tempo.apply", "live.undo"]),
     ] : [...unavailableCapabilities, ...LIVE_CAPABILITIES];
@@ -586,6 +695,43 @@ export class McpHost {
     if (!isObject(params) || !hasOnly(params, ["kind", "limit", "cursor"]) || !["track", "scene", "clip", "note"].includes(String(params.kind)) || (params.limit !== undefined && !isIntegerInRange(params.limit, 1, 100)) || (params.cursor !== undefined && !isNonEmptyString(params.cursor, 256))) return error(id, -32602, "kind, limit, and cursor are invalid");
     try { return this.successText(id, discoverSession(this.adapter, params.kind as "track" | "scene" | "clip" | "note", (params.limit as number | undefined) ?? 50, params.cursor as string | undefined)); }
     catch (cause) { return this.adapterToolError(id, cause, "Discovery is unavailable; verify the Live adapter and request a fresh page."); }
+  }
+
+  private liveSessionStructurePreview(id: RequestId, params: unknown): JsonObject {
+    const proposed = this.validateStructureItems(params);
+    if (!proposed) return error(id, -32602, "tracks and scenes must contain bounded, unique, valid entries");
+    try {
+      const status = this.requireConnected("session.structure"); const snapshot = this.adapter.snapshot();
+      const existingNames = new Set([...snapshot.tracks.map((item) => item.name), ...snapshot.scenes.map((item) => item.name)]);
+      if ([...proposed.tracks, ...proposed.scenes].some((item) => existingNames.has(item.name))) throw new Error("track or scene name already exists");
+      const transaction: SessionStructureTransaction = { id: `structure_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, revision: this.structureRevision(snapshot), proposed: [...proposed.tracks, ...proposed.scenes], priorTracks: snapshot.tracks.map((item, index) => ({ ref: item.ref, name: item.name, kind: item.kind, index })), priorScenes: snapshot.scenes.map((item, index) => ({ ref: item.ref, name: item.name, index })), expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.sessionStructureTransactions.set(transaction.id, transaction);
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, revision: transaction.revision, prior: { tracks: transaction.priorTracks, scenes: transaction.priorScenes }, proposed: transaction.proposed, impact: "creates-session-structure", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Session structure preview failed without mutation; discover current names and ordering."); }
+  }
+
+  private liveSessionStructureApply(id: RequestId, params: unknown): JsonObject {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.sessionStructureTransactions.get(params.transactionId as string);
+    if (!transaction) return this.transactionError(id, "Unknown or expired Session-structure transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", created: transaction.created, idempotent: true });
+    if (transaction.state !== "previewed" || transaction.expiresAt <= Date.now()) return this.transactionError(id, "Session-structure preview expired or is no longer applicable");
+    try {
+      const status = this.requireConnected("session.structure"); if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const current = this.adapter.snapshot(); if (this.structureRevision(current) !== transaction.revision) return this.transactionError(id, "Session structure changed since preview");
+      const created: NonNullable<SessionStructureTransaction["created"]> = [];
+      try {
+        for (const item of transaction.proposed) {
+          const operation = item.kind === "track" ? "track.create" : "scene.create";
+          const result = this.adapter.invoke({ operation, args: { name: item.name, ...(item.kind === "track" ? { kind: item.trackKind } : {}), index: item.index } }) as { ref?: LiveRef; name?: string; index?: number };
+          if (!result?.ref || result.name !== item.name) throw new Error(`Live did not confirm created ${item.kind}`);
+          created.push({ ref: result.ref, kind: item.kind, name: result.name, index: result.index ?? item.index });
+        }
+        const verified = this.adapter.snapshot(); if (!created.every((item) => item.kind === "track" ? verified.tracks.some((track) => track.ref === item.ref && track.name === item.name) : verified.scenes.some((scene) => scene.ref === item.ref && scene.name === item.name))) throw new Error("Live did not confirm Session structure");
+      } catch (cause) { for (const item of [...created].reverse()) { try { this.adapter.invoke({ operation: item.kind === "track" ? "track.delete" : "scene.delete", args: { ref: item.ref } }); } catch { transaction.state = "uncertain"; transaction.created = created; throw new Error("Session-structure apply compensation failed; read authoritative structure before retrying"); } } throw cause; }
+      transaction.created = created; transaction.applyKey = params.idempotencyKey as string; transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", created, epoch: transaction.epoch, idempotent: false });
+    } catch (cause) { return this.adapterToolError(id, cause, "Session-structure apply is uncertain; read authoritative tracks and scenes before retrying."); }
   }
 
   private liveMidiPreview(id: RequestId, params: unknown): JsonObject {
@@ -675,6 +821,19 @@ export class McpHost {
     if (!transaction && String(params.transactionId).startsWith("midi_")) {
       try { return this.successText(id, this.midiTransactions.undo(params.transactionId as string, params.confirmation, params.idempotencyKey as string)); }
       catch (cause) { return this.adapterToolError(id, cause, "MIDI undo refused; inspect the target clip and connection epoch."); }
+    }
+    if (!transaction && String(params.transactionId).startsWith("structure_")) {
+      const structure = this.sessionStructureTransactions.get(params.transactionId as string);
+      if (!structure || structure.state === "uncertain") return this.transactionError(id, "Session-structure state is uncertain; read authoritative tracks and scenes before undo");
+      if (structure.state !== "applied" || !structure.created) return this.transactionError(id, "Only an applied Session-structure transaction can be undone");
+      if (structure.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: structure.id, state: "undone", idempotent: true });
+      try {
+        const status = this.requireConnected("session.structure"); if (status.epoch !== structure.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+        const current = this.adapter.snapshot(); if (!structure.created.every((item) => item.kind === "track" ? current.tracks.some((track) => track.ref === item.ref && track.name === item.name) : current.scenes.some((scene) => scene.ref === item.ref && scene.name === item.name))) return this.transactionError(id, "Session structure changed after apply; undo refused");
+        for (const item of [...structure.created].reverse()) this.adapter.invoke({ operation: item.kind === "track" ? "track.delete" : "scene.delete", args: { ref: item.ref } });
+        structure.state = "undone"; structure.undoKey = params.idempotencyKey as string;
+        return this.successText(id, { transactionId: structure.id, state: "undone", restored: { tracks: structure.priorTracks, scenes: structure.priorScenes }, idempotent: false });
+      } catch (cause) { structure.state = "uncertain"; return this.adapterToolError(id, cause, "Session-structure undo is uncertain; inspect authoritative tracks and scenes."); }
     }
     if (!transaction && String(params.transactionId).startsWith("arrangement_")) {
       const arrangement = this.arrangementTransactions.get(params.transactionId as string);

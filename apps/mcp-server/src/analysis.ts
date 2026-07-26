@@ -68,6 +68,8 @@ export interface PcmAnalysis {
     bandCount: number;
     frequencyRangeHz: { min: number; max: number };
     method: "hann-windowed-fft";
+    window: "hann";
+    hopSamples: number;
     channelAggregation: "per-channel-and-aggregate";
     normalization: "mean-square-per-frame";
     lossy: true;
@@ -166,7 +168,10 @@ function analyzeSpectrum(samples: ArrayLike<number>, sampleRate: number, frameSi
 
 function waveform(samples: Float64Array, channels: number, sampleRate: number): PcmAnalysis["waveform"] {
   const frames = samples.length / channels;
-  const binCount = Math.min(MAX_WAVEFORM_BINS, Math.max(1, frames));
+  // A lossy envelope must never degenerate into a sample-for-sample export.
+  // There is no bounded, non-lossy envelope for a one-frame input, so return
+  // an empty summary rather than leaking that frame as a single bin.
+  const binCount = frames <= 1 ? 0 : Math.min(MAX_WAVEFORM_BINS, frames - 1);
   const bins = Array.from({ length: binCount }, (_, bin) => {
     const start = Math.floor((bin * frames) / binCount);
     const end = Math.max(start + 1, Math.floor(((bin + 1) * frames) / binCount));
@@ -195,13 +200,17 @@ function timeFrequency(samples: Float64Array, channels: number, sampleRate: numb
     const highHz = minFrequency * Math.pow(maxFrequency / minFrequency, (index + 1) / MAX_TIME_FREQUENCY_BANDS);
     return { lowHz, highHz, centerHz: Math.sqrt(lowHz * highHz) };
   });
+  // Deinterleave once. The previous implementation rebuilt one full mono
+  // buffer for every channel on every spectral frame, turning the declared
+  // maximum input into avoidable O(frames * channels * spectralFrames) copying.
+  const channelSamples = Array.from({ length: channels }, (_, channel) => {
+    const result = new Float64Array(Math.ceil(frames));
+    for (let frame = 0; frame < frames; frame += 1) result[frame] = samples[frame * channels + channel] ?? 0;
+    return result;
+  });
   const output = Array.from({ length: frameCount }, (_, index) => {
     const start = Math.floor((index * Math.max(frames - frameSize, 0)) / Math.max(frameCount - 1, 1));
-    const perChannel = Array.from({ length: channels }, (_, channel) => {
-      const mono = new Float64Array(Math.ceil(frames));
-      for (let frame = 0; frame < frames; frame += 1) mono[frame] = samples[frame * channels + channel] ?? 0;
-      return fftMagnitudes(mono, start, sampleRate, frameSize).magnitudes;
-    });
+    const perChannel = channelSamples.map((channel) => fftMagnitudes(channel, start, sampleRate, frameSize).magnitudes);
     const bandValues = bands.map((band) => {
       const channelEnergy = perChannel.map((magnitudes) => {
         let sum = 0; let count = 0;
@@ -216,12 +225,12 @@ function timeFrequency(samples: Float64Array, channels: number, sampleRate: numb
     });
     return { startSeconds: start / sampleRate, endSeconds: Math.min(start + frameSize, frames) / sampleRate, bands: bandValues };
   });
-  return { frames: output, frameCount, bandCount: bands.length, frequencyRangeHz: { min: minFrequency, max: maxFrequency }, method: "hann-windowed-fft", channelAggregation: "per-channel-and-aggregate", normalization: "mean-square-per-frame", lossy: true };
+  return { frames: output, frameCount, bandCount: bands.length, frequencyRangeHz: { min: minFrequency, max: maxFrequency }, method: "hann-windowed-fft", window: "hann", hopSamples: frameSize, channelAggregation: "per-channel-and-aggregate", normalization: "mean-square-per-frame", lossy: true };
 }
 
 function transients(samples: Float64Array, sampleRate: number): PcmAnalysis["transients"] {
   let peakCount = 0; let strongestIndex = -1; let strongestAmplitude = 0; let maximum = 0;
-  for (const sample of samples) maximum = Math.max(maximum, sample);
+  for (const sample of samples) maximum = Math.max(maximum, Math.abs(sample));
   const threshold = Math.max(0.25, Math.min(0.9, maximum * 0.5));
   const refractory = Math.max(1, Math.floor(sampleRate * 0.01)); let lastPeak = -refractory;
   for (let index = 0; index < samples.length; index += 1) { const amplitude = Math.abs(samples[index] ?? 0); const previous = Math.abs(samples[index - 1] ?? 0); const next = Math.abs(samples[index + 1] ?? 0); if (amplitude >= threshold && amplitude >= previous && amplitude > next && index - lastPeak >= refractory) { peakCount += 1; lastPeak = index; if (amplitude > strongestAmplitude) { strongestAmplitude = amplitude; strongestIndex = index; } } }

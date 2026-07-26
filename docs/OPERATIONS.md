@@ -27,9 +27,11 @@ manufactured.
 
 Use `server_status` and `capabilities` after initialization. `live_status`
 reports the negotiated protocol, epoch, adapter kind, connection state, and
-operations. `npm run diagnostics -- --config <path>` performs local readiness
-checks and, for version 2, one authenticated read-only status probe. A port,
-file, process, simulator, or installed package is not Live connectivity.
+capabilities. `live_discover` is authoritative only for the connected adapter
+and negotiated kind; simulator and fake-Live results are deterministic
+contract evidence. `npm run diagnostics -- --config <path>` performs local
+readiness checks and, for version 2, one authenticated read-only status probe.
+A port, file, process, simulator, or installed package is not Live connectivity.
 
 ## Limits and shutdown
 
@@ -37,14 +39,17 @@ Input frames are limited to 64 MiB. Audio is limited as documented in the user
 guide and to 120 calls per rolling minute. The stdio path preserves response
 framing and observes output backpressure. Close stdin for normal completion or
 terminate the supervisor; the host closes the adapter and rejects pending
-remote requests. There is no durable session resume.
+remote requests. A timeout or cancellation can invalidate the sequenced bridge
+session. There is no durable session resume; reinitialize and obtain a fresh
+epoch after restart or reconnect.
 
 ## Remote Script installation
 
 Use `node dist/src/install-remote-script.js --destination <absolute-path>`.
 `--dry-run` inspects the target. Installation refuses symlink trees and
 overwrite by default. `--force` moves an existing target to a recoverable
-timestamped backup before replacement. Never auto-select a Live destination.
+timestamped backup before replacement. With a configuration path it also
+installs the non-secret bridge reference. Never auto-select a Live destination.
 
 ## Evidence
 
