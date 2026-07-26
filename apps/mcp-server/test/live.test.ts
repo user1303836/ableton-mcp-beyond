@@ -52,6 +52,22 @@ test("simulator exposes domain objects and bounded editing operations", () => {
   assert.throws(() => live.setWarp(clip.ref, "yes" as unknown as boolean), /warp must be boolean/);
 });
 
+test("simulator executes session, media, routing, browser, and realtime operations", () => {
+  const live = new DeterministicLiveSimulator();
+  const initial = live.snapshot();
+  const track = initial.tracks[0]!;
+  const created = live.invoke({ operation: "clip.create", args: { trackRef: track.ref, kind: "audio", name: "Vocal", start: 4, length: 8 } }) as { ref: `${string}:${string}` };
+  live.invoke({ operation: "audio.warp", args: { ref: created.ref, enabled: true } });
+  live.invoke({ operation: "take.add", args: { ref: created.ref, take: "comp-1" } });
+  live.invoke({ operation: "routing.set", args: { ref: track.ref, input: "Ext. In 1", output: "Master" } });
+  const locator = live.invoke({ operation: "locator.add", args: { name: "Verse", position: 4 } }) as { name: string };
+  assert.equal(locator.name, "Verse");
+  assert.equal((live.invoke({ operation: "browser.search", args: { query: "util" } }) as unknown[]).length, 1);
+  live.invoke({ operation: "transport.set", args: { property: "position", value: 4 } });
+  assert.equal(live.snapshot().set.position, 4);
+  assert.throws(() => live.invoke({ operation: "max.message", args: { address: "", values: [] } }), /non-empty string/);
+});
+
 test("loopback authenticates, rejects replay/tampering, and forwards subscriptions", () => {
   const live = new DeterministicLiveSimulator();
   const events: unknown[] = [];
@@ -77,6 +93,15 @@ test("loopback accepts valid nonces out of order and rejects unknown fields", ()
   assert.equal(transport.handle(second).ok, true);
   const extra = { ...transport.authenticate({ version: LOOPBACK_PROTOCOL_VERSION, id: "third", method: "status", nonce: "bbbbbbbbbbbbbbbb3" }), unexpected: true };
   assert.equal(transport.handle(extra).ok, false);
+});
+
+test("loopback authenticates bounded domain invocations", () => {
+  const live = new DeterministicLiveSimulator();
+  const transport = new AuthenticatedLoopback(live, secret);
+  const request = transport.authenticate({ version: LOOPBACK_PROTOCOL_VERSION, id: "invoke", method: "invoke", operation: "browser.search", args: { query: "kick" }, nonce: "invoke-nonce-0001" });
+  const result = transport.handle(request);
+  assert.equal(result.ok, true);
+  assert.equal((result.result as unknown[]).length, 1);
 });
 
 test("loopback rejects oversized nonces before retaining them", () => {

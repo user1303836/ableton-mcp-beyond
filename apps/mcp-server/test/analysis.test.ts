@@ -46,8 +46,10 @@ test("rejects unsafe and malformed input", () => {
 test("enforces sample and duration limits before reading untrusted sample storage", () => {
   const tooManySamples = { length: MAX_ANALYSIS_SAMPLES + 1 } as ArrayLike<number>;
   const tooLong = { length: 8_000 * MAX_ANALYSIS_SECONDS + 1 } as ArrayLike<number>;
+  const negativeLength = { length: -1 } as ArrayLike<number>;
   assert.throws(() => analyzePcm({ samples: tooManySamples, sampleRate: 8_000 }), /samples must contain/);
   assert.throws(() => analyzePcm({ samples: tooLong, sampleRate: 8_000 }), /duration exceeds/);
+  assert.throws(() => analyzePcm({ samples: negativeLength, sampleRate: 8_000 }), /samples must contain/);
 });
 
 test("keeps spectral work bounded and remediation advisory at each threshold", () => {

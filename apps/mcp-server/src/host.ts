@@ -1,5 +1,7 @@
 import type { Readable, Writable } from "node:stream";
+import { randomBytes } from "node:crypto";
 import { analyzePcm, decodeFloat32Le } from "./analysis.js";
+import { LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_UNAVAILABLE_CAPABILITIES, UnavailableLiveAdapter, type LiveAdapter, type LiveRef, type LiveSnapshot, type LiveStatus } from "./live.js";
 import { serveStdio } from "./stdio.js";
 
 export const PROTOCOL_VERSION = "2025-11-25";
@@ -9,9 +11,24 @@ const MAX_TOOL_CALLS_PER_MINUTE = 120;
 
 type JsonObject = Record<string, unknown>;
 type RequestId = string | number;
+type TempoTransactionState = "previewed" | "applied" | "undone";
+interface TempoTransaction {
+  id: string;
+  setRef: LiveRef;
+  priorTempo: number;
+  proposedTempo: number;
+  appliedTempo?: number;
+  epoch: number;
+  expiresAt: number;
+  state: TempoTransactionState;
+  applyKey?: string;
+  undoKey?: string;
+}
 
 const REQUEST_ID_MAX_LENGTH = 128;
 const SERVER_VERSION = "0.1.0";
+const TRANSACTION_TTL_MS = 30_000;
+const MAX_TRANSACTIONS = 256;
 
 const resources = [
   { uri: "ableton://capabilities", name: "Capability catalog", description: "Implemented and unavailable host capabilities.", mimeType: "application/json" },
@@ -27,6 +44,11 @@ const prompts = [
       { name: "channels", description: "Optional interleaved channel count.", required: false },
     ],
   },
+  {
+    name: "change_tempo_safely",
+    description: "Discover, preview, confirm, verify, and undo a reversible tempo change.",
+    arguments: [],
+  },
 ] as const;
 
 const safetyResource = [
@@ -38,27 +60,8 @@ const safetyResource = [
   "No tool starts playback, records, writes files, or mutates a project.",
 ].join("\n");
 
-export interface LiveStatus {
-  connected: false;
-  adapter: "unavailable";
-  epoch: null;
-  reason: "live-adapter-not-installed";
-}
-
-export interface LiveAdapter {
-  status(): LiveStatus;
-}
-
-export class UnavailableLiveAdapter implements LiveAdapter {
-  status(): LiveStatus {
-    return {
-      connected: false,
-      adapter: "unavailable",
-      epoch: null,
-      reason: "live-adapter-not-installed",
-    };
-  }
-}
+export { UnavailableLiveAdapter } from "./live.js";
+export type { LiveAdapter, LiveRef, LiveSnapshot, LiveStatus } from "./live.js";
 
 const implementedTools = [
   {
@@ -89,9 +92,54 @@ const implementedTools = [
     },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   },
+  {
+    name: "live_status",
+    description: "Return truthful Live-adapter status and negotiated capabilities without changing Live state.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  {
+    name: "live_snapshot",
+    description: "Read a bounded snapshot of the current Live Set through the configured adapter.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  {
+    name: "live_tempo_preview",
+    description: "Preview a reversible tempo change without mutating Live.",
+    inputSchema: {
+      type: "object",
+      properties: { tempo: { type: "number", minimum: 20, maximum: 999 } },
+      required: ["tempo"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  {
+    name: "live_tempo_apply",
+    description: "Apply an unexpired tempo preview after explicit confirmation and verify the authoritative result.",
+    inputSchema: {
+      type: "object",
+      properties: { transactionId: { type: "string" }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } },
+      required: ["transactionId", "confirmation", "idempotencyKey"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+  },
+  {
+    name: "live_undo",
+    description: "Undo a verified tempo change only when the current state still matches its postcondition.",
+    inputSchema: {
+      type: "object",
+      properties: { transactionId: { type: "string" }, confirmation: { type: "string", enum: ["undo"] }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } },
+      required: ["transactionId", "confirmation", "idempotencyKey"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+  },
 ] as const;
 
-const unavailableCapabilities = [
+const hostUnavailableCapabilities = [
   "live.mutations",
   "live.transport",
   "live.recording",
@@ -105,6 +153,18 @@ const unavailableCapabilities = [
   "delivery",
   "live.audio.analysis",
 ] as const;
+
+const unavailableCapabilities = [...hostUnavailableCapabilities, ...LIVE_UNAVAILABLE_CAPABILITIES] as const;
+const liveResource = { uri: "ableton://live-workflow", name: "Safe tempo workflow", description: "Discover, preview, confirm, apply, verify, and undo a tempo change.", mimeType: "text/markdown" } as const;
+const liveWorkflowResource = [
+  "# Safe tempo workflow",
+  "",
+  "1. Call live_status and live_snapshot to establish the adapter and epoch.",
+  "2. Call live_tempo_preview; preview never mutates Live and returns a transactionId.",
+  "3. Call live_tempo_apply with confirmation=apply and a fresh idempotencyKey.",
+  "4. Call live_snapshot to verify the authoritative tempo.",
+  "5. Call live_undo with confirmation=undo to restore the captured tempo when no newer change intervened.",
+].join("\n");
 
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -141,6 +201,7 @@ export class McpHost {
   private readonly seenIds = new Set<string>();
   private readonly idOrder: string[] = [];
   private readonly toolCallTimes: number[] = [];
+  private readonly transactions = new Map<string, TempoTransaction>();
 
   public constructor(private readonly adapter: LiveAdapter = new UnavailableLiveAdapter()) {}
 
@@ -233,15 +294,21 @@ export class McpHost {
       return error(id, -32602, "Invalid tools/call parameters");
     }
     if (params.arguments !== undefined && !isObject(params.arguments)) return error(id, -32602, "Tool arguments must be an object");
-    if (params.name !== "audio_analyze" && params.arguments !== undefined && Object.keys(params.arguments as JsonObject).length !== 0) {
+    const argumentTools = new Set(["audio_analyze", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+    if (!argumentTools.has(params.name) && params.arguments !== undefined && Object.keys(params.arguments as JsonObject).length !== 0) {
       return error(id, -32602, "Tool arguments must be an empty object");
     }
     if (params.name === "server_status") {
       return response(id, { content: [{ type: "text", text: JSON.stringify({ host: "ready", live: this.adapter.status() }) }], isError: false });
     }
     if (params.name === "capabilities") {
-      return response(id, { content: [{ type: "text", text: JSON.stringify({ implemented: ["server.status", "capabilities", "audio.analyze"], unavailable: unavailableCapabilities }) }], isError: false });
+      return response(id, { content: [{ type: "text", text: JSON.stringify(this.capabilityCatalog()) }], isError: false });
     }
+    if (params.name === "live_status") return this.liveStatus(id);
+    if (params.name === "live_snapshot") return this.liveSnapshot(id);
+    if (params.name === "live_tempo_preview") return this.liveTempoPreview(id, params.arguments);
+    if (params.name === "live_tempo_apply") return this.liveTempoApply(id, params.arguments);
+    if (params.name === "live_undo") return this.liveUndo(id, params.arguments);
     if (params.name === "audio_analyze") {
       const args = params.arguments;
       if (
@@ -276,8 +343,102 @@ export class McpHost {
 
   private listResources(id: RequestId, params: unknown): JsonObject {
     if (!this.utilityParams(params)) return error(id, -32602, "Invalid resources/list parameters");
-    return response(id, { resources });
+    return response(id, { resources: [...resources, liveResource] });
   }
+
+  private capabilityCatalog(): JsonObject {
+    const live = this.adapter.status();
+    const liveImplemented = live.connected ? ["live.status", "live.snapshot", "live.tempo.preview", "live.tempo.apply", "live.undo"] : [];
+    return {
+      implemented: ["server.status", "capabilities", "audio.analyze", ...liveImplemented],
+      unavailable: live.connected ? [...hostUnavailableCapabilities, ...LIVE_UNAVAILABLE_CAPABILITIES.filter((capability) => !live.capabilities.includes(capability))] : [...unavailableCapabilities, ...LIVE_CAPABILITIES],
+      live: { connected: live.connected, adapter: live.adapter, epoch: live.epoch, protocol: live.protocol, capabilities: live.capabilities },
+    };
+  }
+
+  private liveStatus(id: RequestId): JsonObject {
+    return response(id, { content: [{ type: "text", text: JSON.stringify(this.adapter.status()) }], isError: false });
+  }
+
+  private liveSnapshot(id: RequestId): JsonObject {
+    try {
+      const status = this.requireConnected();
+      return response(id, { content: [{ type: "text", text: JSON.stringify({ epoch: status.epoch, snapshot: this.adapter.snapshot() }) }], isError: false });
+    } catch (cause) { return this.adapterToolError(id, cause, "Snapshot unavailable. Verify the Live adapter connection and retry."); }
+  }
+
+  private liveTempoPreview(id: RequestId, params: unknown): JsonObject {
+    if (!isObject(params) || !hasOnly(params, ["tempo"]) || typeof params.tempo !== "number" || !Number.isFinite(params.tempo) || params.tempo < 20 || params.tempo > 999) return error(id, -32602, "tempo must be a finite number from 20 to 999");
+    try {
+      const status = this.requireConnected();
+      const snapshot = this.adapter.snapshot();
+      const transactionId = this.newTransactionId();
+      const transaction: TempoTransaction = { id: transactionId, setRef: snapshot.set.ref, priorTempo: snapshot.set.tempo, proposedTempo: params.tempo, epoch: status.epoch as number, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.transactions.set(transactionId, transaction);
+      this.evictTransactions();
+      return response(id, { content: [{ type: "text", text: JSON.stringify({ transactionId, epoch: transaction.epoch, target: transaction.setRef, priorTempo: transaction.priorTempo, proposedTempo: transaction.proposedTempo, impact: "audible-transport", confirmation: "apply", expiresAt: transaction.expiresAt }) }], isError: false });
+    } catch (cause) { return this.adapterToolError(id, cause, "Tempo preview unavailable. Verify the Live adapter connection and retry."); }
+  }
+
+  private liveTempoApply(id: RequestId, params: unknown): JsonObject {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.transactions.get(params.transactionId as string);
+    if (!transaction) return this.transactionError(id, "Unknown or expired transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", tempo: transaction.appliedTempo, idempotent: true });
+    if (transaction.state !== "previewed") return this.transactionError(id, "Transaction is no longer applicable");
+    try {
+      const status = this.requireConnected();
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const current = this.adapter.get(transaction.setRef) as LiveSnapshot["set"] | undefined;
+      if (!current || current.tempo !== transaction.priorTempo) return this.transactionError(id, "Tempo changed since preview; preview again");
+      this.adapter.set(transaction.setRef, "tempo", transaction.proposedTempo);
+      const applied = this.adapter.get(transaction.setRef) as LiveSnapshot["set"] | undefined;
+      if (!applied || applied.tempo !== transaction.proposedTempo) return this.transactionError(id, "Live did not confirm the requested tempo");
+      transaction.appliedTempo = applied.tempo;
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", tempo: applied.tempo, epoch: transaction.epoch, idempotent: false });
+    } catch (cause) { return this.adapterToolError(id, cause, "Tempo apply failed; inspect Live state before retrying."); }
+  }
+
+  private liveUndo(id: RequestId, params: unknown): JsonObject {
+    if (!this.validTransactionParams(params, "undo")) return error(id, -32602, "transactionId, confirmation=undo, and idempotencyKey are required");
+    const transaction = this.transactions.get(params.transactionId as string);
+    if (!transaction) return this.transactionError(id, "Unknown or expired transaction");
+    if (transaction.state === "undone" && transaction.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "undone", tempo: transaction.priorTempo, idempotent: true });
+    if (transaction.state !== "applied") return this.transactionError(id, "Only an applied tempo transaction can be undone");
+    try {
+      const status = this.requireConnected();
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+      const current = this.adapter.get(transaction.setRef) as LiveSnapshot["set"] | undefined;
+      if (!current || current.tempo !== transaction.appliedTempo) return this.transactionError(id, "Tempo changed after apply; undo refused");
+      this.adapter.set(transaction.setRef, "tempo", transaction.priorTempo);
+      const restored = this.adapter.get(transaction.setRef) as LiveSnapshot["set"] | undefined;
+      if (!restored || restored.tempo !== transaction.priorTempo) return this.transactionError(id, "Live did not confirm tempo restoration");
+      transaction.undoKey = params.idempotencyKey as string;
+      transaction.state = "undone";
+      return this.successText(id, { transactionId: transaction.id, state: "undone", tempo: restored.tempo, epoch: transaction.epoch, idempotent: false });
+    } catch (cause) { return this.adapterToolError(id, cause, "Tempo undo failed; inspect Live state before retrying."); }
+  }
+
+  private requireConnected(): LiveStatus {
+    const status = this.adapter.status();
+    if (!status.connected || status.epoch === null) throw new Error("live-adapter-unavailable");
+    return status;
+  }
+
+  private validTransactionParams(params: unknown, confirmation: "apply" | "undo"): params is JsonObject {
+    return isObject(params) && hasOnly(params, ["transactionId", "confirmation", "idempotencyKey"]) && isNonEmptyString(params.transactionId, 128) && params.confirmation === confirmation && isNonEmptyString(params.idempotencyKey, 128);
+  }
+
+  private newTransactionId(): string { return `tempo_${randomBytes(18).toString("base64url")}`; }
+  private evictTransactions(): void {
+    const now = Date.now();
+    for (const [id, transaction] of this.transactions) if (transaction.expiresAt <= now || this.transactions.size > MAX_TRANSACTIONS) this.transactions.delete(id);
+  }
+  private transactionError(id: RequestId, message: string): JsonObject { return response(id, { content: [{ type: "text", text: JSON.stringify({ reason: message, remediation: "Request a fresh tempo preview and confirm the exact transaction." }) }], isError: true }); }
+  private successText(id: RequestId, value: unknown): JsonObject { return response(id, { content: [{ type: "text", text: JSON.stringify(value) }], isError: false }); }
+  private adapterToolError(id: RequestId, cause: unknown, remediation: string): JsonObject { return response(id, { content: [{ type: "text", text: JSON.stringify({ reason: cause instanceof Error ? cause.message : "adapter request failed", remediation }) }], isError: true }); }
 
   private readResource(id: RequestId, params: unknown): JsonObject {
     if (!isObject(params) || !hasOnly(params, ["uri"]) || typeof params.uri !== "string") {
@@ -287,8 +448,9 @@ export class McpHost {
       return response(id, { contents: [{ uri: params.uri, mimeType: "text/markdown", text: safetyResource }] });
     }
     if (params.uri === "ableton://capabilities") {
-      return response(id, { contents: [{ uri: params.uri, mimeType: "application/json", text: JSON.stringify({ implemented: ["server.status", "capabilities", "audio.analyze"], unavailable: unavailableCapabilities }) }] });
+      return response(id, { contents: [{ uri: params.uri, mimeType: "application/json", text: JSON.stringify(this.capabilityCatalog()) }] });
     }
+    if (params.uri === liveResource.uri) return response(id, { contents: [{ uri: params.uri, mimeType: liveResource.mimeType, text: liveWorkflowResource }] });
     return error(id, -32002, "Resource not found", { uri: params.uri });
   }
 
@@ -303,6 +465,10 @@ export class McpHost {
     }
     if (params.arguments !== undefined && (!isObject(params.arguments) || !hasOnly(params.arguments, ["sampleRate", "channels"]))) {
       return error(id, -32602, "Invalid prompt arguments");
+    }
+    if (params.name === "change_tempo_safely") {
+      if (params.arguments !== undefined && (!isObject(params.arguments) || !hasOnly(params.arguments, []))) return error(id, -32602, "Invalid prompt arguments");
+      return response(id, { description: "Discover, preview, confirm, verify, and undo a tempo change", messages: [{ role: "user", content: textContent("Use live_status and live_snapshot, then live_tempo_preview, live_tempo_apply with explicit confirmation, live_snapshot for verification, and live_undo when restoration is requested.") }] });
     }
     if (params.name !== "analyze_audio") return error(id, -32002, "Prompt not found", { name: params.name });
     const argumentsObject = params.arguments as JsonObject | undefined;

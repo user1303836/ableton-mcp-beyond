@@ -40,6 +40,19 @@ class RemoteScriptTests(unittest.TestCase):
         unsigned = {"version": PROTOCOL, "id": "large", "method": "status", "nonce": "x" * 257}
         self.assertFalse(remote.dispatch({**unsigned, "mac": remote.sign(unsigned)})["ok"])
 
+    def test_invoke_forwards_domain_operations_with_bounded_args(self):
+        calls = []
+        remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: calls.append((method, request["operation"])) or {"accepted": True})
+        unsigned = {"version": PROTOCOL, "id": "invoke", "method": "invoke", "operation": "browser.search", "args": {"query": "utility"}, "nonce": "invoke-nonce-0001"}
+        result = remote.dispatch({**unsigned, "mac": remote.sign(unsigned)})
+        self.assertTrue(result["ok"])
+        self.assertEqual(calls, [("invoke", "browser.search")])
+
+    def test_invoke_rejects_unbounded_or_malformed_arguments(self):
+        remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: method)
+        unsigned = {"version": PROTOCOL, "id": "invoke", "method": "invoke", "operation": "invalid", "args": {}, "nonce": "invoke-nonce-0002"}
+        self.assertFalse(remote.dispatch({**unsigned, "mac": remote.sign(unsigned)})["ok"])
+
 
 if __name__ == "__main__":
     unittest.main()

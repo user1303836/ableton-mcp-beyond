@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import { McpHost, PROTOCOL_VERSION, serve } from "../src/host.js";
+import { DeterministicLiveSimulator } from "../src/live.js";
 
 const initialize = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "test", version: "1" } } };
 const initialized = { jsonrpc: "2.0", method: "notifications/initialized" };
@@ -15,7 +16,7 @@ test("requires initialization and exposes only read-only tools", () => {
   assert.equal((host.handle({ ...initialize, id: 2 }) as any).result.protocolVersion, PROTOCOL_VERSION);
   assert.equal(host.handle(initialized), null);
   const tools = (host.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
-  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze"]);
+  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "live_status", "live_snapshot", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
 });
 
 test("advertises and serves static safety resources and a complete audio workflow prompt", () => {
@@ -24,13 +25,15 @@ test("advertises and serves static safety resources and a complete audio workflo
   const init = host.handle({ ...initialize, id: 99 });
   assert.equal((init as any).error.code, -32600);
   const resources = host.handle({ jsonrpc: "2.0", id: 30, method: "resources/list", params: {} });
-  assert.deepEqual((resources as any).result.resources.map((resource: { uri: string }) => resource.uri), ["ableton://capabilities", "ableton://safety"]);
+  assert.deepEqual((resources as any).result.resources.map((resource: { uri: string }) => resource.uri), ["ableton://capabilities", "ableton://safety", "ableton://live-workflow"]);
   const safety = host.handle({ jsonrpc: "2.0", id: 31, method: "resources/read", params: { uri: "ableton://safety" } });
   assert.match((safety as any).result.contents[0].text, /does not connect to Ableton Live/);
   const prompts = host.handle({ jsonrpc: "2.0", id: 32, method: "prompts/list" });
   assert.equal((prompts as any).result.prompts[0].name, "analyze_audio");
   const prompt = host.handle({ jsonrpc: "2.0", id: 33, method: "prompts/get", params: { name: "analyze_audio", arguments: { sampleRate: "44100" } } });
   assert.match((prompt as any).result.messages[0].content.text, /sampleRate=44100/);
+  const workflowPrompt = host.handle({ jsonrpc: "2.0", id: 37, method: "prompts/get", params: { name: "change_tempo_safely" } });
+  assert.match((workflowPrompt as any).result.messages[0].content.text, /live_tempo_preview/);
 });
 
 test("rejects unknown resources, prompts, and extension fields", () => {
@@ -77,7 +80,7 @@ test("analyzes supplied PCM through the MCP tool without Live side effects", () 
 test("rejects duplicates, unsupported methods, and unknown fields", () => {
   const host = new McpHost();
   ready(host);
-  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 3);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 8);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).error.message, "Duplicate request identifier");
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set", arguments: {} } }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 4, method: "tools/list", debug: true }) as any).error.code, -32600);
@@ -87,6 +90,43 @@ test("accepts cancellation notifications without manufacturing a response", () =
   const host = new McpHost();
   ready(host);
   assert.equal(host.handle({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: 99 } }), null);
+});
+
+test("completes a simulator tempo preview, confirmed apply, verification, and conflict-aware undo", () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const status = host.handle({ jsonrpc: "2.0", id: 40, method: "tools/call", params: { name: "live_status", arguments: {} } });
+  assert.equal(JSON.parse((status as any).result.content[0].text).adapter, "simulator");
+  const initial = host.handle({ jsonrpc: "2.0", id: 41, method: "tools/call", params: { name: "live_snapshot", arguments: {} } });
+  assert.equal(JSON.parse((initial as any).result.content[0].text).snapshot.set.tempo, 120);
+  const preview = host.handle({ jsonrpc: "2.0", id: 42, method: "tools/call", params: { name: "live_tempo_preview", arguments: { tempo: 128 } } });
+  const previewValue = JSON.parse((preview as any).result.content[0].text) as { transactionId: string; priorTempo: number; proposedTempo: number };
+  assert.equal(previewValue.priorTempo, 120);
+  assert.equal(previewValue.proposedTempo, 128);
+  assert.equal(simulator.snapshot().set.tempo, 120);
+  const missingConfirmation = host.handle({ jsonrpc: "2.0", id: 43, method: "tools/call", params: { name: "live_tempo_apply", arguments: { transactionId: previewValue.transactionId, confirmation: "no", idempotencyKey: "apply-1" } } });
+  assert.equal((missingConfirmation as any).error.code, -32602);
+  const applied = host.handle({ jsonrpc: "2.0", id: 44, method: "tools/call", params: { name: "live_tempo_apply", arguments: { transactionId: previewValue.transactionId, confirmation: "apply", idempotencyKey: "apply-1" } } });
+  assert.equal(JSON.parse((applied as any).result.content[0].text).tempo, 128);
+  const repeated = host.handle({ jsonrpc: "2.0", id: 45, method: "tools/call", params: { name: "live_tempo_apply", arguments: { transactionId: previewValue.transactionId, confirmation: "apply", idempotencyKey: "apply-1" } } });
+  assert.equal(JSON.parse((repeated as any).result.content[0].text).idempotent, true);
+  simulator.set("set:set-1", "tempo", 130);
+  const conflictedUndo = host.handle({ jsonrpc: "2.0", id: 46, method: "tools/call", params: { name: "live_undo", arguments: { transactionId: previewValue.transactionId, confirmation: "undo", idempotencyKey: "undo-1" } } });
+  assert.equal((conflictedUndo as any).result.isError, true);
+  assert.equal(simulator.snapshot().set.tempo, 130);
+});
+
+test("keeps new Live tools fail-closed with the default unavailable adapter", () => {
+  const host = new McpHost();
+  ready(host);
+  for (const [id, name] of [[50, "live_snapshot"], [51, "live_tempo_preview"]] as const) {
+    const result = host.handle({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: name === "live_tempo_preview" ? { tempo: 128 } : {} } });
+    assert.equal((result as any).result.isError, true);
+  }
+  const catalog = JSON.parse((host.handle({ jsonrpc: "2.0", id: 52, method: "tools/call", params: { name: "capabilities", arguments: {} } }) as any).result.content[0].text);
+  assert.equal(catalog.live.connected, false);
+  assert.equal(catalog.implemented.includes("live.tempo.apply"), false);
 });
 
 test("keeps stdout protocol-only and emits redacted parse diagnostics on stderr", async () => {

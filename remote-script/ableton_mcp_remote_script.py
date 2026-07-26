@@ -17,7 +17,7 @@ import re
 from typing import Any, Callable
 
 PROTOCOL = "ableton-loopback/v1"
-METHODS = {"status", "snapshot", "get", "set", "subscribe", "reconnect"}
+METHODS = {"status", "snapshot", "get", "set", "invoke", "subscribe", "reconnect"}
 MAX_NONCE_LENGTH = 256
 
 
@@ -36,7 +36,7 @@ class AuthenticatedRemoteScript:
 
     def dispatch(self, request: dict[str, Any]) -> dict[str, Any]:
         required = {"version", "id", "method", "nonce", "mac"}
-        if not isinstance(request, dict) or set(request) - required - {"ref", "property", "value"} or not required <= set(request):
+        if not isinstance(request, dict) or set(request) - required - {"ref", "property", "value", "operation", "args"} or not required <= set(request):
             return self._error("invalid", "invalid request")
         unsigned = {key: value for key, value in request.items() if key != "mac"}
         if (
@@ -49,6 +49,11 @@ class AuthenticatedRemoteScript:
             or not isinstance(request["mac"], str)
         ):
             return self._error(request.get("id", "invalid"), "invalid request")
+        if request["method"] == "invoke":
+            if not isinstance(request.get("operation"), str) or not re.fullmatch(r"[a-z]+\.[a-z]+", request["operation"]):
+                return self._error(request["id"], "operation is required")
+            if not isinstance(request.get("args", {}), dict) or len(request.get("args", {})) > 32:
+                return self._error(request["id"], "args must be a bounded object")
         if len(request["nonce"]) < 16 or len(request["nonce"]) > MAX_NONCE_LENGTH or request["nonce"] in self._seen_nonces or not hmac.compare_digest(self.sign(unsigned), request["mac"]):
             return self._error(request["id"], "authentication or replay check failed")
         self._seen_nonces.add(request["nonce"])

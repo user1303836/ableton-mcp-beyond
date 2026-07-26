@@ -54,11 +54,20 @@ export interface LiveSnapshot {
 }
 export interface LiveEvent { sequence: number; type: "state" | "transport" | "object" | "meter" | "max" | "osc"; ref?: LiveRef; payload: unknown; }
 
+export type LiveOperation =
+  | "transport.set" | "scene.launch" | "clip.create" | "clip.delete"
+  | "note.add" | "automation.add" | "audio.warp" | "take.add"
+  | "parameter.set" | "routing.set" | "browser.search" | "locator.add"
+  | "max.message" | "osc.message";
+
+export interface LiveInvocation { operation: LiveOperation; args: Record<string, unknown>; }
+
 export interface LiveAdapter {
   status(): LiveStatus;
   snapshot(): LiveSnapshot;
   get(ref: LiveRef): unknown;
   set(ref: LiveRef, property: string, value: unknown): void;
+  invoke(invocation: LiveInvocation): unknown;
   subscribe(listener: (event: LiveEvent) => void): () => void;
   reconnect(): LiveStatus;
 }
@@ -114,11 +123,73 @@ export class DeterministicLiveSimulator implements LiveAdapter {
     if (property === "tempo") { if (target !== this.state.set || typeof value !== "number" || !Number.isFinite(value)) throw new TypeError("tempo must be finite"); this.state.set.tempo = clamp(value, 20, 999); }
     else if (property === "volume" || property === "pan") { if (typeof value !== "number" || !Number.isFinite(value)) throw new TypeError(`${property} must be finite`); (target as Track)[property] = clamp(value, property === "pan" ? -1 : 0, 1); }
     else if (property === "playing" || property === "mute" || property === "solo" || property === "armed") { if (typeof value !== "boolean") throw new TypeError(`${property} must be boolean`); (target as Record<string, unknown>)[property] = value; }
+    else if (property === "position" && target === this.state.set) { if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new TypeError("position must be a non-negative finite number"); this.state.set.position = value; }
     else if (property === "name") { if (typeof value !== "string" || value.length === 0 || value.length > 256) throw new TypeError("name must be 1-256 characters"); (target as Record<string, unknown>)[property] = value; }
     else if (property === "value" && "min" in target && "max" in target) { if (typeof value !== "number" || !Number.isFinite(value)) throw new TypeError("parameter value must be finite"); (target as Parameter).value = clamp(value, (target as Parameter).min, (target as Parameter).max); }
     else throw new Error(`property is not writable: ${property}`);
     const appliedValue = (target as Record<string, unknown>)[property];
     this.emit({ type: property === "playing" || property === "tempo" ? "transport" : "object", ref: objectRef, payload: { property, value: appliedValue } });
+  }
+  invoke({ operation, args }: LiveInvocation): unknown {
+    const stringArg = (name: string): string => { const value = args[name]; if (typeof value !== "string" || value.length === 0 || value.length > 256) throw new TypeError(`${name} must be a non-empty string`); return value; };
+    const objectRef = (name: string): LiveRef => stringArg(name) as LiveRef;
+    switch (operation) {
+      case "transport.set": {
+        const property = stringArg("property");
+        if (!["tempo", "playing", "position"].includes(property)) throw new Error("unsupported transport property");
+        this.set(this.state.set.ref, property, args.value);
+        return this.get(this.state.set.ref);
+      }
+      case "scene.launch": {
+        const scene = this.get(objectRef("ref")) as Scene | undefined;
+        if (!scene || !scene.ref.startsWith("scene:")) throw new Error("unknown scene reference");
+        this.state.set.playing = true;
+        this.emit({ type: "transport", ref: scene.ref, payload: { operation, scene: scene.ref } });
+        return { launched: scene.ref };
+      }
+      case "clip.create": {
+        const track = this.findTrack(objectRef("trackRef"));
+        if (!track || !track.ref.startsWith("track:")) throw new Error("unknown track reference");
+        const kind = args.kind === "audio" ? "audio" : args.kind === "midi" ? "midi" : undefined;
+        if (!kind) throw new TypeError("kind must be midi or audio");
+        const start = args.start; const length = args.length;
+        if (typeof start !== "number" || !Number.isFinite(start) || start < 0 || typeof length !== "number" || !Number.isFinite(length) || length <= 0) throw new RangeError("clip bounds are invalid");
+        const clip: Clip = { ref: ref("clip", `clip-${track.clips.length + 1}-${this.sequence + 1}`), name: typeof args.name === "string" && args.name.length > 0 ? args.name : "New Clip", kind, start, length, notes: [], warp: false, takes: [], automation: [] };
+        track.clips.push(clip); this.emit({ type: "object", ref: track.ref, payload: { operation, clip: structuredClone(clip) } }); return structuredClone(clip);
+      }
+      case "clip.delete": {
+        const clipRef = objectRef("ref");
+        for (const track of this.state.tracks) { const index = track.clips.findIndex((clip) => clip.ref === clipRef); if (index >= 0) { track.clips.splice(index, 1); this.emit({ type: "object", ref: track.ref, payload: { operation, ref: clipRef } }); return { deleted: clipRef }; } }
+        throw new Error(`unknown clip reference: ${clipRef}`);
+      }
+      case "note.add": this.addNote(objectRef("ref"), args.note as Note); return { added: true };
+      case "automation.add": this.setAutomation(objectRef("ref"), args.point as AutomationPoint); return { added: true };
+      case "audio.warp": this.setWarp(objectRef("ref"), args.enabled as boolean); return { changed: true };
+      case "take.add": this.addTake(objectRef("ref"), stringArg("take")); return { added: true };
+      case "parameter.set": this.set(objectRef("ref"), "value", args.value); return this.get(objectRef("ref"));
+      case "routing.set": {
+        const track = this.findTrack(objectRef("ref"));
+        if (!track || !track.ref.startsWith("track:")) throw new Error("unknown track reference");
+        if (args.input !== undefined) track.input = stringArg("input");
+        if (args.output !== undefined) track.output = stringArg("output");
+        this.emit({ type: "object", ref: track.ref, payload: { operation, input: track.input, output: track.output } }); return structuredClone(track);
+      }
+      case "browser.search": {
+        const query = stringArg("query").toLowerCase();
+        return this.state.browser.filter((item) => item.name.toLowerCase().includes(query)).map((item) => structuredClone(item));
+      }
+      case "locator.add": {
+        const name = stringArg("name"); const position = args.position;
+        if (typeof position !== "number" || !Number.isFinite(position) || position < 0) throw new RangeError("locator position is invalid");
+        const locator = { ref: ref("locator", `locator-${this.state.arrangement.locators.length + 1}`), name, position };
+        this.state.arrangement.locators.push(locator); this.emit({ type: "object", ref: locator.ref, payload: { operation, locator } }); return structuredClone(locator);
+      }
+      case "max.message": case "osc.message": {
+        const address = stringArg("address"); const values = args.values;
+        if (!Array.isArray(values) || values.length > 64 || values.some((value) => !["string", "number", "boolean"].includes(typeof value))) throw new TypeError("message values are bounded primitives");
+        this.emit({ type: operation.startsWith("max") ? "max" : "osc", payload: { address, values: structuredClone(values) } }); return { delivered: false, simulated: true, address, values };
+      }
+    }
   }
   subscribe(listener: (event: LiveEvent) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   reconnect(): LiveStatus { this.epoch += 1; this.emit({ type: "state", payload: { epoch: this.epoch, snapshot: this.snapshot() } }); return this.status(); }
@@ -138,6 +209,7 @@ export class DeterministicLiveSimulator implements LiveAdapter {
   setWarp(clipRef: LiveRef, enabled: boolean): void { if (typeof enabled !== "boolean") throw new TypeError("warp must be boolean"); const clip = this.findClip(clipRef); if (clip.kind !== "audio") throw new Error("warp requires an audio clip"); clip.warp = enabled; this.emit({ type: "object", ref: clipRef, payload: { operation: "warp.set", enabled } }); }
   addTake(clipRef: LiveRef, take: string): void { const clip = this.findClip(clipRef); if (typeof take !== "string" || take.length === 0 || take.length > 256 || clip.takes.includes(take)) throw new Error("invalid or duplicate take"); clip.takes.push(take); this.emit({ type: "object", ref: clipRef, payload: { operation: "take.add", take } }); }
   private find(objectRef: LiveRef): Track | Clip | Device | Parameter | undefined { for (const track of this.state.tracks) { if (track.ref === objectRef) return track; const clip = track.clips.find((item) => item.ref === objectRef); if (clip) return clip; for (const device of track.devices) { if (device.ref === objectRef) return device; const parameter = device.parameters.find((item) => item.ref === objectRef); if (parameter) return parameter; } } return undefined; }
+  private findTrack(objectRef: LiveRef): Track | undefined { return this.state.tracks.find((track) => track.ref === objectRef); }
   private findClip(objectRef: LiveRef): Clip { const value = this.find(objectRef); if (!value || !("notes" in value)) throw new Error(`unknown clip reference: ${objectRef}`); return value; }
   private emit(event: Omit<LiveEvent, "sequence">): void { const complete = { ...event, sequence: ++this.sequence }; for (const listener of this.listeners) listener(structuredClone(complete)); }
 }
@@ -147,6 +219,7 @@ export class UnavailableLiveAdapter implements LiveAdapter {
   snapshot(): never { throw new Error("Live adapter unavailable"); }
   get(): never { throw new Error("Live adapter unavailable"); }
   set(): never { throw new Error("Live adapter unavailable"); }
+  invoke(): never { throw new Error("Live adapter unavailable"); }
   subscribe(): () => void { return () => undefined; }
   reconnect(): LiveStatus { return this.status(); }
 }

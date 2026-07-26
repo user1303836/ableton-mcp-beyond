@@ -1,7 +1,8 @@
-import { chmodSync, existsSync, lstatSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readFileSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { platform, versions } from "node:process";
+import { randomUUID } from "node:crypto";
 
 export const CONFIG_VERSION = 1;
 export const MIN_NODE_MAJOR = 20;
@@ -55,14 +56,43 @@ export function readConfig(path: string): ServerConfig {
 
 export function writeConfig(path: string, config: ServerConfig, force = false): void {
   config = parseConfig(config);
-  if (existsSync(path)) {
-    if (lstatSync(path).isSymbolicLink()) throw new Error(`refusing to write through symbolic link: ${path}`);
+  let destinationExists = false;
+  try {
+    const destination = lstatSync(path);
+    destinationExists = destination.isFile() || destination.isSymbolicLink();
+    if (destination.isSymbolicLink()) throw new Error(`refusing to write through symbolic link: ${path}`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  if (destinationExists) {
     if (!force) throw new Error(`refusing to overwrite existing file: ${path}`);
   }
   const parent = dirname(path);
   if (!existsSync(parent)) throw new Error(`configuration directory does not exist: ${parent}`);
-  writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "w" });
-  if (platform !== "win32") chmodSync(path, 0o600);
+  const temporaryDirectory = mkdtempSync(join(parent, `.ableton-mcp-${randomUUID()}-`));
+  const temporaryPath = join(temporaryDirectory, "config.json");
+  const backupPath = join(temporaryDirectory, "previous.json");
+  let backedUp = false;
+  try {
+    writeFileSync(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    if (platform !== "win32") chmodSync(temporaryPath, 0o600);
+    if (destinationExists && force) {
+      // Windows does not let renameSync replace an existing file. Moving the
+      // old file beside the staged file keeps replacement explicit and lets us
+      // restore it if the second rename fails.
+      renameSync(path, backupPath);
+      backedUp = true;
+    }
+    renameSync(temporaryPath, path);
+    if (backedUp) unlinkSync(backupPath);
+  } finally {
+    if (backedUp && !existsSync(path)) {
+      try { renameSync(backupPath, path); } catch { /* preserve the original error */ }
+    }
+    try { unlinkSync(temporaryPath); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    try { unlinkSync(backupPath); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    try { rmdirSync(temporaryDirectory); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  }
 }
 
 export function migrateConfig(inputPath: string, outputPath: string, force = false): ServerConfig {

@@ -1,21 +1,31 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { configForEntrypoint, diagnostics, isSupportedPlatform, migrateConfig, readConfig, writeConfig } from "../src/delivery.js";
 import { npmExecutable } from "../src/platform.js";
 
-test("writes a versioned config without overwriting user files", () => {
+test("writes a versioned config and replaces it only with explicit force", () => {
   const directory = mkdtempSync(join(tmpdir(), "ableton-mcp-"));
   const path = join(directory, "config.json");
   const config = configForEntrypoint("/opt/ableton-mcp/dist/src/index.js", "/usr/bin/node");
   writeConfig(path, config);
   assert.deepEqual(readConfig(path), config);
   assert.throws(() => writeConfig(path, config), /refusing to overwrite/);
+  const replacement = configForEntrypoint("/Program Files/Ableton MCP/cli.js", "node.exe");
+  writeConfig(path, replacement, true);
+  assert.deepEqual(readConfig(path), replacement);
   assert.throws(() => writeConfig(join(directory, "invalid.json"), { version: 1, server: { command: "", args: [] } } as any), /invalid server configuration/);
   assert.throws(() => writeConfig(join(directory, "unknown.json"), { version: 1, server: { command: "/usr/bin/node", args: [], extra: true } } as any), /invalid server configuration/);
   assert.throws(() => configForEntrypoint("/opt/ableton-mcp/dist/src/index.js", ""), /node command/);
+});
+
+test("refuses to replace a configuration directory", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ableton-mcp-"));
+  const destination = join(directory, "config.json");
+  mkdirSync(destination);
+  assert.throws(() => writeConfig(destination, configForEntrypoint("/opt/server.js"), true), /EISDIR|directory|exist/i);
 });
 
 test("does not follow configuration symlinks", () => {
@@ -26,6 +36,12 @@ test("does not follow configuration symlinks", () => {
   symlinkSync(target, link);
   assert.throws(() => writeConfig(link, configForEntrypoint("/opt/server.js"), true), /symbolic link/);
   assert.equal(readFileSync(target, "utf8"), "sentinel");
+
+  const danglingTarget = join(directory, "missing.json");
+  const danglingLink = join(directory, "dangling.json");
+  symlinkSync(danglingTarget, danglingLink);
+  assert.throws(() => writeConfig(danglingLink, configForEntrypoint("/opt/server.js"), true), /symbolic link/);
+  assert.equal(existsSync(danglingTarget), false);
 });
 
 test("migrates the legacy command-and-args shape", () => {

@@ -159,7 +159,7 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
   if (!Number.isInteger(channels) || channels < 1 || channels > 32) throw new RangeError("channels must be an integer from 1 to 32");
   if (!Number.isInteger(frameSize) || frameSize < 256 || frameSize > 4096) throw new RangeError("frameSize must be an integer from 256 to 4096");
   const sampleCount = input.samples.length;
-  if (!Number.isSafeInteger(sampleCount) || sampleCount === 0 || sampleCount > MAX_ANALYSIS_SAMPLES) throw new RangeError(`samples must contain 1-${MAX_ANALYSIS_SAMPLES} values`);
+  if (!Number.isSafeInteger(sampleCount) || sampleCount <= 0 || sampleCount > MAX_ANALYSIS_SAMPLES) throw new RangeError(`samples must contain 1-${MAX_ANALYSIS_SAMPLES} values`);
   if (sampleCount % channels !== 0) throw new RangeError("samples must contain complete channel frames");
   if (sampleCount / channels / input.sampleRate > MAX_ANALYSIS_SECONDS) throw new RangeError(`analysis duration exceeds ${MAX_ANALYSIS_SECONDS} seconds`);
 
