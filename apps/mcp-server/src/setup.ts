@@ -29,7 +29,7 @@ if (process.exitCode !== undefined) {
   try {
     const entrypoint = resolve(fileURLToPath(new URL("./cli.js", import.meta.url)));
     const config = bridgeHost !== undefined || bridgePortValue !== undefined || secretFile !== undefined
-      ? configForBridge(entrypoint, { host: bridgeHost ?? "127.0.0.1", port: Number(bridgePortValue), secretFile: resolve(secretFile ?? ""), timeoutMs: Number(timeoutValue ?? 5000) })
+      ? configForBridge(entrypoint, { host: bridgeHost ?? "127.0.0.1", port: Number(bridgePortValue), secretFile: resolve(secretFile ?? ""), timeoutMs: Number(timeoutValue ?? 5000) }, process.execPath, resolve(output))
       : configForEntrypoint(entrypoint);
     if ("bridge" in config) readSecretFile(config.bridge.secretFile);
     writeConfig(resolve(output), config, force);

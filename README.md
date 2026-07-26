@@ -44,6 +44,10 @@ npm run setup -- --output /absolute/path/bridge-config.json \
   --secret-file /absolute/path/bridge.secret --bridge-timeout 5000
 ```
 
+The generated version-2 client entry includes `--config
+/absolute/path/bridge-config.json`; the secret remains in its separate
+owner-only file and is never placed in client arguments.
+
 The CLI loads a bridge only when `--config /absolute/path/bridge-config.json`
 is supplied. Configuration, secret, and Remote Script installation are never
 selected from JSON-RPC arguments or client metadata.

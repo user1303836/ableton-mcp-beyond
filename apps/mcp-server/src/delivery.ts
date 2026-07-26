@@ -10,6 +10,7 @@ export const MIN_NODE_MAJOR = 20;
 export const SUPPORTED_PLATFORMS = ["darwin", "linux", "win32"] as const;
 export const REMOTE_SCRIPT_ASSET = "ableton_mcp_remote_script.py";
 export const REMOTE_SCRIPT_PACKAGE = "AbletonMcpBridge";
+export const OPERATION_REGISTRY_ASSET = "ableton-live-v1.operations.json";
 
 export interface ServerConfig {
   version: 1;
@@ -21,6 +22,8 @@ export interface BridgeConfig {
   server: { command: string; args: string[] };
   bridge: { host: string; port: number; secretFile: string; timeoutMs: number };
 }
+
+type LiveStatusWithRegistry = { registryHash?: unknown };
 
 export interface DiagnosticReport {
   platform: NodeJS.Platform;
@@ -41,6 +44,8 @@ export interface DiagnosticReport {
   adapterProtocol: string | null;
   adapterEpoch: number | null;
   adapterOperations: string[];
+  registryHash: string | null;
+  discoveryReachable: boolean;
   liveConnected: boolean;
   simulator: boolean;
   evidence: "local-contract" | "authenticated-bridge" | "unavailable";
@@ -76,14 +81,15 @@ function secretPermissions(path: string): DiagnosticReport["secretPermissions"] 
   }
 }
 
-export function configForBridge(entrypoint: string, bridge: BridgeConfig["bridge"], nodeCommand = process.execPath): BridgeConfig {
+export function configForBridge(entrypoint: string, bridge: BridgeConfig["bridge"], nodeCommand = process.execPath, configPath?: string): BridgeConfig {
   if (!isAbsolute(entrypoint)) throw new Error("entrypoint must be an absolute path");
   if (!Number.isInteger(bridge.port) || bridge.port < 1 || bridge.port > 65_535) throw new Error("bridge port must be between 1 and 65535");
   validateLoopback(bridge.host);
   validateSecretPath(bridge.secretFile);
+  if (configPath !== undefined && (!isAbsolute(configPath) || configPath.includes("\0"))) throw new Error("configuration path must be absolute");
   if (!Number.isInteger(bridge.timeoutMs) || bridge.timeoutMs < 100 || bridge.timeoutMs > 60_000) throw new Error("bridge timeout must be between 100 and 60000 ms");
   if (typeof nodeCommand !== "string" || nodeCommand.length === 0) throw new Error("node command must be a non-empty string");
-  return { version: 2, server: { command: nodeCommand, args: [entrypoint] }, bridge: { ...bridge } };
+  return { version: 2, server: { command: nodeCommand, args: configPath ? [entrypoint, "--config", configPath] : [entrypoint] }, bridge: { ...bridge } };
 }
 
 export function generateSecret(bytes = 32): string {
@@ -129,7 +135,8 @@ function parseBridgeConfig(value: unknown): BridgeConfig {
   if (Object.keys(server).some((key) => !["command", "args"].includes(key)) || Object.keys(bridge).some((key) => !["host", "port", "secretFile", "timeoutMs"].includes(key))) throw new Error("unsupported configuration fields");
   if (typeof server.command !== "string" || !server.command || !Array.isArray(server.args) || !server.args.every((arg) => typeof arg === "string")) throw new Error("invalid server configuration");
   if (typeof bridge.host !== "string" || typeof bridge.port !== "number" || typeof bridge.secretFile !== "string" || typeof bridge.timeoutMs !== "number") throw new Error("invalid bridge configuration");
-  const config = configForBridge(server.args[0] ?? "", { host: bridge.host, port: bridge.port, secretFile: bridge.secretFile, timeoutMs: bridge.timeoutMs }, server.command);
+  if (server.args.length !== 3 || server.args[1] !== "--config" || !isAbsolute(server.args[2] ?? "")) throw new Error("version-2 server configuration must include --config PATH");
+  const config = configForBridge(server.args[0] ?? "", { host: bridge.host, port: bridge.port, secretFile: bridge.secretFile, timeoutMs: bridge.timeoutMs }, server.command, server.args[2]);
   readSecretFile(config.bridge.secretFile);
   return config;
 }
@@ -227,6 +234,20 @@ export function writeBridgeReference(path: string, configPath: string, force = f
   if (platform !== "win32") chmodSync(path, 0o600);
 }
 
+function operationRegistrySource(): string {
+  const base = dirname(fileURLToPath(import.meta.url));
+  const candidates = [resolve(base, "../../../protocol", OPERATION_REGISTRY_ASSET), resolve(base, "../../../../protocol", OPERATION_REGISTRY_ASSET)];
+  const candidate = candidates.find((path) => existsSync(path));
+  if (!candidate) throw new Error("operation registry is unavailable");
+  return candidate;
+}
+
+function copyOperationRegistry(destination: string): void {
+  const source = operationRegistrySource();
+  if (!lstatSync(source).isFile()) throw new Error("operation registry is unavailable");
+  copyFileSync(source, destination);
+}
+
 function rejectSymlinkTree(path: string): void {
   const entry = lstatSync(path);
   if (entry.isSymbolicLink()) throw new Error(`refusing symbolic-link destination: ${path}`);
@@ -261,7 +282,8 @@ export function installRemoteScript(sourceFile: string, destinationDirectory: st
     const moduleSource = join(packageSource, REMOTE_SCRIPT_ASSET);
     if (existsSync(moduleSource)) copyFileSync(moduleSource, join(stagedPackage, REMOTE_SCRIPT_ASSET));
     else copyFileSync(sourceFile, join(stagedPackage, REMOTE_SCRIPT_ASSET));
-    const files = ["__init__.py", REMOTE_SCRIPT_ASSET] as const;
+    copyOperationRegistry(join(stagedPackage, OPERATION_REGISTRY_ASSET));
+    const files = ["__init__.py", REMOTE_SCRIPT_ASSET, OPERATION_REGISTRY_ASSET] as const;
     const hashes = Object.fromEntries(files.map((name) => [name, createHash("sha256").update(readFileSync(join(stagedPackage, name))).digest("hex")]));
     writeFileSync(join(stagedPackage, "manifest.json"), `${JSON.stringify({ package: REMOTE_SCRIPT_PACKAGE, algorithm: "sha256", files: hashes })}\n`, { mode: 0o600, flag: "wx" });
     if (referencePath && options.configPath) writeBridgeReference(join(stagedPackage, "bridge-reference.json"), options.configPath);
@@ -290,7 +312,7 @@ export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.m
   let packageAssetsValid = false;
   try {
     const manifest = JSON.parse(readFileSync(join(packageDirectory, "manifest.json"), "utf8")) as { algorithm?: string; files?: Record<string, string> };
-    packageAssetsValid = manifest.algorithm === "sha256" && ["__init__.py", REMOTE_SCRIPT_ASSET].every((name) => manifest.files?.[name] === createHash("sha256").update(readFileSync(join(packageDirectory, name))).digest("hex"));
+    packageAssetsValid = manifest.algorithm === "sha256" && ["__init__.py", REMOTE_SCRIPT_ASSET, OPERATION_REGISTRY_ASSET].every((name) => manifest.files?.[name] === createHash("sha256").update(readFileSync(join(packageDirectory, name))).digest("hex"));
   } catch { packageAssetsValid = false; }
   let bridgeConfigured = false;
   let permissions: DiagnosticReport["secretPermissions"] = "unavailable";
@@ -316,6 +338,8 @@ export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.m
     adapterProtocol: null,
     adapterEpoch: null,
     adapterOperations: [],
+    registryHash: null,
+    discoveryReachable: false,
     liveConnected: false,
     simulator: false,
     evidence: hostReady ? "local-contract" : "unavailable",
@@ -339,6 +363,8 @@ export async function diagnosticsAsync(packageRoot = resolve(dirname(fileURLToPa
     const adapter = await RemoteScriptLiveAdapter.connect({ ...config.bridge, secret: readSecretFile(config.bridge.secretFile) });
     try {
       const status = adapter.status();
+      const discovery = await adapter.invokeAsync({ operation: "session.discover" as never, args: { kind: "track", limit: 1 } });
+      if (!discovery || typeof discovery !== "object") throw new Error("bounded discovery returned no result");
       return {
         ...report,
         authenticatedReachable: true,
@@ -346,6 +372,8 @@ export async function diagnosticsAsync(packageRoot = resolve(dirname(fileURLToPa
         adapterProtocol: status.protocol,
         adapterEpoch: status.epoch,
         adapterOperations: [...status.capabilities],
+        registryHash: typeof (status as LiveStatusWithRegistry).registryHash === "string" ? (status as LiveStatusWithRegistry).registryHash as string : null,
+        discoveryReachable: true,
         liveConnected: status.connected,
         simulator: status.adapter === "simulator",
         evidence: "authenticated-bridge",

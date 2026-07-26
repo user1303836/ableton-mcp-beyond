@@ -26,7 +26,7 @@ export const LIVE_UNAVAILABLE_CAPABILITIES = [
 ] as const;
 
 export const SIMULATOR_CAPABILITIES = [
-  "session.read", "session.write", "tracks", "scenes", "clips", "notes", "session.discovery", "session.structure", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write", "arrangement.read", "arrangement.write", "transport", "subscriptions", "reconnect",
+  "session.read", "session.write", "tracks", "scenes", "clips", "notes", "session.discovery", "session.structure", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write", "arrangement.read", "arrangement.write", "transport", "devices", "parameters", "subscriptions", "reconnect",
 ] as const satisfies readonly LiveCapability[];
 
 export type LiveCapability = typeof LIVE_CAPABILITIES[number];
@@ -44,8 +44,8 @@ export interface LiveStatus {
 
 export interface Note { pitch: number; start: number; duration: number; velocity: number; channel: number; }
 export interface AutomationPoint { time: number; value: number; curve?: number; }
-export interface Parameter { ref: LiveRef; name: string; value: number; min: number; max: number; automatable: boolean; }
-export interface Device { ref: LiveRef; name: string; kind: "instrument" | "audio-effect" | "midi-effect" | "plugin" | "rack"; parameters: Parameter[]; }
+export interface Parameter { ref: LiveRef; name: string; value: number; min: number; max: number; automatable: boolean; quantization?: number; enabled?: boolean; displayValue?: string; revision?: number; }
+export interface Device { ref: LiveRef; name: string; kind: "instrument" | "audio-effect" | "midi-effect" | "plugin" | "rack"; parameters: Parameter[]; enabled?: boolean; }
 export interface Clip { ref: LiveRef; name: string; kind: "midi" | "audio"; start: number; length: number; notes: Note[]; warp: boolean; takes: string[]; automation: AutomationPoint[]; }
 export interface Track { ref: LiveRef; name: string; kind: "audio" | "midi" | "return" | "master"; volume: number; pan: number; mute: boolean; solo: boolean; armed: boolean; clips: Clip[]; devices: Device[]; sends: number[]; input?: string; output?: string; }
 export interface Scene { ref: LiveRef; name: string; index: number; }
@@ -95,8 +95,8 @@ const ref = (kind: LiveObjectKind, id: string): LiveRef => `${kind}:${id}`;
 function createSimulatorState(): LiveSnapshot {
   const kick: Clip = { ref: ref("clip", "clip-1"), name: "Kick Pattern", kind: "midi", start: 0, length: 4, notes: [{ pitch: 36, start: 0, duration: 0.25, velocity: 110, channel: 1 }], warp: false, takes: ["take-1"], automation: [] };
   const track: Track = { ref: ref("track", "track-1"), name: "Drums", kind: "midi", volume: 0.85, pan: 0, mute: false, solo: false, armed: false, clips: [kick], devices: [], sends: [0, 0] };
-  const gain: Parameter = { ref: ref("parameter", "gain-1"), name: "Gain", value: 0.5, min: 0, max: 1, automatable: true };
-  const device: Device = { ref: ref("device", "utility-1"), name: "Utility", kind: "audio-effect", parameters: [gain] };
+  const gain: Parameter = { ref: ref("parameter", "gain-1"), name: "Gain", value: 0.5, min: 0, max: 1, automatable: true, quantization: 0, enabled: true, displayValue: "0.5", revision: 1 };
+  const device: Device = { ref: ref("device", "utility-1"), name: "Utility", kind: "audio-effect", parameters: [gain], enabled: true };
   track.devices.push(device);
   return {
     set: { ref: ref("set", "set-1"), name: "Simulator Set", tempo: 120, playing: false, position: 0, loop: { enabled: false, start: 0, length: 4 } },
@@ -142,7 +142,7 @@ export class DeterministicLiveSimulator implements LiveAdapter {
     else if (property === "playing" || property === "mute" || property === "solo" || property === "armed") { if (typeof value !== "boolean") throw new TypeError(`${property} must be boolean`); (target as Record<string, unknown>)[property] = value; }
     else if (property === "position" && target === this.state.set) { if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new TypeError("position must be a non-negative finite number"); this.state.set.position = value; }
     else if (property === "name") { if (typeof value !== "string" || value.length === 0 || value.length > 256) throw new TypeError("name must be 1-256 characters"); (target as Record<string, unknown>)[property] = value; }
-    else if (property === "value" && "min" in target && "max" in target) { if (typeof value !== "number" || !Number.isFinite(value)) throw new TypeError("parameter value must be finite"); (target as Parameter).value = clamp(value, (target as Parameter).min, (target as Parameter).max); }
+    else if (property === "value" && "min" in target && "max" in target) { if (typeof value !== "number" || !Number.isFinite(value)) throw new TypeError("parameter value must be finite"); const parameter = target as Parameter; if (parameter.enabled === false) throw new Error("parameter is disabled"); const quantization = parameter.quantization ?? 0; const clamped = clamp(value, parameter.min, parameter.max); parameter.value = quantization > 0 ? Math.round((clamped - parameter.min) / quantization) * quantization + parameter.min : clamped; parameter.revision = (parameter.revision ?? 0) + 1; parameter.displayValue = String(parameter.value); }
     else throw new Error(`property is not writable: ${property}`);
     const appliedValue = (target as Record<string, unknown>)[property];
     this.emit({ type: property === "playing" || property === "tempo" ? "transport" : "object", ref: objectRef, payload: { property, value: appliedValue } });

@@ -31,6 +31,12 @@ jobs:
       - run: npm run compatibility
       - run: npm run package:verify
       - run: npm pack --dry-run --json
+      - run: npm run setup -- --output "${{ runner.temp }}/ableton-mcp-host.json"
+      - shell: bash
+        run: |
+          printf '%s\n' '{"command":"node","args":["dist/src/cli.js"]}' > "${{ runner.temp }}/ableton-mcp-legacy.json"
+          npm run migrate -- --input "${{ runner.temp }}/ableton-mcp-legacy.json" --output "${{ runner.temp }}/ableton-mcp-migrated.json"
+      - run: npm run diagnostics -- --config "${{ runner.temp }}/ableton-mcp-host.json"
       - run: git diff --check
         working-directory: .
   remote-script:

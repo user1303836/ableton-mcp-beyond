@@ -1,15 +1,24 @@
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from ableton_mcp_remote_script import (
     AbletonMcpBridge,
     AuthenticatedRemoteScript,
-    LiveObjectMapper,
+    LiveObjectMapper, operation_registry,
     PROTOCOL,
     create_instance,
 )
+from AbletonMcpBridge import _owner_controlled
 
 
 class RemoteScriptTests(unittest.TestCase):
+    def test_security_sensitive_files_require_current_owner(self):
+        path = Path(__file__).resolve()
+        self.assertTrue(_owner_controlled(path))
+        with patch("AbletonMcpBridge.os.getuid", return_value=path.stat().st_uid + 1):
+            self.assertFalse(_owner_controlled(path))
+
     def test_authentication_and_replay_protection(self):
         remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: {"method": method})
         unsigned = {"version": PROTOCOL, "id": "one", "method": "status", "nonce": "0000000000000001", "sequence": 1}
@@ -117,6 +126,26 @@ class FakeTrack:
     def __init__(self):
         self.name = "Drums"
         self.clip_slots = [FakeSlot()]
+        self.devices = [FakeDevice()]
+
+
+class FakeParameter:
+    def __init__(self):
+        self.name = "Gain"
+        self.value = 0.5
+        self.min = 0.0
+        self.max = 1.0
+        self.quantization = 0.25
+        self.enabled = True
+        self.automatable = True
+
+
+class FakeDevice:
+    def __init__(self):
+        self.name = "Utility"
+        self.class_name = "AudioEffectUtility"
+        self.enabled = True
+        self.parameters = [FakeParameter()]
 
 
 class FakeScene:
@@ -179,6 +208,31 @@ class FakeInstance:
 
 
 class ControlSurfaceTests(unittest.TestCase):
+    def test_registry_is_canonical_and_hashed(self):
+        registry, digest = operation_registry()
+        self.assertEqual(registry["protocol"], "ableton-live/v1")
+        self.assertEqual(len(digest), 64)
+        self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
+
+    def test_references_remain_stable_across_fresh_discovery(self):
+        mapper = LiveObjectMapper(FakeSong())
+        first = mapper.discover("track")["items"][0]["ref"]
+        second = mapper.discover("track")["items"][0]["ref"]
+        self.assertEqual(first, second)
+        self.assertEqual(mapper.get(first)["ref"], first)
+
+    def test_device_parameter_discovery_and_guarded_mutation(self):
+        mapper = LiveObjectMapper(FakeSong())
+        device = mapper.discover("device")["items"][0]
+        parameter = mapper.discover("parameter")["items"][0]
+        self.assertEqual(parameter["parentRef"], device["ref"])
+        self.assertEqual(parameter["revision"], 1)
+        changed = mapper.invoke("device.parameter.set", {"ref": parameter["ref"], "value": 0.75})
+        self.assertEqual(changed["value"], 0.75)
+        self.assertEqual(changed["revision"], 2)
+        with self.assertRaises(ValueError):
+            mapper.invoke("device.parameter.set", {"ref": parameter["ref"], "value": 0.7})
+
     def test_session_structure_lifecycle_and_empty_slots_are_authoritative(self):
         mapper = LiveObjectMapper(FakeSong())
         track = mapper.discover("track")["items"][0]

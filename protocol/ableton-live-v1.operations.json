@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "protocol": "ableton-live/v1",
+  "operations": [
+    {"id": "clip.create", "method": "invoke", "request": {"type": "object"}, "result": {"type": "object"}},
+    {"id": "clip.delete", "method": "invoke", "request": {"type": "object"}, "result": {"type": "object"}},
+    {"id": "device.parameter.set", "method": "invoke", "request": {"type": "object"}, "result": {"type": "object"}},
+    {"id": "discover", "method": "discover", "request": {"type": "object"}, "result": {"type": "object"}},
+    {"id": "get", "method": "get", "request": {"type": "object"}, "result": {"type": "object"}},
+    {"id": "locator.add", "method": "invoke", "request": {"type": "object"}, "result": {"type": "object"}},
+    {"id": "locator.delete", "method": "invoke", "request": {"type": "object"}, "result": {"type": "object"}},
+    {"id": "note.add", "method": "invoke", "request": {"type": "object"}, "result": {"type": "object"}},
+    {"id": "reconnect", "method": "reconnect", "request": {}, "result": {"type": "object"}},
+    {"id": "scene.create", "method": "invoke", "request": {"type": "object"}, "result": {"type": "object"}},
+    {"id": "scene.delete", "method": "invoke", "request": {"type": "object"}, "result": {"type": "object"}},
+    {"id": "session.discover", "method": "invoke", "request": {"type": "object"}, "result": {"type": "object"}},
+    {"id": "set", "method": "set", "request": {"type": "object"}, "result": {"type": "object"}},
+    {"id": "status", "method": "status", "request": {}, "result": {"type": "object"}},
+    {"id": "subscribe", "method": "subscribe", "request": {"type": "object"}, "result": {"type": "object"}},
+    {"id": "track.create", "method": "invoke", "request": {"type": "object"}, "result": {"type": "object"}},
+    {"id": "track.delete", "method": "invoke", "request": {"type": "object"}, "result": {"type": "object"}}
+  ]
+}

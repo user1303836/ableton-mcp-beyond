@@ -19,14 +19,38 @@ import queue
 import socket
 import threading
 import time
+from pathlib import Path
 from typing import Any, Callable
 
 PROTOCOL = "ableton-loopback/v1"
 METHODS = {"status", "snapshot", "get", "set", "invoke", "subscribe", "reconnect"}
 SUPPORTED_OPERATIONS = {
     "session.discover", "session.reconnect", "clip.create", "clip.delete", "note.add",
-    "locator.add", "locator.delete", "track.create", "track.delete", "scene.create", "scene.delete",
+    "locator.add", "locator.delete", "track.create", "track.delete", "scene.create", "scene.delete", "device.parameter.set",
 }
+_MODULE_PATH = Path(__file__).resolve()
+_REGISTRY_CANDIDATES = (
+    _MODULE_PATH.with_name("ableton-live-v1.operations.json"),
+    _MODULE_PATH.parents[1] / "protocol" / "ableton-live-v1.operations.json",
+    _MODULE_PATH.parents[2] / "protocol" / "ableton-live-v1.operations.json",
+)
+
+
+def operation_registry() -> tuple[dict[str, Any], str]:
+    """Load and hash the source-controlled operation registry."""
+    try:
+        registry_path = next(path for path in _REGISTRY_CANDIDATES if path.is_file())
+        raw = registry_path.read_bytes()
+        registry = json.loads(raw.decode("utf-8"))
+    except (OSError, StopIteration, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError("operation registry is unavailable or malformed") from error
+    operations = registry.get("operations") if isinstance(registry, dict) else None
+    if registry.get("version") != 1 or registry.get("protocol") != "ableton-live/v1" or not isinstance(operations, list):
+        raise ValueError("unsupported operation registry")
+    identifiers = [item.get("id") for item in operations if isinstance(item, dict)]
+    if len(identifiers) != len(operations) or identifiers != sorted(identifiers) or len(set(identifiers)) != len(identifiers):
+        raise ValueError("operation registry identifiers are not canonical")
+    return registry, hashlib.sha256(raw).hexdigest()
 MAX_NONCE_LENGTH = 256
 MAX_WIRE_BYTES = 1_048_576
 MAX_WIRE_DEPTH = 16
@@ -147,16 +171,19 @@ class ReferenceRegistry:
         self.epoch = secrets.randbelow(2**53 - 1) + 1
         self._objects: dict[str, Any] = {}
         self._revisions: dict[str, int] = {}
+        self._object_keys: dict[tuple[str, int], str] = {}
 
     def reset(self) -> None:
         self.epoch = secrets.randbelow(2**53 - 1) + 1
         self._objects.clear()
         self._revisions.clear()
+        self._object_keys.clear()
 
     def put(self, kind: str, obj: Any, key: str) -> str:
-        reference = f"{self.epoch}:{kind}:{key}"
+        stable_key = self._object_keys.setdefault((kind, id(obj)), key)
+        reference = f"{self.epoch}:{kind}:{stable_key}"
         self._objects[reference] = obj
-        self._revisions[reference] = self._revisions.get(reference, 0) + 1
+        self._revisions.setdefault(reference, 1)
         return reference
 
     def get(self, reference: str) -> Any:
@@ -168,10 +195,19 @@ class ReferenceRegistry:
         self.get(reference)
         return self._revisions[reference]
 
+    def touch(self, reference: str) -> int:
+        self.get(reference)
+        self._revisions[reference] += 1
+        return self._revisions[reference]
+
     def delete(self, reference: str) -> None:
         self.get(reference)
         self._objects.pop(reference, None)
         self._revisions.pop(reference, None)
+        suffix = reference.rsplit(":", 1)[-1]
+        for identity, key in list(self._object_keys.items()):
+            if key == suffix:
+                self._object_keys.pop(identity, None)
 
 
 class LiveObjectMapper:
@@ -182,12 +218,16 @@ class LiveObjectMapper:
         self.refs = registry or ReferenceRegistry()
 
     def status(self) -> dict[str, Any]:
+        registry, registry_hash = operation_registry()
+        operations = [item["id"] for item in registry["operations"] if item["id"] in SUPPORTED_OPERATIONS or item["id"] in {"status", "discover", "get", "set", "reconnect"}]
         return {
             "connected": self.song is not None,
             "adapter": "remote-script" if self.song is not None else "unavailable",
             "epoch": self.refs.epoch if self.song is not None else None,
             "protocol": "ableton-live/v1",
             "capabilities": self.capabilities(),
+            "registryHash": registry_hash,
+            "operations": operations,
         }
 
     def capabilities(self) -> list[str]:
@@ -200,6 +240,8 @@ class LiveObjectMapper:
         ]
         if self._locator_supported():
             capabilities.extend(("arrangement.read", "arrangement.write"))
+        if any(self._device_items(track) for track in self._items(getattr(self.song, "tracks", []))):
+            capabilities.extend(("devices", "parameters", "device.parameter.write"))
         return capabilities
 
     def _locator_supported(self) -> bool:
@@ -217,6 +259,50 @@ class LiveObjectMapper:
             reference = self.refs.put("locator", locator, str(index))
             result.append({"ref": reference, "name": str(name), "position": float(position)})
         return sorted(result, key=lambda item: (item["position"], item["name"], item["ref"]))
+
+    def _device_items(self, track: Any) -> list[dict[str, Any]]:
+        devices = self._items(getattr(track, "devices", getattr(track, "device_chain", [])))
+        rows: list[dict[str, Any]] = []
+        tracks = self._items(getattr(self.song, "tracks", []))
+        track_index = tracks.index(track) if track in tracks else -1
+        track_ref = self.refs.put("track", track, str(track_index))
+        for index, device in enumerate(devices):
+            parameters: list[dict[str, Any]] = []
+            device_ref = self.refs.put("device", device, f"{id(track)}:{index}")
+            for parameter_index, parameter in enumerate(self._items(getattr(device, "parameters", []))):
+                minimum = getattr(parameter, "min", getattr(parameter, "min_value", None))
+                maximum = getattr(parameter, "max", getattr(parameter, "max_value", None))
+                value = getattr(parameter, "value", None)
+                numeric = (minimum, maximum, value)
+                if any(not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(float(item)) for item in numeric):
+                    continue
+                parameter_ref = self.refs.put("parameter", parameter, f"{device_ref}:{parameter_index}")
+                display = getattr(parameter, "display_value", None)
+                if display is None:
+                    display = getattr(parameter, "str_for_value", value)
+                    if callable(display):
+                        try:
+                            display = display(value)
+                        except Exception:
+                            display = value
+                parameters.append({
+                    "ref": parameter_ref, "parentRef": device_ref,
+                    "name": str(getattr(parameter, "name", f"Parameter {parameter_index + 1}")),
+                    "value": float(value), "min": float(minimum), "max": float(maximum),
+                    "quantization": float(getattr(parameter, "quantization", 0) or 0),
+                    "enabled": bool(getattr(parameter, "is_enabled", getattr(parameter, "enabled", True))),
+                    "automatable": bool(getattr(parameter, "is_automatable", getattr(parameter, "automatable", True))),
+                    "automationState": str(getattr(parameter, "automation_state", "none")),
+                    "displayValue": str(display), "revision": self.refs.revision(parameter_ref),
+                })
+            rows.append({
+                "ref": device_ref, "parentRef": track_ref, "chainPosition": index,
+                "className": str(getattr(device, "class_name", device.__class__.__name__)),
+                "name": str(getattr(device, "name", "Device")),
+                "enabled": bool(getattr(device, "is_enabled", getattr(device, "enabled", True))),
+                "parameters": parameters,
+            })
+        return rows
 
     @staticmethod
     def _items(value: Any) -> list[Any]:
@@ -243,7 +329,7 @@ class LiveObjectMapper:
                 notes = self._read_notes(clip)
                 clips.append({"ref": clip_ref, "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": slot_index * 4, "length": float(getattr(clip, "length", 0.0)), "notes": notes})
                 slot_rows.append({"ref": f"{self.refs.epoch}:clip_slot:{index}:{slot_index}", "trackRef": track_ref, "sceneIndex": slot_index, "clipRef": clip_ref, "empty": False})
-            track_rows.append({"ref": track_ref, "name": str(getattr(track, "name", f"Track {index + 1}")), "kind": "midi" if bool(getattr(track, "has_midi_input", True)) else "audio", "clips": clips, "clipSlots": slot_rows})
+            track_rows.append({"ref": track_ref, "name": str(getattr(track, "name", f"Track {index + 1}")), "kind": "midi" if bool(getattr(track, "has_midi_input", True)) else "audio", "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track)})
         scene_rows = [{"ref": self.refs.put("scene", scene, str(i)), "name": str(getattr(scene, "name", f"Scene {i + 1}")), "index": i} for i, scene in enumerate(scenes)]
         locators = self._locator_items()
         return {"tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators}, "epoch": self.refs.epoch}
@@ -263,6 +349,15 @@ class LiveObjectMapper:
         kind = reference.split(":", 2)[1] if reference.count(":") >= 2 else ""
         if kind == "clip":
             return next((clip for track in self.snapshot()["tracks"] for clip in track["clips"] if clip["ref"] == reference), None)
+        if kind in {"device", "parameter"}:
+            for track in self.snapshot()["tracks"]:
+                for device in track.get("devices", []):
+                    if device["ref"] == reference:
+                        return device
+                    for parameter in device["parameters"]:
+                        if parameter["ref"] == reference:
+                            return parameter
+            return None
         if kind == "locator":
             return next((item for item in self._locator_items() if item["ref"] == reference), None)
         if kind == "scene":
@@ -274,6 +369,24 @@ class LiveObjectMapper:
         return None
 
     def set(self, reference: str, property_name: str, value: Any) -> dict[str, Any]:
+        if property_name == "value":
+            parameter = self.refs.get(reference)
+            if not hasattr(parameter, "value"):
+                raise ValueError("property is unavailable")
+            minimum = getattr(parameter, "min", getattr(parameter, "min_value", None))
+            maximum = getattr(parameter, "max", getattr(parameter, "max_value", None))
+            quantization = float(getattr(parameter, "quantization", 0) or 0)
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)):
+                raise ValueError("parameter value is invalid")
+            if not bool(getattr(parameter, "is_enabled", getattr(parameter, "enabled", True))) or not bool(getattr(parameter, "is_automatable", getattr(parameter, "automatable", True))):
+                raise ValueError("parameter is disabled or not automatable")
+            if not isinstance(minimum, (int, float)) or not isinstance(maximum, (int, float)) or not float(minimum) <= float(value) <= float(maximum):
+                raise ValueError("parameter value is outside authoritative bounds")
+            if quantization > 0 and abs((float(value) - float(minimum)) / quantization - round((float(value) - float(minimum)) / quantization)) > 1e-9:
+                raise ValueError("parameter value does not match authoritative quantization")
+            parameter.value = float(value)
+            revision = self.refs.touch(reference)
+            return {"changed": True, "ref": reference, "property": property_name, "value": float(parameter.value), "revision": revision}
         if property_name not in {"name", "tempo"}:
             raise ValueError("property is unavailable")
         obj = self.refs.get(reference)
@@ -290,7 +403,7 @@ class LiveObjectMapper:
         return {"changed": True, "ref": reference, "property": property_name, "value": value}
 
     def discover(self, kind: str, limit: int = 100, cursor: str | None = None) -> dict[str, Any]:
-        if kind not in {"track", "scene", "clip", "note", "locator"}:
+        if kind not in {"track", "scene", "clip", "note", "locator", "device", "parameter"}:
             raise ValueError("unsupported discovery kind")
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
             raise ValueError("discovery limit is invalid")
@@ -299,7 +412,9 @@ class LiveObjectMapper:
         elif kind == "scene": items = snapshot["scenes"]
         elif kind == "clip": items = [clip for track in snapshot["tracks"] for clip in track["clips"]]
         elif kind == "note": items = [note | {"ref": f"note:{clip['ref']}:{index}"} for track in snapshot["tracks"] for clip in track["clips"] for index, note in enumerate(clip["notes"])]
-        else: items = snapshot["arrangement"]["locators"]
+        elif kind == "locator": items = snapshot["arrangement"]["locators"]
+        elif kind == "device": items = [device for track in snapshot["tracks"] for device in track["devices"]]
+        else: items = [parameter for track in snapshot["tracks"] for device in track["devices"] for parameter in device["parameters"]]
         offset = 0
         if cursor is not None:
             try:
@@ -333,6 +448,8 @@ class LiveObjectMapper:
             return self._mutate(operation, args)
         if operation in {"track.create", "track.delete", "scene.create", "scene.delete"}:
             return self._structure_mutate(operation, args)
+        if operation == "device.parameter.set":
+            return self.set(str(args.get("ref")), "value", args.get("value"))
         raise ValueError("live operation unavailable")
 
     def _structure_mutate(self, operation: str, args: dict[str, Any]) -> dict[str, Any]:

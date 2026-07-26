@@ -203,7 +203,7 @@ function timeFrequency(samples: Float64Array, channels: number, sampleRate: numb
   // Deinterleave once. The previous implementation rebuilt one full mono
   // buffer for every channel on every spectral frame, turning the declared
   // maximum input into avoidable O(frames * channels * spectralFrames) copying.
-  const channelSamples = Array.from({ length: channels }, (_, channel) => {
+  const channelSamples = channels === 1 ? [samples] : Array.from({ length: channels }, (_, channel) => {
     const result = new Float64Array(Math.ceil(frames));
     for (let frame = 0; frame < frames; frame += 1) result[frame] = samples[frame * channels + channel] ?? 0;
     return result;
@@ -228,9 +228,8 @@ function timeFrequency(samples: Float64Array, channels: number, sampleRate: numb
   return { frames: output, frameCount, bandCount: bands.length, frequencyRangeHz: { min: minFrequency, max: maxFrequency }, method: "hann-windowed-fft", window: "hann", hopSamples: frameSize, channelAggregation: "per-channel-and-aggregate", normalization: "mean-square-per-frame", lossy: true };
 }
 
-function transients(samples: Float64Array, sampleRate: number): PcmAnalysis["transients"] {
-  let peakCount = 0; let strongestIndex = -1; let strongestAmplitude = 0; let maximum = 0;
-  for (const sample of samples) maximum = Math.max(maximum, Math.abs(sample));
+function transients(samples: Float64Array, sampleRate: number, maximum: number): PcmAnalysis["transients"] {
+  let peakCount = 0; let strongestIndex = -1; let strongestAmplitude = 0;
   const threshold = Math.max(0.25, Math.min(0.9, maximum * 0.5));
   const refractory = Math.max(1, Math.floor(sampleRate * 0.01)); let lastPeak = -refractory;
   for (let index = 0; index < samples.length; index += 1) { const amplitude = Math.abs(samples[index] ?? 0); const previous = Math.abs(samples[index - 1] ?? 0); const next = Math.abs(samples[index + 1] ?? 0); if (amplitude >= threshold && amplitude >= previous && amplitude > next && index - lastPeak >= refractory) { peakCount += 1; lastPeak = index; if (amplitude > strongestAmplitude) { strongestAmplitude = amplitude; strongestIndex = index; } } }
@@ -270,6 +269,7 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
 
   let sumSquares = 0;
   let peak = 0;
+  let monoPeak = 0;
   let clippingCount = 0;
   let silenceCount = 0;
   const histogram = new Uint32Array(2048);
@@ -277,7 +277,10 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
   // ensures all aggregate, channel, stereo, and spectral fields describe the
   // same immutable snapshot when an ArrayLike has observable getters.
   const normalizedSamples = new Float64Array(sampleCount);
-  const monoSamples = new Float64Array(sampleCount / channels);
+  // Mono input is already the immutable analysis snapshot. Reusing it avoids
+  // a second ten-million-sample allocation and copy on the declared maximum
+  // input while preserving the trust-boundary copy above.
+  const monoSamples = channels === 1 ? normalizedSamples : new Float64Array(sampleCount / channels);
   const channelSquares = new Float64Array(channels);
   const channelSums = new Float64Array(channels);
   const channelPeaks = new Float64Array(channels);
@@ -288,6 +291,7 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
     if (sample < -1 || sample > 1) throw new RangeError(`samples[${i}] must be normalized between -1 and 1`);
     normalizedSamples[i] = sample;
     const magnitude = Math.abs(sample);
+    monoPeak = Math.max(monoPeak, magnitude);
     const channel = i % channels;
     const bucket = Math.min(histogram.length - 1, Math.floor(magnitude * histogram.length));
     histogram[bucket] = (histogram[bucket] ?? 0) + 1;
@@ -299,8 +303,10 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
     peak = Math.max(peak, magnitude);
     if (magnitude >= 0.999999) clippingCount += 1;
     if (magnitude < 0.0001) silenceCount += 1;
-    if (i % channels === 0) monoSamples[i / channels] = sample;
-    else if (magnitude > Math.abs(monoSamples[Math.floor(i / channels)] ?? 0)) monoSamples[Math.floor(i / channels)] = sample;
+    if (channels > 1) {
+      if (i % channels === 0) monoSamples[i / channels] = sample;
+      else if (magnitude > Math.abs(monoSamples[Math.floor(i / channels)] ?? 0)) monoSamples[Math.floor(i / channels)] = sample;
+    }
   }
   const rms = Math.sqrt(sumSquares / sampleCount);
   const frames = sampleCount / channels;
@@ -347,7 +353,7 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
     spectral: analyzeSpectrum(monoSamples, input.sampleRate, frameSize),
     waveform: waveform(normalizedSamples, channels, input.sampleRate),
     timeFrequency: timeFrequency(normalizedSamples, channels, input.sampleRate, frameSize),
-    transients: transients(monoSamples, input.sampleRate),
+    transients: transients(monoSamples, input.sampleRate, monoPeak),
     privacy: { rawAudioRetained: false, rawAudioReturned: false, sourcePathAccepted: false },
     safety: { playbackStarted: false, projectMutated: false, destructiveActionRequired: false },
     performance: { bounded: true, maxSamples: MAX_ANALYSIS_SAMPLES, maxSeconds: MAX_ANALYSIS_SECONDS, maxSpectralFrames: MAX_SPECTRAL_FRAMES, maxFftSize: MAX_FFT_SIZE },

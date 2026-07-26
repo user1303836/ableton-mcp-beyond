@@ -16,7 +16,52 @@ test("requires initialization and exposes only read-only tools", () => {
   assert.equal((host.handle({ ...initialize, id: 2 }) as any).result.protocolVersion, PROTOCOL_VERSION);
   assert.equal(host.handle(initialized), null);
   const tools = (host.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
-  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "live_status", "live_snapshot", "live_discover", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "live_status", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+});
+
+test("previews, applies idempotently, verifies, and guardedly undoes a device parameter change", () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const before = simulator.snapshot().tracks[0]!.devices[0]!.parameters[0]!;
+  const preview = host.handle({ jsonrpc: "2.0", id: 200, method: "tools/call", params: { name: "live_device_parameter_preview", arguments: { deviceRef: "device:utility-1", parameterRef: "parameter:gain-1", value: 0.75 } } });
+  const proposed = JSON.parse((preview as any).result.content[0].text) as { transactionId: string; confirmation: string; parameter: { currentValue: number; revision: number; proposedValue: number } };
+  assert.equal((preview as any).result.isError, false);
+  assert.equal(proposed.parameter.currentValue, before.value);
+  assert.equal(simulator.snapshot().tracks[0]!.devices[0]!.parameters[0]!.value, before.value);
+  const applied = host.handle({ jsonrpc: "2.0", id: 201, method: "tools/call", params: { name: "live_device_parameter_apply", arguments: { transactionId: proposed.transactionId, confirmation: proposed.confirmation, idempotencyKey: "parameter-apply-1" } } });
+  const appliedValue = JSON.parse((applied as any).result.content[0].text) as { value: number; revision: number; idempotent: boolean };
+  assert.equal((applied as any).result.isError, false);
+  assert.equal(appliedValue.value, 0.75);
+  assert.equal(appliedValue.idempotent, false);
+  assert.ok(appliedValue.revision > proposed.parameter.revision);
+  const repeated = host.handle({ jsonrpc: "2.0", id: 202, method: "tools/call", params: { name: "live_device_parameter_apply", arguments: { transactionId: proposed.transactionId, confirmation: proposed.confirmation, idempotencyKey: "parameter-apply-1" } } });
+  assert.equal(JSON.parse((repeated as any).result.content[0].text).idempotent, true);
+  const undone = host.handle({ jsonrpc: "2.0", id: 203, method: "tools/call", params: { name: "live_undo", arguments: { transactionId: proposed.transactionId, confirmation: "undo", idempotencyKey: "parameter-undo-1" } } });
+  assert.equal((undone as any).result.isError, false);
+  assert.equal(JSON.parse((undone as any).result.content[0].text).value, before.value);
+});
+
+test("refuses device parameter changes for invalid token, stale revision, epoch changes, and bounds", () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const outOfBounds = host.handle({ jsonrpc: "2.0", id: 204, method: "tools/call", params: { name: "live_device_parameter_preview", arguments: { deviceRef: "device:utility-1", parameterRef: "parameter:gain-1", value: 2 } } });
+  assert.equal((outOfBounds as any).result.isError, true);
+  const preview = host.handle({ jsonrpc: "2.0", id: 205, method: "tools/call", params: { name: "live_device_parameter_preview", arguments: { deviceRef: "device:utility-1", parameterRef: "parameter:gain-1", value: 0.25 } } });
+  const value = JSON.parse((preview as any).result.content[0].text) as { transactionId: string; confirmation: string };
+  const wrongToken = host.handle({ jsonrpc: "2.0", id: 206, method: "tools/call", params: { name: "live_device_parameter_apply", arguments: { transactionId: value.transactionId, confirmation: "wrong", idempotencyKey: "parameter-bad-token" } } });
+  assert.equal((wrongToken as any).result.isError, true);
+  simulator.set("parameter:gain-1", "value", 0.4);
+  const stale = host.handle({ jsonrpc: "2.0", id: 207, method: "tools/call", params: { name: "live_device_parameter_apply", arguments: { transactionId: value.transactionId, confirmation: value.confirmation, idempotencyKey: "parameter-stale" } } });
+  assert.equal((stale as any).result.isError, true);
+  assert.match((stale as any).result.content[0].text, /changed since preview/);
+  const second = host.handle({ jsonrpc: "2.0", id: 208, method: "tools/call", params: { name: "live_device_parameter_preview", arguments: { deviceRef: "device:utility-1", parameterRef: "parameter:gain-1", value: 0.6 } } });
+  const secondValue = JSON.parse((second as any).result.content[0].text) as { transactionId: string; confirmation: string };
+  simulator.reconnect();
+  const epoch = host.handle({ jsonrpc: "2.0", id: 209, method: "tools/call", params: { name: "live_device_parameter_apply", arguments: { transactionId: secondValue.transactionId, confirmation: secondValue.confirmation, idempotencyKey: "parameter-epoch" } } });
+  assert.equal((epoch as any).result.isError, true);
+  assert.match((epoch as any).result.content[0].text, /epoch changed/);
 });
 
 test("previews, applies idempotently, verifies, and guardedly undoes Session structure", () => {
@@ -128,7 +173,7 @@ test("analyzes supplied PCM through the MCP tool without Live side effects", () 
 test("rejects duplicates, unsupported methods, and unknown fields", () => {
   const host = new McpHost();
   ready(host);
-  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 15);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 17);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).error.message, "Duplicate request identifier");
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set", arguments: {} } }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 4, method: "tools/list", debug: true }) as any).error.code, -32600);

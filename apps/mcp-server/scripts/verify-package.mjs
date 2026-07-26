@@ -31,7 +31,7 @@ try {
   const files = dryRun?.[0]?.files;
   if (!Array.isArray(files)) throw new Error("npm pack dry-run did not report files");
   const names = files.map((entry) => entry.path);
-  for (const required of ["dist/src/cli.js", "dist/src/setup.js", "dist/src/migrate.js", "dist/src/diagnostics.js", "dist/src/install-remote-script.js", "remote-script/AbletonMcpBridge/__init__.py", "remote-script/AbletonMcpBridge/ableton_mcp_remote_script.py", "remote-script/AbletonMcpBridge/manifest.json", "package.json"]) {
+  for (const required of ["dist/src/cli.js", "dist/src/setup.js", "dist/src/migrate.js", "dist/src/diagnostics.js", "dist/src/install-remote-script.js", "remote-script/AbletonMcpBridge/__init__.py", "remote-script/AbletonMcpBridge/ableton_mcp_remote_script.py", "remote-script/AbletonMcpBridge/ableton-live-v1.operations.json", "remote-script/AbletonMcpBridge/manifest.json", "package.json"]) {
     if (!names.includes(required)) throw new Error(`package is missing ${required}`);
   }
   if (names.some((name) => name.includes("extensions-sdk-1.0.0-beta.0") || name.includes("node_modules"))) {
@@ -51,7 +51,7 @@ try {
   if (!readFileSync(join(remotePackageDirectory, "__init__.py"), "utf8").includes("def create_instance")) throw new Error("installed Remote Script package has no loadable create_instance");
   if (!readFileSync(join(remotePackageDirectory, "ableton_mcp_remote_script.py"), "utf8").includes("class AbletonMcpBridge")) throw new Error("installed Remote Script package has no production bridge");
   const manifest = JSON.parse(readFileSync(join(remotePackageDirectory, "manifest.json"), "utf8"));
-  for (const name of ["__init__.py", "ableton_mcp_remote_script.py"]) {
+  for (const name of ["__init__.py", "ableton_mcp_remote_script.py", "ableton-live-v1.operations.json"]) {
     const digest = createHash("sha256").update(readFileSync(join(remotePackageDirectory, name))).digest("hex");
     if (manifest.algorithm !== "sha256" || manifest.files?.[name] !== digest) throw new Error(`Remote Script manifest hash mismatch for ${name}`);
   }

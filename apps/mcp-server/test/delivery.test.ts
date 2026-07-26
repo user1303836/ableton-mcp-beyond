@@ -97,6 +97,8 @@ test("bridge configuration and secrets are explicit and fail closed", () => {
   assert.equal(secret.length >= 32, true);
   const config = configForBridge("/opt/ableton-mcp/dist/src/cli.js", { host: "127.0.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000 });
   assert.equal(config.version, 2);
+  const generated = configForBridge("/opt/ableton-mcp/dist/src/cli.js", { host: "127.0.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000 }, "/usr/bin/node", join(directory, "bridge-config.json"));
+  assert.deepEqual(generated.server.args, ["/opt/ableton-mcp/dist/src/cli.js", "--config", join(directory, "bridge-config.json")]);
   assert.throws(() => configForBridge("/opt/cli.js", { host: "0.0.0.0", port: 43210, secretFile: secretPath, timeoutMs: 5000 }), /loopback/);
   assert.throws(() => generateSecret(8), /between 32/);
   writeFileSync(join(directory, "bad-secret"), ` ${secret}\n`);
@@ -134,4 +136,7 @@ test("Remote Script installer is explicit, atomic, and preserves a recoverable b
   assert.equal(second.backup !== null, true);
   assert.equal(readFileSync(join(destination, "ableton_mcp_remote_script.py"), "utf8"), "replacement");
   assert.equal(first.backup, null);
+  assert.equal(existsSync(join(destination, "ableton-live-v1.operations.json")), true);
+  const manifest = JSON.parse(readFileSync(join(destination, "manifest.json"), "utf8")) as { files?: Record<string, string> };
+  assert.equal(typeof manifest.files?.["ableton-live-v1.operations.json"], "string");
 });
