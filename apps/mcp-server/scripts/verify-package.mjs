@@ -9,6 +9,31 @@ const packageDirectory = new URL("..", import.meta.url);
 const temporaryDirectory = mkdtempSync(join(tmpdir(), "ableton-mcp-package-"));
 const npm = npmExecutable();
 const npmOptions = { shell: process.platform === "win32" };
+
+function terminateChildProcess(child) {
+  if (!child || child.exitCode !== null) return;
+  try { child.kill(); } catch {}
+  if (process.platform === "win32" && child.pid) {
+    try {
+      execFileSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+    } catch {}
+  }
+}
+
+function removeTemporaryDirectory(path) {
+  try {
+    rmSync(path, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
+  } catch (error) {
+    if (process.platform !== "win32") throw error;
+    // The smoke test intentionally creates an owner-only secret ACL. Restore
+    // the temporary tree's inherited ACL after all child processes are gone so
+    // Windows can remove the test directory deterministically.
+    try { execFileSync("icacls.exe", [path, "/reset", "/t", "/c"], { stdio: "ignore" }); } catch {}
+    rmSync(path, { recursive: true, force: true, maxRetries: 12, retryDelay: 250 });
+  }
+}
+
+let bridgeProcess;
 try {
   const packOutput = execFileSync(npm, ["pack", "--json", "--pack-destination", temporaryDirectory], {
     ...npmOptions,
@@ -103,6 +128,15 @@ class Instance:
     def __init__(self): self.song = Song()
 probe = socket.socket(); probe.bind(("127.0.0.1", 0)); port = probe.getsockname()[1]; probe.close()
 bridge = AbletonMcpBridge(Instance(), {"host":"127.0.0.1", "port":port, "secret":sys.argv[1]})
+deadline = time.time() + 5.0
+while time.time() < deadline:
+    client = socket.socket(); client.settimeout(0.1)
+    try:
+        client.connect(("127.0.0.1", port)); client.close(); break
+    except OSError:
+        client.close(); bridge.update_display(); time.sleep(0.01)
+else:
+    bridge.disconnect(); raise RuntimeError("production bridge listener did not become reachable")
 pathlib.Path(sys.argv[2]).write_text(json.dumps({"port":port}), encoding="utf-8")
 try:
     while True: bridge.update_display(); time.sleep(0.01)
@@ -110,7 +144,7 @@ except KeyboardInterrupt: pass
 finally: bridge.disconnect()
 `, { encoding: "utf8", mode: 0o600 });
   const python = process.platform === "win32" ? "python.exe" : "python3";
-  const bridgeProcess = spawn(python, [bridgeScript, bridgeSecret, readyPath], {
+  bridgeProcess = spawn(python, [bridgeScript, bridgeSecret, readyPath], {
     cwd: temporaryDirectory,
     env: { ...process.env, PYTHONPATH: join(installedPackageDirectory, "remote-script") },
     stdio: "ignore",
@@ -136,10 +170,11 @@ finally: bridge.disconnect()
     const sceneText = authenticatedResponses[2]?.result?.content?.[0]?.text ?? "";
     if (!statusText.includes("remote-script") || !sceneText.includes("Package Smoke Scene")) throw new Error("authenticated package smoke did not observe production bridge state");
   } finally {
-    bridgeProcess.kill();
+    terminateChildProcess(bridgeProcess);
     try { bridgeProcess.unref(); } catch {}
   }
   console.log(JSON.stringify({ artifact: packed[0].filename, files: names.length, installed: true, protocolSmoke: true, setupSmoke: true, migrationSmoke: true, diagnosticsSmoke: true, authenticatedBridgeSmoke: true, discoverySmoke: true, platform: process.platform, arch: process.arch }));
 } finally {
-  rmSync(temporaryDirectory, { recursive: true, force: true });
+  terminateChildProcess(bridgeProcess);
+  removeTemporaryDirectory(temporaryDirectory);
 }
