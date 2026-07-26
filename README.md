@@ -32,8 +32,11 @@ The source-controlled operation contract is
 [`protocol/ableton-live-v1.operations.json`](protocol/ableton-live-v1.operations.json).
 The bridge negotiates its exact SHA-256 before serving Live operations. The
 current host surface includes bounded discovery, Session structure and MIDI,
-Arrangement locators, tempo, and guarded numeric device-parameter adjustment;
-unsupported domains remain unavailable.
+Arrangement locators, tempo, and guarded numeric device-parameter adjustment.
+The Python mapper additionally supports bounded parent-scoped discovery of the
+observed hierarchy, including empty Session clip slots and playback metadata,
+when those object attributes exist. The MCP host has not yet delegated every
+mapper kind, and unsupported or unobserved domains remain unavailable.
 
 Build a host-only client configuration:
 
@@ -76,4 +79,5 @@ The deterministic simulator, Python fake-Live mapper, package smoke tests,
 benchmarks, and authenticated loopback tests are contract evidence only. They
 do not prove a real Ableton Live version, disposable Set, audio device,
 hardware, accessibility, signing, notarization, or installer-runtime result.
-Those limitations are recorded in [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md).
+Those limitations are recorded in [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md)
+and the real-Live safety boundary is in [`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md).

@@ -288,6 +288,41 @@ class ControlSurfaceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             mapper.invoke("track.create", {"name": "Nope", "kind": "midi", "index": 0})
 
+    def test_status_does_not_advertise_mutations_missing_from_observed_live_shape(self):
+        class ReadOnlyTrack:
+            clip_slots = []
+            devices = []
+
+        class ReadOnlySong:
+            tracks = [ReadOnlyTrack()]
+            scenes = []
+
+        status = LiveObjectMapper(ReadOnlySong()).status()
+        self.assertIn("status", status["operations"])
+        self.assertIn("discover", status["operations"])
+        self.assertNotIn("track.create", status["operations"])
+        self.assertNotIn("scene.create", status["operations"])
+        self.assertNotIn("clip.create", status["operations"])
+        self.assertNotIn("note.add", status["operations"])
+        self.assertNotIn("device.parameter.set", status["operations"])
+        self.assertNotIn("locator.add", status["operations"])
+
+    def test_status_requires_callable_delete_and_usable_device_parameters(self):
+        class EmptyDevice:
+            parameters = []
+
+        class ReadOnlyTrack:
+            clip_slots = []
+            devices = [EmptyDevice()]
+
+        class ReadOnlySong:
+            tracks = [ReadOnlyTrack()]
+            scenes = []
+
+        status = LiveObjectMapper(ReadOnlySong()).status()
+        self.assertNotIn("track.delete", status["operations"])
+        self.assertNotIn("device.parameter.set", status["operations"])
+
     def test_hierarchical_discovery_exposes_song_parents_and_empty_slots(self):
         mapper = LiveObjectMapper(FakeSong())
         song = mapper.discover("song")["items"][0]

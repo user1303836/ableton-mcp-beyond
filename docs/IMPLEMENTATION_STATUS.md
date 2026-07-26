@@ -13,9 +13,11 @@
   epochs, and deterministic close behavior.
 - Loadable `AbletonMcpBridge/__init__.py` with one-argument `create_instance`,
   fail-closed configuration, Control Surface scheduling, socket lifecycle,
-  main-thread queue, epoch-scoped references, registry hash negotiation, Session
-  discovery/MIDI mapping, Arrangement locator support when the Live shape
-  exists, and published numeric device-parameter mapping.
+  main-thread queue, epoch-scoped references, registry hash negotiation,
+  parent-scoped hierarchical discovery when the observed shape exposes it,
+  shape-dependent operation advertisement, Session discovery/MIDI mapping,
+  Arrangement locator support when the Live shape exists, and published
+  numeric device-parameter mapping.
 - Bounded Session discovery, Session-structure track/scene
   preview/apply/undo, MIDI preview/apply/undo, Arrangement locator
   preview/apply/undo, tempo preview/apply/undo, and device-parameter
@@ -35,14 +37,17 @@ Use `docs/USER_GUIDE.md` for clients, `docs/OPERATIONS.md` for supervision,
 
 The production bridge has not been validated against a real Ableton Live
 runtime or disposable Set in this checkout. The host `live_discover` tool
-currently accepts track, scene, clip, and note pages; the Python bridge mapper
-also has bounded locator, device, and parameter pages. This is not the full
-Live hierarchy and host-side parent/filter/field traversal is not complete.
+currently accepts track, scene, clip, and note pages. The Python bridge mapper
+also has bounded parent/filter/field/traversal-budget discovery for the
+observed hierarchy, including empty clip slots, Session/Arrangement clip
+distinction, selection, routing choices, and playback metadata, but this is
+not the full Live object graph and the host has not delegated every mapper
+kind.
 Session structure is limited to bounded named track/scene creation and guarded
 removal. Arrangement support is limited to named locator operations. Device
 support is limited to discovery and guarded numeric parameter adjustment; it
 does not insert, delete, move, load presets, traverse racks/chains, or control
-plug-in UI. Launch/recording, audio capture, warp/takes, automation, routing,
+plug-in UI. Scene/clip launch and stop, recording, audio capture, warp/takes, automation, routing,
 projects, realtime delivery, Max/OSC, performance mode, accessibility
 certification, signing, notarization, and release publication are unavailable.
 

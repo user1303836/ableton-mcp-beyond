@@ -1,9 +1,7 @@
 # Delivery and platform evidence
 
 The npm artifact allowlists compiled host files, the `AbletonMcpBridge`
-package, its bridge module, the versioned operation registry, README, and packaging scripts. The verifier checks
-the real tarball in a disposable directory and rejects tests, caches, local
-configuration, secrets, temporary output, and protected evidence.
+package, its bridge module, the versioned operation registry, README, and packaging scripts. The verifier checks the real tarball in a disposable directory and rejects tests, caches, local configuration, secrets, temporary output, and protected evidence. It also installs the tarball, starts the packaged Python bridge with a dependency-free fake Song, authenticates the packaged CLI, and verifies status plus scene discovery. This is production-package/fake-Live evidence, not real Live evidence.
 
 Installation requires an explicit absolute destination. It refuses symlink
 trees and overwrite by default; forced replacement moves an existing target to
@@ -35,4 +33,4 @@ matrix, with Python provisioned for the authenticated package smoke. Version 1 m
 accepts only the legacy command/args shape and produces a versioned host-only
 configuration; version 2 additionally validates loopback, bounded ports and
 timeouts, absolute non-symlink paths, and the separate secret file. The
-generated client arguments contain exactly `--config PATH` for version 2.
+generated client arguments contain exactly `--config PATH` for version 2. The current package smoke does not certify an Ableton Live installation, loaded Control Surface, audio output, or scene audition.

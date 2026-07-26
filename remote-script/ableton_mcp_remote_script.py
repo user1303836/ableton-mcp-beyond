@@ -227,7 +227,7 @@ class LiveObjectMapper:
 
     def status(self) -> dict[str, Any]:
         registry, registry_hash = operation_registry()
-        operations = [item["id"] for item in registry["operations"] if item["id"] in SUPPORTED_OPERATIONS or item["id"] in {"status", "discover", "get", "set", "reconnect"}]
+        operations = [item["id"] for item in registry["operations"] if self._operation_supported(item["id"])]
         return {
             "connected": self.song is not None,
             "adapter": "remote-script" if self.song is not None else "unavailable",
@@ -237,6 +237,38 @@ class LiveObjectMapper:
             "registryHash": registry_hash,
             "operations": operations,
         }
+
+    def _operation_supported(self, operation: str) -> bool:
+        """Advertise only operations executable against this observed Live shape."""
+        if self.song is None:
+            return operation in {"status", "reconnect"}
+        if operation in {"status", "discover", "get", "reconnect"}:
+            return True
+        if operation == "set":
+            return True
+        if operation == "locator.add" or operation == "locator.delete":
+            return self._locator_supported()
+        tracks = self._items(getattr(self.song, "tracks", []))
+        if operation == "track.create":
+            return callable(getattr(self.song, "create_midi_track", None)) and callable(getattr(self.song, "create_audio_track", None))
+        if operation == "track.delete":
+            return callable(getattr(self.song, "delete_track", None)) and bool(tracks)
+        if operation == "scene.create":
+            return callable(getattr(self.song, "create_scene", None))
+        if operation == "scene.delete":
+            return callable(getattr(self.song, "delete_scene", None)) and bool(self._items(getattr(self.song, "scenes", [])))
+        if operation == "clip.create":
+            return any(bool(getattr(track, "has_midi_input", False)) and any(callable(getattr(slot, "create_clip", None)) for slot in self._items(getattr(track, "clip_slots", []))) for track in tracks)
+        if operation == "clip.delete":
+            return any(getattr(slot, "clip", None) is not None and callable(getattr(slot, "delete_clip", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation == "note.add":
+            return any(callable(getattr(getattr(slot, "clip", None), "add_new_notes", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation == "device.parameter.set":
+            return any(
+                any(device.get("parameters") for device in self._device_items(track))
+                for track in tracks
+            )
+        return False
 
     def capabilities(self) -> list[str]:
         if self.song is None:

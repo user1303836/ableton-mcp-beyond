@@ -19,11 +19,11 @@ Diagnostics accepts no arguments or exactly one `--config PATH`:
 npm run diagnostics -- --config /absolute/path/bridge-config.json
 ```
 
-Diagnostics separates local host/package/configuration readiness from authenticated reachability, discovery reachability, registry hash, epoch, protocol, and `liveConnected`. A file, process, open port, installed package, simulator, or fake-Live result cannot establish real Live connectivity.
+Diagnostics separates local host/package/configuration readiness from authenticated reachability, discovery reachability, registry hash, epoch, protocol, and `liveConnected`. A file, process, open port, installed package, simulator, or fake-Live result cannot establish real Live connectivity. The package verifier does exercise an authenticated installed Python bridge and scene discovery, but that remains fake-Live contract evidence.
 
 ## Limits and shutdown
 
-The host bounds JSON-RPC frames at 64 MiB, remote frames at 1 MiB, remote pending work at 64 requests, tracked request identifiers at 4096, and tool calls at 120 per rolling minute. Audio analysis is bounded to the limits in `USER_GUIDE.md`. Close stdin for normal completion. On EOF, signal, initialization failure, cancellation, output failure, timeout, or disconnect, close the adapter and settle pending work; reinitialize to obtain a new epoch.
+The host bounds JSON-RPC frames at 64 MiB, remote frames at 1 MiB, remote pending work at 64 requests, tracked request identifiers at 4096, and tool calls at 120 per rolling minute. Stdio allows bounded concurrent work (default 16, maximum 64), preserves response order, observes output backpressure, and treats cancellation after dispatch as non-retracting. Audio analysis is bounded to the limits in `USER_GUIDE.md`. Close stdin for normal completion. On EOF, signal, initialization failure, cancellation, output failure, timeout, or disconnect, close the adapter and settle pending work; reinitialize to obtain a new epoch.
 
 ## Installation
 

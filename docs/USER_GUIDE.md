@@ -26,8 +26,8 @@ The only accepted CLI option is one `--config PATH`. Secrets, endpoints, adapter
 
 - `server_status` and `capabilities` report host state and the negotiated catalog.
 - `live_status` reports protocol, adapter, epoch, registry hash, operations, and connection state.
-- `live_snapshot` returns a bounded authoritative set snapshot when `session.read` is negotiated.
-- `live_discover` pages tracks, scenes, clips, or notes with an epoch-bound cursor. The host tool currently exposes these four kinds; the bridge mapper additionally supports locator, device, and parameter discovery for negotiated callers and diagnostics.
+- `live_snapshot` returns a bounded set snapshot when `session.read` is negotiated. Treat fallback values in a fake or incomplete Live shape as unavailable evidence, not proof of Live state.
+- `live_discover` currently accepts `track`, `scene`, `clip`, and `note` on the MCP host and uses bounded paging. The Python mapper additionally accepts `set`/`song`, `group_track`, `return_track`, `main_track`, `clip_slot`, `session_clip`, `arrangement_clip`, `locator`, `device`, `parameter`, `selection`, `routing_choice`, and `session_playback`, with optional parent, filters, requested fields, traversal budget, and opaque epoch-bound cursors. These extra mapper kinds are not all reachable through the current host tool.
 - `audio_analyze` accepts caller-supplied little-endian float32 PCM and returns bounded aggregate, waveform, logarithmic-band, and transient summaries. It never captures Live audio or returns raw samples.
 
 ## Mutation workflow
@@ -41,7 +41,7 @@ All Live mutations require a connected negotiated adapter, fresh discovery, a re
 - `live_tempo_preview/apply` for a bounded tempo change.
 - `live_undo` for an applied transaction whose epoch and verified postcondition still match.
 
-Preview records expire after 30 seconds. A lost acknowledgement, timeout, disconnect, failed verification, or failed compensation is uncertain state: stop mutation, read authoritative state, and do not blindly retry. An epoch change invalidates old references, cursors, previews, confirmations, idempotency inputs, and undo inputs.
+Preview records expire after 30 seconds. A lost acknowledgement, timeout, disconnect, failed verification, or failed compensation is uncertain state: stop mutation, read authoritative state, and do not blindly retry. An epoch change invalidates old references, cursors, previews, confirmations, idempotency inputs, and undo inputs. The current host does not implement the planned scene-audition preview/apply/stop workflow.
 
 ## Configuration and installation
 
@@ -72,4 +72,4 @@ The installer refuses symlink trees and overwrite by default. `--force` is for a
 
 ## Resources and prompts
 
-Read-only resources include `ableton://capabilities`, `ableton://safety`, and the safe tempo workflow. Prompts prepare requests; they do not grant mutation authority.
+Read-only resources include `ableton://capabilities`, `ableton://safety`, and the safe tempo workflow. Prompts prepare requests; they do not grant mutation authority. No resource or prompt authorizes scene launch, recording, routing, or audio capture.

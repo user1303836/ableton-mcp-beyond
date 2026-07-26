@@ -14,12 +14,18 @@ sequences, replay rejection, and redacted errors. Socket workers only frame,
 authenticate, sequence, and enqueue. `update_display` or the scheduled
 Control Surface callback drains Live-facing work on the main thread.
 
-The mapper supports status, bounded track/scene/clip/note/locator discovery,
-Session MIDI clip/note operations, bounded track/scene creation and deletion,
-reconnect epoch invalidation, and Arrangement locator operations when the Live
-object exposes cue points and `set_or_delete_cue`. Unsupported shapes are
+The mapper supports status, shape-dependent operation advertisement, bounded
+hierarchical discovery, Session MIDI clip/note operations, bounded
+track/scene creation and deletion, reconnect epoch invalidation, and
+Arrangement locator operations when the Live object exposes cue points and
+`set_or_delete_cue`. Discovery can represent the song, regular/group/return/
+main tracks, scenes, empty clip slots, Session clips, Arrangement clips,
+notes, locators, devices, parameters, selection, routing choices, and Session
+playback. Parent references, filters, requested fields, traversal budgets, and
+opaque epoch-bound cursors are bounded and validated. Unsupported shapes are
 unavailable, not fabricated. Discovery is not a complete Live object graph and
-does not imply support for routing, recording, or other unimplemented domains.
+does not imply support for routing mutation, recording, scene launch, or other
+unimplemented domains.
 
 It also loads and hashes the canonical operation registry, advertises only
 supported operations, and provides bounded device/parameter discovery plus
