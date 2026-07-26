@@ -1,57 +1,25 @@
-# Delivery
+# Delivery and platform evidence
 
-The supported artifact is the npm package produced from `apps/mcp-server` with
-`npm pack`. It contains compiled TypeScript and uses no native extensions, so
-the same host artifact targets Node.js on macOS (`darwin`), Windows (`win32`),
-and Linux (`linux`). It does not currently package or install the Python Remote
-Script. Local compatibility and package smoke checks do not substitute for an
-unavailable platform runner or Live runtime.
+The npm artifact contains the compiled MCP host, the allowlisted production
+Remote Script module, and the explicit-target installer. It does not select a
+Live destination automatically and refuses symbolic links, ambiguous paths,
+and overwrite without `--force`. Replacement first moves the existing target
+to a timestamped backup; a failed rename restores it.
 
-`npm run compatibility` fails unless the current runner uses Node 20 or newer
-and is macOS, Windows, or Linux. This is a portable Node package, so no
-platform-specific installer or native extension is claimed. The real tarball
-is installed and exercised by `npm run package:verify` on the current runner.
+Host-only configuration remains version 1 for compatibility. Version 2 adds an
+explicit loopback bridge endpoint and secret-file reference. Configuration
+validation rejects non-loopback hosts, invalid ports, unsafe or symbolic-link
+secret files, unknown versions, and missing secrets. Secret contents are never
+included in diagnostics or command output.
 
-Run the local artifact check with:
+Diagnostics report host readiness, installed Remote Script assets, bridge
+configuration, authenticated reachability, negotiated protocol/epoch/capability
+state, and observed Live connectivity independently. File presence and a
+running Live process cannot establish authenticated reachability or Live
+connectivity. Signing, notarization, and real Live runtime evidence remain
+unavailable until the corresponding identity, runner, and disposable Set are
+observed.
 
-```sh
-npm run package:verify
-```
-
-This creates the tarball and installs it under a disposable temporary
-directory. It verifies the executable and delivery helpers are present and
-that the artifact contains neither dependencies nor the protected SDK. The
-installed artifact is tested through the protocol handshake, setup, legacy
-migration, and diagnostics commands; diagnostics must report Live as
-`unavailable`.
-
-After `npm run build`, setup writes a versioned MCP client configuration whose
-server command targets the packaged `cli.js` executable:
-
-```sh
-npm run setup -- --output /absolute/path/client-config.json
-```
-
-The output path is explicit and existing files are protected unless `--force`
-is supplied. Migration accepts the legacy `{ "command": "...", "args": [] }`
-shape and emits version 1:
-
-```sh
-npm run migrate -- --input /absolute/path/old.json --output /absolute/path/new.json
-```
-
-`npm run diagnostics` emits JSON for Node version, architecture, supported
-platform, compiled executable presence, and optional config validity. `ready`
-means only that the local host can be launched on a supported Node platform.
-Ableton Live, native devices, signing, and notarization are reported as
-`unavailable`; they are never inferred from the host operating system.
-
-Diagnostics do not start Live or validate a client connection. Setup and
-migration only write configuration; they do not install a Remote Script,
-launch Live, sign, or publish an artifact. `--force` is an explicit overwrite
-operation. Configuration writes refuse directories and symbolic links and use
-atomic staging with recovery on supported filesystems.
-
-`npm pack --dry-run` audits package contents without publishing. CI does not
-sign or notarize artifacts. Those actions require a separately approved
-release process with real identities and platform evidence.
+CI runs Node 20 and 22 checks on Ubuntu, macOS, and Windows plus Python Remote
+Script contract tests. These are deterministic repository and packaging checks;
+they are not evidence of a connected Ableton Live instance.

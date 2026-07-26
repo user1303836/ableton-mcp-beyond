@@ -1,6 +1,6 @@
 import { performance } from "node:perf_hooks";
 import { PassThrough } from "node:stream";
-import { analyzePcm } from "./analysis.js";
+import { analyzePcm, MAX_ANALYSIS_CHANNELS } from "./analysis.js";
 import { McpHost, PROTOCOL_VERSION, serve } from "./host.js";
 
 export interface BenchmarkMeasurement {
@@ -19,6 +19,7 @@ export interface BenchmarkReport {
 const PING_SAMPLES = 256;
 const BATCH_SIZE = 128;
 const ANALYSIS_SAMPLES = 96_000;
+const MAX_CHANNEL_ANALYSIS_SAMPLES = 96_000;
 
 /**
  * The gates are deliberately loose enough for a loaded local development
@@ -33,6 +34,7 @@ export const BENCHMARK_BUDGETS = {
   cancellationP95Milliseconds: 5,
   recoveryMilliseconds: 100,
   analysisP95Milliseconds: 250,
+  maxChannelAnalysisP95Milliseconds: 250,
   resumeMilliseconds: 100,
 } as const;
 const INITIALIZED = { jsonrpc: "2.0", method: "notifications/initialized" } as const;
@@ -165,6 +167,20 @@ export async function runBenchmarks(): Promise<BenchmarkReport> {
     if (result.sampleCount !== ANALYSIS_SAMPLES || result.safety.projectMutated) throw new Error("analysis result was incomplete or unsafe");
   }
   measurements.push(measure("pcm_analysis_p95_latency", percentile(analysisTimes, 0.95), "ms", BENCHMARK_BUDGETS.analysisP95Milliseconds));
+
+  const maximumChannelSamples = new Float32Array(MAX_CHANNEL_ANALYSIS_SAMPLES);
+  for (let index = 0; index < maximumChannelSamples.length; index += 1) {
+    maximumChannelSamples[index] = 0.25 * Math.sin((2 * Math.PI * 220 * Math.floor(index / MAX_ANALYSIS_CHANNELS)) / 48_000);
+  }
+  analyzePcm({ samples: maximumChannelSamples, sampleRate: 48_000, channels: MAX_ANALYSIS_CHANNELS });
+  const maxChannelTimes: number[] = [];
+  for (let index = 0; index < 5; index += 1) {
+    const started = performance.now();
+    const result = analyzePcm({ samples: maximumChannelSamples, sampleRate: 48_000, channels: MAX_ANALYSIS_CHANNELS });
+    maxChannelTimes.push(performance.now() - started);
+    if (result.channelsDetail.length !== MAX_ANALYSIS_CHANNELS || result.safety.projectMutated) throw new Error("maximum-channel analysis was incomplete or unsafe");
+  }
+  measurements.push(measure("pcm_max_channel_analysis_p95_latency", percentile(maxChannelTimes, 0.95), "ms", BENCHMARK_BUDGETS.maxChannelAnalysisP95Milliseconds));
 
   return { measurements, passed: measurements.every((item) => item.passed) };
 }

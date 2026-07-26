@@ -110,6 +110,15 @@ test("loopback rejects oversized nonces before retaining them", () => {
   assert.equal(transport.handle(request).ok, false);
 });
 
+test("loopback signing rejects oversized, deeply nested, and non-finite wire values", () => {
+  const transport = new AuthenticatedLoopback(new DeterministicLiveSimulator(), secret);
+  assert.throws(() => transport.authenticate({ version: LOOPBACK_PROTOCOL_VERSION, id: "large", method: "invoke", operation: "browser.search", args: { query: "x".repeat(16_385) }, nonce: "large-wire-value-0001" }), /wire string is too large/);
+  let nested: unknown = "value";
+  for (let index = 0; index < 17; index += 1) nested = { value: nested };
+  assert.throws(() => transport.authenticate({ version: LOOPBACK_PROTOCOL_VERSION, id: "deep", method: "invoke", operation: "browser.search", args: nested as Record<string, unknown>, nonce: "deep-wire-value-0001" }), /too deeply nested/);
+  assert.throws(() => transport.authenticate({ version: LOOPBACK_PROTOCOL_VERSION, id: "nan", method: "invoke", operation: "browser.search", args: { value: Number.NaN }, nonce: "nan-wire-value-0001" }), /not finite/);
+});
+
 test("loopback retains replay protection beyond the old eviction threshold", () => {
   const transport = new AuthenticatedLoopback(new DeterministicLiveSimulator(), secret);
   const first = transport.authenticate({ version: LOOPBACK_PROTOCOL_VERSION, id: "first", method: "status", nonce: "persistent-nonce-0001" });

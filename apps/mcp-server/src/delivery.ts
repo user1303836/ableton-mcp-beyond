@@ -1,16 +1,25 @@
-import { chmodSync, existsSync, lstatSync, mkdtempSync, readFileSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { platform, versions } from "node:process";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 export const CONFIG_VERSION = 1;
+export const BRIDGE_CONFIG_VERSION = 2;
 export const MIN_NODE_MAJOR = 20;
 export const SUPPORTED_PLATFORMS = ["darwin", "linux", "win32"] as const;
+export const REMOTE_SCRIPT_ASSET = "ableton_mcp_remote_script.py";
+export const REMOTE_SCRIPT_PACKAGE = "AbletonMcpBridge";
 
 export interface ServerConfig {
   version: 1;
   server: { command: string; args: string[] };
+}
+
+export interface BridgeConfig {
+  version: 2;
+  server: { command: string; args: string[] };
+  bridge: { host: string; port: number; secretFile: string; timeoutMs: number };
 }
 
 export interface DiagnosticReport {
@@ -22,12 +31,68 @@ export interface DiagnosticReport {
   packageRoot: string;
   entrypoint: { path: string; present: boolean };
   config: { path: string | null; present: boolean; valid: boolean };
+  hostReady: boolean;
+  remoteScriptInstalled: boolean;
+  bridgeConfigured: boolean;
+  authenticatedReachable: false;
+  adapterProtocol: string | null;
+  adapterEpoch: number | null;
+  adapterCapabilities: string[];
+  liveConnected: false;
+  simulator: boolean;
   external: {
     abletonLive: "unavailable";
     signing: "unavailable";
     notarization: "unavailable";
   };
   ready: boolean;
+}
+
+function validateLoopback(host: string): void {
+  const ipv4Loopback = /^127\.(?:\d{1,3}\.){2}\d{1,3}$/.test(host) && host.split(".").slice(1).every((part) => Number(part) >= 0 && Number(part) <= 255);
+  if (!(ipv4Loopback || host === "::1" || host === "localhost")) throw new Error("bridge host must be loopback");
+}
+
+function validateSecretPath(path: string): void {
+  if (!isAbsolute(path) || path.includes("\0")) throw new Error("secret file must be an absolute safe path");
+  try {
+    if (lstatSync(path).isSymbolicLink()) throw new Error("secret file must not be a symbolic link");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+export function configForBridge(entrypoint: string, bridge: BridgeConfig["bridge"], nodeCommand = process.execPath): BridgeConfig {
+  if (!isAbsolute(entrypoint)) throw new Error("entrypoint must be an absolute path");
+  if (!Number.isInteger(bridge.port) || bridge.port < 1 || bridge.port > 65_535) throw new Error("bridge port must be between 1 and 65535");
+  validateLoopback(bridge.host);
+  validateSecretPath(bridge.secretFile);
+  if (!Number.isInteger(bridge.timeoutMs) || bridge.timeoutMs < 100 || bridge.timeoutMs > 60_000) throw new Error("bridge timeout must be between 100 and 60000 ms");
+  if (typeof nodeCommand !== "string" || nodeCommand.length === 0) throw new Error("node command must be a non-empty string");
+  return { version: 2, server: { command: nodeCommand, args: [entrypoint] }, bridge: { ...bridge } };
+}
+
+export function generateSecret(bytes = 32): string {
+  if (!Number.isInteger(bytes) || bytes < 32 || bytes > 128) throw new Error("secret size must be between 32 and 128 bytes");
+  return randomBytes(bytes).toString("base64url");
+}
+
+export function writeSecretFile(path: string, secret = generateSecret()): void {
+  validateSecretPath(path);
+  if (secret.length < 32 || secret.includes("\n") || secret.includes("\r")) throw new Error("secret is invalid");
+  const parent = dirname(path);
+  if (!existsSync(parent)) throw new Error(`secret directory does not exist: ${parent}`);
+  writeFileSync(path, `${secret}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+  if (platform !== "win32") chmodSync(path, 0o600);
+}
+
+export function readSecretFile(path: string): string {
+  validateSecretPath(path);
+  const raw = readFileSync(path, "utf8");
+  const secret = raw.endsWith("\n") ? raw.slice(0, -1).replace(/\r$/, "") : raw;
+  if (secret.length === 0 || /\s/.test(secret)) throw new Error("secret file is invalid");
+  if (secret.length < 32) throw new Error("secret file is invalid");
+  return secret;
 }
 
 function parseConfig(value: unknown): ServerConfig {
@@ -38,6 +103,19 @@ function parseConfig(value: unknown): ServerConfig {
   const serverObject = server as Record<string, unknown>;
   if (Object.keys(serverObject).some((key) => !["command", "args"].includes(key)) || typeof serverObject.command !== "string" || serverObject.command.length === 0 || !Array.isArray(serverObject.args) || !serverObject.args.every((arg) => typeof arg === "string")) throw new Error("invalid server configuration");
   return { version: 1, server: { command: serverObject.command, args: [...serverObject.args] } };
+}
+
+function parseBridgeConfig(value: unknown): BridgeConfig {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("configuration must be an object");
+  const candidate = value as Record<string, unknown>;
+  if (Object.keys(candidate).some((key) => !["version", "server", "bridge"].includes(key))) throw new Error("unsupported configuration fields");
+  if (candidate.version !== BRIDGE_CONFIG_VERSION || typeof candidate.server !== "object" || candidate.server === null || typeof candidate.bridge !== "object" || candidate.bridge === null) throw new Error("unsupported configuration version");
+  const server = candidate.server as Record<string, unknown>;
+  const bridge = candidate.bridge as Record<string, unknown>;
+  if (Object.keys(server).some((key) => !["command", "args"].includes(key)) || Object.keys(bridge).some((key) => !["host", "port", "secretFile", "timeoutMs"].includes(key))) throw new Error("unsupported configuration fields");
+  if (typeof server.command !== "string" || !server.command || !Array.isArray(server.args) || !server.args.every((arg) => typeof arg === "string")) throw new Error("invalid server configuration");
+  if (typeof bridge.host !== "string" || typeof bridge.port !== "number" || typeof bridge.secretFile !== "string" || typeof bridge.timeoutMs !== "number") throw new Error("invalid bridge configuration");
+  return configForBridge(server.args[0] ?? "", { host: bridge.host, port: bridge.port, secretFile: bridge.secretFile, timeoutMs: bridge.timeoutMs }, server.command);
 }
 
 export function configForEntrypoint(entrypoint: string, nodeCommand = process.execPath): ServerConfig {
@@ -54,8 +132,13 @@ export function readConfig(path: string): ServerConfig {
   return parseConfig(JSON.parse(readFileSync(path, "utf8")) as unknown);
 }
 
-export function writeConfig(path: string, config: ServerConfig, force = false): void {
-  config = parseConfig(config);
+export function readAnyConfig(path: string): ServerConfig | BridgeConfig {
+  const value = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  return value.version === BRIDGE_CONFIG_VERSION ? parseBridgeConfig(value) : parseConfig(value);
+}
+
+export function writeConfig(path: string, config: ServerConfig | BridgeConfig, force = false): void {
+  config = config.version === BRIDGE_CONFIG_VERSION ? parseBridgeConfig(config) : parseConfig(config);
   let destinationExists = false;
   try {
     const destination = lstatSync(path);
@@ -114,14 +197,59 @@ export function migrateConfig(inputPath: string, outputPath: string, force = fal
   return config;
 }
 
+export interface InstallResult { installed: string; backup: string | null; dryRun: boolean; }
+
+function rejectSymlinkTree(path: string): void {
+  const entry = lstatSync(path);
+  if (entry.isSymbolicLink()) throw new Error(`refusing symbolic-link destination: ${path}`);
+  if (entry.isDirectory()) for (const child of readdirSync(path)) rejectSymlinkTree(join(path, child));
+}
+
+export function installRemoteScript(sourceFile: string, destinationDirectory: string, options: { dryRun?: boolean; force?: boolean } = {}): InstallResult {
+  if (!isAbsolute(sourceFile) || !isAbsolute(destinationDirectory)) throw new Error("installer paths must be absolute");
+  const source = lstatSync(sourceFile);
+  if (!source.isFile() || source.isSymbolicLink()) throw new Error("Remote Script source must be a regular file");
+  if (existsSync(destinationDirectory)) {
+    rejectSymlinkTree(destinationDirectory);
+    if (!options.force) throw new Error(`refusing to overwrite existing Remote Script: ${destinationDirectory}`);
+  }
+  const parent = dirname(destinationDirectory);
+  if (!existsSync(parent)) throw new Error(`destination parent does not exist: ${parent}`);
+  if (options.dryRun) return { installed: destinationDirectory, backup: existsSync(destinationDirectory) ? `${destinationDirectory}.backup` : null, dryRun: true };
+  const staging = mkdtempSync(join(parent, `.ableton-mcp-install-${randomUUID()}-`));
+  const stagedPackage = join(staging, REMOTE_SCRIPT_PACKAGE);
+  const backup = existsSync(destinationDirectory) ? `${destinationDirectory}.backup-${Date.now()}` : null;
+  try {
+    mkdirSync(stagedPackage);
+    const stagedAsset = join(stagedPackage, REMOTE_SCRIPT_ASSET);
+    copyFileSync(sourceFile, stagedAsset);
+    if (platform !== "win32") chmodSync(stagedAsset, 0o600);
+    writeFileSync(join(stagedPackage, "manifest.json"), `${JSON.stringify({ package: REMOTE_SCRIPT_PACKAGE, files: [REMOTE_SCRIPT_ASSET] })}\n`, { mode: 0o600, flag: "wx" });
+    if (backup) renameSync(destinationDirectory, backup);
+    renameSync(stagedPackage, destinationDirectory);
+    return { installed: destinationDirectory, backup, dryRun: false };
+  } catch (error) {
+    if (backup && !existsSync(destinationDirectory) && existsSync(backup)) renameSync(backup, destinationDirectory);
+    throw error;
+  } finally {
+    rmSync(staging, { recursive: true, force: true });
+  }
+}
+
 export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../.."), configPath?: string): DiagnosticReport {
   const entrypoint = join(packageRoot, "dist", "src", "cli.js");
   let configValid = false;
   if (configPath && existsSync(configPath)) {
-    try { readConfig(configPath); configValid = true; } catch { configValid = false; }
+    try { readAnyConfig(configPath); configValid = true; } catch { configValid = false; }
   }
   const nodeMajor = Number.parseInt(versions.node.split(".")[0] ?? "0", 10);
   const entrypointPresent = existsSync(entrypoint) && statSync(entrypoint).isFile();
+  const hostReady = nodeMajor >= MIN_NODE_MAJOR && isSupportedPlatform() && entrypointPresent;
+  const remoteScriptInstalled = existsSync(join(packageRoot, "remote-script", REMOTE_SCRIPT_ASSET));
+  let bridgeConfigured = false;
+  if (configValid && configPath) {
+    try { const config = readAnyConfig(configPath); bridgeConfigured = "bridge" in config && readSecretFile((config as BridgeConfig).bridge.secretFile).length >= 32; } catch { bridgeConfigured = false; }
+  }
   return {
     platform,
     arch: process.arch,
@@ -131,7 +259,16 @@ export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.m
     packageRoot,
     entrypoint: { path: entrypoint, present: entrypointPresent },
     config: { path: configPath ?? null, present: configPath ? existsSync(configPath) : false, valid: configValid },
+    hostReady,
+    remoteScriptInstalled,
+    bridgeConfigured,
+    authenticatedReachable: false,
+    adapterProtocol: null,
+    adapterEpoch: null,
+    adapterCapabilities: [],
+    liveConnected: false,
+    simulator: false,
     external: { abletonLive: "unavailable", signing: "unavailable", notarization: "unavailable" },
-    ready: nodeMajor >= MIN_NODE_MAJOR && isSupportedPlatform() && entrypointPresent,
+    ready: hostReady,
   };
 }

@@ -11,6 +11,7 @@ export const LIVE_PROTOCOL_VERSION = "ableton-live/v1";
 
 export const LIVE_CAPABILITIES = [
   "session.read", "session.write", "tracks", "scenes", "clips", "notes",
+  "session.discovery", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write",
   "arrangement.read", "arrangement.write", "audio", "warp", "takes",
   "automation", "devices", "racks", "chains", "parameters", "browser",
   "routing", "recording", "projects", "mixing", "transport", "max", "osc",
@@ -25,7 +26,7 @@ export const LIVE_UNAVAILABLE_CAPABILITIES = [
 ] as const;
 
 export const SIMULATOR_CAPABILITIES = [
-  "session.read", "session.write", "tracks", "scenes", "clips", "notes", "transport", "subscriptions", "reconnect",
+  "session.read", "session.write", "tracks", "scenes", "clips", "notes", "session.discovery", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write", "transport", "subscriptions", "reconnect",
 ] as const satisfies readonly LiveCapability[];
 
 export type LiveCapability = typeof LIVE_CAPABILITIES[number];
@@ -156,7 +157,7 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         if (!track || !track.ref.startsWith("track:")) throw new Error("unknown track reference");
         const kind = args.kind === "audio" ? "audio" : args.kind === "midi" ? "midi" : undefined;
         if (!kind) throw new TypeError("kind must be midi or audio");
-        const start = args.start; const length = args.length;
+        const start = args.start ?? (typeof args.sceneIndex === "number" ? args.sceneIndex * 4 : undefined); const length = args.length;
         if (typeof start !== "number" || !Number.isFinite(start) || start < 0 || typeof length !== "number" || !Number.isFinite(length) || length <= 0) throw new RangeError("clip bounds are invalid");
         const clip: Clip = { ref: ref("clip", `clip-${track.clips.length + 1}-${this.sequence + 1}`), name: typeof args.name === "string" && args.name.length > 0 ? args.name : "New Clip", kind, start, length, notes: [], warp: false, takes: [], automation: [] };
         track.clips.push(clip); this.emit({ type: "object", ref: track.ref, payload: { operation, clip: structuredClone(clip) } }); return structuredClone(clip);

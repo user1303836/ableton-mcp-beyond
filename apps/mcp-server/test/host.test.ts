@@ -16,7 +16,7 @@ test("requires initialization and exposes only read-only tools", () => {
   assert.equal((host.handle({ ...initialize, id: 2 }) as any).result.protocolVersion, PROTOCOL_VERSION);
   assert.equal(host.handle(initialized), null);
   const tools = (host.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
-  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "live_status", "live_snapshot", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "live_status", "live_snapshot", "live_discover", "live_midi_clip_preview", "live_midi_clip_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
 });
 
 test("advertises and serves static safety resources and a complete audio workflow prompt", () => {
@@ -81,7 +81,7 @@ test("analyzes supplied PCM through the MCP tool without Live side effects", () 
 test("rejects duplicates, unsupported methods, and unknown fields", () => {
   const host = new McpHost();
   ready(host);
-  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 8);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 11);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).error.message, "Duplicate request identifier");
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set", arguments: {} } }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 4, method: "tools/list", debug: true }) as any).error.code, -32600);
@@ -116,6 +116,32 @@ test("completes a simulator tempo preview, confirmed apply, verification, and co
   const conflictedUndo = host.handle({ jsonrpc: "2.0", id: 46, method: "tools/call", params: { name: "live_undo", arguments: { transactionId: previewValue.transactionId, confirmation: "undo", idempotencyKey: "undo-1" } } });
   assert.equal((conflictedUndo as any).result.isError, true);
   assert.equal(simulator.snapshot().set.tempo, 130);
+});
+
+test("completes bounded Session MIDI discovery, preview, idempotent apply, verification, and guarded undo", () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const track = simulator.snapshot().tracks[0]!;
+  const discovered = host.handle({ jsonrpc: "2.0", id: 60, method: "tools/call", params: { name: "live_discover", arguments: { kind: "track", limit: 10 } } });
+  assert.equal(JSON.parse((discovered as any).result.content[0].text).items[0].ref, track.ref);
+  const preview = host.handle({ jsonrpc: "2.0", id: 61, method: "tools/call", params: { name: "live_midi_clip_preview", arguments: { trackRef: track.ref, sceneIndex: 1, name: "Four Bar Drums", length: 4, notes: [
+    { pitch: 36, start: 0, duration: 0.25, velocity: 110, channel: 1 },
+    { pitch: 38, start: 2, duration: 0.25, velocity: 100, channel: 1 },
+    { pitch: 42, start: 0.5, duration: 0.1, velocity: 80, channel: 1 },
+  ] } } });
+  const transaction = JSON.parse((preview as any).result.content[0].text) as { transactionId: string };
+  assert.equal(simulator.snapshot().tracks[0]!.clips.length, 1);
+  const applied = host.handle({ jsonrpc: "2.0", id: 62, method: "tools/call", params: { name: "live_midi_clip_apply", arguments: { transactionId: transaction.transactionId, confirmation: "apply", idempotencyKey: "midi-apply-1" } } });
+  const appliedValue = JSON.parse((applied as any).result.content[0].text) as { clipRef: string; notes: unknown[] };
+  assert.equal(appliedValue.notes.length, 3);
+  const repeated = host.handle({ jsonrpc: "2.0", id: 63, method: "tools/call", params: { name: "live_midi_clip_apply", arguments: { transactionId: transaction.transactionId, confirmation: "apply", idempotencyKey: "midi-apply-1" } } });
+  assert.equal(JSON.parse((repeated as any).result.content[0].text).idempotent, true);
+  const clip = simulator.get(appliedValue.clipRef as any) as { notes: unknown[] };
+  assert.equal(clip.notes.length, 3);
+  const undone = host.handle({ jsonrpc: "2.0", id: 64, method: "tools/call", params: { name: "live_undo", arguments: { transactionId: transaction.transactionId, confirmation: "undo", idempotencyKey: "midi-undo-1" } } });
+  assert.equal(JSON.parse((undone as any).result.content[0].text).state, "undone");
+  assert.equal(simulator.snapshot().tracks[0]!.clips.length, 1);
 });
 
 test("keeps new Live tools fail-closed with the default unavailable adapter", () => {

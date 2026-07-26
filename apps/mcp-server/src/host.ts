@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { analyzePcm, decodeFloat32Le } from "./analysis.js";
 import { LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_UNAVAILABLE_CAPABILITIES, UnavailableLiveAdapter, type LiveAdapter, type LiveCapability, type LiveRef, type LiveSnapshot, type LiveStatus } from "./live.js";
 import { serveStdio } from "./stdio.js";
+import { SessionMidiTransactionManager, discoverSession } from "./transactions/session-midi.js";
 
 export const PROTOCOL_VERSION = "2025-11-25";
 export const MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
@@ -105,6 +106,24 @@ const implementedTools = [
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   },
   {
+    name: "live_discover",
+    description: "Read bounded, deterministic Session objects without changing Live state.",
+    inputSchema: { type: "object", properties: { kind: { type: "string", enum: ["track", "scene", "clip", "note"] }, limit: { type: "integer", minimum: 1, maximum: 100 }, cursor: { type: "string", maxLength: 256 } }, required: ["kind"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  {
+    name: "live_midi_clip_preview",
+    description: "Preview creation of a bounded MIDI clip in an empty Session slot.",
+    inputSchema: { type: "object", properties: { trackRef: { type: "string" }, sceneIndex: { type: "integer", minimum: 0, maximum: 1023 }, name: { type: "string", minLength: 1, maxLength: 256 }, length: { type: "number", exclusiveMinimum: 0, maximum: 1024 }, notes: { type: "array", maxItems: 512 } }, required: ["trackRef", "sceneIndex", "name", "length", "notes"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  {
+    name: "live_midi_clip_apply",
+    description: "Apply an exact, unexpired MIDI preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string" }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+  },
+  {
     name: "live_tempo_preview",
     description: "Preview a reversible tempo change without mutating Live.",
     inputSchema: {
@@ -202,8 +221,9 @@ export class McpHost {
   private readonly idOrder: string[] = [];
   private readonly toolCallTimes: number[] = [];
   private readonly transactions = new Map<string, TempoTransaction>();
+  private readonly midiTransactions: SessionMidiTransactionManager;
 
-  public constructor(private readonly adapter: LiveAdapter = new UnavailableLiveAdapter()) {}
+  public constructor(private readonly adapter: LiveAdapter = new UnavailableLiveAdapter()) { this.midiTransactions = new SessionMidiTransactionManager(adapter); }
 
   public handle(input: unknown): JsonObject | null {
     if (!isObject(input) || input.jsonrpc !== "2.0" || !hasOnly(input, ["jsonrpc", "id", "method", "params", "_meta"])) {
@@ -294,7 +314,7 @@ export class McpHost {
       return error(id, -32602, "Invalid tools/call parameters");
     }
     if (params.arguments !== undefined && !isObject(params.arguments)) return error(id, -32602, "Tool arguments must be an object");
-    const argumentTools = new Set(["audio_analyze", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+    const argumentTools = new Set(["audio_analyze", "live_discover", "live_midi_clip_preview", "live_midi_clip_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
     if (!argumentTools.has(params.name) && params.arguments !== undefined && Object.keys(params.arguments as JsonObject).length !== 0) {
       return error(id, -32602, "Tool arguments must be an empty object");
     }
@@ -306,6 +326,9 @@ export class McpHost {
     }
     if (params.name === "live_status") return this.liveStatus(id);
     if (params.name === "live_snapshot") return this.liveSnapshot(id);
+    if (params.name === "live_discover") return this.liveDiscover(id, params.arguments);
+    if (params.name === "live_midi_clip_preview") return this.liveMidiPreview(id, params.arguments);
+    if (params.name === "live_midi_clip_apply") return this.liveMidiApply(id, params.arguments);
     if (params.name === "live_tempo_preview") return this.liveTempoPreview(id, params.arguments);
     if (params.name === "live_tempo_apply") return this.liveTempoApply(id, params.arguments);
     if (params.name === "live_undo") return this.liveUndo(id, params.arguments);
@@ -351,12 +374,16 @@ export class McpHost {
     const liveImplemented = live.connected ? [
       "live.status",
       ...(live.capabilities.includes("session.read") ? ["live.snapshot"] : []),
+      ...(live.capabilities.includes("session.discovery") ? ["live.discover"] : []),
+      ...(live.capabilities.includes("session.midi_clip.create") && live.capabilities.includes("session.midi_note.write") ? ["live.midi_clip.preview", "live.midi_clip.apply", "live.midi_clip.undo"] : []),
       ...(live.capabilities.includes("transport") ? ["live.tempo.preview", "live.tempo.apply", "live.undo"] : []),
     ] : [];
     const liveUnavailable = live.connected ? [
       ...hostUnavailableCapabilities,
       ...LIVE_UNAVAILABLE_CAPABILITIES,
       ...(live.capabilities.includes("session.read") ? [] : ["live.snapshot"]),
+      ...(live.capabilities.includes("session.discovery") ? [] : ["live.discover"]),
+      ...(live.capabilities.includes("session.midi_clip.create") && live.capabilities.includes("session.midi_note.write") ? [] : ["live.midi_clip.preview", "live.midi_clip.apply", "live.midi_clip.undo"]),
       ...(live.capabilities.includes("transport") ? [] : ["live.tempo.preview", "live.tempo.apply", "live.undo"]),
     ] : [...unavailableCapabilities, ...LIVE_CAPABILITIES];
     return {
@@ -375,6 +402,24 @@ export class McpHost {
       const status = this.requireConnected("session.read");
       return response(id, { content: [{ type: "text", text: JSON.stringify({ epoch: status.epoch, snapshot: this.adapter.snapshot() }) }], isError: false });
     } catch (cause) { return this.adapterToolError(id, cause, "Snapshot unavailable. Verify the Live adapter connection and retry."); }
+  }
+
+  private liveDiscover(id: RequestId, params: unknown): JsonObject {
+    if (!isObject(params) || !hasOnly(params, ["kind", "limit", "cursor"]) || !["track", "scene", "clip", "note"].includes(String(params.kind)) || (params.limit !== undefined && !isIntegerInRange(params.limit, 1, 100)) || (params.cursor !== undefined && !isNonEmptyString(params.cursor, 256))) return error(id, -32602, "kind, limit, and cursor are invalid");
+    try { return this.successText(id, discoverSession(this.adapter, params.kind as "track" | "scene" | "clip" | "note", (params.limit as number | undefined) ?? 50, params.cursor as string | undefined)); }
+    catch (cause) { return this.adapterToolError(id, cause, "Discovery is unavailable; verify the Live adapter and request a fresh page."); }
+  }
+
+  private liveMidiPreview(id: RequestId, params: unknown): JsonObject {
+    if (!isObject(params) || !hasOnly(params, ["trackRef", "sceneIndex", "name", "length", "notes"]) || typeof params.trackRef !== "string" || !isIntegerInRange(params.sceneIndex, 0, 1023) || typeof params.name !== "string" || typeof params.length !== "number" || !Number.isFinite(params.length) || params.length <= 0 || params.length > 1024 || !Array.isArray(params.notes)) return error(id, -32602, "Invalid MIDI clip preview");
+    try { return this.successText(id, this.midiTransactions.preview(params)); }
+    catch (cause) { return this.adapterToolError(id, cause, "MIDI preview failed without mutation; verify the track, empty slot, and bounded notes."); }
+  }
+
+  private liveMidiApply(id: RequestId, params: unknown): JsonObject {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    try { return this.successText(id, this.midiTransactions.apply(params.transactionId as string, params.confirmation, params.idempotencyKey as string)); }
+    catch (cause) { return this.adapterToolError(id, cause, "MIDI apply did not complete; read the target slot before retrying."); }
   }
 
   private liveTempoPreview(id: RequestId, params: unknown): JsonObject {
@@ -415,6 +460,10 @@ export class McpHost {
   private liveUndo(id: RequestId, params: unknown): JsonObject {
     if (!this.validTransactionParams(params, "undo")) return error(id, -32602, "transactionId, confirmation=undo, and idempotencyKey are required");
     const transaction = this.transactions.get(params.transactionId as string);
+    if (!transaction && String(params.transactionId).startsWith("midi_")) {
+      try { return this.successText(id, this.midiTransactions.undo(params.transactionId as string, params.confirmation, params.idempotencyKey as string)); }
+      catch (cause) { return this.adapterToolError(id, cause, "MIDI undo refused; inspect the target clip and connection epoch."); }
+    }
     if (!transaction) return this.transactionError(id, "Unknown or expired transaction");
     if (transaction.state === "undone" && transaction.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "undone", tempo: transaction.priorTempo, idempotent: true });
     if (transaction.state !== "applied") return this.transactionError(id, "Only an applied tempo transaction can be undone");
@@ -468,7 +517,11 @@ export class McpHost {
   }
   private transactionError(id: RequestId, message: string): JsonObject { return response(id, { content: [{ type: "text", text: JSON.stringify({ reason: message, remediation: "Request a fresh tempo preview and confirm the exact transaction." }) }], isError: true }); }
   private successText(id: RequestId, value: unknown): JsonObject { return response(id, { content: [{ type: "text", text: JSON.stringify(value) }], isError: false }); }
-  private adapterToolError(id: RequestId, cause: unknown, remediation: string): JsonObject { return response(id, { content: [{ type: "text", text: JSON.stringify({ reason: cause instanceof Error ? cause.message : "adapter request failed", remediation }) }], isError: true }); }
+  private adapterToolError(id: RequestId, cause: unknown, remediation: string): JsonObject {
+    const raw = cause instanceof Error ? cause.message : "adapter request failed";
+    const reason = /^(live-|MIDI |Session |Tempo |Only an applied|confirmation=|transaction|adapter request)/.test(raw) && raw.length <= 160 ? raw : "adapter request failed";
+    return response(id, { content: [{ type: "text", text: JSON.stringify({ reason, remediation }) }], isError: true });
+  }
 
   private readResource(id: RequestId, params: unknown): JsonObject {
     if (!isObject(params) || !hasOnly(params, ["uri"]) || typeof params.uri !== "string") {

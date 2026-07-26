@@ -19,3 +19,7 @@ export type {
 } from "./live.js";
 export { AuthenticatedLoopback, AuthenticatedLoopbackClient, LoopbackLiveAdapter, LOOPBACK_PROTOCOL_VERSION } from "./loopback.js";
 export type { LoopbackExchange, LoopbackRequest, LoopbackResponse } from "./loopback.js";
+export { RemoteScriptLiveAdapter } from "./bridge/remote-adapter.js";
+export type { RemoteScriptEndpoint } from "./bridge/remote-adapter.js";
+export { SessionMidiTransactionManager, discoverSession } from "./transactions/session-midi.js";
+export type { SessionMidiPreview, SessionMidiRecord, SessionMidiRequest } from "./transactions/session-midi.js";

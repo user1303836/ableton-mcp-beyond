@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { analyzePcm, decodeFloat32Le, MAX_ANALYSIS_SAMPLES, MAX_ANALYSIS_SECONDS, MAX_FFT_SIZE, MAX_SPECTRAL_FRAMES } from "../src/analysis.js";
-import { impulseFixture, sineFixture } from "./fixtures.js";
+import { analyzePcm, decodeFloat32Le, MAX_ANALYSIS_CHANNELS, MAX_ANALYSIS_SAMPLES, MAX_ANALYSIS_SECONDS, MAX_FFT_SIZE, MAX_SPECTRAL_FRAMES } from "../src/analysis.js";
+import { dcFixture, impulseFixture, sineFixture, stereoFixture } from "./fixtures.js";
 
 test("deterministically analyzes a fixture without exposing audio", () => {
   const fixture = sineFixture(4096, 440, 48000);
@@ -103,6 +103,40 @@ test("preserves spectral evidence for antiphase stereo", () => {
   }
   const result = analyzePcm({ samples: stereo, sampleRate: 48000, channels: 2 });
   assert.ok(result.spectral.dominantFrequencyHz > 300);
+});
+
+test("reports bounded channel metrics and stereo phase correlation", () => {
+  const result = analyzePcm({ samples: new Float32Array([1, 1, -1, -1, 0.5, -0.5, 0, 0]), sampleRate: 48_000, channels: 2 });
+  assert.equal(result.channelsDetail.length, 2);
+  assert.equal(result.channelsDetail[0]?.clipping.count, 2);
+  assert.equal(result.channelsDetail[1]?.dcOffset, -0.125);
+  assert.ok(Math.abs((result.stereo.phaseCorrelation ?? 0) - 7 / 9) < 1e-12);
+  assert.equal(result.loudness.standardsCompliant, false);
+  assert.equal(result.loudness.deprecatedIntegratedLufsEstimate, true);
+});
+
+test("covers deterministic mono, DC, unequal-level, independent, and antiphase fixtures", () => {
+  const mono = analyzePcm({ samples: sineFixture(2048, 440, 48_000), sampleRate: 48_000 });
+  assert.ok(Math.abs(mono.channelsDetail[0]?.rms! - 0.3535) < 0.01);
+  const dc = analyzePcm({ samples: dcFixture(2048, 0.25), sampleRate: 48_000 });
+  assert.equal(dc.channelsDetail[0]?.dcOffset, 0.25);
+  const unequal = analyzePcm({ samples: stereoFixture(2048, () => 0.5, () => 0.125), sampleRate: 48_000, channels: 2 });
+  assert.equal(unequal.channelsDetail[0]?.peak, 0.5);
+  assert.equal(unequal.channelsDetail[1]?.peak, 0.125);
+  assert.equal(unequal.stereo.phaseCorrelation, 1);
+  const independent = analyzePcm({ samples: stereoFixture(2048, (frame) => Math.sin((2 * Math.PI * 220 * frame) / 48_000), (frame) => Math.sin((2 * Math.PI * 880 * frame) / 48_000)), sampleRate: 48_000, channels: 2 });
+  assert.ok((independent.stereo.phaseCorrelation ?? 0) < 0.9);
+  const antiphase = analyzePcm({ samples: stereoFixture(2048, (frame) => Math.sin((2 * Math.PI * 220 * frame) / 48_000), (frame) => -Math.sin((2 * Math.PI * 220 * frame) / 48_000)), sampleRate: 48_000, channels: 2 });
+  assert.ok(Math.abs((antiphase.stereo.phaseCorrelation ?? 0) + 1) < 1e-12);
+});
+
+test("reports explicit not-applicable correlation and supports the maximum channel count", () => {
+  const samples = new Float32Array(MAX_ANALYSIS_CHANNELS * 256);
+  const result = analyzePcm({ samples, sampleRate: 48_000, channels: MAX_ANALYSIS_CHANNELS });
+  assert.equal(result.channelsDetail.length, MAX_ANALYSIS_CHANNELS);
+  assert.equal(result.stereo.phaseCorrelation, null);
+  assert.match(result.stereo.reason ?? "", /only to stereo/);
+  assert.ok(result.channelsDetail.every((detail) => Number.isFinite(detail.rms) && detail.clipping.ratio >= 0 && detail.clipping.ratio <= 1));
 });
 
 test("validates mutable array-like storage once and keeps the result deterministic", () => {

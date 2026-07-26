@@ -2,17 +2,17 @@ name: CI
 
 on:
   push:
-    branches: ["feat/comprehensive-ableton-mcp"]
   pull_request:
 
 jobs:
-  test:
+  node:
+    name: Node ${{ matrix.node }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         node: [20, 22]
-    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: apps/mcp-server
@@ -24,14 +24,19 @@ jobs:
           cache: npm
           cache-dependency-path: apps/mcp-server/package-lock.json
       - run: npm ci
-      - run: npm run compatibility
       - run: npm run typecheck
       - run: npm test
       - run: npm run property-test
       - run: npm run benchmark
+      - run: npm run compatibility
       - run: npm run package:verify
-      - run: npm pack --dry-run
-      - name: Validate Python remote-script boundary
-        if: matrix.os == 'ubuntu-latest' && matrix.node == 20
-        working-directory: .
-        run: python3 -m unittest discover -s remote-script -p 'test_*.py'
+      - run: npm pack --dry-run --json
+  remote-script:
+    name: Python Remote Script contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: python -m unittest discover -s remote-script -p 'test_*.py'

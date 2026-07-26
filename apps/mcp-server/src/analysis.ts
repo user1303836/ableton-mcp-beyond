@@ -7,6 +7,7 @@
 export const ANALYSIS_VERSION = "pcm-analysis/v1";
 export const MAX_ANALYSIS_SAMPLES = 10_000_000;
 export const MAX_ANALYSIS_SECONDS = 600;
+export const MAX_ANALYSIS_CHANNELS = 32;
 export const MAX_SPECTRAL_FRAMES = 32;
 export const MAX_FFT_SIZE = 4096;
 
@@ -36,7 +37,9 @@ export interface PcmAnalysis {
   peakDbfs: number;
   rms: number;
   rmsDbfs: number;
-  loudness: { integratedLufsEstimate: number; method: "mono-rms-estimate" };
+  channelsDetail: Array<{ channel: number; peak: number; peakDbfs: number; rms: number; rmsDbfs: number; dcOffset: number; clipping: { count: number; ratio: number } }>;
+  stereo: { phaseCorrelation: number | null; reason?: string };
+  loudness: { rmsLoudnessProxyDb: number; integratedLufsEstimate: number; method: "rms-derived-proxy"; standardsCompliant: false; deprecatedIntegratedLufsEstimate: true };
   dynamics: { crestFactorDb: number; dynamicRangeDb: number; silenceRatio: number };
   clipping: { count: number; ratio: number };
   spectral: { centroidHz: number; dominantFrequencyHz: number; analyzedFrames: number; fftSize: number };
@@ -156,7 +159,7 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
   finite(channels, "channels");
   finite(frameSize, "frameSize");
   if (!Number.isInteger(input.sampleRate) || input.sampleRate < 8_000 || input.sampleRate > 384_000) throw new RangeError("sampleRate must be an integer from 8000 to 384000");
-  if (!Number.isInteger(channels) || channels < 1 || channels > 32) throw new RangeError("channels must be an integer from 1 to 32");
+  if (!Number.isInteger(channels) || channels < 1 || channels > MAX_ANALYSIS_CHANNELS) throw new RangeError(`channels must be an integer from 1 to ${MAX_ANALYSIS_CHANNELS}`);
   if (!Number.isInteger(frameSize) || frameSize < 256 || frameSize > 4096) throw new RangeError("frameSize must be an integer from 256 to 4096");
   const sampleCount = input.samples.length;
   if (!Number.isSafeInteger(sampleCount) || sampleCount <= 0 || sampleCount > MAX_ANALYSIS_SAMPLES) throw new RangeError(`samples must contain 1-${MAX_ANALYSIS_SAMPLES} values`);
@@ -168,15 +171,29 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
   let clippingCount = 0;
   let silenceCount = 0;
   const histogram = new Uint32Array(2048);
+  // Copy caller-owned storage once. This both bounds the trust boundary and
+  // ensures all aggregate, channel, stereo, and spectral fields describe the
+  // same immutable snapshot when an ArrayLike has observable getters.
+  const normalizedSamples = new Float64Array(sampleCount);
   const monoSamples = new Float64Array(sampleCount / channels);
+  const channelSquares = new Float64Array(channels);
+  const channelSums = new Float64Array(channels);
+  const channelPeaks = new Float64Array(channels);
+  const channelClips = new Uint32Array(channels);
   for (let i = 0; i < sampleCount; i += 1) {
     const sample = input.samples[i] ?? 0;
     finite(sample, `samples[${i}]`);
     if (sample < -1 || sample > 1) throw new RangeError(`samples[${i}] must be normalized between -1 and 1`);
+    normalizedSamples[i] = sample;
     const magnitude = Math.abs(sample);
+    const channel = i % channels;
     const bucket = Math.min(histogram.length - 1, Math.floor(magnitude * histogram.length));
     histogram[bucket] = (histogram[bucket] ?? 0) + 1;
     sumSquares += sample * sample;
+    channelSquares[channel] = (channelSquares[channel] ?? 0) + sample * sample;
+    channelSums[channel] = (channelSums[channel] ?? 0) + sample;
+    channelPeaks[channel] = Math.max(channelPeaks[channel] ?? 0, magnitude);
+    if (magnitude >= 0.999999) channelClips[channel] = (channelClips[channel] ?? 0) + 1;
     peak = Math.max(peak, magnitude);
     if (magnitude >= 0.999999) clippingCount += 1;
     if (magnitude < 0.0001) silenceCount += 1;
@@ -184,6 +201,20 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
     else if (magnitude > Math.abs(monoSamples[Math.floor(i / channels)] ?? 0)) monoSamples[Math.floor(i / channels)] = sample;
   }
   const rms = Math.sqrt(sumSquares / sampleCount);
+  const frames = sampleCount / channels;
+  const channelsDetail = Array.from({ length: channels }, (_, channel) => {
+    const channelRms = Math.sqrt((channelSquares[channel] ?? 0) / frames);
+    const channelPeak = channelPeaks[channel] ?? 0;
+    const clipCount = channelClips[channel] ?? 0;
+    return { channel, peak: channelPeak, peakDbfs: db(channelPeak), rms: channelRms, rmsDbfs: db(channelRms), dcOffset: (channelSums[channel] ?? 0) / frames, clipping: { count: clipCount, ratio: clipCount / frames } };
+  });
+  let phaseCorrelation: number | null = null;
+  let correlationReason: string | undefined;
+  if (channels === 2) {
+    let leftSquares = 0; let rightSquares = 0; let product = 0;
+    for (let frame = 0; frame < frames; frame += 1) { const left = normalizedSamples[frame * 2] ?? 0; const right = normalizedSamples[frame * 2 + 1] ?? 0; leftSquares += left * left; rightSquares += right * right; product += left * right; }
+    phaseCorrelation = leftSquares === 0 || rightSquares === 0 ? 0 : Math.max(-1, Math.min(1, product / Math.sqrt(leftSquares * rightSquares)));
+  } else { correlationReason = "phase correlation is applicable only to stereo input"; }
   const quantile = (fraction: number): number => {
     const target = Math.floor(sampleCount * fraction);
     let seen = 0;
@@ -206,7 +237,9 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
     peakDbfs: db(peak),
     rms,
     rmsDbfs: db(rms),
-    loudness: { integratedLufsEstimate: db(rms), method: "mono-rms-estimate" },
+    channelsDetail,
+    stereo: { phaseCorrelation, ...(correlationReason ? { reason: correlationReason } : {}) },
+    loudness: { rmsLoudnessProxyDb: db(rms), integratedLufsEstimate: db(rms), method: "rms-derived-proxy", standardsCompliant: false, deprecatedIntegratedLufsEstimate: true },
     dynamics: { crestFactorDb: db(peak / Math.max(rms, EPSILON)), dynamicRangeDb, silenceRatio: silenceCount / sampleCount },
     clipping: { count: clippingCount, ratio: clippingCount / sampleCount },
     spectral: analyzeSpectrum(monoSamples, input.sampleRate, frameSize),

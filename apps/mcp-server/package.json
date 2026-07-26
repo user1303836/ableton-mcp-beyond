@@ -9,9 +9,10 @@
     "ableton-mcp-server": "./dist/src/cli.js",
     "ableton-mcp-setup": "./dist/src/setup.js",
     "ableton-mcp-migrate": "./dist/src/migrate.js",
-    "ableton-mcp-diagnostics": "./dist/src/diagnostics.js"
+    "ableton-mcp-diagnostics": "./dist/src/diagnostics.js",
+    "ableton-mcp-install-remote-script": "./dist/src/install-remote-script.js"
   },
-  "files": ["dist/src"],
+  "files": ["dist/src", "remote-script/ableton_mcp_remote_script.py", "remote-script/README.md", "scripts"],
   "engines": {
     "node": ">=20"
   },
@@ -29,7 +30,7 @@
     "migrate": "node dist/src/migrate.js",
     "diagnostics": "node dist/src/diagnostics.js",
     "start": "node dist/src/cli.js",
-    "prepack": "npm run build"
+    "prepack": "npm run build && node scripts/stage-remote-script.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

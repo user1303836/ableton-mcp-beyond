@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFil
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { configForEntrypoint, diagnostics, isSupportedPlatform, migrateConfig, readConfig, writeConfig } from "../src/delivery.js";
+import { configForBridge, configForEntrypoint, diagnostics, generateSecret, installRemoteScript, isSupportedPlatform, migrateConfig, readConfig, readSecretFile, writeConfig, writeSecretFile } from "../src/delivery.js";
 import { npmExecutable } from "../src/platform.js";
 
 test("writes a versioned config and replaces it only with explicit force", () => {
@@ -87,4 +87,35 @@ test("package verification selects the Windows npm shim", () => {
 test("npm start launches the stdio server entrypoint", () => {
   const packageJson = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { scripts?: { start?: string } };
   assert.equal(packageJson.scripts?.start, "node dist/src/cli.js");
+});
+
+test("bridge configuration and secrets are explicit and fail closed", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ableton-mcp-"));
+  const secretPath = join(directory, "secret");
+  writeSecretFile(secretPath);
+  const secret = readSecretFile(secretPath);
+  assert.equal(secret.length >= 32, true);
+  const config = configForBridge("/opt/ableton-mcp/dist/src/cli.js", { host: "127.0.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000 });
+  assert.equal(config.version, 2);
+  assert.throws(() => configForBridge("/opt/cli.js", { host: "0.0.0.0", port: 43210, secretFile: secretPath, timeoutMs: 5000 }), /loopback/);
+  assert.throws(() => generateSecret(8), /between 32/);
+  writeFileSync(join(directory, "bad-secret"), ` ${secret}\n`);
+  assert.throws(() => readSecretFile(join(directory, "bad-secret")), /secret file is invalid/);
+  assert.throws(() => configForBridge("/opt/cli.js", { host: "127.999.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000 }), /loopback/);
+});
+
+test("Remote Script installer is explicit, atomic, and preserves a recoverable backup", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ableton-mcp-install-"));
+  const source = join(directory, "source.py");
+  const destination = join(directory, "AbletonMcpBridge");
+  writeFileSync(source, "production-remote-script");
+  assert.deepEqual(installRemoteScript(source, destination, { dryRun: true }), { installed: destination, backup: null, dryRun: true });
+  const first = installRemoteScript(source, destination);
+  assert.equal(readFileSync(join(destination, "ableton_mcp_remote_script.py"), "utf8"), "production-remote-script");
+  writeFileSync(source, "replacement");
+  assert.throws(() => installRemoteScript(source, destination), /refusing to overwrite/);
+  const second = installRemoteScript(source, destination, { force: true });
+  assert.equal(second.backup !== null, true);
+  assert.equal(readFileSync(join(destination, "ableton_mcp_remote_script.py"), "utf8"), "replacement");
+  assert.equal(first.backup, null);
 });

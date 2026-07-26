@@ -30,7 +30,7 @@ try {
   const files = dryRun?.[0]?.files;
   if (!Array.isArray(files)) throw new Error("npm pack dry-run did not report files");
   const names = files.map((entry) => entry.path);
-  for (const required of ["dist/src/cli.js", "dist/src/setup.js", "dist/src/migrate.js", "dist/src/diagnostics.js", "package.json"]) {
+  for (const required of ["dist/src/cli.js", "dist/src/setup.js", "dist/src/migrate.js", "dist/src/diagnostics.js", "dist/src/install-remote-script.js", "remote-script/ableton_mcp_remote_script.py", "package.json"]) {
     if (!names.includes(required)) throw new Error(`package is missing ${required}`);
   }
   if (names.some((name) => name.includes("extensions-sdk-1.0.0-beta.0") || name.includes("node_modules"))) {

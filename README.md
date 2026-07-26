@@ -49,12 +49,20 @@ migration and `npm run diagnostics` for local readiness checks. Diagnostics
 separate host readiness from external Ableton Live, signing, and notarization,
 which remain unavailable without observed evidence.
 
+The optional bridge configuration is version 2 and must name a loopback host,
+port, and owner-only secret file. Generate the secret out of band and do not
+place it on a command line. The Remote Script installer always requires an
+explicit destination; use `ableton-mcp-install-remote-script --dry-run` to
+inspect an installation, and `--force` only when replacing a known disposable
+destination. Existing installations are retained as recoverable backups.
+
 The server reads one JSON-RPC request per line from stdin and writes one JSON
 response per line to stdout. Diagnostics are written to stderr. An MCP client
 must send `initialize` with protocol version `2025-11-25`, then the
 `notifications/initialized` notification, before calling tools.
 
 This repository is under active development. The shipped scope and known gaps
-are recorded in [`docs/OPERATIONS.md`](docs/OPERATIONS.md) and
-[`docs/CHECKPOINT.md`](docs/CHECKPOINT.md), not inferred from the project
-motivation references.
+are recorded in [`docs/OPERATIONS.md`](docs/OPERATIONS.md),
+[`docs/CHECKPOINT.md`](docs/CHECKPOINT.md), and the consolidated
+[`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md), not inferred
+from the project motivation references.
