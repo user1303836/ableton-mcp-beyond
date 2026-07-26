@@ -45,6 +45,7 @@ describe("ableton-platform-build workflow shape", () => {
     expect(source).toContain("<Parallel maxConcurrency={3}>");
     expect(source).toContain('currentSlice: ctx.latest(outputs.planArtifact, "slice-select")');
     expect(source).toContain("context truncated at 80,000 characters");
+    expect(source).toContain("if={architectureApproval?.approved !== true}");
     expect(source.indexOf('id="audit-requirements"')).toBeLessThan(source.indexOf('id="audit-moderation"'));
     expect(source.indexOf('id="final-release-review"')).toBeLessThan(source.indexOf('id="final-review-verdict"'));
   });

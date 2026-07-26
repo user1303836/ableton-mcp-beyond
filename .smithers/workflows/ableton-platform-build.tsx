@@ -843,14 +843,20 @@ export default smithers((ctx) => {
               <AiTask id="architecture-platform-critique" output={outputs.specialistReview} agent={abletonAgents.review} Prompt={ArchitecturePlatformCritiquePrompt} context={sharedContext} />
               <AiTask id="architecture-repair" output={outputs.architecture} agent={abletonAgents.implementation} Prompt={ArchitectureRepairPrompt} context={sharedContext} />
               <AiTask id="architecture-verdict" output={outputs.specialistReview} agent={abletonAgents.review} Prompt={ArchitectureVerdictPrompt} context={sharedContext} />
-              <Approval
-                id="architecture-approval"
-                output={outputs.architectureApproval}
-                request={{
-                  title: "Approve the Ableton platform architecture",
-                  summary: "Approve only after reviewing the research, capability matrix, architecture, critiques, test strategy, Live safety plan, serial branch plan, and residual risks.",
-                }}
-                onDeny="continue"
+              <Branch
+                if={architectureApproval?.approved !== true}
+                then={(
+                  <Approval
+                    id="architecture-approval"
+                    output={outputs.architectureApproval}
+                    request={{
+                      title: "Approve the Ableton platform architecture",
+                      summary: "Approve only after reviewing the research, capability matrix, architecture, critiques, test strategy, Live safety plan, serial branch plan, and residual risks.",
+                    }}
+                    onDeny="continue"
+                  />
+                )}
+                else={null}
               />
               <Branch
                 if={architectureApproval?.approved === true}
