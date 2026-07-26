@@ -1,4 +1,5 @@
 import os
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -15,12 +16,19 @@ from AbletonMcpBridge import _owner_controlled
 
 class RemoteScriptTests(unittest.TestCase):
     def test_security_sensitive_files_require_current_owner(self):
-        path = Path(__file__).resolve()
-        self.assertTrue(_owner_controlled(path))
         if os.name == "nt":
-            with patch("AbletonMcpBridge._windows_owner_controlled", return_value=False):
-                self.assertFalse(_owner_controlled(path))
+            # actions/checkout may assign source files to the runner service
+            # account. Exercise the real contract with a file created by the
+            # current process, as setup does for bridge configuration files.
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory, "bridge-config.json")
+                path.write_text("{}", encoding="utf-8")
+                self.assertTrue(_owner_controlled(path))
+                with patch("AbletonMcpBridge._windows_owner_controlled", return_value=False):
+                    self.assertFalse(_owner_controlled(path))
         else:
+            path = Path(__file__).resolve()
+            self.assertTrue(_owner_controlled(path))
             with patch("AbletonMcpBridge.os.getuid", return_value=path.stat().st_uid + 1):
                 self.assertFalse(_owner_controlled(path))
 
