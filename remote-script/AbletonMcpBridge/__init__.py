@@ -29,6 +29,23 @@ except ImportError:  # source-tree contract tests import the flat module
     from ableton_mcp_remote_script import AbletonMcpBridge as _Bridge
 
 
+def _normalize_bridge_config(value: Any) -> dict[str, Any]:
+    """Collapse a supported host or bridge configuration to its version-1 shape."""
+    if not isinstance(value, dict):
+        raise ValueError("unsupported bridge configuration")
+    if value.get("version") == 2:
+        if set(value) != {"version", "server", "bridge"} or not isinstance(value.get("bridge"), dict) or set(value["bridge"]) != {"host", "port", "secretFile", "timeoutMs"}:
+            raise ValueError("unsupported bridge configuration")
+        timeout_ms = value["bridge"]["timeoutMs"]
+        if not isinstance(timeout_ms, int) or isinstance(timeout_ms, bool) or not 100 <= timeout_ms <= 60000:
+            raise ValueError("unsupported bridge configuration")
+        bridge = value["bridge"]
+        return {"version": 1, "host": bridge["host"], "port": bridge["port"], "secretFile": bridge["secretFile"]}
+    if set(value) != {"version", "host", "port", "secretFile"} or value.get("version") != 1:
+        raise ValueError("unsupported bridge configuration")
+    return value
+
+
 def _read_config() -> dict[str, Any]:
     reference = Path(__file__).with_name("bridge-reference.json")
     if reference.is_symlink() or not reference.is_file() or not _owner_controlled(reference) or stat.S_IMODE(reference.stat().st_mode) & 0o077:
@@ -49,14 +66,7 @@ def _read_config() -> dict[str, Any]:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ValueError("bridge configuration is unreadable or malformed") from error
-    if not isinstance(value, dict):
-        raise ValueError("unsupported bridge configuration")
-    if value.get("version") == 2:
-        if set(value) != {"version", "server", "bridge"} or not isinstance(value.get("bridge"), dict) or set(value["bridge"]) != {"host", "port", "secretFile", "timeoutMs"}:
-            raise ValueError("unsupported bridge configuration")
-        value = {"version": 1, **value["bridge"]}
-    if set(value) != {"version", "host", "port", "secretFile"} or value.get("version") != 1:
-        raise ValueError("unsupported bridge configuration")
+    value = _normalize_bridge_config(value)
     host, port, secret_file = value.get("host"), value.get("port"), value.get("secretFile")
     if host not in {"127.0.0.1", "::1"} or not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535 or not isinstance(secret_file, str):
         raise ValueError("bridge configuration is invalid")
@@ -222,7 +232,8 @@ class AbletonMcpBridge(_ControlSurface):
 
     def __init__(self, c_instance: Any) -> None:
         super().__init__(c_instance)
-        self._bridge = _Bridge(c_instance, _read_config(), provenance="real-live")
+        accessor = getattr(self, "song", None)
+        self._bridge = _Bridge(c_instance, _read_config(), song=accessor() if callable(accessor) else None, provenance="real-live")
         self._disconnected = False
         self._schedule_next()
 

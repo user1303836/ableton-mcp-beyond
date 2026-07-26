@@ -167,7 +167,9 @@ class AuthenticatedRemoteScript:
                 raise ValueError("wire string is too large")
             return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
         if isinstance(value, int):
-            return str(value)
+            # Live exposes Boost enum values as int subclasses whose str() is a
+            # symbolic name; canonical wire numbers must be plain integers.
+            return str(value) if type(value) is int else str(int(value))
         if isinstance(value, float):
             if not math.isfinite(value):
                 raise ValueError("non-finite wire number")
@@ -444,12 +446,28 @@ class LiveObjectMapper:
     def _slot_index(value: Any) -> int | None:
         return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
+    _QUANTIZATION_NAMES = {0: "none", 1: "8-bars", 2: "4-bars", 3: "2-bars", 4: "1-bar", 5: "1/2", 6: "1/2T", 7: "1/4", 8: "1/4T", 9: "1/8", 10: "1/8T", 11: "1/16", 12: "1/16T", 13: "1/32"}
+    _QUANTIZATION_ALIASES = {"q-bar": "1-bar", "q-2-bars": "2-bars", "q-4-bars": "4-bars", "q-8-bars": "8-bars", "q-no-q": "none", "q-half": "1/2", "q-half-t": "1/2T", "q-quarter": "1/4", "q-quarter-t": "1/4T", "q-8": "1/8", "q-8-t": "1/8T", "q-16": "1/16", "q-16-t": "1/16T", "q-32": "1/32"}
+
     @staticmethod
     def _quantization(value: Any) -> dict[str, Any]:
-        raw = value if isinstance(value, (str, int, float)) and not isinstance(value, bool) and (not isinstance(value, float) or math.isfinite(value)) else None
+        if isinstance(value, bool) or value is None:
+            raw = None
+        elif isinstance(value, int):
+            raw = int(value)
+        elif isinstance(value, float):
+            raw = value if math.isfinite(value) else None
+        elif isinstance(value, str):
+            raw = value
+        else:
+            raw = None
         if isinstance(raw, str):
             normalized = raw.strip().lower().replace("_", "-").replace(" ", "-") or None
-        elif isinstance(raw, (int, float)):
+            if normalized is not None:
+                normalized = LiveObjectMapper._QUANTIZATION_ALIASES.get(normalized, normalized)
+        elif isinstance(raw, int):
+            normalized = LiveObjectMapper._QUANTIZATION_NAMES.get(raw, str(raw))
+        elif isinstance(raw, float):
             normalized = str(raw)
         else:
             normalized = None
@@ -533,29 +551,31 @@ class LiveObjectMapper:
             parameters: list[dict[str, Any]] = []
             device_ref = self.refs.put("device", device, f"{id(track)}:{index}")
             for parameter_index, parameter in enumerate(self._items(getattr(device, "parameters", []))):
-                minimum = getattr(parameter, "min", getattr(parameter, "min_value", None))
-                maximum = getattr(parameter, "max", getattr(parameter, "max_value", None))
-                value = getattr(parameter, "value", None)
+                minimum = self._read_attr(parameter, "min", "min_value")
+                maximum = self._read_attr(parameter, "max", "max_value")
+                value = self._read_attr(parameter, "value")
                 numeric = (minimum, maximum, value)
                 if any(not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(float(item)) for item in numeric):
                     continue
                 parameter_ref = self.refs.put("parameter", parameter, f"{device_ref}:{parameter_index}")
-                display = getattr(parameter, "display_value", None)
+                display = self._read_attr(parameter, "display_value")
                 if display is None:
-                    display = getattr(parameter, "str_for_value", value)
+                    display = self._read_attr(parameter, "str_for_value")
                     if callable(display):
                         try:
                             display = display(value)
                         except Exception:
                             display = value
+                    if display is None:
+                        display = value
                 parameters.append({
                     "ref": parameter_ref, "parentRef": device_ref,
-                    "name": str(getattr(parameter, "name", f"Parameter {parameter_index + 1}")),
+                    "name": str(self._read_attr(parameter, "name") or f"Parameter {parameter_index + 1}"),
                     "value": float(value), "min": float(minimum), "max": float(maximum),
-                    "quantization": float(getattr(parameter, "quantization", 0) or 0),
-                    "enabled": bool(getattr(parameter, "is_enabled", getattr(parameter, "enabled", True))),
-                    "automatable": bool(getattr(parameter, "is_automatable", getattr(parameter, "automatable", True))),
-                    "automationState": str(getattr(parameter, "automation_state", "none")),
+                    "quantization": float(self._read_attr(parameter, "quantization") or 0),
+                    "enabled": bool(self._read_attr(parameter, "is_enabled", "enabled") if self._read_attr(parameter, "is_enabled", "enabled") is not None else True),
+                    "automatable": bool(self._read_attr(parameter, "is_automatable", "automatable") if self._read_attr(parameter, "is_automatable", "automatable") is not None else True),
+                    "automationState": str(self._read_attr(parameter, "automation_state") or "none"),
                     "displayValue": str(display), "revision": self.refs.revision(parameter_ref),
                 })
             rows.append({
@@ -573,6 +593,17 @@ class LiveObjectMapper:
             return list(value or [])
         except (TypeError, AttributeError):
             return []
+
+    @staticmethod
+    def _read_attr(obj: Any, *names: str) -> Any:
+        """Read the first available attribute, treating Live's per-shape
+        RuntimeError on unsupported properties as unavailable."""
+        for name in names:
+            try:
+                return getattr(obj, name, None)
+            except Exception:
+                continue
+        return None
 
     def snapshot(self) -> dict[str, Any]:
         set_ref = self.refs.put("set", self.song, "song")
@@ -595,17 +626,25 @@ class LiveObjectMapper:
             loop_row["length"] = float(loop_length)
         if loop_row:
             set_row["loop"] = loop_row
-        # Song exposes regular/group, return, and main tracks separately.
-        tracks = self._items(getattr(self.song, "tracks", []))
-        tracks += self._items(getattr(self.song, "return_tracks", []))
+        # Song exposes regular/group, return, and main tracks separately; the
+        # authoritative collection determines kind rather than shape heuristics.
+        track_kinds: dict[int, str] = {}
+        tracks = []
+        for track in self._items(getattr(self.song, "tracks", [])):
+            track_kinds[id(track)] = self._track_kind(track) if self._track_kind(track) == "group" else "regular"
+            tracks.append(track)
+        for track in self._items(getattr(self.song, "return_tracks", [])):
+            track_kinds[id(track)] = "return"
+            tracks.append(track)
         main_track = getattr(self.song, "master_track", getattr(self.song, "main_track", None))
         if main_track is not None:
+            track_kinds[id(main_track)] = "main"
             tracks.append(main_track)
         scenes = self._items(getattr(self.song, "scenes", []))
         track_rows = []
         for index, track in enumerate(tracks):
             track_ref = self.refs.put("track", track, str(index))
-            track_kind = self._track_kind(track)
+            track_kind = track_kinds.get(id(track), self._track_kind(track))
             slots = self._items(getattr(track, "clip_slots", []))
             clips = []
             slot_rows = []
@@ -619,15 +658,15 @@ class LiveObjectMapper:
                 notes = self._read_notes(clip)
                 clips.append({"ref": clip_ref, "parentRef": slot_ref, "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": slot_index * 4, "length": float(getattr(clip, "length", 0.0)), "notes": notes})
                 slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "sceneIndex": slot_index, "clipRef": clip_ref, "empty": False})
-            armed_value = getattr(track, "arm", getattr(track, "armed", None))
+            armed_value = self._read_attr(track, "arm", "armed")
             track_rows.append({
                 "ref": track_ref, "parentRef": self.refs.put("set", self.song, "song"),
                 "name": str(getattr(track, "name", f"Track {index + 1}")), "kind": track_kind,
-                "mediaKind": "midi" if bool(getattr(track, "has_midi_input", True)) else "audio",
+                "mediaKind": "midi" if bool(self._read_attr(track, "has_midi_input")) else "audio",
                 "armed": armed_value if isinstance(armed_value, bool) else None,
-                "monitoringState": self._monitoring_state(getattr(track, "current_monitoring_state", getattr(track, "monitoring", None))),
-                "playingSlotIndex": self._slot_index(getattr(track, "playing_slot_index", None)),
-                "firedSlotIndex": self._slot_index(getattr(track, "fired_slot_index", None)),
+                "monitoringState": self._monitoring_state(self._read_attr(track, "current_monitoring_state", "monitoring")),
+                "playingSlotIndex": self._slot_index(self._read_attr(track, "playing_slot_index")),
+                "firedSlotIndex": self._slot_index(self._read_attr(track, "fired_slot_index")),
                 "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track),
             })
         scene_rows = [{"ref": self.refs.put("scene", scene, str(i)), "parentRef": self.refs.put("set", self.song, "song"), "name": str(getattr(scene, "name", f"Scene {i + 1}")), "index": i, "triggerable": callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None))} for i, scene in enumerate(scenes)]
@@ -1144,7 +1183,12 @@ class AbletonMcpBridge:
             raise ValueError("explicit loopback host, port, and strong secret are required")
         self.c_instance = c_instance
         self.queue = _MainThreadQueue()
-        self.mapper = LiveObjectMapper(song if song is not None else getattr(c_instance, "song", None), provenance=provenance)
+        if song is None:
+            candidate = getattr(c_instance, "song", None)
+            # Live versions differ: c_instance.song may be the Song object or a
+            # zero-argument accessor. Resolve only the accessor form.
+            song = candidate() if callable(candidate) else candidate
+        self.mapper = LiveObjectMapper(song, provenance=provenance)
         self._bridge_epoch = secrets.token_urlsafe(24)
         self.auth = AuthenticatedRemoteScript(secret, self._dispatch, self._bridge_epoch, "internal-bridge-channel")
         self._server = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET, socket.SOCK_STREAM)

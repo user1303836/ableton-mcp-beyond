@@ -15,7 +15,29 @@ from ableton_mcp_remote_script import (
     PROTOCOL,
     create_instance,
 )
-from AbletonMcpBridge import _owner_controlled
+from AbletonMcpBridge import _owner_controlled, _normalize_bridge_config
+
+
+class BridgeConfigNormalizationTests(unittest.TestCase):
+    def test_version_two_host_config_normalizes_to_bridge_shape(self):
+        value = {"version": 2, "server": {"command": "node", "args": ["cli.js", "--config", "cfg.json"]}, "bridge": {"host": "127.0.0.1", "port": 9765, "secretFile": "/tmp/secret", "timeoutMs": 5000}}
+        self.assertEqual(_normalize_bridge_config(value), {"version": 1, "host": "127.0.0.1", "port": 9765, "secretFile": "/tmp/secret"})
+
+    def test_version_two_rejects_unknown_timeout_and_extra_keys(self):
+        base = {"version": 2, "server": {"command": "node", "args": []}, "bridge": {"host": "127.0.0.1", "port": 9765, "secretFile": "/tmp/secret", "timeoutMs": 5000}}
+        with self.assertRaises(ValueError):
+            _normalize_bridge_config({**base, "bridge": {**base["bridge"], "timeoutMs": 30}})
+        with self.assertRaises(ValueError):
+            _normalize_bridge_config({**base, "bridge": {**base["bridge"], "extra": True}})
+        with self.assertRaises(ValueError):
+            _normalize_bridge_config({**base, "extra": True})
+
+    def test_version_one_shape_passes_through_and_others_fail(self):
+        self.assertEqual(_normalize_bridge_config({"version": 1, "host": "::1", "port": 9765, "secretFile": "/tmp/s"}), {"version": 1, "host": "::1", "port": 9765, "secretFile": "/tmp/s"})
+        with self.assertRaises(ValueError):
+            _normalize_bridge_config({"version": 1, "host": "127.0.0.1", "port": 9765, "secretFile": "/tmp/s", "timeoutMs": 5000})
+        with self.assertRaises(ValueError):
+            _normalize_bridge_config("not-a-dict")
 
 
 def fake_status_result():
@@ -690,3 +712,105 @@ class ControlSurfaceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SongResolutionTests(unittest.TestCase):
+    def test_bridge_resolves_callable_song_accessor(self):
+        class CallableSongInstance:
+            def __init__(self):
+                self._song = FakeSong()
+            def song(self):
+                return self._song
+
+        probe = __import__("socket").socket(__import__("socket").AF_INET, __import__("socket").SOCK_STREAM)
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        bridge = AbletonMcpBridge(CallableSongInstance(), {"host": "127.0.0.1", "port": port, "secret": "0123456789abcdef0123456789abcdef"})
+        try:
+            self.assertEqual(bridge.mapper.song.tracks[0].name, "Drums")
+        finally:
+            bridge.disconnect()
+
+    def test_bridge_uses_direct_song_object_unchanged(self):
+        class DirectSongInstance:
+            def __init__(self):
+                self.song = FakeSong()
+
+        probe = __import__("socket").socket(__import__("socket").AF_INET, __import__("socket").SOCK_STREAM)
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        bridge = AbletonMcpBridge(DirectSongInstance(), {"host": "127.0.0.1", "port": port, "secret": "0123456789abcdef0123456789abcdef"})
+        try:
+            self.assertEqual(bridge.mapper.song.tracks[0].name, "Drums")
+        finally:
+            bridge.disconnect()
+
+
+class RealLiveShapeTests(unittest.TestCase):
+    def test_snapshot_treats_raising_track_properties_as_unavailable(self):
+        class RaisingReturnTrack:
+            name = "Return A"
+            is_return = True
+            clip_slots = []
+            devices = []
+            @property
+            def arm(self):
+                raise RuntimeError("Main and Return Tracks have no 'Arm' state!")
+            @property
+            def current_monitoring_state(self):
+                raise RuntimeError("Main and Return Tracks have no monitoring state!")
+            @property
+            def playing_slot_index(self):
+                raise RuntimeError("no slot index")
+            @property
+            def fired_slot_index(self):
+                raise RuntimeError("no slot index")
+
+        class RaisingMasterTrack(RaisingReturnTrack):
+            name = "Master"
+            is_return = False
+            is_master = True
+
+        class SongWithRaisingTracks(FakeSong):
+            def __init__(self):
+                super().__init__()
+                self.return_tracks = [RaisingReturnTrack()]
+                self.master_track = RaisingMasterTrack()
+
+        snapshot = LiveObjectMapper(SongWithRaisingTracks()).snapshot()
+        self.assertEqual(len(snapshot["tracks"]), 3)
+        ret = snapshot["tracks"][1]
+        self.assertEqual(ret["kind"], "return")
+        self.assertIsNone(ret["armed"])
+        self.assertIsNone(ret["monitoringState"])
+        self.assertIsNone(ret["playingSlotIndex"])
+        main = snapshot["tracks"][2]
+        self.assertEqual(main["kind"], "main")
+
+
+class BoostEnumShapeTests(unittest.TestCase):
+    def test_quantization_enum_becomes_plain_int_with_canonical_name(self):
+        class FakeBoostQuantization(int):
+            def __str__(self):
+                return "q_bar"
+
+        class EnumSong(FakeSong):
+            def __init__(self):
+                super().__init__()
+                self.clip_trigger_quantization = FakeBoostQuantization(4)
+
+        playback = LiveObjectMapper(EnumSong()).snapshot()["playback"]
+        transport = playback["transport"]
+        self.assertEqual(transport["launchQuantization"]["raw"], 4)
+        self.assertIs(type(transport["launchQuantization"]["raw"]), int)
+        self.assertEqual(transport["launchQuantization"]["normalized"], "1-bar")
+
+    def test_canonical_renders_int_subclass_enums_as_plain_integers(self):
+        class FakeBoostQuantization(int):
+            def __str__(self):
+                return "q_bar"
+
+        canonical = AuthenticatedRemoteScript._bounded_canonical({"raw": FakeBoostQuantization(4)})
+        self.assertEqual(canonical, '{"raw":4}')
