@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createHmac } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import { existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -281,7 +281,7 @@ try {
   const harnessPath = join(temporaryDirectory, "journey-harness.py");
   writeFileSync(harnessPath, harnessSource, { encoding: "utf8", mode: 0o600 });
   const python = process.platform === "win32" ? "python.exe" : "python3";
-  const harness = spawn(python, [harnessPath, readyPath, controlPath, ackPath], { cwd: temporaryDirectory, env: { ...process.env, PYTHONPATH: join(installedPackageDirectory, "remote-script"), ABLETON_MCP_JOURNEY_SECRET_FILE: secretPath }, stdio: "ignore" });
+  const harness = spawn(python, [harnessPath, readyPath, controlPath, ackPath], { cwd: temporaryDirectory, env: { ...process.env, PYTHONPATH: join(installedPackageDirectory, "remote-script"), ABLETON_MCP_JOURNEY_SECRET_FILE: secretPath }, stdio: ["ignore", "ignore", openSync(join(temporaryDirectory, "journey-harness-stderr.log"), "w")] });
   children.add(harness);
 
   const controlSeq = { value: 0 };

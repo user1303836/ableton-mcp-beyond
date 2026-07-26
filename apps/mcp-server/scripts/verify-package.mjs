@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import { existsSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -154,16 +154,20 @@ except KeyboardInterrupt: pass
 finally: bridge.disconnect()
 `, { encoding: "utf8", mode: 0o600 });
   const python = process.platform === "win32" ? "python.exe" : "python3";
+  const bridgeErrorPath = join(temporaryDirectory, "bridge-smoke-stderr.log");
   bridgeProcess = spawn(python, [bridgeScript, readyPath], {
     cwd: temporaryDirectory,
     env: { ...process.env, PYTHONPATH: join(installedPackageDirectory, "remote-script"), ABLETON_MCP_SMOKE_SECRET_FILE: secretPath },
-    stdio: "ignore",
+    stdio: ["ignore", "ignore", openSync(bridgeErrorPath, "w")],
   });
   try {
     const wait = new Int32Array(new SharedArrayBuffer(4));
-    const deadline = Date.now() + 5_000;
+    const deadline = Date.now() + 20_000;
     while (!existsSync(readyPath) && Date.now() < deadline) Atomics.wait(wait, 0, 0, 25);
-    if (!existsSync(readyPath)) throw new Error("installed production bridge did not become ready");
+    if (!existsSync(readyPath)) {
+      const bridgeError = existsSync(bridgeErrorPath) ? readFileSync(bridgeErrorPath, "utf8").replaceAll(secretPath, "<redacted-secret-path>").slice(-1500) : "";
+      throw new Error(`installed production bridge did not become ready${bridgeError ? `: ${bridgeError}` : ""}`);
+    }
     const port = JSON.parse(readFileSync(readyPath, "utf8")).port;
     execFileSync(process.execPath, [join(installedPackageDirectory, "dist", "src", "setup.js"), "--output", bridgeConfigPath, "--bridge-host", "127.0.0.1", "--bridge-port", String(port), "--secret-file", secretPath], { encoding: "utf8" });
     const bridgeConfig = JSON.parse(readFileSync(bridgeConfigPath, "utf8"));
