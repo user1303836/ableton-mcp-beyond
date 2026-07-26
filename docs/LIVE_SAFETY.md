@@ -6,7 +6,7 @@ passing integration result.
 
 ## Current guarantee
 
-The shipped default adapter is `UnavailableLiveAdapter`. It always reports
+The shipped CLI's default adapter is `UnavailableLiveAdapter`. It always reports
 `connected: false`, `adapter: "unavailable"`, and
 `reason: "live-adapter-not-installed"`. No current tool starts playback,
 records, edits a project, changes routing, accesses the filesystem or network,
@@ -37,8 +37,12 @@ access.
 
 The unavailable catalog includes Live mutations, transport, recording, routing,
 audio, MIDI, realtime features, resource subscriptions, filesystem, network,
-delivery, and Live audio analysis. Do not infer capability from roadmap prose,
-caller-supplied authority fields, or a local Ableton installation.
+delivery, and Live audio analysis. A configured adapter is accepted only when
+its status has the exact `ableton-live/v1` protocol, a non-null epoch, a valid
+adapter kind, unique known capabilities, and `connected: true`. Operation
+dispatch additionally checks the specific negotiated capability. Do not infer
+capability from roadmap prose, caller-supplied authority fields, or a local
+Ableton installation.
 
 ## Future adapter requirements
 
@@ -62,15 +66,17 @@ Missing Live, device, platform-runner, signing, or notarization evidence is an
 explicit limitation, not a safety pass. Do not promote any unavailable
 capability based on documentation, environment detection, or caller metadata.
 
-The repository also contains a deterministic simulator with a broader adapter
+The repository also contains a deterministic simulator with a bounded adapter
 contract and an HMAC-authenticated `ableton-loopback/v1` boundary. Both are
 development/test components. The Python Remote Script shim likewise does not
-enable those capabilities in the MCP host or prove that Live is installed.
+enable those capabilities in the MCP host, open a socket, create a Control
+Surface, or prove that Live is installed.
 
 When testing a future adapter, treat the loopback secret as a credential, use
-localhost-only transport, reject replayed or tampered messages, and verify the
-status epoch after reconnect. Never place secrets, raw PCM, or Live project
-data in protocol logs or documentation.
+localhost-only transport, reject replayed or tampered messages, require
+strictly increasing request sequences, authenticate responses, bind responses
+to request IDs, and verify the status epoch after reconnect. Never place
+secrets, raw PCM, or Live project data in protocol logs or documentation.
 
 The simulator's connected status is intentionally scoped to its in-memory test
 state. It must not be copied into production status, used as a proxy for Live,

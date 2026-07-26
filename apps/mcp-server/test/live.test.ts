@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AuthenticatedLoopback, LoopbackLiveAdapter, LOOPBACK_PROTOCOL_VERSION } from "../src/loopback.js";
-import { DeterministicLiveSimulator, LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_UNAVAILABLE_CAPABILITIES } from "../src/live.js";
+import { DeterministicLiveSimulator, LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_UNAVAILABLE_CAPABILITIES, SIMULATOR_CAPABILITIES } from "../src/live.js";
 
 const secret = "0123456789abcdef0123456789abcdef";
 
@@ -32,7 +32,7 @@ test("simulator exposes domain objects and bounded editing operations", () => {
   const device = snapshot.tracks[0]!.devices[0]!;
   const parameter = device.parameters[0]!;
 
-  assert.ok(LIVE_CAPABILITIES.includes("arrangement.read"));
+  assert.ok(LIVE_UNAVAILABLE_CAPABILITIES.includes("arrangement.read"));
   assert.ok(LIVE_CAPABILITIES.includes("parameters"));
   assert.equal(snapshot.arrangement.locators[0]!.name, "Intro");
   assert.equal((live.get(snapshot.scenes[0]!.ref) as typeof snapshot.scenes[0]).name, "Scene 1");
@@ -138,4 +138,14 @@ test("loopback adapter negotiates the domain contract and receives authenticated
   assert.equal((seen[0] as { payload: { value: number } }).payload.value, 123);
   unsubscribe();
   assert.throws(() => adapter.receive({ ...events[0]!, mac: "tampered" }), /authentication/);
+});
+
+test("loopback adapter binds responses to request ids and rejects stale events", () => {
+  const live = new DeterministicLiveSimulator();
+  const server = new AuthenticatedLoopback(live, secret);
+  const adapter = new LoopbackLiveAdapter(secret, (request) => server.handle(request));
+  const first = adapter.snapshot();
+  assert.equal(first.set.tempo, 120);
+  assert.throws(() => adapter.receive({ version: LOOPBACK_PROTOCOL_VERSION, id: "client-999", ok: true, result: { event: { sequence: 1, type: "state", payload: {} } }, mac: "bad" }), /authentication/);
+  assert.equal(SIMULATOR_CAPABILITIES.includes("transport"), true);
 });

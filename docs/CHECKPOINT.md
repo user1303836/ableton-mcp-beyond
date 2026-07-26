@@ -26,9 +26,9 @@ python3 -m unittest discover -s remote-script -p 'test_*.py'
 
 A valid checkpoint requires every command to succeed and the diff to contain
 only the intended documentation and implementation changes. Review `git
-status --short` before any commit. Do not add local dependencies, generated
-`dist/` output, credentials, device artifacts, or unavailable external test
-evidence.
+status --short` before any commit and preserve pre-existing user changes. Do
+not add local dependencies, generated `dist/` output, credentials, device
+artifacts, tarballs, or unavailable external test evidence.
 
 After the build, the executable smoke path is `node dist/src/cli.js`; verify
 that stdout contains only JSON-RPC responses and that valid traffic produces
@@ -58,6 +58,12 @@ report external Ableton Live as `unavailable`. From the repository root, run
 independent transport shim tests.
 
 The connected-adapter tempo workflow is tested only with the deterministic
-in-memory simulator. That evidence covers explicit confirmation, idempotency,
-epoch conflict checks, postcondition verification, and guarded undo; it is not
-Ableton Live evidence.
+in-memory simulator and injected adapter fakes. That evidence covers explicit
+confirmation, idempotency, negotiated capabilities, epoch conflict checks,
+postcondition verification, and guarded undo; it is not Ableton Live evidence.
+
+The loopback and Python tests prove a compatible authenticated message
+contract, including canonical HMAC verification, request sequencing, replay
+rejection, response authentication, and redacted operation failures. They do
+not prove a socket listener, Control Surface lifecycle, Live main-thread
+scheduling, or Live-object compatibility.

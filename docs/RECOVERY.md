@@ -37,9 +37,9 @@ cannot mutate or play a Live set.
 
 Stop using the client, capture the request/response transcript without exposing
 audio or credentials, and verify `server_status` and `capabilities`. The
-current implementation has no Live mutation or playback path. Escalate any
-contradictory observation as an implementation defect before enabling future
-adapter functionality.
+the default CLI has no Live mutation or playback path. A configured adapter can
+make tempo mutation available only after capability negotiation; escalate any
+contradictory observation as an implementation defect before continuing.
 
 ## Configuration or diagnostics failure
 
@@ -60,11 +60,11 @@ migrated before use.
 4. Retry only the operation that was not acknowledged, using a fresh request
    ID. The server has no persistent or resumable Live session state.
 
-For a future adapter using the loopback boundary, stop on any authentication,
-replay, or unexpected mutation result. Rotate the loopback secret, close the
-subscription, discard outstanding nonces, and reconnect only after checking
-adapter status and epoch. The current MCP host does not instantiate this
-boundary.
+For a loopback adapter, stop on any authentication, replay, sequence, response
+MAC, response-ID, or unexpected mutation result. Rotate the loopback secret,
+close the subscription, discard outstanding requests, and reconnect only after
+checking adapter status and epoch. The current CLI does not instantiate this
+boundary automatically.
 
 For a failed package or configuration upgrade, preserve the old configuration,
 discard only failed disposable output, rerun `npm ci`, `npm run build`, and
@@ -77,8 +77,9 @@ permissions where supported. Preserve the old file before any forced rewrite.
 
 If a future adapter reports authentication, replay, epoch, or mutation
 behavior inconsistent with its contract, stop the client and isolate the
-adapter before retrying. The current host cannot enter that state because it
-does not instantiate the loopback or simulator adapters.
+adapter before retrying. The CLI cannot enter that state unless an embedding
+application explicitly injects an adapter; the command-line entrypoint does
+not select the simulator or loopback adapter.
 
 ## Guarded tempo recovery
 

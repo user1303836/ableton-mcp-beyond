@@ -20,9 +20,13 @@ export const LIVE_CAPABILITIES = [
 export const LIVE_UNAVAILABLE_CAPABILITIES = [
   "arrangement.read", "arrangement.write", "audio", "warp", "takes",
   "automation", "devices", "racks", "chains", "parameters", "browser",
-  "routing", "recording", "projects", "max", "osc", "realtime.events",
+  "routing", "recording", "projects", "mixing", "max", "osc", "realtime.events",
   "plugins",
 ] as const;
+
+export const SIMULATOR_CAPABILITIES = [
+  "session.read", "session.write", "tracks", "scenes", "clips", "notes", "transport", "subscriptions", "reconnect",
+] as const satisfies readonly LiveCapability[];
 
 export type LiveCapability = typeof LIVE_CAPABILITIES[number];
 export type LiveObjectKind = "set" | "track" | "scene" | "clip" | "device" | "parameter" | "note" | "automation" | "locator";
@@ -97,7 +101,7 @@ export class DeterministicLiveSimulator implements LiveAdapter {
   private epoch = 1;
   private listeners = new Set<(event: LiveEvent) => void>();
 
-  status(): LiveStatus { return { connected: true, adapter: "simulator", epoch: this.epoch, protocol: LIVE_PROTOCOL_VERSION, capabilities: LIVE_CAPABILITIES }; }
+  status(): LiveStatus { return { connected: true, adapter: "simulator", epoch: this.epoch, protocol: LIVE_PROTOCOL_VERSION, capabilities: SIMULATOR_CAPABILITIES }; }
   snapshot(): LiveSnapshot { return structuredClone(this.state); }
   get(objectRef: LiveRef): unknown {
     if (objectRef === this.state.set.ref) return structuredClone(this.state.set);

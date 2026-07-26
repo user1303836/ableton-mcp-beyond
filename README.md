@@ -12,8 +12,11 @@ adapter is unavailable:
 - `resources/*` and `prompts/*` publish capability, safety, audio, and guarded
   tempo workflow descriptions.
 
-The Live adapter is not installed yet. No default-host call starts playback,
-changes a Live set, accesses a path, uses the network, or returns raw audio.
+No production Live adapter is installed or selected by the CLI. The repository
+does include a deterministic in-memory adapter and an authenticated
+`ableton-loopback/v1` adapter boundary for contract tests; neither is Live
+connectivity. No default-host call starts playback, changes a Live set, accesses
+a path, uses the network, or returns raw audio.
 See [`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md) and the other documents in
 [`docs/`](docs/) for setup, limits, recovery, and checkpoint procedures.
 
@@ -42,9 +45,9 @@ npm run setup -- --output "$PWD/client-config.json"
 ```
 
 The package also provides `npm run migrate` for versioned configuration
-migration and `npm run diagnostics` for local readiness checks. External
-Ableton Live, signing, and notarization capabilities are reported as
-unavailable until real platform evidence exists.
+migration and `npm run diagnostics` for local readiness checks. Diagnostics
+separate host readiness from external Ableton Live, signing, and notarization,
+which remain unavailable without observed evidence.
 
 The server reads one JSON-RPC request per line from stdin and writes one JSON
 response per line to stdout. Diagnostics are written to stderr. An MCP client

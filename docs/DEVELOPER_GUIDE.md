@@ -12,10 +12,12 @@ roadmap material do not add capabilities.
   decoding and analysis.
 - `apps/mcp-server/src/live.ts` defines the Live adapter contract and an
   in-memory simulator; it does not connect to Live.
-- `apps/mcp-server/src/loopback.ts` defines the HMAC-authenticated adapter
-  boundary with replay protection.
-- `remote-script/ableton_mcp_remote_script.py` is the dependency-free Python
-  transport shim for a future real Control Surface integration.
+- `apps/mcp-server/src/loopback.ts` defines the HMAC-authenticated
+  `ableton-loopback/v1` adapter boundary, request sequencing, response-MAC
+  verification, request-id binding, and authenticated event delivery.
+- `remote-script/ableton_mcp_remote_script.py` is a dependency-free Python
+  authenticated dispatch shim. It is not yet a Control Surface package or
+  socket server.
 - `apps/mcp-server/src/delivery.ts` implements versioned client configuration,
   legacy migration, supported-platform detection, and local diagnostics.
 - `apps/mcp-server/src/benchmark.ts` implements deterministic local benchmark
@@ -83,19 +85,19 @@ overwrite unless `--force` is supplied, require a non-empty command, and create
 files with owner-only permissions where supported. PCM base64 decoding requires
 canonical base64 and bounded little-endian float32 data.
 
-The default host constructs `UnavailableLiveAdapter`, so the five Live tools
-are exposed for a stable contract but Live-dependent calls return safe tool
-errors. A connected adapter enables status, snapshot, and the guarded tempo
-workflow. A tempo preview expires after 30 seconds; apply and undo require the
-matching epoch, explicit confirmation, and an idempotency key. Undo also
-refuses if the tempo changed after apply. At most 256 transactions are retained
-and old entries are evicted.
+The default host constructs `UnavailableLiveAdapter`, so Live-dependent calls
+return safe tool errors. A connected adapter enables status, snapshot only with
+`session.read`, and the guarded tempo workflow only with `transport`. A tempo
+preview expires after 30 seconds; apply and undo require the matching epoch,
+explicit confirmation, and an idempotency key. Undo also refuses if the tempo
+changed after apply. Preview transactions are bounded to 256 entries; applied
+and undone records remain available for idempotent responses.
 
 `src/live.ts` is an in-memory simulator and adapter contract, not a Live
 connection. `src/loopback.ts` and `remote-script/ableton_mcp_remote_script.py`
-define an HMAC-authenticated `ableton-loopback/v1` boundary with bounded IDs,
-nonces, and replay protection. The Python shim has no Ableton import-time
-dependency.
+define compatible HMAC-authenticated `ableton-loopback/v1` message contracts
+with bounded IDs, nonces, monotonic request sequences, response authentication,
+and replay protection. The Python shim has no Ableton import-time dependency.
 
 The simulator's deterministic fixture contains a set, track, scene, MIDI clip,
 device, parameter, locator, and browser entries. Its bounded test operations

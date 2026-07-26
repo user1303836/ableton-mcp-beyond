@@ -1,14 +1,17 @@
 # Ableton Remote Script boundary
 
-`ableton_mcp_remote_script.py` is a dependency-free Python 3 transport shim
-for an Ableton Control Surface. It does not import `ableton.v2`, open a socket,
-or claim Live availability by itself. A real Control Surface supplies the
-operation callback and an authenticated localhost transport, then maps the
-operations to Live's documented API.
+`ableton_mcp_remote_script.py` is a dependency-free Python 3 authenticated
+dispatch shim for a future Ableton Control Surface. It does not import
+`ableton.v2`, create a Control Surface entrypoint, open a socket, schedule
+Live work on the main thread, or claim Live availability. A future Control
+Surface must supply the operation callback and authenticated localhost
+transport, then map operations to Live's documented API.
 
 The wire contract is `ableton-loopback/v1`, with HMAC-SHA256 signatures,
-monotonic nonces, bounded request IDs, and error responses instead of
-tracebacks. Run its deterministic tests with:
+canonical JSON, strictly increasing request sequences, bounded request IDs and
+nonces, and error responses instead of tracebacks. Responses are also
+authenticated by the compatible TypeScript client boundary. Run deterministic
+tests with:
 
 ```sh
 python3 -m unittest discover -s remote-script -p 'test_*.py'

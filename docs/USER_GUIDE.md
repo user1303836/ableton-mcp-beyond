@@ -1,8 +1,9 @@
 # User guide
 
 This guide describes the implementation in `apps/mcp-server/src`, not the
-roadmap or the simulator contract. The shipped process is local-only and
-defaults to `UnavailableLiveAdapter`.
+roadmap. The shipped CLI is local-only and defaults to `UnavailableLiveAdapter`.
+The simulator and loopback modules are exported adapter-boundary test
+components; they are not selected by the CLI.
 
 ## What is available
 
@@ -23,10 +24,10 @@ After initialization, `tools/list` exposes these tools:
 | `capabilities` | Reports implemented and unavailable capability families. | None |
 | `audio_analyze` | Analyzes supplied PCM and returns aggregate metrics. | None |
 | `live_status` | Reports adapter status and epoch. | None |
-| `live_snapshot` | Reads a bounded Live Set snapshot through the adapter. | None when enabled; unavailable with the default adapter |
+| `live_snapshot` | Reads a bounded Live Set snapshot through an adapter that negotiated `session.read`. | None when enabled; unavailable with the default adapter |
 | `live_tempo_preview` | Previews a tempo change and returns a short-lived transaction. | None |
-| `live_tempo_apply` | Applies a confirmed preview and verifies the result. | Changes tempo only when a connected adapter is enabled |
-| `live_undo` | Restores a verified applied tempo transaction. | Changes tempo only when a connected adapter is enabled |
+| `live_tempo_apply` | Applies an unexpired preview after exact confirmation and verifies the authoritative result. | Changes tempo only when a connected adapter negotiated `transport` |
+| `live_undo` | Restores a verified applied tempo transaction if epoch and postcondition checks still match. | Changes tempo only when a connected adapter negotiated `transport` |
 
 `audio_analyze` requires `pcmBase64` and `sampleRate`. PCM must be little-endian
 float32, normalized to `[-1, 1]`. Optional `channels` defaults to 1 and
@@ -34,7 +35,8 @@ float32, normalized to `[-1, 1]`. Optional `channels` defaults to 1 and
 
 ## Analysis result
 
-The result includes duration, peak and RMS levels, an RMS-based LUFS estimate,
+The result includes duration, peak and RMS levels, an RMS-based loudness
+estimate (not standards-compliant LUFS),
 crest factor, a histogram-based dynamic-range estimate, silence and clipping
 ratios, spectral centroid, dominant frequency, analyzed-frame count, and
 bounded reversible remediation suggestions. The result also reports hard
@@ -51,7 +53,7 @@ samples. Audio calls are limited to 120 per rolling minute.
 
 ## Important expectation
 
-The server does not currently control Ableton Live. `server_status` and
+The CLI does not currently control Ableton Live. `server_status` and
 `live_status` report
 `connected: false`, `adapter: "unavailable"`, and
 `reason: "live-adapter-not-installed"`. Treat the capability catalog as the
@@ -73,10 +75,11 @@ from unavailable Live, signing, and notarization evidence.
 
 ## Known limitations
 
-There is no Live adapter, playback, recording, project mutation, device access,
-network access, filesystem tool, raw-audio return path, installer, signing, or
-notarization flow. The benchmark command measures only local host behavior and
-does not establish realtime, platform, or Ableton Live performance.
+There is no production Live adapter, playback, recording, project mutation,
+device access, network transport, filesystem tool, raw-audio return path,
+Remote Script installer, signing, or notarization flow. The benchmark command
+measures only local host behavior and does not establish realtime, platform, or
+Ableton Live performance.
 The `npm start` package script launches the stdio server after the package has
 been built. You can also use `node dist/src/cli.js` or a generated client
 configuration.
@@ -87,10 +90,11 @@ describes the same bounded tool; `change_tempo_safely` describes the guarded
 Live sequence. Prompts do not accept audio or grant Live access.
 
 The guarded tempo tools are protocol and adapter-boundary code, but are not
-enabled by the default host. The simulator and authenticated loopback modules are adapter-boundary test
-components, not a shipped Live connection. The Python Remote Script is a
-dependency-free transport shim; a real Control Surface callback and
-authenticated localhost transport are still required.
+enabled by the default host. The simulator and authenticated loopback modules
+are adapter-boundary test components, not a shipped Live connection. The
+Python Remote Script is a dependency-free authenticated dispatch shim; it does
+not implement a Control Surface entrypoint, socket listener, Live main-thread
+scheduler, or documented Live-object mapper.
 
 The simulator can model snapshots, bounded edits, subscriptions, and reconnect
 epochs for adapter tests, but it is not selected by the MCP host. Its

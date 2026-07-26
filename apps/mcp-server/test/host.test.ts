@@ -28,6 +28,7 @@ test("advertises and serves static safety resources and a complete audio workflo
   assert.deepEqual((resources as any).result.resources.map((resource: { uri: string }) => resource.uri), ["ableton://capabilities", "ableton://safety", "ableton://live-workflow"]);
   const safety = host.handle({ jsonrpc: "2.0", id: 31, method: "resources/read", params: { uri: "ableton://safety" } });
   assert.match((safety as any).result.contents[0].text, /does not connect to Ableton Live/);
+  assert.match((safety as any).result.contents[0].text, /explicit project mutations/);
   const prompts = host.handle({ jsonrpc: "2.0", id: 32, method: "prompts/list" });
   assert.equal((prompts as any).result.prompts[0].name, "analyze_audio");
   const prompt = host.handle({ jsonrpc: "2.0", id: 33, method: "prompts/get", params: { name: "analyze_audio", arguments: { sampleRate: "44100" } } });
@@ -143,6 +144,26 @@ test("fails closed when an adapter cannot report status", () => {
   assert.equal(JSON.parse((capabilities as any).result.content[0].text).live.connected, false);
   const snapshot = host.handle({ jsonrpc: "2.0", id: 55, method: "tools/call", params: { name: "live_snapshot", arguments: {} } });
   assert.equal((snapshot as any).result.isError, true);
+});
+
+test("rejects expired tempo confirmation and validates negotiated adapter status", () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const preview = host.handle({ jsonrpc: "2.0", id: 56, method: "tools/call", params: { name: "live_tempo_preview", arguments: { tempo: 130 } } });
+  const transactionId = JSON.parse((preview as any).result.content[0].text).transactionId as string;
+  const originalNow = Date.now;
+  const expiry = JSON.parse((preview as any).result.content[0].text).expiresAt as number;
+  Date.now = () => expiry + 1;
+  try {
+    const result = host.handle({ jsonrpc: "2.0", id: 57, method: "tools/call", params: { name: "live_tempo_apply", arguments: { transactionId, confirmation: "apply", idempotencyKey: "expired" } } });
+    assert.equal((result as any).result.isError, true);
+    assert.equal(simulator.snapshot().set.tempo, 120);
+  } finally { Date.now = originalNow; }
+  const invalid = new McpHost({ ...simulator, status: () => ({ connected: true, adapter: "simulator", epoch: 1, protocol: "wrong", capabilities: [] }) } as any);
+  ready(invalid);
+  const status = invalid.handle({ jsonrpc: "2.0", id: 58, method: "tools/call", params: { name: "live_status", arguments: {} } });
+  assert.equal(JSON.parse((status as any).result.content[0].text).connected, false);
 });
 
 test("keeps stdout protocol-only and emits redacted parse diagnostics on stderr", async () => {

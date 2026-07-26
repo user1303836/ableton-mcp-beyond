@@ -2,10 +2,10 @@
 
 The supported artifact is the npm package produced from `apps/mcp-server` with
 `npm pack`. It contains compiled TypeScript and uses no native extensions, so
-the same artifact targets Node.js on macOS (`darwin`), Windows (`win32`), and
-Linux (`linux`). The repository provides local compatibility and package smoke
-checks; a passing local check is not evidence for an unavailable platform
-runner.
+the same host artifact targets Node.js on macOS (`darwin`), Windows (`win32`),
+and Linux (`linux`). It does not currently package or install the Python Remote
+Script. Local compatibility and package smoke checks do not substitute for an
+unavailable platform runner or Live runtime.
 
 `npm run compatibility` fails unless the current runner uses Node 20 or newer
 and is macOS, Windows, or Linux. This is a portable Node package, so no
@@ -47,8 +47,10 @@ Ableton Live, native devices, signing, and notarization are reported as
 `unavailable`; they are never inferred from the host operating system.
 
 Diagnostics do not start Live or validate a client connection. Setup and
-migration only write configuration; they do not install, launch, sign, or
-publish an artifact. `--force` is an explicit overwrite operation.
+migration only write configuration; they do not install a Remote Script,
+launch Live, sign, or publish an artifact. `--force` is an explicit overwrite
+operation. Configuration writes refuse directories and symbolic links and use
+atomic staging with recovery on supported filesystems.
 
 `npm pack --dry-run` audits package contents without publishing. CI does not
 sign or notarize artifacts. Those actions require a separately approved

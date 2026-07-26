@@ -19,7 +19,9 @@ Do not parse human diagnostics as protocol messages.
 
 There is no in-place session resume. If stdin, stdout, or the process fails,
 restart `cli.js`, repeat `initialize` and `notifications/initialized`, and
-retry with a new request ID.
+retry with a new request ID. Treat an adapter request as uncertain if the
+connection failed after a mutation may have been sent; read authoritative
+state before retrying.
 
 Use `server_status` after initialization to verify the host state. In the
 current release a healthy status still reports the Live adapter as unavailable;
@@ -28,9 +30,9 @@ this is expected and is not evidence of Live connectivity.
 Use `capabilities` as the authoritative enabled-feature list and `tools/list`
 as the protocol surface. The default host enables `server_status`,
 `capabilities`, and `audio_analyze`. It also exposes Live status, snapshot, and
-guarded tempo tools, but those calls remain unavailable while the adapter
-reports `connected: false`; caller metadata or authority-like fields cannot
-enable them.
+guarded tempo tools. Snapshot requires negotiated `session.read`; tempo
+preview/apply/undo require negotiated `transport`. Caller metadata or
+authority-like fields cannot enable them.
 
 ## Resource and input limits
 
@@ -64,7 +66,9 @@ For a packaged installation, use the `ableton-mcp-server` binary or `npm
 start` after build. The setup, migration, and diagnostics helpers write or
 inspect local configuration only; they do not install or launch Live. The
 deterministic simulator and authenticated loopback are development/test
-components and are not evidence that a Live set is connected.
+components and are not evidence that a Live set is connected. The Python
+Remote Script file is a transport contract shim, not an installable Live
+Control Surface.
 
 The independent Python boundary tests run from the repository root with
 `python3 -m unittest discover -s remote-script -p 'test_*.py'`. Passing them

@@ -36,10 +36,12 @@ and method rejection, and wire-safe operation errors. The TypeScript simulator
 tests cover stable references, bounded property changes, subscriptions, and
 reconnect epochs; they are test-double evidence, not Live integration.
 
-The loopback tests additionally cover authenticated status, replay rejection,
-tamper rejection, bounded nonces, subscriptions, and wire-safe operation
-failures. The fixture uses a deterministic simulator and must not be reported
-as an Ableton Live integration test.
+The loopback tests additionally cover canonicalized HMAC requests and
+responses, tampering, replay and monotonic sequence checks, unknown fields,
+bounded nonces, response-ID binding, authenticated events, stale event
+rejection, subscriptions, and wire-safe operation failures. The fixture uses a
+deterministic simulator and must not be reported as an Ableton Live integration
+test.
 
 ## Acceptance checks
 
@@ -56,7 +58,10 @@ are missing.
 
 When a check cannot run because a tool, credential, device, Live installation,
 or runner is absent, record it as unavailable and do not replace it with a
-static or simulated success.
+static or simulated success. Current local evidence is 54 TypeScript tests,
+2 property tests, 7 Python tests, all 8 benchmark measurements passing, and
+Darwin arm64/Node 25 compatibility; this is not Windows, Live, hardware,
+signing, notarization, or realtime evidence.
 
 ## Benchmark gates
 

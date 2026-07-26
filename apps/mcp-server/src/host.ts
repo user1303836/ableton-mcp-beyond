@@ -1,7 +1,7 @@
 import type { Readable, Writable } from "node:stream";
 import { randomBytes } from "node:crypto";
 import { analyzePcm, decodeFloat32Le } from "./analysis.js";
-import { LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_UNAVAILABLE_CAPABILITIES, UnavailableLiveAdapter, type LiveAdapter, type LiveRef, type LiveSnapshot, type LiveStatus } from "./live.js";
+import { LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_UNAVAILABLE_CAPABILITIES, UnavailableLiveAdapter, type LiveAdapter, type LiveCapability, type LiveRef, type LiveSnapshot, type LiveStatus } from "./live.js";
 import { serveStdio } from "./stdio.js";
 
 export const PROTOCOL_VERSION = "2025-11-25";
@@ -55,9 +55,9 @@ const safetyResource = [
   "# Live safety contract",
   "",
   "This host does not connect to Ableton Live unless an explicit adapter is installed.",
-  "The shipped adapter reports unavailable and performs no Live operations.",
+  "With the default adapter, Live is unavailable and no Live operations occur. If a configured adapter reports the exact protocol and negotiated operation capability, tempo apply and guarded undo are explicit project mutations and are never implied by read-only tools.",
   "The implemented audio workflow analyzes caller-supplied PCM locally and returns aggregates only.",
-  "No tool starts playback, records, writes files, or mutates a project.",
+  "No read-only tool starts playback, records, writes files, or mutates a project. Mutation tools disclose their impact and require an expiring confirmation.",
 ].join("\n");
 
 export { UnavailableLiveAdapter } from "./live.js";
@@ -348,10 +348,20 @@ export class McpHost {
 
   private capabilityCatalog(): JsonObject {
     const live = this.safeAdapterStatus();
-    const liveImplemented = live.connected ? ["live.status", "live.snapshot", "live.tempo.preview", "live.tempo.apply", "live.undo"] : [];
+    const liveImplemented = live.connected ? [
+      "live.status",
+      ...(live.capabilities.includes("session.read") ? ["live.snapshot"] : []),
+      ...(live.capabilities.includes("transport") ? ["live.tempo.preview", "live.tempo.apply", "live.undo"] : []),
+    ] : [];
+    const liveUnavailable = live.connected ? [
+      ...hostUnavailableCapabilities,
+      ...LIVE_UNAVAILABLE_CAPABILITIES,
+      ...(live.capabilities.includes("session.read") ? [] : ["live.snapshot"]),
+      ...(live.capabilities.includes("transport") ? [] : ["live.tempo.preview", "live.tempo.apply", "live.undo"]),
+    ] : [...unavailableCapabilities, ...LIVE_CAPABILITIES];
     return {
       implemented: ["server.status", "capabilities", "audio.analyze", ...liveImplemented],
-      unavailable: live.connected ? [...hostUnavailableCapabilities, ...LIVE_UNAVAILABLE_CAPABILITIES.filter((capability) => !live.capabilities.includes(capability))] : [...unavailableCapabilities, ...LIVE_CAPABILITIES],
+      unavailable: [...new Set(liveUnavailable)],
       live: { connected: live.connected, adapter: live.adapter, epoch: live.epoch, protocol: live.protocol, capabilities: live.capabilities },
     };
   }
@@ -362,7 +372,7 @@ export class McpHost {
 
   private liveSnapshot(id: RequestId): JsonObject {
     try {
-      const status = this.requireConnected();
+      const status = this.requireConnected("session.read");
       return response(id, { content: [{ type: "text", text: JSON.stringify({ epoch: status.epoch, snapshot: this.adapter.snapshot() }) }], isError: false });
     } catch (cause) { return this.adapterToolError(id, cause, "Snapshot unavailable. Verify the Live adapter connection and retry."); }
   }
@@ -370,7 +380,7 @@ export class McpHost {
   private liveTempoPreview(id: RequestId, params: unknown): JsonObject {
     if (!isObject(params) || !hasOnly(params, ["tempo"]) || typeof params.tempo !== "number" || !Number.isFinite(params.tempo) || params.tempo < 20 || params.tempo > 999) return error(id, -32602, "tempo must be a finite number from 20 to 999");
     try {
-      const status = this.requireConnected();
+      const status = this.requireConnected("transport");
       const snapshot = this.adapter.snapshot();
       const transactionId = this.newTransactionId();
       const transaction: TempoTransaction = { id: transactionId, setRef: snapshot.set.ref, priorTempo: snapshot.set.tempo, proposedTempo: params.tempo, epoch: status.epoch as number, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
@@ -387,7 +397,8 @@ export class McpHost {
     if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", tempo: transaction.appliedTempo, idempotent: true });
     if (transaction.state !== "previewed") return this.transactionError(id, "Transaction is no longer applicable");
     try {
-      const status = this.requireConnected();
+      if (transaction.expiresAt <= Date.now()) { this.transactions.delete(transaction.id); return this.transactionError(id, "Tempo preview expired; preview again"); }
+      const status = this.requireConnected("transport");
       if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
       const current = this.adapter.get(transaction.setRef) as LiveSnapshot["set"] | undefined;
       if (!current || current.tempo !== transaction.priorTempo) return this.transactionError(id, "Tempo changed since preview; preview again");
@@ -408,7 +419,7 @@ export class McpHost {
     if (transaction.state === "undone" && transaction.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "undone", tempo: transaction.priorTempo, idempotent: true });
     if (transaction.state !== "applied") return this.transactionError(id, "Only an applied tempo transaction can be undone");
     try {
-      const status = this.requireConnected();
+      const status = this.requireConnected("transport");
       if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
       const current = this.adapter.get(transaction.setRef) as LiveSnapshot["set"] | undefined;
       if (!current || current.tempo !== transaction.appliedTempo) return this.transactionError(id, "Tempo changed after apply; undo refused");
@@ -421,15 +432,19 @@ export class McpHost {
     } catch (cause) { return this.adapterToolError(id, cause, "Tempo undo failed; inspect Live state before retrying."); }
   }
 
-  private requireConnected(): LiveStatus {
+  private requireConnected(capability?: LiveCapability): LiveStatus {
     const status = this.safeAdapterStatus();
     if (!status.connected || status.epoch === null) throw new Error("live-adapter-unavailable");
+    if (capability !== undefined && !status.capabilities.includes(capability)) throw new Error(`live-capability-unavailable:${capability}`);
     return status;
   }
 
   private safeAdapterStatus(): LiveStatus {
     try {
-      return this.adapter.status();
+      const status = this.adapter.status();
+      if (!isObject(status) || typeof status.connected !== "boolean" || !["simulator", "remote-script", "extension", "unavailable"].includes(String(status.adapter)) || status.protocol !== LIVE_PROTOCOL_VERSION || (status.epoch !== null && (!Number.isSafeInteger(status.epoch) || status.epoch < 1)) || !Array.isArray(status.capabilities) || new Set(status.capabilities).size !== status.capabilities.length || status.capabilities.some((capability) => !LIVE_CAPABILITIES.includes(capability as typeof LIVE_CAPABILITIES[number]))) throw new Error("invalid live adapter status");
+      if (status.connected && status.epoch === null) throw new Error("connected adapter has no epoch");
+      return status;
     } catch {
       return {
         connected: false,
@@ -449,7 +464,7 @@ export class McpHost {
   private newTransactionId(): string { return `tempo_${randomBytes(18).toString("base64url")}`; }
   private evictTransactions(): void {
     const now = Date.now();
-    for (const [id, transaction] of this.transactions) if (transaction.expiresAt <= now || this.transactions.size > MAX_TRANSACTIONS) this.transactions.delete(id);
+    for (const [id, transaction] of this.transactions) if ((transaction.state === "previewed" && transaction.expiresAt <= now) || (transaction.state === "previewed" && this.transactions.size > MAX_TRANSACTIONS)) this.transactions.delete(id);
   }
   private transactionError(id: RequestId, message: string): JsonObject { return response(id, { content: [{ type: "text", text: JSON.stringify({ reason: message, remediation: "Request a fresh tempo preview and confirm the exact transaction." }) }], isError: true }); }
   private successText(id: RequestId, value: unknown): JsonObject { return response(id, { content: [{ type: "text", text: JSON.stringify(value) }], isError: false }); }
