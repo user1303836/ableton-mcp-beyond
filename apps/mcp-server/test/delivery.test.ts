@@ -113,6 +113,12 @@ test("bridge configuration and secrets are explicit and fail closed", () => {
   assert.throws(() => configForBridge("/opt/cli.js", { host: "127.999.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000 }), /loopback/);
 });
 
+test("package bridge smoke does not pass its secret on the command line", () => {
+  const script = readFileSync(new URL("../../scripts/verify-package.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(script, /spawn\(python, \[bridgeScript, bridgeSecret/);
+  assert.match(script, /ABLETON_MCP_SMOKE_SECRET_FILE/);
+});
+
 test("writes only an absolute non-secret bridge reference", () => {
   const directory = mkdtempSync(join(tmpdir(), "ableton-mcp-reference-"));
   const config = join(directory, "bridge.json");

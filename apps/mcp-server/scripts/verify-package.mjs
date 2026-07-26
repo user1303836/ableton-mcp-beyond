@@ -114,7 +114,7 @@ try {
   }
   const bridgeScript = join(temporaryDirectory, "bridge-smoke.py");
   writeFileSync(bridgeScript, `
-import json, pathlib, socket, sys, time
+import json, os, pathlib, socket, sys, time
 from AbletonMcpBridge.ableton_mcp_remote_script import AbletonMcpBridge
 class Scene:
     def __init__(self): self.name = "Package Smoke Scene"
@@ -127,7 +127,10 @@ class Song:
 class Instance:
     def __init__(self): self.song = Song()
 probe = socket.socket(); probe.bind(("127.0.0.1", 0)); port = probe.getsockname()[1]; probe.close()
-bridge = AbletonMcpBridge(Instance(), {"host":"127.0.0.1", "port":port, "secret":sys.argv[1]})
+secret_path = os.environ.get("ABLETON_MCP_SMOKE_SECRET_FILE")
+if not secret_path:
+    raise RuntimeError("package smoke secret file was not provided through the environment")
+bridge = AbletonMcpBridge(Instance(), {"host":"127.0.0.1", "port":port, "secret":pathlib.Path(secret_path).read_text(encoding="utf-8").strip()})
 deadline = time.time() + 5.0
 while time.time() < deadline:
     client = socket.socket(); client.settimeout(0.1)
@@ -137,16 +140,16 @@ while time.time() < deadline:
         client.close(); bridge.update_display(); time.sleep(0.01)
 else:
     bridge.disconnect(); raise RuntimeError("production bridge listener did not become reachable")
-pathlib.Path(sys.argv[2]).write_text(json.dumps({"port":port}), encoding="utf-8")
+pathlib.Path(sys.argv[1]).write_text(json.dumps({"port":port}), encoding="utf-8")
 try:
     while True: bridge.update_display(); time.sleep(0.01)
 except KeyboardInterrupt: pass
 finally: bridge.disconnect()
 `, { encoding: "utf8", mode: 0o600 });
   const python = process.platform === "win32" ? "python.exe" : "python3";
-  bridgeProcess = spawn(python, [bridgeScript, bridgeSecret, readyPath], {
+  bridgeProcess = spawn(python, [bridgeScript, readyPath], {
     cwd: temporaryDirectory,
-    env: { ...process.env, PYTHONPATH: join(installedPackageDirectory, "remote-script") },
+    env: { ...process.env, PYTHONPATH: join(installedPackageDirectory, "remote-script"), ABLETON_MCP_SMOKE_SECRET_FILE: secretPath },
     stdio: "ignore",
   });
   try {
