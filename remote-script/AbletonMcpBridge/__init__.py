@@ -84,31 +84,35 @@ def _owner_controlled(path: Path) -> bool:
 
 
 def _windows_acl_owner_only(path: Path) -> bool:
-    """Require a protected DACL containing explicit owner-only FullControl ACEs."""
+    """Require a protected DACL containing exactly one owner FullControl ACE.
+
+    Verification uses the Windows security API with explicit exit codes so no
+    localized or serialized output is parsed.
+    """
     try:
         encoded = base64.b64encode(str(path).encode("utf-8")).decode("ascii")
         script = (
             "$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:ABLETON_MCP_ACL_PATH));"
-            "$a=Get-Acl -LiteralPath $p;"
-            "$o=$a.GetOwner([System.Security.Principal.SecurityIdentifier]).Value;"
-            "$r=@($a.Access|ForEach-Object @{sid=$_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value;inherited=$_.IsInherited;type=$_.AccessControlType.ToString();rights=$_.FileSystemRights.ToString()});"
-            "[ordered]@{owner=$o;protected=$a.AreAccessRulesProtected;rules=$r}|ConvertTo-Json -Compress -Depth 8"
+            "$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User;"
+            "$c=[System.IO.File]::GetAccessControl($p);"
+            "if ($c.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { exit 2 }"
+            "if (-not $c.AreAccessRulesProtected) { exit 3 }"
+            "$rules=@($c.Access); if ($rules.Count -ne 1) { exit 4 }"
+            "$rule=$rules[0];"
+            "if ($rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { exit 5 }"
+            "if ($rule.IsInherited) { exit 6 }"
+            "if ($rule.AccessControlType.ToString() -ne 'Allow') { exit 7 }"
+            "if (($rule.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -ne [System.Security.AccessControl.FileSystemRights]::FullControl) { exit 8 }"
+            "exit 0"
         )
         environment = dict(os.environ)
         environment["ABLETON_MCP_ACL_PATH"] = encoded
         result = subprocess.run(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
-            capture_output=True, text=True, check=True, timeout=5, env=environment,
+            capture_output=True, timeout=10, env=environment,
         )
-        descriptor = json.loads(result.stdout)
-        rules = descriptor.get("rules") if isinstance(descriptor, dict) else None
-        return bool(
-            isinstance(descriptor.get("owner"), str)
-            and descriptor.get("protected") is True
-            and isinstance(rules, list) and rules
-            and all(rule.get("sid") == descriptor["owner"] and rule.get("inherited") is False and rule.get("type") == "Allow" and "FullControl" in str(rule.get("rights")) for rule in rules)
-        )
-    except (AttributeError, OSError, ValueError, TypeError, subprocess.SubprocessError, json.JSONDecodeError):
+        return result.returncode == 0
+    except (AttributeError, OSError, ValueError, TypeError, subprocess.SubprocessError):
         return False
 
 

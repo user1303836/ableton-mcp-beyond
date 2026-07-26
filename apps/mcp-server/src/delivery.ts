@@ -1,5 +1,5 @@
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { platform, versions } from "node:process";
@@ -75,54 +75,47 @@ function validateSecretPath(path: string): void {
   }
 }
 
-function windowsAclDescriptor(path: string): { owner: string; protected: boolean; rules: Array<{ sid: string; inherited: boolean; type: string; rights: string }> } | null {
-  try {
-    // Do not parse localized icacls output.  Ask the Windows security API
-    // for the owner SID and every DACL entry, including inheritance state.
-    const encodedPath = Buffer.from(path, "utf8").toString("base64");
-    const script = "$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:ABLETON_MCP_ACL_PATH));" +
-      "$a=Get-Acl -LiteralPath $p;" +
-      "$o=$a.GetOwner([System.Security.Principal.SecurityIdentifier]).Value;" +
-      "$r=@($a.Access|ForEach-Object @{sid=$_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value;inherited=$_.IsInherited;type=$_.AccessControlType.ToString();rights=$_.FileSystemRights.ToString()});" +
-      "[ordered]@{owner=$o;protected=$a.AreAccessRulesProtected;rules=$r}|ConvertTo-Json -Compress -Depth 8";
-    const output = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
-      encoding: "utf8", env: { ...process.env, ABLETON_MCP_ACL_PATH: encodedPath }, stdio: ["ignore", "pipe", "ignore"],
-    });
-    const descriptor = JSON.parse(output) as { owner?: unknown; protected?: unknown; rules?: unknown };
-    const rawRules = descriptor.rules;
-    const rules = Array.isArray(rawRules) ? rawRules : rawRules && typeof rawRules === "object" ? [rawRules] : [];
-    if (typeof descriptor.owner !== "string" || typeof descriptor.protected !== "boolean") return null;
-    return {
-      owner: descriptor.owner,
-      protected: descriptor.protected,
-      rules: rules.map((rule) => {
-        const candidate = rule as { sid?: unknown; inherited?: unknown; type?: unknown; rights?: unknown };
-        return { sid: String(candidate.sid), inherited: candidate.inherited === true, type: String(candidate.type), rights: String(candidate.rights) };
-      }),
-    };
-  } catch {
-    return null;
-  }
+const WINDOWS_ACL_REASONS: Readonly<Record<number, string>> = {
+  2: "file owner is not the current process token",
+  3: "DACL inheritance protection is disabled",
+  4: "DACL does not contain exactly one access rule",
+  5: "an access rule references a non-owner SID",
+  6: "an access rule is inherited",
+  7: "an access rule is not an allow rule",
+  8: "an access rule does not grant full control",
+};
+
+function windowsAclVerifyCommand(): string {
+  return "$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:ABLETON_MCP_ACL_PATH));" +
+    "$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User;" +
+    "$c=[System.IO.File]::GetAccessControl($p);" +
+    "if ($c.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { exit 2 }" +
+    "if (-not $c.AreAccessRulesProtected) { exit 3 }" +
+    "$rules=@($c.Access); if ($rules.Count -ne 1) { exit 4 }" +
+    "$rule=$rules[0];" +
+    "if ($rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { exit 5 }" +
+    "if ($rule.IsInherited) { exit 6 }" +
+    "if ($rule.AccessControlType.ToString() -ne 'Allow') { exit 7 }" +
+    "if (($rule.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -ne [System.Security.AccessControl.FileSystemRights]::FullControl) { exit 8 }" +
+    "exit 0";
 }
 
-function windowsAclRejection(descriptor: ReturnType<typeof windowsAclDescriptor>): string | null {
-  if (descriptor === null) return "descriptor query failed";
-  if (descriptor.protected !== true) return "DACL inheritance protection is disabled";
-  if (descriptor.rules.length === 0) return "DACL contains no access rules";
-  const index = descriptor.rules.findIndex((rule) => rule.sid !== descriptor.owner || rule.inherited !== false || rule.type !== "Allow" || !rule.rights.includes("FullControl"));
-  if (index >= 0) {
-    const rule = descriptor.rules[index]!;
-    const mismatches = [rule.sid !== descriptor.owner ? "non-owner SID" : null, rule.inherited !== false ? "inherited" : null, rule.type !== "Allow" ? `type=${rule.type}` : null, rule.rights.includes("FullControl") ? null : `rights=${rule.rights}`].filter(Boolean).join(",");
-    return `rule ${index} rejected (${mismatches}) among ${descriptor.rules.length} rule(s)`;
-  }
-  return null;
+/** Verify an owner-only Windows DACL through the security API without parsing localized or serialized output. */
+function windowsOwnerOnlyAcl(path: string): { ok: true } | { ok: false; reason: string } {
+  const encodedPath = Buffer.from(path, "utf8").toString("base64");
+  const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", windowsAclVerifyCommand()], {
+    encoding: "utf8", env: { ...process.env, ABLETON_MCP_ACL_PATH: encodedPath }, stdio: ["ignore", "ignore", "pipe"], timeout: 15_000,
+  });
+  if (result.error) return { ok: false, reason: "verification command could not run" };
+  if (result.status === 0) return { ok: true };
+  const known = result.status !== null ? WINDOWS_ACL_REASONS[result.status] : undefined;
+  return { ok: false, reason: known ?? "verification command failed" };
 }
 
 function secretPermissions(path: string): DiagnosticReport["secretPermissions"] {
   if (platform === "win32") {
-    const descriptor = windowsAclDescriptor(path);
-    if (descriptor === null) return "unavailable";
-    return windowsAclRejection(descriptor) === null ? "owner-only" : "invalid";
+    const verdict = windowsOwnerOnlyAcl(path);
+    return verdict.ok ? "owner-only" : "invalid";
   }
   try {
     const mode = statSync(path).mode & 0o777;
@@ -147,7 +140,8 @@ function secureWindowsFile(path: string): void {
     execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], {
       encoding: "utf8", env: { ...process.env, ABLETON_MCP_ACL_PATH: encodedPath }, stdio: ["ignore", "pipe", "pipe"],
     });
-    if (secretPermissions(path) !== "owner-only") throw new Error(`Windows ACL verification rejected the applied descriptor: ${windowsAclRejection(windowsAclDescriptor(path)) ?? "unknown reason"}`);
+    const verdict = windowsOwnerOnlyAcl(path);
+    if (!verdict.ok) throw new Error(`Windows ACL verification rejected the applied descriptor: ${verdict.reason}`);
   } catch (error) {
     const stderr = error && typeof error === "object" && "stderr" in error && typeof (error as { stderr?: unknown }).stderr === "string"
       ? (error as { stderr: string }).stderr.replaceAll(path, "<redacted-path>").replace(/\s+/g, " ").trim().slice(0, 512)
