@@ -1,3 +1,4 @@
+import os
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -16,8 +17,27 @@ class RemoteScriptTests(unittest.TestCase):
     def test_security_sensitive_files_require_current_owner(self):
         path = Path(__file__).resolve()
         self.assertTrue(_owner_controlled(path))
-        with patch("AbletonMcpBridge.os.getuid", return_value=path.stat().st_uid + 1):
-            self.assertFalse(_owner_controlled(path))
+        if os.name == "nt":
+            with patch("AbletonMcpBridge._windows_owner_controlled", return_value=False):
+                self.assertFalse(_owner_controlled(path))
+        else:
+            with patch("AbletonMcpBridge.os.getuid", return_value=path.stat().st_uid + 1):
+                self.assertFalse(_owner_controlled(path))
+
+    def test_scheduled_callback_does_not_touch_bridge_after_disconnect(self):
+        surface = object.__new__(__import__("AbletonMcpBridge").AbletonMcpBridge)
+        surface._disconnected = True
+
+        class Bridge:
+            def __init__(self):
+                self.calls = 0
+
+            def update_display(self):
+                self.calls += 1
+
+        surface._bridge = Bridge()
+        surface._drain()
+        self.assertEqual(surface._bridge.calls, 0)
 
     def test_authentication_and_replay_protection(self):
         remote = AuthenticatedRemoteScript("0123456789abcdef0123456789abcdef", lambda method, request: {"method": method})

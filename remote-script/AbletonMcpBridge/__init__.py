@@ -73,10 +73,84 @@ def _read_config() -> dict[str, Any]:
 
 def _owner_controlled(path: Path) -> bool:
     """Require the current account to own each security-sensitive file."""
+    if os.name == "nt":
+        return _windows_owner_controlled(path)
     try:
         return path.stat().st_uid == os.getuid()
     except (AttributeError, OSError):
         return False
+
+
+def _windows_owner_controlled(path: Path) -> bool:
+    """Compare the file owner SID with the current process token on Windows.
+
+    ``stat().st_uid`` is not a Windows security identity and is commonly zero
+    or otherwise synthetic on Windows.  Use the native security descriptor and
+    token APIs instead, without adding a platform-specific dependency.
+    """
+    security_descriptor = None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+        owner_sid = ctypes.c_void_p()
+        security_descriptor = ctypes.c_void_p()
+        advapi32.GetNamedSecurityInfoW.argtypes = [
+            wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+            ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p,
+            ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p),
+        ]
+        advapi32.GetNamedSecurityInfoW.restype = wintypes.DWORD
+        if advapi32.GetNamedSecurityInfoW(
+            str(path), 1, 1, ctypes.byref(owner_sid), None, None, None,
+            ctypes.byref(security_descriptor),
+        ) != 0 or not owner_sid.value:
+            return False
+
+        token = wintypes.HANDLE()
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        advapi32.OpenProcessToken.argtypes = [
+            wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE),
+        ]
+        advapi32.OpenProcessToken.restype = wintypes.BOOL
+        if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), 0x0008, ctypes.byref(token)):
+            return False
+        try:
+            class SidAndAttributes(ctypes.Structure):
+                _fields_ = [("sid", ctypes.c_void_p), ("attributes", wintypes.DWORD)]
+
+            class TokenUser(ctypes.Structure):
+                _fields_ = [("user", SidAndAttributes)]
+
+            required = wintypes.DWORD()
+            advapi32.GetTokenInformation.argtypes = [
+                wintypes.HANDLE, wintypes.DWORD, ctypes.c_void_p,
+                wintypes.DWORD, ctypes.POINTER(wintypes.DWORD),
+            ]
+            advapi32.GetTokenInformation.restype = wintypes.BOOL
+            advapi32.GetTokenInformation(token, 1, None, 0, ctypes.byref(required))
+            if not required.value:
+                return False
+            buffer = ctypes.create_string_buffer(required.value)
+            if not advapi32.GetTokenInformation(token, 1, buffer, required, ctypes.byref(required)):
+                return False
+            current_sid = ctypes.cast(buffer, ctypes.POINTER(TokenUser)).contents.user.sid
+            advapi32.EqualSid.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+            advapi32.EqualSid.restype = wintypes.BOOL
+            return bool(current_sid and advapi32.EqualSid(owner_sid, current_sid))
+        finally:
+            kernel32.CloseHandle(token)
+    except (AttributeError, OSError, TypeError, ValueError):
+        return False
+    finally:
+        try:
+            if 'kernel32' in locals() and security_descriptor is not None and security_descriptor.value:
+                kernel32.LocalFree(security_descriptor)
+        except (AttributeError, OSError):
+            pass
 
 
 class AbletonMcpBridge(_ControlSurface):
@@ -93,6 +167,8 @@ class AbletonMcpBridge(_ControlSurface):
         self._scheduled = scheduler(1, self._drain) if not self._disconnected and callable(scheduler) else None
 
     def _drain(self) -> None:
+        if self._disconnected:
+            return
         self._bridge.update_display()
         self._schedule_next()
 
