@@ -1,3 +1,5 @@
+import hashlib
+import json
 import os
 import tempfile
 import unittest
@@ -239,7 +241,9 @@ class ControlSurfaceTests(unittest.TestCase):
     def test_registry_is_canonical_and_hashed(self):
         registry, digest = operation_registry()
         self.assertEqual(registry["protocol"], "ableton-live/v1")
-        self.assertEqual(len(digest), 64)
+        canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
+        self.assertEqual(digest, "a1bb484dcf9e685cd743b0414589c8f2cb0e422613cf2a62814698a78efb8241")
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
 
     def test_references_remain_stable_across_fresh_discovery(self):

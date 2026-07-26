@@ -38,7 +38,7 @@ _REGISTRY_CANDIDATES = (
 
 
 def operation_registry() -> tuple[dict[str, Any], str]:
-    """Load and hash the source-controlled operation registry."""
+    """Load the registry and hash canonical JSON, independent of line endings."""
     try:
         registry_path = next(path for path in _REGISTRY_CANDIDATES if path.is_file())
         raw = registry_path.read_bytes()
@@ -56,7 +56,8 @@ def operation_registry() -> tuple[dict[str, Any], str]:
             raise ValueError("operation registry entry is malformed")
     if not REQUIRED_REGISTRY_OPERATIONS.issubset(identifiers):
         raise ValueError("operation registry is missing required operations")
-    return registry, hashlib.sha256(raw).hexdigest()
+    canonical_registry = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return registry, hashlib.sha256(canonical_registry).hexdigest()
 MAX_NONCE_LENGTH = 256
 MAX_WIRE_BYTES = 1_048_576
 MAX_WIRE_DEPTH = 16

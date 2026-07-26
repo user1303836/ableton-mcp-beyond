@@ -8,7 +8,9 @@
  */
 
 export const LIVE_PROTOCOL_VERSION = "ableton-live/v1";
-export const LIVE_REGISTRY_HASH = "a6b2ecbd8181221fcb64b6ffc738c7a220082a293118aa266821ee972479fa96";
+// SHA-256 of canonical sorted-key JSON, so negotiation is invariant to the
+// checkout's LF/CRLF policy on macOS and Windows.
+export const LIVE_REGISTRY_HASH = "a1bb484dcf9e685cd743b0414589c8f2cb0e422613cf2a62814698a78efb8241";
 export const LIVE_REGISTRY_OPERATIONS = [
   "clip.create", "clip.delete", "device.parameter.set", "discover", "get", "locator.add", "locator.delete",
   "note.add", "reconnect", "scene.create", "scene.delete", "session.discover", "set", "status", "subscribe",
