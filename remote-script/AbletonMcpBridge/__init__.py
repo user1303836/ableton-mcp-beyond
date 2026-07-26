@@ -111,7 +111,12 @@ def _windows_owner_controlled(path: Path) -> bool:
             return False
 
         token = wintypes.HANDLE()
+        kernel32.GetCurrentProcess.argtypes = []
         kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+        kernel32.LocalFree.restype = ctypes.c_void_p
         advapi32.OpenProcessToken.argtypes = [
             wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE),
         ]
@@ -125,22 +130,46 @@ def _windows_owner_controlled(path: Path) -> bool:
             class TokenUser(ctypes.Structure):
                 _fields_ = [("user", SidAndAttributes)]
 
-            required = wintypes.DWORD()
+            class TokenOwner(ctypes.Structure):
+                _fields_ = [("owner", ctypes.c_void_p)]
+
             advapi32.GetTokenInformation.argtypes = [
                 wintypes.HANDLE, wintypes.DWORD, ctypes.c_void_p,
                 wintypes.DWORD, ctypes.POINTER(wintypes.DWORD),
             ]
             advapi32.GetTokenInformation.restype = wintypes.BOOL
-            advapi32.GetTokenInformation(token, 1, None, 0, ctypes.byref(required))
-            if not required.value:
+
+            def token_information(info_class: int, structure: Any) -> tuple[Any, Any] | None:
+                required = wintypes.DWORD()
+                advapi32.GetTokenInformation(token, info_class, None, 0, ctypes.byref(required))
+                if not required.value:
+                    return None
+                buffer = ctypes.create_string_buffer(required.value)
+                if not advapi32.GetTokenInformation(
+                    token, info_class, buffer, required.value, ctypes.byref(required),
+                ):
+                    return None
+                return buffer, ctypes.cast(buffer, ctypes.POINTER(structure)).contents
+
+            user_info = token_information(1, TokenUser)
+            owner_info = token_information(4, TokenOwner)
+            if user_info is None or owner_info is None:
                 return False
-            buffer = ctypes.create_string_buffer(required.value)
-            if not advapi32.GetTokenInformation(token, 1, buffer, required, ctypes.byref(required)):
-                return False
-            current_sid = ctypes.cast(buffer, ctypes.POINTER(TokenUser)).contents.user.sid
+            # Keep both backing buffers alive while comparing their SID pointers.
+            user_buffer, token_user = user_info
+            owner_buffer, token_owner = owner_info
+            current_sid = token_user.user.sid
+            default_owner_sid = token_owner.owner
             advapi32.EqualSid.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
             advapi32.EqualSid.restype = wintypes.BOOL
-            return bool(current_sid and advapi32.EqualSid(owner_sid, current_sid))
+            return bool(
+                current_sid
+                and default_owner_sid
+                and (
+                    advapi32.EqualSid(owner_sid, current_sid)
+                    or advapi32.EqualSid(owner_sid, default_owner_sid)
+                )
+            )
         finally:
             kernel32.CloseHandle(token)
     except (AttributeError, OSError, TypeError, ValueError):
