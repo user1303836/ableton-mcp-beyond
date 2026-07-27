@@ -62,7 +62,7 @@ test("simulator executes session, media, routing, browser, and realtime operatio
   live.invoke({ operation: "routing.set", args: { ref: track.ref, input: "Ext. In 1", output: "Master" } });
   const locator = live.invoke({ operation: "locator.add", args: { name: "Verse", position: 4 } }) as { name: string };
   assert.equal(locator.name, "Verse");
-  assert.equal((live.invoke({ operation: "browser.search", args: { query: "util" } }) as unknown[]).length, 1);
+  assert.equal((live.invoke({ operation: "browser.search", args: { query: "util" } }) as { items: unknown[] }).items.length, 1);
   live.invoke({ operation: "transport.set", args: { position: 4, expectedRevision: live.snapshot().playback.revision } });
   assert.equal(live.snapshot().playback.transport.position, 4);
   assert.throws(() => live.invoke({ operation: "transport.set", args: { position: 8, expectedRevision: "stale" } }), /changed since preview/);
@@ -102,7 +102,7 @@ test("loopback authenticates bounded domain invocations", () => {
   const request = transport.authenticate({ version: LOOPBACK_PROTOCOL_VERSION, id: "invoke", method: "invoke", operation: "browser.search", args: { query: "kick" }, nonce: "invoke-nonce-0001" });
   const result = transport.handle(request);
   assert.equal(result.ok, true);
-  assert.equal((result.result as unknown[]).length, 1);
+  assert.equal((result.result as { items: unknown[] }).items.length, 1);
 });
 
 test("loopback rejects oversized nonces before retaining them", () => {

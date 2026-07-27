@@ -407,6 +407,20 @@ class LiveObjectMapper:
             return any(getattr(slot, "clip", None) is not None and callable(getattr(getattr(slot, "clip", None), "create_automation_envelope", None)) for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
         if operation == "automation.envelope.delete":
             return any(getattr(slot, "clip", None) is not None and callable(getattr(getattr(slot, "clip", None), "clear_envelope", None)) for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation == "device.insert":
+            return any(callable(getattr(track, "insert_device", None)) for track in self._items(getattr(self.song, "tracks", [])))
+        if operation == "device.delete":
+            return any(callable(getattr(track, "delete_device", None)) for track in self._items(getattr(self.song, "tracks", [])))
+        if operation == "device.enable":
+            return any(any(isinstance(self._read_attr(device, attr), bool) for attr in ("is_active", "is_enabled", "enabled")) for track in self._items(getattr(self.song, "tracks", [])) for device in self._items(getattr(track, "devices", [])))
+        if operation == "device.move":
+            return any(callable(getattr(track, "move_device", None)) for track in self._items(getattr(self.song, "tracks", [])))
+        if operation in {"browser.search", "browser.load"}:
+            try:
+                self._browser()
+                return True
+            except ValueError:
+                return False
         if operation == "session.audition-launch":
             return any(callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None)) for scene in self._items(getattr(self.song, "scenes", [])))
         if operation in {"session.audition-stop", "session.emergency-stop"}:
@@ -687,12 +701,90 @@ class LiveObjectMapper:
                     "automationState": str(self._read_attr(parameter, "automation_state") or "none"),
                     "displayValue": str(display), "revision": self.refs.revision(parameter_ref),
                 })
+            rows.append(self._device_row(device, device_ref, track_ref, track_index, f"{track_index}:{index}", index))
+        return rows
+
+    def _device_row(self, device: Any, device_ref: str, track_ref: str, track_index: int, path: str, index: int) -> dict[str, Any]:
+        parameters: list[dict[str, Any]] = []
+        for parameter_index, parameter in enumerate(self._items(getattr(device, "parameters", []))):
+            minimum = self._read_attr(parameter, "min", "min_value")
+            maximum = self._read_attr(parameter, "max", "max_value")
+            value = self._read_attr(parameter, "value")
+            numeric = (minimum, maximum, value)
+            if any(not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(float(item)) for item in numeric):
+                continue
+            parameter_ref = self.refs.put("parameter", parameter, f"{device_ref}:{parameter_index}")
+            display = self._read_attr(parameter, "display_value")
+            if display is None:
+                display = self._read_attr(parameter, "str_for_value")
+                if callable(display):
+                    try:
+                        display = display(value)
+                    except Exception:
+                        display = value
+                if display is None:
+                    display = value
+            parameters.append({
+                "ref": parameter_ref, "parentRef": device_ref,
+                "name": str(self._read_attr(parameter, "name") or f"Parameter {parameter_index + 1}"),
+                "value": float(value), "min": float(minimum), "max": float(maximum),
+                "quantization": float(self._read_attr(parameter, "quantization") or 0),
+                "enabled": bool(self._read_attr(parameter, "is_enabled", "enabled") if self._read_attr(parameter, "is_enabled", "enabled") is not None else True),
+                "automatable": bool(self._read_attr(parameter, "is_automatable", "automatable") if self._read_attr(parameter, "is_automatable", "automatable") is not None else True),
+                "automationState": str(self._read_attr(parameter, "automation_state") or "none"),
+                "displayValue": str(display), "revision": self.refs.revision(parameter_ref),
+            })
+        enabled = self._read_attr(device, "is_active", "is_enabled", "enabled")
+        row: dict[str, Any] = {
+            "ref": device_ref, "parentRef": track_ref, "chainPosition": index,
+            "className": str(self._read_attr(device, "class_name") or device.__class__.__name__),
+            "name": str(self._read_attr(device, "name") or "Device"),
+            "kind": "rack" if self._read_attr(device, "can_have_chains") is True else "device",
+            "enabled": bool(enabled) if isinstance(enabled, bool) else None,
+            "canHaveChains": self._read_attr(device, "can_have_chains") if isinstance(self._read_attr(device, "can_have_chains"), bool) else None,
+            "canHaveDrumPads": self._read_attr(device, "can_have_drum_pads") if isinstance(self._read_attr(device, "can_have_drum_pads"), bool) else None,
+            "parameters": parameters,
+        }
+        if row["canHaveChains"] is True:
+            row["chains"] = self._chain_rows(device, device_ref, track_index, path)
+            row["chainSelector"] = self._read_attr(device, "chain_selector")
+            macros = self._items(self._read_attr(device, "macros") or [])
+            row["macros"] = [{"ref": self.refs.put("parameter", macro, f"{device_ref}:macro:{macro_index}"), "name": str(self._read_attr(macro, "name") or f"Macro {macro_index + 1}"), "value": self._read_attr(macro, "value")} for macro_index, macro in enumerate(macros)]
+            row["variationCount"] = len(self._items(self._read_attr(device, "variations") or []))
+        if row["canHaveDrumPads"] is True:
+            row["drumPads"] = self._drum_pad_rows(device, device_ref, track_index, path)
+        return row
+
+    def _chain_rows(self, parent: Any, parent_ref: str, track_index: int, path: str) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for chain_index, chain in enumerate(self._items(self._read_attr(parent, "chains") or [])):
+            chain_ref = self.refs.put("chain", chain, f"{path}:{chain_index}")
+            chain_devices: list[dict[str, Any]] = []
+            for device_index, device in enumerate(self._items(self._read_attr(chain, "devices") or [])):
+                nested_ref = self.refs.put("device", device, f"{path}:{chain_index}:{device_index}")
+                chain_devices.append(self._device_row(device, nested_ref, chain_ref, track_index, f"{path}:{chain_index}:{device_index}", device_index))
+            mute = self._read_attr(chain, "mute")
+            solo = self._read_attr(chain, "solo")
             rows.append({
-                "ref": device_ref, "parentRef": track_ref, "chainPosition": index,
-                "className": str(getattr(device, "class_name", device.__class__.__name__)),
-                "name": str(getattr(device, "name", "Device")),
-                "enabled": bool(getattr(device, "is_enabled", getattr(device, "enabled", True))),
-                "parameters": parameters,
+                "ref": chain_ref, "parentRef": parent_ref, "index": chain_index,
+                "name": str(self._read_attr(chain, "name") or f"Chain {chain_index + 1}"),
+                "mute": bool(mute) if isinstance(mute, bool) else None,
+                "solo": bool(solo) if isinstance(solo, bool) else None,
+                "devices": chain_devices,
+            })
+        return rows
+
+    def _drum_pad_rows(self, device: Any, device_ref: str, track_index: int, path: str) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        pads = self._items(self._read_attr(device, "visible_drum_pads") or self._read_attr(device, "drum_pads") or [])
+        for pad_index, pad in enumerate(pads):
+            pad_ref = self.refs.put("drum_pad", pad, f"{path}:{pad_index}")
+            mute = self._read_attr(pad, "mute")
+            rows.append({
+                "ref": pad_ref, "parentRef": device_ref, "index": pad_index,
+                "name": str(self._read_attr(pad, "name") or f"Pad {pad_index + 1}"),
+                "mute": bool(mute) if isinstance(mute, bool) else None,
+                "chains": self._chain_rows(pad, pad_ref, track_index, f"{path}:{pad_index}"),
             })
         return rows
 
@@ -705,13 +797,15 @@ class LiveObjectMapper:
 
     @staticmethod
     def _read_attr(obj: Any, *names: str) -> Any:
-        """Read the first available attribute, treating Live's per-shape
-        RuntimeError on unsupported properties as unavailable."""
+        """Read the first available non-None attribute, treating Live's
+        per-shape RuntimeError on unsupported properties as unavailable."""
         for name in names:
             try:
-                return getattr(obj, name, None)
+                value = getattr(obj, name, None)
             except Exception:
                 continue
+            if value is not None:
+                return value
         return None
 
     def snapshot(self) -> dict[str, Any]:
@@ -1347,6 +1441,18 @@ class LiveObjectMapper:
             return self._envelope_point_insert(args)
         if operation == "automation.point.delete":
             return self._envelope_point_delete(args)
+        if operation == "device.insert":
+            return self._device_insert(args)
+        if operation == "device.delete":
+            return self._device_delete(args)
+        if operation == "device.enable":
+            return self._device_enable(args)
+        if operation == "device.move":
+            return self._device_move(args)
+        if operation == "browser.search":
+            return self._browser_search(args)
+        if operation == "browser.load":
+            return self._browser_load(args)
         if operation == "scene.capture":
             return self._scene_capture()
         if operation == "session.playback":
@@ -1954,6 +2060,195 @@ class LiveObjectMapper:
         envelope.delete_events_in_range(float(from_time), float(to_time))
         after = len(self._envelope_points(envelope, 1024))
         return {"deleted": before - after}
+
+    def _device_location(self, reference: str) -> tuple[Any, Any, int, int]:
+        """Resolve a top-level device reference to (track, device, track_index,
+        device_index) through its traversal key."""
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:"):
+            raise ValueError("device reference is stale or invalid")
+        segments = reference.split(":")
+        parts = ":".join(segments[2:]).split(":") if len(segments) >= 3 else []
+        if len(parts) != 2 or not all(part.isdigit() for part in parts):
+            raise ValueError("device reference is not a top-level device")
+        track_index, device_index = int(parts[0]), int(parts[1])
+        tracks = self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", []))
+        if not 0 <= track_index < len(tracks):
+            raise ValueError("device track is stale")
+        devices = self._items(getattr(tracks[track_index], "devices", []))
+        if not 0 <= device_index < len(devices):
+            raise ValueError("device is stale")
+        return tracks[track_index], devices[device_index], track_index, device_index
+
+    def _device_insert(self, args: dict[str, Any]) -> dict[str, Any]:
+        track_ref = args.get("trackRef")
+        if not isinstance(track_ref, str) or not track_ref.startswith(f"{self.refs.epoch}:track:"):
+            raise ValueError("track reference is stale or invalid")
+        track = self.refs.get(track_ref)
+        name = args.get("deviceName")
+        if not isinstance(name, str) or not 1 <= len(name) <= 256:
+            raise ValueError("device name is invalid")
+        index = args.get("index")
+        if index is not None and (not isinstance(index, int) or isinstance(index, bool) or not -1 <= index <= 256):
+            raise ValueError("device index is invalid")
+        inserter = getattr(track, "insert_device", None)
+        if not callable(inserter):
+            raise ValueError("device insertion is unavailable")
+        before = len(self._items(getattr(track, "devices", [])))
+        try:
+            inserter(name, -1 if index is None else index)
+        except Exception as error:
+            raise ValueError("device name is not loadable on this Live shape") from error
+        devices = self._items(getattr(track, "devices", []))
+        if len(devices) <= before:
+            raise ValueError("device insertion was not confirmed")
+        position = len(devices) - 1 if index is None or index < 0 or index >= len(devices) else index
+        device = devices[position]
+        return {"ref": self.refs.put("device", device, f"{self._items(getattr(self.song, 'tracks', [])).index(track)}:{position}"), "name": str(self._read_attr(device, "name") or name), "index": position}
+
+    def _device_delete(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        track, device, _, _ = self._device_location(str(reference))
+        deleter = getattr(track, "delete_device", None)
+        if not callable(deleter):
+            raise ValueError("device deletion is unavailable")
+        devices_before = self._items(getattr(track, "devices", []))
+        index = devices_before.index(device)
+        deleter(index)
+        if len(self._items(getattr(track, "devices", []))) >= len(devices_before):
+            raise ValueError("device deletion was not confirmed")
+        return {"deleted": reference}
+
+    def _device_enable(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        enabled = args.get("enabled")
+        if not isinstance(enabled, bool):
+            raise ValueError("enabled must be boolean")
+        _, device, _, _ = self._device_location(str(reference))
+        for attr in ("is_active", "is_enabled", "enabled"):
+            target = self._read_attr(device, attr)
+            if isinstance(target, bool):
+                setattr(device, attr, enabled)
+                current = self._read_attr(device, attr)
+                if current is not enabled:
+                    raise ValueError("device enable change was not confirmed")
+                revision = self.refs.touch(reference)
+                return {"changed": True, "enabled": enabled, "revision": revision}
+        raise ValueError("device enable is unavailable")
+
+    def _device_move(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        index = args.get("index")
+        if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index <= 256:
+            raise ValueError("device index is invalid")
+        track, device, _, current = self._device_location(str(reference))
+        if index == current:
+            return {"ref": reference, "index": index}
+        mover = getattr(track, "move_device", None)
+        if not callable(mover):
+            raise ValueError("device move is unavailable")
+        mover(current, index)
+        devices = self._items(getattr(track, "devices", []))
+        if index >= len(devices) or devices[index] is not device:
+            raise ValueError("device move was not confirmed")
+        return {"ref": reference, "index": index}
+
+    def _browser(self) -> Any:
+        try:
+            application = __import__("Live.Application", fromlist=["Application"]).Application.get_application()
+        except Exception as error:
+            raise ValueError("the Live Browser is unavailable") from error
+        browser = getattr(application, "browser", None)
+        if browser is None:
+            raise ValueError("the Live Browser is unavailable")
+        return browser
+
+    _BROWSER_CATEGORIES = {"instruments", "audio_effects", "midi_effects", "drums", "plugins", "packs", "max_for_live", "clips"}
+
+    def _browser_search(self, args: dict[str, Any]) -> dict[str, Any]:
+        browser = self._browser()
+        category = args.get("category")
+        if category is not None and category not in self._BROWSER_CATEGORIES:
+            raise ValueError("browser category is invalid")
+        query = args.get("query")
+        if query is not None and (not isinstance(query, str) or len(query) > 256):
+            raise ValueError("browser query is invalid")
+        limit = args.get("limit", 50)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+            raise ValueError("browser limit is invalid")
+        needle = query.strip().lower() if isinstance(query, str) else ""
+        items: list[dict[str, Any]] = []
+
+        def walk(node: Any, path: str, depth: int) -> None:
+            if len(items) >= limit or depth > 6:
+                return
+            children = self._items(self._read_attr(node, "children") or [])
+            for child in children:
+                if len(items) >= limit:
+                    return
+                name = str(self._read_attr(child, "name") or "")
+                child_path = f"{path}/{name}"
+                is_device = bool(self._read_attr(child, "is_device") or self._read_attr(child, "is_loadable"))
+                if not self._items(self._read_attr(child, "children") or []) or is_device:
+                    if not needle or needle in name.lower() or needle in child_path.lower():
+                        items.append({"id": child_path, "name": name, "category": category_name, "path": child_path, "isDevice": is_device})
+                if not is_device:
+                    walk(child, child_path, depth + 1)
+
+        categories = [category] if category else sorted(self._BROWSER_CATEGORIES)
+        for category_name in categories:
+            if len(items) >= limit:
+                break
+            node = self._read_attr(browser, category_name)
+            if node is not None:
+                walk(node, category_name, 0)
+        return {"items": items}
+
+    def _browser_load(self, args: dict[str, Any]) -> dict[str, Any]:
+        item_id = args.get("itemId")
+        if not isinstance(item_id, str) or not 1 <= len(item_id) <= 512:
+            raise ValueError("browser item id is invalid")
+        track_ref = args.get("trackRef")
+        browser = self._browser()
+        item = None
+        item_category = item_id.split("/", 1)[0] if "/" in item_id else ""
+        if item_category not in self._BROWSER_CATEGORIES:
+            raise ValueError("browser item id is invalid")
+
+        def find(node: Any, path: str, depth: int) -> Any:
+            if depth > 6:
+                return None
+            for child in self._items(self._read_attr(node, "children") or []):
+                name = str(self._read_attr(child, "name") or "")
+                if f"{path}/{name}" == item_id:
+                    return child
+                found = find(child, f"{path}/{name}", depth + 1)
+                if found is not None:
+                    return found
+            return None
+
+        item = find(self._read_attr(browser, item_category), item_category, 0)
+        if item is None:
+            raise ValueError("browser item is not present")
+        loader = getattr(browser, "load_item", None)
+        if not callable(loader):
+            raise ValueError("browser loading is unavailable")
+        if track_ref is not None:
+            if not isinstance(track_ref, str) or not track_ref.startswith(f"{self.refs.epoch}:track:"):
+                raise ValueError("track reference is stale or invalid")
+            track = self.refs.get(track_ref)
+            view = getattr(self.song, "view", None)
+            if view is None or not hasattr(view, "selected_track"):
+                raise ValueError("track-targeted browser loading is unavailable")
+            view.selected_track = track
+            before = len(self._items(getattr(track, "devices", [])))
+            loader(item)
+            devices = self._items(getattr(track, "devices", []))
+            if len(devices) <= before:
+                raise ValueError("browser load was not confirmed on the target track")
+            device = devices[-1]
+            return {"loaded": True, "deviceRef": self.refs.put("device", device, f"{self._items(getattr(self.song, 'tracks', [])).index(track)}:{len(devices) - 1}")}
+        loader(item)
+        return {"loaded": True, "deviceRef": None}
 
     def _note_add(self, args: dict[str, Any]) -> dict[str, Any]:
         clip = self.refs.get(str(args["ref"]))

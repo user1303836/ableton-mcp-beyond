@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createHmac } from "node:crypto";
-import { existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -128,6 +128,23 @@ class FakeMixer:
         self.cue_volume = FakeParameter("Cue Volume", 1.0)
         self.sends = [FakeParameter("Send A", 0.0), FakeParameter("Send B", 0.0)]
 
+class FakeDrumPad:
+    def __init__(self, index):
+        self.name = f"Pad {index + 1}"
+        self.mute = False
+        self.chains = []
+
+class FakeDevice:
+    def __init__(self, name="Utility"):
+        self.name = name
+        self.class_name = "AudioEffectUtility"
+        self.enabled = True
+        self.parameters = [FakeParameter("Gain")]
+        if name == "Drum Rack":
+            self.can_have_chains = True
+            self.can_have_drum_pads = True
+            self.visible_drum_pads = [FakeDrumPad(i) for i in range(16)]
+
 class FakeEnvelopeEvent:
     def __init__(self, time, value):
         self.time = time; self.value = value
@@ -217,6 +234,18 @@ class FakeTrack:
         clip.start_time = time
         self.arrangement_clips.append(clip)
         return clip
+    def insert_device(self, name, index=-1):
+        device = FakeDevice(name)
+        if index < 0 or index >= len(self.devices):
+            self.devices.append(device)
+        else:
+            self.devices.insert(index, device)
+        return device
+    def delete_device(self, index):
+        del self.devices[index]
+    def move_device(self, from_index, to_index):
+        device = self.devices.pop(from_index)
+        self.devices.insert(to_index, device)
     def delete_clip(self, clip):
         self.arrangement_clips = [c for c in self.arrangement_clips if c is not clip]
     def duplicate_clip_to_arrangement(self, clip, time):
@@ -251,6 +280,10 @@ class FakeScene:
 class FakeExternalScene:
     def __init__(self, name): self.name = name; self.fire = None
 
+class FakeView:
+    def __init__(self, song):
+        self.selected_track = song.tracks[0] if song.tracks else None
+
 class FakeSong:
     def __init__(self):
         self.name = "Journey Disposable Set"; self.tempo = 120.0
@@ -261,6 +294,7 @@ class FakeSong:
         self.punch_in = False; self.punch_out = False; self.metronome = False; self.count_in_duration = 1.0
         self.fire_sleep = 0.0; self.fail_stop = False
         self.scenes = [FakeScene("Journey Scene", self, 0), FakeExternalScene("Other Scene")]
+        self.view = FakeView(self)
     def create_scene(self, index):
         scene = FakeExternalScene(f"Scene {len(self.scenes) + 1}")
         self.scenes.insert(index, scene)
@@ -296,6 +330,11 @@ secret_path = os.environ.get("ABLETON_MCP_JOURNEY_SECRET_FILE")
 if not secret_path: raise RuntimeError("journey secret file was not provided")
 bridge = AbletonMcpBridge(Instance(), {"host": "127.0.0.1", "port": port, "secret": pathlib.Path(secret_path).read_text(encoding="utf-8").strip()})
 song = bridge.mapper.song
+try:
+    from Live.Application import Application
+    Application.get_application().browser._song_view = song.view
+except Exception:
+    pass
 control_path = pathlib.Path(sys.argv[2])
 ack_path = pathlib.Path(sys.argv[3])
 deadline = time.time() + 5.0
@@ -396,8 +435,54 @@ try {
   const ackPath = join(temporaryDirectory, "journey-ack.json");
   const harnessPath = join(temporaryDirectory, "journey-harness.py");
   writeFileSync(harnessPath, harnessSource, { encoding: "utf8", mode: 0o600 });
+  // Fake Live API package for browser and envelope event negotiation.
+  mkdirSync(join(temporaryDirectory, "Live"), { recursive: true });
+  writeFileSync(join(temporaryDirectory, "Live", "__init__.py"), "", { encoding: "utf8" });
+  writeFileSync(join(temporaryDirectory, "Live", "Application.py"), `
+class _BrowserItem:
+    def __init__(self, name, is_device=True):
+        self.name = name; self.is_device = is_device; self.children = []
+
+class _Browser:
+    def __init__(self):
+        self.instruments = _BrowserItem("instruments")
+        self.instruments.children = [_BrowserItem("Drum Rack"), _BrowserItem("Analog"), _BrowserItem("Collision")]
+        self.audio_effects = _BrowserItem("audio_effects")
+        self.audio_effects.children = [_BrowserItem("Utility"), _BrowserItem("Echo")]
+        self.midi_effects = _BrowserItem("midi_effects")
+        self.midi_effects.children = [_BrowserItem("Arpeggiator")]
+        self.drums = _BrowserItem("drums")
+        self.plugins = _BrowserItem("plugins")
+        self.packs = _BrowserItem("packs")
+        self.max_for_live = _BrowserItem("max_for_live")
+        self.clips = _BrowserItem("clips")
+        self._song_view = None
+    def load_item(self, item):
+        if self._song_view is not None and getattr(self._song_view, "selected_track", None) is not None:
+            self._song_view.selected_track.insert_device(item.name)
+
+class _Application:
+    _instance = None
+    def __init__(self):
+        self.browser = _Browser()
+    @classmethod
+    def get_application(cls):
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+class Application:
+    @staticmethod
+    def get_application():
+        return _Application.get_application()
+`, { encoding: "utf8" });
+  writeFileSync(join(temporaryDirectory, "Live", "Envelope.py"), `
+class EnvelopeEvent:
+    def __init__(self, time, value):
+        self.time = time; self.value = value
+`, { encoding: "utf8" });
   const python = process.platform === "win32" ? "python.exe" : "python3";
-  const harness = spawn(python, [harnessPath, readyPath, controlPath, ackPath], { cwd: temporaryDirectory, env: { ...process.env, PYTHONPATH: join(installedPackageDirectory, "remote-script"), ABLETON_MCP_JOURNEY_SECRET_FILE: secretPath }, stdio: ["ignore", "ignore", openSync(join(temporaryDirectory, "journey-harness-stderr.log"), "w")] });
+  const harness = spawn(python, [harnessPath, readyPath, controlPath, ackPath], { cwd: temporaryDirectory, env: { ...process.env, PYTHONPATH: `${temporaryDirectory}${process.platform === "win32" ? ";" : ":"}${join(installedPackageDirectory, "remote-script")}`, ABLETON_MCP_JOURNEY_SECRET_FILE: secretPath }, stdio: ["ignore", "ignore", openSync(join(temporaryDirectory, "journey-harness-stderr.log"), "w")] });
   children.add(harness);
 
   const controlSeq = { value: 0 };
@@ -792,6 +877,29 @@ try {
     assert(finalRead.points.length === 2, "envelope undo did not restore points");
   });
 
+  await step("browser search/load and device lifecycle through the packaged path", async () => {
+    const search = (await textOf(client, "live_browser_search", { category: "instruments", query: "rack" })).parsed;
+    assert(search.items.length >= 1 && search.items.some((item) => item.id === "instruments/Drum Rack"), `browser search mismatch: ${JSON.stringify(search)}`);
+    const freshTracks = (await textOf(client, "live_discover", { kind: "track" })).parsed.items;
+    const preview = (await textOf(client, "live_browser_load_preview", { itemId: "instruments/Drum Rack", trackRef: freshTracks[0].ref })).parsed;
+    const applied = (await textOf(client, "live_browser_load_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "journey-load" })).parsed;
+    console.error("load result:", JSON.stringify(applied).slice(0, 300));
+    assert(applied.state === "applied" && typeof applied.deviceRef === "string", "browser load failed");
+    const trackAfter = (await textOf(client, "live_discover", { kind: "track" })).parsed.items[0];
+    console.error("devices:", JSON.stringify(trackAfter.devices).slice(0, 600));
+    const rack = trackAfter.devices.find((device) => device.name === "Drum Rack");
+    assert(rack && rack.canHaveDrumPads === true && rack.drumPads.length === 16, `drum rack row mismatch: ${JSON.stringify(rack)}`);
+    const enable = (await textOf(client, "live_device_preview", { action: "enable", deviceRef: rack.ref, enabled: false })).parsed;
+    console.error("enable preview:", JSON.stringify(enable).slice(0, 250));
+    const disabled = (await textOf(client, "live_device_apply", { transactionId: enable.transactionId, confirmation: "apply", idempotencyKey: "journey-dev-disable" })).parsed;
+    console.error("disabled:", JSON.stringify(disabled).slice(0, 250));
+    assert(disabled.state === "applied" && disabled.result?.enabled === false, "device disable failed");
+    const del = (await textOf(client, "live_device_preview", { action: "delete", deviceRef: rack.ref })).parsed;
+    const deleted = (await textOf(client, "live_device_apply", { transactionId: del.transactionId, confirmation: "apply", idempotencyKey: "journey-dev-delete" })).parsed;
+    assert(deleted.state === "applied", "device delete failed");
+    assert(!(await textOf(client, "live_discover", { kind: "track" })).parsed.items[0].devices.some((device) => device.name === "Drum Rack"), "device was not deleted");
+  });
+
   await step("shutdown leaves no residual playback or processes", async () => {
     assert((await playback(client)).transport.playing === false, "playback was active before shutdown");
     await client.close();
@@ -806,6 +914,6 @@ try {
   else console.error(`journey temp kept: ${temporaryDirectory}`);
 }
 
-const summary = { journey: "packaged-production-boundary", provenance: "fake-live", steps: results, passed: !failed && results.every((entry) => entry.passed) && results.length === 19 };
+const summary = { journey: "packaged-production-boundary", provenance: "fake-live", steps: results, passed: !failed && results.every((entry) => entry.passed) && results.length === 20 };
 console.log(JSON.stringify(summary));
 if (!summary.passed) process.exitCode = 1;
