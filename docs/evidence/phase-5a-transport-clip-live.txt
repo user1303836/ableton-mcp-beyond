@@ -1,0 +1,10 @@
+== operations ["clip.create","clip.delete","clip.launch","discover","get","locator.add","locator.delete","note.add","playback.stop-all-clips","reconnect","scene.capture","scene.create","scene.delete","session.audition-launch","session.audition-stop","session.capture-midi","session.emergency-stop","session.playback","set","snapshot","status","track.create","track.delete","
+== transport apply {"transactionId":"transport_KN9WnEfzRXxPDSVhKPVxsnaj","state":"applied","revision":"6464588966413896:playback:b9617999b14733763ce424eb","idempotent":false}
+== transport after {"position":4.629342403628118,"loop":{"enabled":true,"start":4,"length":8}}
+== clip preview {"target":"6464588966413896:track:0|6464588966413896:clip_slot:0:0|6464588966413896:scene:0"}
+== clip apply {"transactionId":"cliplaunch_HjcWLy1YdwYY7gkPLph3a1z-","state":"applied","verified":{"targetKey":"6464588966413896:track:0|6464588966413896:clip_slot:0:0|6464588966413896:scene:0","firedOrPlaying":true},"stopConfirmation":"iLGVCqvlYbchNeHrUyI_g1X-Si94VCjvMEymWHsRXtk","idempotent":false}
+== during {"playing":true,"targets":["6464588966413896:track:0|6464588966413896:clip_slot:0:0|6464588966413896:scene:0"]}
+== clip stop {"transactionId":"cliplaunch_HjcWLy1YdwYY7gkPLph3a1z-","state":"stopped","targetCleared":true,"idempotent":false}
+== after {"playing":true,"targets":0}
+== transport undo {"transactionId":"transport_KN9WnEfzRXxPDSVhKPVxsnaj","state":"undone","restored":{"position":7.0856235827664396,"loopEnabled":true,"loopStart":4,"loopLength":8,"metronome":false},"idempotent":false}
+== restored {"position":4.749886621315193,"loop":{"enabled":true,"start":4,"length":8}}

@@ -786,6 +786,19 @@ export class McpHost {
     } catch (cause) { return this.adapterToolError(id, cause, "Transport preview requires fresh authoritative playback state."); }
   }
 
+  private async confirmTransportPosition(adapter: AsyncLiveAdapter, context: { signal?: AbortSignal; deadlineMs: number }, proposed: number): Promise<void> {
+    // Live applies playhead moves asynchronously; accept the position once it
+    // lands within tolerance, allowing bounded drift while the transport plays.
+    while (Date.now() < context.deadlineMs - 250) {
+      const after = await adapter.snapshotAsync(context);
+      const current = after.playback.transport.position;
+      const playing = after.playback.transport.playing === true;
+      if (typeof current === "number" && (playing ? (current >= proposed - 0.26 && current <= proposed + 2.5) : Math.abs(current - proposed) <= 0.26)) return;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error("transport position was not confirmed by fresh playback state");
+  }
+
   private async liveTransportApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
     if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
     const transaction = this.transportTransactions.get(params.transactionId as string);
@@ -800,6 +813,7 @@ export class McpHost {
       const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
       const result = await adapter.invokeAsync({ operation: "transport.set", args: { ...transaction.proposed, expectedRevision: transaction.playbackRevision } }, context) as { changed?: unknown; revision?: unknown };
       if (result.changed !== true || typeof result.revision !== "string") throw new Error("transport change was not confirmed");
+      if (typeof transaction.proposed.position === "number") await this.confirmTransportPosition(adapter, context, transaction.proposed.position);
       transaction.applyKey = params.idempotencyKey as string;
       transaction.state = "applied";
       return this.successText(id, { transactionId: transaction.id, state: "applied", revision: result.revision, idempotent: false });
@@ -829,6 +843,7 @@ export class McpHost {
       }
       const result = await adapter.invokeAsync({ operation: "transport.set", args: { ...restore, expectedRevision: snapshot.playback.revision } }, context) as { changed?: unknown; revision?: unknown };
       if (result.changed !== true) throw new Error("transport undo was not confirmed");
+      if (typeof restore.position === "number") await this.confirmTransportPosition(adapter, context, restore.position);
       transaction.undoKey = params.idempotencyKey as string;
       transaction.state = "undone";
       return this.successText(id, { transactionId: transaction.id, state: "undone", restored: restore, idempotent: false });
