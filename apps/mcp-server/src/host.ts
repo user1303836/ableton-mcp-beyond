@@ -119,7 +119,7 @@ interface NoteEditTransaction {
 interface ClipLifecycleTransaction {
   id: string;
   epoch: number;
-  kind: "duplicate" | "arrangement-create" | "arrangement-delete" | "move" | "audio-set" | "mixer-set" | "automation" | "browser-load" | "device";
+  kind: "duplicate" | "arrangement-create" | "arrangement-delete" | "move" | "audio-set" | "mixer-set" | "automation" | "browser-load" | "device" | "routing-set" | "recording";
   fence: string;
   clipRef?: LiveRef;
   payload: Record<string, unknown>;
@@ -416,6 +416,30 @@ const implementedTools = [
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
   },
   {
+    name: "live_routing_preview",
+    description: "Read-only preflight for bounded routing, arm, and monitoring edits with feedback-loop guards and prior-value capture.",
+    inputSchema: { type: "object", properties: { trackRef: { type: "string", minLength: 1, maxLength: 256 }, inputType: { type: "string", maxLength: 256 }, inputSubRouting: { type: "string", maxLength: 256 }, outputType: { type: "string", maxLength: 256 }, outputSubRouting: { type: "string", maxLength: 256 }, arm: { type: "boolean" }, monitoring: { type: "string", enum: ["in", "auto", "off"] } }, required: ["trackRef"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_routing_apply",
+    description: "Apply an exact, unexpired routing preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_recording_preview",
+    description: "Read-only preflight for one bounded Session or Arrangement recording start/stop with explicit intent, destination identity, and output-safety evidence.",
+    inputSchema: { type: "object", properties: { action: { type: "string", enum: ["start", "stop"] }, lane: { type: "string", enum: ["session", "arrangement"] }, intent: { type: "string", minLength: 1, maxLength: 256 }, destinationTrackRef: { type: "string", minLength: 1, maxLength: 256 }, outputSafety: { type: "object", properties: { safe: { type: "boolean", const: true }, provenance: { type: "string", minLength: 1, maxLength: 512 }, observedAt: { type: "string", minLength: 1, maxLength: 128 }, scope: { type: "string", minLength: 1, maxLength: 256 } }, required: ["safe", "provenance"], additionalProperties: false } }, required: ["action", "lane", "intent", "outputSafety"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: true, openWorldHint: true },
+  },
+  {
+    name: "live_recording_apply",
+    description: "Apply an exact, unexpired recording preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+  },
+  {
     name: "live_device_parameter_preview",
     description: "Discover an authoritative device parameter and preview a bounded numeric change without mutation.",
     inputSchema: { type: "object", properties: { deviceRef: { type: "string", minLength: 1, maxLength: 256 }, parameterRef: { type: "string", minLength: 1, maxLength: 256 }, value: { type: "number" } }, required: ["deviceRef", "parameterRef", "value"], additionalProperties: false },
@@ -579,7 +603,7 @@ export class McpHost {
     if (signal?.aborted) return null;
     if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handle(input);
     const name = input.params.name;
-    if (![ "live_session_structure_preview", "live_session_structure_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply"].includes(name)) return this.handle(input);
+    if (![ "live_session_structure_preview", "live_session_structure_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply"].includes(name)) return this.handle(input);
     // Reuse the synchronous validator and request bookkeeping, then execute the
     // adapter operation asynchronously. Invalid requests never reach Live.
     const id = this.requestId(input.id);
@@ -628,6 +652,10 @@ export class McpHost {
       if (name === "live_browser_load_apply") return await this.liveBrowserLoadApplyAsync(id, input.params.arguments, signal);
       if (name === "live_device_preview") return await this.liveDevicePreviewAsync(id, input.params.arguments);
       if (name === "live_device_apply") return await this.liveDeviceApplyAsync(id, input.params.arguments, signal);
+      if (name === "live_routing_preview") return await this.liveRoutingPreviewAsync(id, input.params.arguments);
+      if (name === "live_routing_apply") return await this.liveRoutingApplyAsync(id, input.params.arguments, signal);
+      if (name === "live_recording_preview") return await this.liveRecordingPreviewAsync(id, input.params.arguments);
+      if (name === "live_recording_apply") return await this.liveRecordingApplyAsync(id, input.params.arguments, signal);
       if (name === "live_device_parameter_preview") return await this.liveDeviceParameterPreviewAsync(id, input.params.arguments);
       if (name === "live_device_parameter_apply") return await this.liveDeviceParameterApplyAsync(id, input.params.arguments);
       if (name === "live_midi_clip_preview") return await this.liveMidiPreviewAsync(id, input.params.arguments);
@@ -1196,6 +1224,112 @@ export class McpHost {
       transaction.state = /cancelled before dispatch/.test(message) ? "applied" : "uncertain";
       throw cause;
     }
+  }
+
+  private async liveRoutingPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    const fields = ["inputType", "inputSubRouting", "outputType", "outputSubRouting", "arm", "monitoring"] as const;
+    if (!isObject(params) || !hasOnly(params, ["trackRef", ...fields]) || !isNonEmptyString(params.trackRef, 256)) return error(id, -32602, "trackRef is required");
+    const proposed: Record<string, unknown> = {};
+    for (const field of fields) {
+      const value = params[field];
+      if (value === undefined) continue;
+      if (field === "arm") { if (typeof value !== "boolean") return error(id, -32602, "arm must be boolean"); }
+      else if (field === "monitoring") { if (!["in", "auto", "off"].includes(String(value))) return error(id, -32602, "monitoring must be in, auto, or off"); }
+      else if (!isNonEmptyString(value, 256) && value !== "") return error(id, -32602, `${field} is invalid`);
+      proposed[field] = value;
+    }
+    if (Object.keys(proposed).length === 0) return error(id, -32602, "at least one routing field is required");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      if (!(status.operations ?? []).includes("routing.set")) throw new Error("routing editing is unavailable");
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const track = (snapshot.tracks as unknown as JsonObject[]).find((item) => item.ref === params.trackRef);
+      if (!track || !isObject(track.routing)) throw new Error("track with authoritative routing is required");
+      if (typeof proposed.outputType === "string" && proposed.outputType && (proposed.outputType === track.name || proposed.outputType === (track.routing as JsonObject).inputType)) throw new Error("routing would create a feedback loop");
+      const prior: Record<string, unknown> = {};
+      for (const field of Object.keys(proposed)) prior[field] = structuredClone((track.routing as JsonObject)[field] ?? (field === "arm" ? track.armed : field === "monitoring" ? track.monitoringState : null));
+      const fence = JSON.stringify({ ref: params.trackRef, routing: track.routing, armed: track.armed, monitoringState: track.monitoringState });
+      const transaction: ClipLifecycleTransaction = { id: `routing_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "routing-set", fence, clipRef: params.trackRef as LiveRef, payload: { ref: params.trackRef, ...proposed }, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "routing");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, trackRef: params.trackRef, prior, proposed, impact: "edits-routing", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Routing preview requires fresh authoritative state."); }
+  }
+
+  private async liveRoutingApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "routing-set" || transaction.expiresAt <= Date.now()) return this.transactionError(id, "Unknown or expired routing transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    if (transaction.state !== "previewed") return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
+      const snapshot = await adapter.snapshotAsync(context);
+      const track = (snapshot.tracks as unknown as JsonObject[]).find((item) => item.ref === transaction.clipRef);
+      if (!track || JSON.stringify({ ref: transaction.clipRef, routing: track.routing, armed: track.armed, monitoringState: track.monitoringState }) !== transaction.fence) return this.transactionError(id, "routing state changed since preview; preview again");
+      const result = await adapter.invokeAsync({ operation: "routing.set", args: transaction.payload }, context) as { changed?: unknown; revision?: unknown };
+      if (result.changed !== true) throw new Error("routing change was not confirmed");
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", revision: result.revision, idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Routing state is uncertain; perform fresh discovery before retrying."); }
+  }
+
+  private async liveRecordingPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, ["action", "lane", "intent", "destinationTrackRef", "outputSafety"]) || (params.action !== "start" && params.action !== "stop") || (params.lane !== "session" && params.lane !== "arrangement") || !isNonEmptyString(params.intent, 256)) return error(id, -32602, "action, lane, and intent are required");
+    try {
+      this.validateOutputSafety(params.outputSafety);
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      const operation = params.lane === "session" ? "recording.session" : "recording.arrangement";
+      if (!(status.operations ?? []).includes(operation)) throw new Error(`${operation} control is unavailable`);
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const transport = snapshot.playback?.transport;
+      if (!transport) throw new Error("authoritative playback state is unavailable");
+      if (params.action === "start") {
+        const alreadyRecording = params.lane === "session" ? transport.sessionRecord === true : transport.arrangementRecord === true;
+        if (alreadyRecording) throw new Error(`${params.lane} recording is already active`);
+        if (params.lane === "arrangement") {
+          if (!isNonEmptyString(params.destinationTrackRef, 256)) throw new Error("Arrangement recording requires an explicit destination track");
+          const destination = (snapshot.tracks as unknown as JsonObject[]).find((item) => item.ref === params.destinationTrackRef);
+          if (!destination) throw new Error("destination track is not authoritative");
+          if (destination.armed !== true) throw new Error("destination track is not armed for recording; arm it through live_routing_preview first");
+        }
+      }
+      const fence = JSON.stringify({ sessionRecord: transport.sessionRecord, arrangementRecord: transport.arrangementRecord, playing: transport.playing });
+      const transaction: ClipLifecycleTransaction = { id: `recording_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "recording", fence, payload: { action: params.action, lane: params.lane, intent: params.intent, outputSafety: structuredClone(params.outputSafety as JsonObject), destinationTrackRef: params.destinationTrackRef }, prior: { sessionRecord: transport.sessionRecord, arrangementRecord: transport.arrangementRecord }, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "recording");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, action: params.action, lane: params.lane, intent: params.intent, prior: transaction.prior, impact: params.action === "start" ? "starts-recording" : "stops-recording", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Recording preview refused; obtain fresh authoritative state and explicit output-safety evidence."); }
+  }
+
+  private async liveRecordingApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "recording" || transaction.expiresAt <= Date.now()) return this.transactionError(id, "Unknown or expired recording transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    if (transaction.state !== "previewed") return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
+      const snapshot = await adapter.snapshotAsync(context);
+      const transport = snapshot.playback?.transport;
+      if (!transport || JSON.stringify({ sessionRecord: transport.sessionRecord, arrangementRecord: transport.arrangementRecord, playing: transport.playing }) !== transaction.fence) return this.transactionError(id, "recording state changed since preview; preview again");
+      const operation = transaction.payload.lane === "session" ? "recording.session" : "recording.arrangement";
+      const result = await adapter.invokeAsync({ operation, args: { action: transaction.payload.action } }, context) as { recording?: unknown };
+      const expected = transaction.payload.action === "start";
+      if (result.recording !== expected) throw new Error("recording change was not confirmed");
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", recording: result.recording, lane: transaction.payload.lane, idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Recording state is uncertain; perform fresh discovery and use the emergency stop path if needed."); }
   }
 
   private deviceRow(snapshot: LiveSnapshot, deviceRef: LiveRef): { track: JsonObject; device: JsonObject } {
@@ -2177,7 +2311,7 @@ export class McpHost {
       return error(id, -32602, "Invalid tools/call parameters");
     }
     if (params.arguments !== undefined && !isObject(params.arguments)) return error(id, -32602, "Tool arguments must be an object");
-    const argumentTools = new Set(["audio_analyze", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+    const argumentTools = new Set(["audio_analyze", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
     if (!argumentTools.has(params.name) && params.arguments !== undefined && Object.keys(params.arguments as JsonObject).length !== 0) {
       return error(id, -32602, "Tool arguments must be an empty object");
     }
@@ -2190,7 +2324,7 @@ export class McpHost {
     if (params.name === "live_status") return this.liveStatus(id);
     if (params.name === "live_snapshot") return this.liveSnapshot(id);
     if (params.name === "live_discover") return this.liveDiscover(id, params.arguments);
-    if (["live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply"].includes(params.name)) return error(id, -32001, "Session playback operations require the asynchronous host request path");
+    if (["live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply"].includes(params.name)) return error(id, -32001, "Session playback operations require the asynchronous host request path");
     if (params.name === "live_device_parameter_preview") return this.liveDeviceParameterPreview(id, params.arguments);
     if (params.name === "live_device_parameter_apply") return this.liveDeviceParameterApply(id, params.arguments);
     if (params.name === "live_session_structure_preview") return this.liveSessionStructurePreview(id, params.arguments);

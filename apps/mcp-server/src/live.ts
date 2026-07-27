@@ -85,9 +85,10 @@ export interface DeviceChain { ref: LiveRef; parentRef: LiveRef; index: number; 
 export interface DrumPad { ref: LiveRef; parentRef: LiveRef; index: number; name: string; mute: boolean | null; chains: DeviceChain[]; }
 export interface Device { ref: LiveRef; name: string; kind: "instrument" | "audio-effect" | "midi-effect" | "plugin" | "rack" | "device"; parameters: Parameter[]; enabled?: boolean; className?: string; canHaveChains?: boolean | null; canHaveDrumPads?: boolean | null; chains?: DeviceChain[]; drumPads?: DrumPad[]; macros?: { ref: LiveRef; name: string; value: unknown }[]; variationCount?: number; chainSelector?: unknown; }
 export interface Clip { ref: LiveRef; name: string; kind: "midi" | "audio"; start: number; length: number; notes: Note[]; warp: boolean; takes: string[]; automation: AutomationPoint[]; envelopes?: Record<string, AutomationPoint[]>; isAudio?: boolean | null; gain?: number | null; pitchCoarse?: number | null; pitchFine?: number | null; warpMode?: number | null; loopStart?: number | null; loopEnd?: number | null; filePath?: string | null; }
+export interface RoutingState { inputType: string | null; inputSubRouting: string | null; outputType: string | null; outputSubRouting: string | null; availableInputTypes: number; availableInputChannels: number; availableOutputTypes: number; availableOutputChannels: number; }
 export interface MixerState { volume: number | null; pan: number | null; cueVolume: number | null; mute: boolean | null; solo: boolean | null; sends: (number | null)[]; volumeRef: LiveRef | null; panRef: LiveRef | null; cueRef: LiveRef | null; sendRefs: LiveRef[]; }
 export interface ClipSlot { ref: LiveRef; parentRef: LiveRef; sceneIndex: number; clipRef?: LiveRef | null; empty: boolean; }
-export interface Track { ref: LiveRef; name: string; kind: "audio" | "midi" | "group" | "return" | "main" | "master" | "regular"; volume: number; pan: number; mute: boolean; solo: boolean; armed: boolean | null; monitoringState?: LiveMonitoringState; playingSlotIndex?: number | null; firedSlotIndex?: number | null; clips: Clip[]; clipSlots?: ClipSlot[]; mixer?: MixerState; devices: Device[]; sends: number[]; input?: string; output?: string; }
+export interface Track { ref: LiveRef; name: string; kind: "audio" | "midi" | "group" | "return" | "main" | "master" | "regular"; volume: number; pan: number; mute: boolean; solo: boolean; armed: boolean | null; monitoringState?: LiveMonitoringState; playingSlotIndex?: number | null; firedSlotIndex?: number | null; clips: Clip[]; clipSlots?: ClipSlot[]; mixer?: MixerState; routing?: RoutingState; devices: Device[]; sends: number[]; input?: string; output?: string; }
 export interface Scene { ref: LiveRef; name: string; index: number; }
 export interface LiveSnapshot {
   set: { ref: LiveRef; name: string; tempo?: number; playing?: boolean; position?: number; loop?: { enabled: boolean; start?: number; length?: number }; [key: string]: unknown };
@@ -107,6 +108,7 @@ export type LiveOperation =
   | "note.update" | "note.delete" | "clip.duplicate" | "arrangement.clip.create" | "arrangement.clip.delete" | "arrangement.clip.move" | "audio.clip.set"
   | "mixer.set" | "automation.envelope.read" | "automation.envelope.create" | "automation.envelope.delete" | "automation.point.insert" | "automation.point.delete"
   | "device.insert" | "device.delete" | "device.enable" | "device.move" | "browser.search" | "browser.load"
+  | "routing.set" | "recording.session" | "recording.arrangement"
   | "note.add" | "automation.add" | "audio.warp" | "take.add"
   | "parameter.set" | "routing.set" | "browser.search" | "locator.add" | "locator.delete"
   | "track.create" | "track.delete" | "scene.create" | "scene.delete"
@@ -141,7 +143,7 @@ const ref = (kind: LiveObjectKind, id: string): LiveRef => `${kind}:${id}`;
 
 function createSimulatorState(): LiveSnapshot {
   const kick: Clip = { ref: ref("clip", "clip-1"), name: "Kick Pattern", kind: "midi", start: 0, length: 4, notes: [{ pitch: 36, start: 0, duration: 0.25, velocity: 110, channel: 1, id: 1, mute: false, probability: 1, velocityDeviation: 0, releaseVelocity: 64 }], warp: false, takes: ["take-1"], automation: [] };
-  const track: Track = { ref: ref("track", "track-1"), name: "Drums", kind: "midi", volume: 0.85, pan: 0, mute: false, solo: false, armed: false, monitoringState: "off", playingSlotIndex: null, firedSlotIndex: null, clips: [kick], clipSlots: [{ ref: ref("clip-slot", "track-1:0"), parentRef: ref("track", "track-1"), sceneIndex: 0, clipRef: kick.ref, empty: false }], mixer: { volume: 0.85, pan: 0, cueVolume: 1, mute: false, solo: false, sends: [0.5, 0.25], volumeRef: ref("parameter", "mixer:0:volume"), panRef: ref("parameter", "mixer:0:panning"), cueRef: ref("parameter", "mixer:0:cue_volume"), sendRefs: [ref("parameter", "mixer:0:sends:0"), ref("parameter", "mixer:0:sends:1")] }, devices: [], sends: [0, 0] };
+  const track: Track = { ref: ref("track", "track-1"), name: "Drums", kind: "midi", volume: 0.85, pan: 0, mute: false, solo: false, armed: false, monitoringState: "off", playingSlotIndex: null, firedSlotIndex: null, clips: [kick], clipSlots: [{ ref: ref("clip-slot", "track-1:0"), parentRef: ref("track", "track-1"), sceneIndex: 0, clipRef: kick.ref, empty: false }], mixer: { volume: 0.85, pan: 0, cueVolume: 1, mute: false, solo: false, sends: [0.5, 0.25], volumeRef: ref("parameter", "mixer:0:volume"), panRef: ref("parameter", "mixer:0:panning"), cueRef: ref("parameter", "mixer:0:cue_volume"), sendRefs: [ref("parameter", "mixer:0:sends:0"), ref("parameter", "mixer:0:sends:1")] }, routing: { inputType: "Ext. In", inputSubRouting: "1", outputType: "Main", outputSubRouting: "1/2", availableInputTypes: 2, availableInputChannels: 16, availableOutputTypes: 3, availableOutputChannels: 4 }, devices: [], sends: [0, 0] };
   const gain: Parameter = { ref: ref("parameter", "gain-1"), name: "Gain", value: 0.5, min: 0, max: 1, automatable: true, quantization: 0, enabled: true, displayValue: "0.5", revision: 1 };
   const device: Device = { ref: ref("device", "utility-1"), name: "Utility", kind: "audio-effect", parameters: [gain], enabled: true };
   track.devices.push(device);
@@ -157,7 +159,7 @@ function createSimulatorState(): LiveSnapshot {
   };
 }
 
-export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "set", "reconnect", "session.playback", "transport.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "clip.create", "clip.delete", "clip.launch", "track.create", "track.delete", "track.stop", "scene.create", "scene.delete", "scene.capture", "note.add", "note.update", "note.delete", "locator.add", "locator.delete", "playback.stop-all-clips", "session.capture-midi", "device.parameter.set", "clip.duplicate", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "audio.clip.set", "mixer.set", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.point.insert", "automation.point.delete", "device.insert", "device.delete", "device.enable", "device.move", "browser.search", "browser.load"] as const;
+export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "set", "reconnect", "session.playback", "transport.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "clip.create", "clip.delete", "clip.launch", "track.create", "track.delete", "track.stop", "scene.create", "scene.delete", "scene.capture", "note.add", "note.update", "note.delete", "locator.add", "locator.delete", "playback.stop-all-clips", "session.capture-midi", "device.parameter.set", "clip.duplicate", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "audio.clip.set", "mixer.set", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.point.insert", "automation.point.delete", "device.insert", "device.delete", "device.enable", "device.move", "browser.search", "browser.load", "routing.set", "recording.session", "recording.arrangement"] as const;
 
 export class DeterministicLiveSimulator implements LiveAdapter {
   private state = createSimulatorState();
@@ -467,6 +469,29 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         if (!track) throw new Error("unknown track reference");
         const inserted = this.invoke({ operation: "device.insert", args: { trackRef: track.ref, deviceName: name } }) as { ref: LiveRef };
         return { loaded: true, deviceRef: inserted.ref };
+      }
+      case "routing.set": {
+        const track = this.findTrack(objectRef("ref"));
+        if (!track) throw new Error("unknown track reference");
+        if (args.inputType !== undefined) track.routing = { ...(track.routing ?? {}), inputType: args.inputType as string | null } as RoutingState;
+        if (args.outputType !== undefined) track.routing = { ...(track.routing ?? {}), outputType: args.outputType as string | null } as RoutingState;
+        if (args.arm !== undefined) { if (typeof args.arm !== "boolean") throw new TypeError("arm is invalid"); track.armed = args.arm; }
+        if (args.monitoring !== undefined) { if (!["in", "auto", "off"].includes(String(args.monitoring))) throw new RangeError("monitoring is invalid"); track.monitoringState = args.monitoring as LiveMonitoringState; }
+        this.emit({ type: "object", ref: track.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "recording.session": {
+        if (args.action !== "start" && args.action !== "stop") throw new RangeError("action is invalid");
+        this.state.playback.transport.sessionRecord = args.action === "start";
+        this.emit({ type: "transport", payload: { operation } });
+        return { recording: this.state.playback.transport.sessionRecord };
+      }
+      case "recording.arrangement": {
+        if (args.action !== "start" && args.action !== "stop") throw new RangeError("action is invalid");
+        this.state.playback.transport.arrangementRecord = args.action === "start";
+        if (args.action === "start") this.state.playback.transport.playing = true;
+        this.emit({ type: "transport", payload: { operation } });
+        return { recording: this.state.playback.transport.arrangementRecord };
       }
       case "mixer.set": {
         const track = this.findTrack(objectRef("ref"));

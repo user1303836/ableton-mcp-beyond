@@ -139,6 +139,7 @@ class FakeDevice:
         self.name = name
         self.class_name = "AudioEffectUtility"
         self.enabled = True
+        self.is_active = True
         self.parameters = [FakeParameter("Gain")]
         if name == "Drum Rack":
             self.can_have_chains = True
@@ -218,6 +219,10 @@ class FakeSlot:
             self._track.playing_slot_index = self._index
             self._track.fired_slot_index = self._index
 
+class FakeRoutingChoice:
+    def __init__(self, name):
+        self.name = name
+
 class FakeTrack:
     has_midi_input = True
     def __init__(self, name="Journey Drums", clips=None, song=None):
@@ -226,6 +231,16 @@ class FakeTrack:
         self._song = song
         self.mute = False; self.solo = False
         self.mixer_device = FakeMixer()
+        self.can_be_armed = True
+        self.current_input_routing = FakeRoutingChoice("Ext. In")
+        self.current_input_sub_routing = FakeRoutingChoice("1")
+        self.current_output_routing = FakeRoutingChoice("Main")
+        self.current_output_sub_routing = FakeRoutingChoice("1/2")
+        self.available_input_routing_types = [FakeRoutingChoice("Ext. In"), FakeRoutingChoice("No Input")]
+        self.available_input_routing_channels = [FakeRoutingChoice(str(i + 1)) for i in range(16)]
+        self.available_output_routing_types = [FakeRoutingChoice("Main"), FakeRoutingChoice("Sends Only"), FakeRoutingChoice("Track")]
+        self.available_output_routing_channels = [FakeRoutingChoice("1/2"), FakeRoutingChoice("3/4")]
+        self.monitoring_states = [0, 1, 2]
         self.clip_slots = [FakeSlot(clip, self, i) for i, clip in enumerate(clips if clips is not None else [FakeClip(), None])]; self.devices = []
         self.arrangement_clips = []
     def create_midi_clip(self, time, length):
@@ -437,7 +452,7 @@ try {
   writeFileSync(harnessPath, harnessSource, { encoding: "utf8", mode: 0o600 });
   // Fake Live API package for browser and envelope event negotiation.
   mkdirSync(join(temporaryDirectory, "Live"), { recursive: true });
-  writeFileSync(join(temporaryDirectory, "Live", "__init__.py"), "", { encoding: "utf8" });
+  writeFileSync(join(temporaryDirectory, "Live", "__init__.py"), "from .Application import Application\nfrom . import Envelope\n", { encoding: "utf8" });
   writeFileSync(join(temporaryDirectory, "Live", "Application.py"), `
 class _BrowserItem:
     def __init__(self, name, is_device=True):
@@ -883,21 +898,40 @@ class EnvelopeEvent:
     const freshTracks = (await textOf(client, "live_discover", { kind: "track" })).parsed.items;
     const preview = (await textOf(client, "live_browser_load_preview", { itemId: "instruments/Drum Rack", trackRef: freshTracks[0].ref })).parsed;
     const applied = (await textOf(client, "live_browser_load_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "journey-load" })).parsed;
-    console.error("load result:", JSON.stringify(applied).slice(0, 300));
     assert(applied.state === "applied" && typeof applied.deviceRef === "string", "browser load failed");
     const trackAfter = (await textOf(client, "live_discover", { kind: "track" })).parsed.items[0];
-    console.error("devices:", JSON.stringify(trackAfter.devices).slice(0, 600));
     const rack = trackAfter.devices.find((device) => device.name === "Drum Rack");
     assert(rack && rack.canHaveDrumPads === true && rack.drumPads.length === 16, `drum rack row mismatch: ${JSON.stringify(rack)}`);
     const enable = (await textOf(client, "live_device_preview", { action: "enable", deviceRef: rack.ref, enabled: false })).parsed;
-    console.error("enable preview:", JSON.stringify(enable).slice(0, 250));
     const disabled = (await textOf(client, "live_device_apply", { transactionId: enable.transactionId, confirmation: "apply", idempotencyKey: "journey-dev-disable" })).parsed;
-    console.error("disabled:", JSON.stringify(disabled).slice(0, 250));
     assert(disabled.state === "applied" && disabled.result?.enabled === false, "device disable failed");
     const del = (await textOf(client, "live_device_preview", { action: "delete", deviceRef: rack.ref })).parsed;
     const deleted = (await textOf(client, "live_device_apply", { transactionId: del.transactionId, confirmation: "apply", idempotencyKey: "journey-dev-delete" })).parsed;
     assert(deleted.state === "applied", "device delete failed");
     assert(!(await textOf(client, "live_discover", { kind: "track" })).parsed.items[0].devices.some((device) => device.name === "Drum Rack"), "device was not deleted");
+  });
+
+  await step("routing and bounded recording lifecycle through the packaged path", async () => {
+    const freshTracks = (await textOf(client, "live_discover", { kind: "track" })).parsed.items;
+    const feedback = await textOf(client, "live_routing_preview", { trackRef: freshTracks[0].ref, outputType: freshTracks[0].name });
+    assert(feedback.isError === true, "feedback route was not refused");
+    const preview = (await textOf(client, "live_routing_preview", { trackRef: freshTracks[0].ref, arm: true, monitoring: "off" })).parsed;
+    const applied = (await textOf(client, "live_routing_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "journey-route" })).parsed;
+    assert(applied.state === "applied", "routing apply failed");
+    const trackAfter = (await textOf(client, "live_discover", { kind: "track" })).parsed.items[0];
+    assert(trackAfter.armed === true && trackAfter.monitoringState === "off", "routing fields did not land");
+    // Arrangement recording with explicit destination
+    const recPreview = (await textOf(client, "live_recording_preview", { action: "start", lane: "arrangement", intent: "journey bounded recording test", destinationTrackRef: freshTracks[0].ref, outputSafety: { safe: true, provenance: "journey-operator-confirmed" } })).parsed;
+    const recApplied = (await textOf(client, "live_recording_apply", { transactionId: recPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-rec" })).parsed;
+    assert(recApplied.state === "applied" && recApplied.recording === true, "recording start failed");
+    const during = await playback(client);
+    assert(during.transport.arrangementRecord === true, "arrangement recording not active");
+    const stopPreview = (await textOf(client, "live_recording_preview", { action: "stop", lane: "arrangement", intent: "stop journey recording", outputSafety: { safe: true, provenance: "journey-operator-confirmed" } })).parsed;
+    const stopped = (await textOf(client, "live_recording_apply", { transactionId: stopPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-rec-stop" })).parsed;
+    assert(stopped.state === "applied" && stopped.recording === false, "recording stop failed");
+    // Restore disarmed state for later steps
+    const disarm = (await textOf(client, "live_routing_preview", { trackRef: freshTracks[0].ref, arm: false, monitoring: "off" })).parsed;
+    await textOf(client, "live_routing_apply", { transactionId: disarm.transactionId, confirmation: "apply", idempotencyKey: "journey-disarm" });
   });
 
   await step("shutdown leaves no residual playback or processes", async () => {
@@ -914,6 +948,6 @@ class EnvelopeEvent:
   else console.error(`journey temp kept: ${temporaryDirectory}`);
 }
 
-const summary = { journey: "packaged-production-boundary", provenance: "fake-live", steps: results, passed: !failed && results.every((entry) => entry.passed) && results.length === 20 };
+const summary = { journey: "packaged-production-boundary", provenance: "fake-live", steps: results, passed: !failed && results.every((entry) => entry.passed) && results.length === 21 };
 console.log(JSON.stringify(summary));
 if (!summary.passed) process.exitCode = 1;

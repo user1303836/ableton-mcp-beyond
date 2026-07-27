@@ -19,7 +19,7 @@ test("requires initialization and exposes only read-only tools", () => {
   assert.equal((host.handle({ ...initialize, id: 2 }) as any).result.protocolVersion, PROTOCOL_VERSION);
   assert.equal(host.handle(initialized), null);
   const tools = (host.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
-  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
   const auditionPreview = tools.find((tool: { name: string }) => tool.name === "live_session_audition_preview");
   assert.deepEqual(auditionPreview.inputSchema.properties.outputSafety.required, ["safe", "provenance"]);
   const auditionStop = tools.find((tool: { name: string }) => tool.name === "live_session_audition_stop");
@@ -326,7 +326,7 @@ test("analyzes supplied PCM through the MCP tool without Live side effects", () 
 test("rejects duplicates, unsupported methods, and unknown fields", () => {
   const host = new McpHost();
   ready(host);
-  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 49);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 53);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).error.message, "Duplicate request identifier");
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set", arguments: {} } }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 4, method: "tools/list", debug: true }) as any).error.code, -32600);
@@ -869,4 +869,42 @@ test("device insert, enable, move, and delete with exact fencing", async () => {
   const deleted = JSON.parse(((await call(9, "live_device_apply", { transactionId: del.transactionId, confirmation: "apply", idempotencyKey: "dev-del" })) as any).result.content[0].text);
   assert.equal(deleted.state, "applied");
   assert.equal((simulator as any).state.tracks[0].devices.some((d: any) => d.name === "Echo"), false);
+});
+
+test("routing edits guard feedback and fence on routing state", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const feedback = await call(2, "live_routing_preview", { trackRef: "track:track-1", outputType: "Drums" });
+  assert.equal((feedback as any).result.isError, true);
+  const preview = JSON.parse(((await call(3, "live_routing_preview", { trackRef: "track:track-1", outputType: "Main", arm: true, monitoring: "in" })) as any).result.content[0].text);
+  const applied = JSON.parse(((await call(4, "live_routing_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "route-1" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied");
+  const track = (simulator as any).state.tracks[0];
+  assert.equal(track.armed, true);
+  assert.equal(track.monitoringState, "in");
+  const replay = JSON.parse(((await call(5, "live_routing_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "route-1" })) as any).result.content[0].text);
+  assert.equal(replay.idempotent, true);
+});
+
+test("recording preview gates intent, destination, and recording state", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const unsafe = await call(2, "live_recording_preview", { action: "start", lane: "session", intent: "capture a take", outputSafety: { safe: true, provenance: "unknown" } });
+  assert.equal((unsafe as any).result.isError, true);
+  const unarmed = await call(3, "live_recording_preview", { action: "start", lane: "arrangement", intent: "record arrangement pass", destinationTrackRef: "track:track-1", outputSafety: { safe: true, provenance: "operator-confirmed" } });
+  assert.equal((unarmed as any).result.isError, true);
+  (simulator as any).state.tracks[0].armed = true;
+  const preview = JSON.parse(((await call(4, "live_recording_preview", { action: "start", lane: "arrangement", intent: "record arrangement pass", destinationTrackRef: "track:track-1", outputSafety: { safe: true, provenance: "operator-confirmed" } })) as any).result.content[0].text);
+  const applied = JSON.parse(((await call(5, "live_recording_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "rec-1" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied");
+  assert.equal((simulator as any).state.playback.transport.arrangementRecord, true);
+  const alreadyActive = await call(6, "live_recording_preview", { action: "start", lane: "arrangement", intent: "again", destinationTrackRef: "track:track-1", outputSafety: { safe: true, provenance: "operator-confirmed" } });
+  assert.equal((alreadyActive as any).result.isError, true);
+  const stopPreview = JSON.parse(((await call(7, "live_recording_preview", { action: "stop", lane: "arrangement", intent: "stop the pass", outputSafety: { safe: true, provenance: "operator-confirmed" } })) as any).result.content[0].text);
+  const stopped = JSON.parse(((await call(8, "live_recording_apply", { transactionId: stopPreview.transactionId, confirmation: "apply", idempotencyKey: "rec-stop" })) as any).result.content[0].text);
+  assert.equal(stopped.recording, false);
 });

@@ -421,6 +421,12 @@ class LiveObjectMapper:
                 return True
             except ValueError:
                 return False
+        if operation == "routing.set":
+            return any(self._read_attr(track, "available_output_routing_types") is not None or self._read_attr(track, "can_be_armed") is True or isinstance(self._read_attr(track, "current_monitoring_state"), int) for track in self._items(getattr(self.song, "tracks", [])))
+        if operation == "recording.session":
+            return isinstance(self._read_attr(self.song, "session_record"), bool)
+        if operation == "recording.arrangement":
+            return isinstance(self._read_attr(self.song, "record_mode"), bool)
         if operation == "session.audition-launch":
             return any(callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None)) for scene in self._items(getattr(self.song, "scenes", [])))
         if operation in {"session.audition-stop", "session.emergency-stop"}:
@@ -871,6 +877,7 @@ class LiveObjectMapper:
                 "playingSlotIndex": self._slot_index(self._read_attr(track, "playing_slot_index")),
                 "firedSlotIndex": self._slot_index(self._read_attr(track, "fired_slot_index")),
                 "mixer": self._mixer_row(track, index),
+                "routing": self._routing_row(track),
                 "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track, index),
             })
         scene_rows = [{"ref": self.refs.put("scene", scene, str(i)), "parentRef": self.refs.put("set", self.song, "song"), "name": str(getattr(scene, "name", f"Scene {i + 1}")), "index": i, "triggerable": callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None))} for i, scene in enumerate(scenes)]
@@ -1453,6 +1460,12 @@ class LiveObjectMapper:
             return self._browser_search(args)
         if operation == "browser.load":
             return self._browser_load(args)
+        if operation == "routing.set":
+            return self._routing_set(args)
+        if operation == "recording.session":
+            return self._recording_session(args)
+        if operation == "recording.arrangement":
+            return self._recording_arrangement(args)
         if operation == "scene.capture":
             return self._scene_capture()
         if operation == "session.playback":
@@ -2266,6 +2279,121 @@ class LiveObjectMapper:
             return {"loaded": True, "deviceRef": self.refs.put("device", device, f"{self._items(getattr(self.song, 'tracks', [])).index(track)}:{len(devices) - 1}")}
         loader(item)
         return {"loaded": True, "deviceRef": None}
+
+    def _routing_row(self, track: Any) -> dict[str, Any]:
+        def choice(name: str) -> Any:
+            value = self._read_attr(track, name)
+            return str(getattr(value, "name", value)) if value is not None else None
+        return {
+            "inputType": choice("current_input_routing"),
+            "inputSubRouting": choice("current_input_sub_routing"),
+            "outputType": choice("current_output_routing"),
+            "outputSubRouting": choice("current_output_sub_routing"),
+            "availableInputTypes": len(self._items(self._read_attr(track, "available_input_routing_types") or [])),
+            "availableInputChannels": len(self._items(self._read_attr(track, "available_input_routing_channels") or [])),
+            "availableOutputTypes": len(self._items(self._read_attr(track, "available_output_routing_types") or [])),
+            "availableOutputChannels": len(self._items(self._read_attr(track, "available_output_routing_channels") or [])),
+        }
+
+    def _routing_choice(self, track: Any, available_name: str, label: str) -> Any:
+        if label is None:
+            return None
+        for candidate in self._items(self._read_attr(track, available_name) or []):
+            if str(getattr(candidate, "name", "")) == label:
+                return candidate
+        raise ValueError(f"routing choice is unavailable: {label}")
+
+    def _routing_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:track:"):
+            raise ValueError("track reference is stale or invalid")
+        track = self.refs.get(reference)
+        allowed = {"ref", "inputType", "inputSubRouting", "outputType", "outputSubRouting", "arm", "monitoring"}
+        if set(args) - allowed:
+            raise ValueError("routing fields are invalid")
+        for field in ("inputType", "inputSubRouting", "outputType", "outputSubRouting"):
+            value = args.get(field)
+            if value is not None and (not isinstance(value, str) or len(value) > 256):
+                raise ValueError(f"{field} is invalid")
+        arm = args.get("arm")
+        if arm is not None and not isinstance(arm, bool):
+            raise ValueError("arm is invalid")
+        monitoring = args.get("monitoring")
+        if monitoring is not None and monitoring not in {"in", "auto", "off"}:
+            raise ValueError("monitoring is invalid")
+        # Feedback-sensitive guard: refuse routes that point a track's output
+        # at itself or at a track that currently routes its output here.
+        output_type = args.get("outputType")
+        if isinstance(output_type, str) and output_type:
+            own_name = str(self._read_attr(track, "name") or "")
+            if output_type == own_name or output_type == str(self._read_attr(track, "current_input_routing") and getattr(self._read_attr(track, "current_input_routing"), "name", "") or ""):
+                raise ValueError("routing would create a feedback loop")
+        changes: list[tuple[str, Any]] = []
+        if args.get("inputType") is not None:
+            changes.append(("input_routing_type", self._routing_choice(track, "available_input_routing_types", args["inputType"])))
+        if args.get("inputSubRouting") is not None:
+            changes.append(("input_sub_routing", self._routing_choice(track, "available_input_routing_channels", args["inputSubRouting"])))
+        if args.get("outputType") is not None:
+            changes.append(("output_routing_type", self._routing_choice(track, "available_output_routing_types", args["outputType"])))
+        if args.get("outputSubRouting") is not None:
+            changes.append(("output_sub_routing", self._routing_choice(track, "available_output_routing_channels", args["outputSubRouting"])))
+        for name, value in changes:
+            if value is not None:
+                setattr(track, name, value)
+        if arm is not None:
+            if self._read_attr(track, "can_be_armed") is not True:
+                raise ValueError("track cannot be armed")
+            track.arm = arm
+        if monitoring is not None:
+            current = self._read_attr(track, "current_monitoring_state")
+            states = self._items(self._read_attr(track, "monitoring_states") or [])
+            target = {"in": 0, "auto": 1, "off": 2}[monitoring]
+            if isinstance(current, int) and states:
+                track.current_monitoring_state = target
+            elif isinstance(current, int):
+                track.current_monitoring_state = target
+            else:
+                raise ValueError("monitoring control is unavailable on this track")
+        row = self._routing_row(track)
+        checks = []
+        if args.get("inputType") is not None:
+            checks.append(row["inputType"] == args["inputType"])
+        if args.get("outputType") is not None:
+            checks.append(row["outputType"] == args["outputType"])
+        if arm is not None:
+            checks.append(self._read_attr(track, "arm") is arm)
+        if monitoring is not None:
+            checks.append(self._monitoring_state(self._read_attr(track, "current_monitoring_state")) == monitoring)
+        if not all(checks):
+            raise ValueError("routing change was not confirmed by fresh state")
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _recording_session(self, args: dict[str, Any]) -> dict[str, Any]:
+        action = args.get("action")
+        if action not in {"start", "stop"}:
+            raise ValueError("action is invalid")
+        current = self._read_attr(self.song, "session_record")
+        if not isinstance(current, bool):
+            raise ValueError("Session recording control is unavailable")
+        self.song.session_record = action == "start"
+        after = self._read_attr(self.song, "session_record")
+        if after is not (action == "start"):
+            raise ValueError("Session recording change was not confirmed")
+        return {"recording": after}
+
+    def _recording_arrangement(self, args: dict[str, Any]) -> dict[str, Any]:
+        action = args.get("action")
+        if action not in {"start", "stop"}:
+            raise ValueError("action is invalid")
+        current = self._read_attr(self.song, "record_mode")
+        if not isinstance(current, bool):
+            raise ValueError("Arrangement recording control is unavailable")
+        self.song.record_mode = action == "start"
+        after = self._read_attr(self.song, "record_mode")
+        if after is not (action == "start"):
+            raise ValueError("Arrangement recording change was not confirmed")
+        return {"recording": after}
 
     def _note_add(self, args: dict[str, Any]) -> dict[str, Any]:
         clip = self.refs.get(str(args["ref"]))
