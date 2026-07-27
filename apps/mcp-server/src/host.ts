@@ -78,6 +78,10 @@ const SERVER_VERSION = "0.1.0";
 const TRANSACTION_TTL_MS = 30_000;
 const MAX_TRANSACTIONS = 256;
 const AUDITION_TTL_MS = 30_000;
+// Real-Live snapshot reads take seconds on populated sets, and launch/stop
+// state propagates asynchronously at quantization boundaries; the deadline
+// must cover snapshot + dispatch + polled verification.
+const AUDITION_DEADLINE_MS = 15_000;
 const MAX_AUDITION_TRANSACTIONS = 64;
 const MONITORABLE_TRACK_KINDS = new Set(["regular", "audio", "midi"]);
 
@@ -485,7 +489,7 @@ export class McpHost {
     const transport = playback.transport;
     if (transport.playing !== false || transport.arrangementRecord !== false || transport.sessionRecord !== false) throw new Error("audition requires stopped, non-recording authoritative playback state");
     if (!transport.launchQuantization.normalized || ["none", "unknown", "free"].includes(transport.launchQuantization.normalized)) throw new Error("launch quantization is unsafe or unknown");
-    if (tracks.some((track) => MONITORABLE_TRACK_KINDS.has(String(track.kind)) ? (track.armed !== false || track.monitoringState !== "off") : (track.armed === true || track.monitoringState === "in"))) throw new Error("armed, input-monitored, or unknown-monitoring target prevents audition");
+    if (tracks.some((track) => MONITORABLE_TRACK_KINDS.has(String(track.kind)) ? (track.armed !== false || !["off", "auto"].includes(String(track.monitoringState))) : (track.armed === true || track.monitoringState === "in"))) throw new Error("armed, input-monitored, or unknown-monitoring target prevents audition");
     if (playback.firedTargets.length > 0 || playback.playingTargets.length > 0) throw new Error("existing Session playback prevents audition");
     const operations = status.operations ?? [];
     if (!(operations.includes("session.audition-launch") && operations.includes("session.audition-stop") && operations.includes("session.emergency-stop") && operations.includes("session.playback"))) throw new Error("required guarded audition, emergency stop, and playback inspection operations are unavailable");
@@ -552,7 +556,7 @@ export class McpHost {
       const status = this.requireConnected("session.read");
       if (status.epoch !== transaction.epoch) throw new Error("Live connection epoch changed; preview again");
       const adapter = this.asyncAdapter();
-      const context = { signal, deadlineMs: Date.now() + 5_000 };
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
       const before = await adapter.snapshotAsync(context);
       const state = this.auditionSnapshot(before, transaction.sceneRef);
       if (JSON.stringify(state.scene) !== transaction.sceneRevision || state.playbackRevision !== transaction.playbackRevision) throw new Error("audition state changed since preview");
@@ -564,11 +568,20 @@ export class McpHost {
       const scene = state.scene as { name?: unknown; index?: unknown };
       const result = await adapter.invokeAsync({ operation: "session.audition-launch", args: { ref: transaction.sceneRef, setName: transaction.setName, sceneName: scene.name, sceneIndex: scene.index, playbackRevision: state.playback.revision, eligibleTargets: transaction.eligibleTargetKeys } }, context) as { launched?: unknown; targets?: unknown };
       const targets = Array.isArray(result?.targets) ? result.targets : [];
-      if (result?.launched !== transaction.sceneRef || targets.length === 0 || targets.some((target) => !isObject(target) || target.sceneRef !== transaction.sceneRef || !transaction.eligibleTargetKeys.includes(`${target.trackRef}|${target.clipSlotRef}|${target.sceneRef}`))) throw new Error("guarded launch result does not match the audition target");
+      if (result?.launched !== transaction.sceneRef || targets.some((target) => !isObject(target) || target.sceneRef !== transaction.sceneRef || !transaction.eligibleTargetKeys.includes(`${target.trackRef}|${target.clipSlotRef}|${target.sceneRef}`))) throw new Error("guarded launch result does not match the audition target");
       transaction.launched = { launched: result.launched, targets };
-      const after = await adapter.snapshotAsync(context);
-      const activeTargets = [...after.playback.firedTargets, ...after.playback.playingTargets];
-      if (activeTargets.length === 0 || activeTargets.some((target) => target.sceneRef !== transaction.sceneRef || !transaction.eligibleTargetKeys.includes(`${target.trackRef}|${target.clipSlotRef}|${target.sceneRef}`))) throw new Error("scene launch acknowledged without exact fresh fired or playing target verification");
+      // Live applies a scene fire asynchronously at the launch quantization
+      // boundary; poll fresh authoritative state for exact fired/playing
+      // evidence until the operation deadline.
+      let verified = false;
+      while (Date.now() < context.deadlineMs - 250) {
+        const after = await adapter.snapshotAsync(context);
+        const activeTargets = [...after.playback.firedTargets, ...after.playback.playingTargets];
+        if (activeTargets.some((target) => target.sceneRef !== transaction.sceneRef || !transaction.eligibleTargetKeys.includes(`${target.trackRef}|${target.clipSlotRef}|${target.sceneRef}`))) throw new Error("external playback appeared during launch verification");
+        if (activeTargets.length > 0) { verified = true; break; }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!verified) throw new Error("scene launch was not confirmed by fresh fired or playing target evidence");
       transaction.state = "applied";
       return { transactionId: transaction.id, state: "applied", launched: transaction.launched, verified: { sceneRef: transaction.sceneRef, firedOrPlaying: true }, stopConfirmation: transaction.stopConfirmation };
     } catch (cause) {
@@ -615,17 +628,24 @@ export class McpHost {
       const status = this.requireConnected("session.read");
       if (status.epoch !== transaction.epoch) throw new Error("Live connection epoch changed; stop refused");
       const adapter = this.asyncAdapter();
-      const context = { signal, deadlineMs: Date.now() + 5_000 };
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
       const before = this.auditionSnapshot(await adapter.snapshotAsync(context), transaction.sceneRef);
-      if (JSON.stringify(before.scene) !== transaction.sceneRevision || before.set.name !== transaction.setName || before.playback.transport.arrangementRecord !== false || before.playback.transport.sessionRecord !== false || before.tracks.some((track) => MONITORABLE_TRACK_KINDS.has(String(track.kind)) ? (track.armed !== false || track.monitoringState !== "off") : (track.armed === true || track.monitoringState === "in"))) throw new Error("audition ownership or safety state changed; stop refused");
+      if (JSON.stringify(before.scene) !== transaction.sceneRevision || before.set.name !== transaction.setName || before.playback.transport.arrangementRecord !== false || before.playback.transport.sessionRecord !== false || before.tracks.some((track) => MONITORABLE_TRACK_KINDS.has(String(track.kind)) ? (track.armed !== false || !["off", "auto"].includes(String(track.monitoringState))) : (track.armed === true || track.monitoringState === "in"))) throw new Error("audition ownership or safety state changed; stop refused");
       const activeTargets = [...before.playback.firedTargets, ...before.playback.playingTargets];
       if (activeTargets.length > 0) {
         if (activeTargets.some((target) => target.sceneRef !== transaction.sceneRef || !transaction.eligibleTargetKeys.includes(`${target.trackRef}|${target.clipSlotRef}|${target.sceneRef}`))) throw new Error("owned playback is unknown or external playback is active; global stop refused");
         if (signal?.aborted) throw new Error("audition stop cancelled before dispatch");
         await adapter.invokeAsync({ operation: "session.audition-stop", args: { ref: transaction.sceneRef, setName: transaction.setName, eligibleTargets: transaction.eligibleTargetKeys } }, context);
       }
-      const state = await adapter.snapshotAsync(context);
-      if (state.playback.transport.playing !== false || state.playback.firedTargets.length > 0 || state.playback.playingTargets.length > 0) throw new Error("stop acknowledged without fresh stopped verification");
+      // Stop state also propagates asynchronously; poll fresh authoritative
+      // reads until the transport and every slot is verifiably stopped.
+      let confirmed = false;
+      while (Date.now() < context.deadlineMs - 250) {
+        const state = await adapter.snapshotAsync(context);
+        if (state.playback.transport.playing === false && state.playback.firedTargets.length === 0 && state.playback.playingTargets.length === 0) { confirmed = true; break; }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!confirmed) throw new Error("stop acknowledged without fresh stopped verification");
       transaction.state = "stopped";
       return { transactionId: transaction.id, state: "stopped", restoredBaseline: true };
     } catch (cause) {
@@ -641,7 +661,7 @@ export class McpHost {
       const status = this.requireConnected("session.read");
       if (!(status.operations ?? []).includes("session.emergency-stop")) throw new Error("emergency stop operation is unavailable");
       const adapter = this.asyncAdapter();
-      const context = { signal, deadlineMs: Date.now() + 5_000 };
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
       const snapshot = await adapter.snapshotAsync(context);
       const playback = snapshot.playback;
       if (!playback || !Array.isArray(playback.firedTargets) || !Array.isArray(playback.playingTargets)) throw new Error("authoritative Session playback is unavailable");
@@ -650,8 +670,13 @@ export class McpHost {
       if (activeKeys.length !== expectedKeys.length || activeKeys.some((key, index) => key !== expectedKeys[index])) throw new Error("expected targets do not match fresh authoritative playback; perform fresh discovery");
       if (signal?.aborted) return null;
       const result = await adapter.invokeAsync({ operation: "session.emergency-stop", args: { expectedTargets: activeKeys } }, context) as { stopped?: unknown; stoppedTargets?: unknown };
-      const after = await adapter.snapshotAsync(context);
-      if (after.playback.transport.playing !== false || after.playback.firedTargets.length > 0 || after.playback.playingTargets.length > 0) throw new Error("emergency stop was not confirmed by fresh authoritative state");
+      let confirmed = false;
+      while (Date.now() < context.deadlineMs - 250) {
+        const after = await adapter.snapshotAsync(context);
+        if (after.playback.transport.playing === false && after.playback.firedTargets.length === 0 && after.playback.playingTargets.length === 0) { confirmed = true; break; }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!confirmed) throw new Error("emergency stop was not confirmed by fresh authoritative state");
       return this.successText(id, { stopped: true, stoppedTargets: result.stoppedTargets ?? activeKeys });
     } catch (cause) { return this.adapterToolError(id, cause, "Emergency stop is uncertain; perform fresh authoritative playback discovery before any further action."); }
   }

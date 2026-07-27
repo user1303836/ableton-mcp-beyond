@@ -216,7 +216,7 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         if (this.state.playback.revision !== playbackRevision) throw new Error("playback state changed since preview");
         for (const track of this.state.tracks) {
           const monitorable = ["regular", "audio", "midi"].includes(track.kind);
-          if (monitorable ? (track.armed !== false || track.monitoringState !== "off") : (track.armed === true || track.monitoringState === "in")) throw new Error("armed, input-monitored, or unknown-state track prevents audition");
+          if (monitorable ? (track.armed !== false || !["off", "auto"].includes(String(track.monitoringState))) : (track.armed === true || track.monitoringState === "in")) throw new Error("armed, input-monitored, or unknown-state track prevents audition");
         }
         const eligibleKeys = new Set(eligible as string[]);
         for (const key of eligibleKeys) {

@@ -526,6 +526,12 @@ class ControlSurfaceTests(unittest.TestCase):
         _, args = self._audition_args(mapper)
         with self.assertRaises(ValueError):
             mapper.invoke("session.audition-launch", args)
+        # Auto monitoring with a verified-unarmed track passes no input.
+        song.tracks[0].current_monitoring_state = 1
+        mapper = LiveObjectMapper(song)
+        _, args = self._audition_args(mapper)
+        result = mapper.invoke("session.audition-launch", args)
+        self.assertEqual(result["launched"], args["ref"])
 
     def test_guarded_audition_stop_requires_owned_playback_and_verifies_stopped(self):
         mapper = LiveObjectMapper(FakeAuditionSong())

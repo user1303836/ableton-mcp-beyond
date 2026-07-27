@@ -19,10 +19,26 @@ import queue
 import socket
 import threading
 import time
+import traceback
 from pathlib import Path
 from typing import Any, Callable
 
 PROTOCOL = "ableton-loopback/v1"
+# Opt-in developer traceback sink enabled by creating this file before Live
+# starts; never leaks operation details to the wire.
+_DEBUG_LOG = Path("/tmp/ableton-mcp-bridge-debug.log")
+_DEBUG_ENABLED = _DEBUG_LOG.exists()
+
+
+def _debug_trace(context: str) -> None:
+    if not _DEBUG_ENABLED:
+        return
+    try:
+        with open(_DEBUG_LOG, "a", encoding="utf-8") as log:
+            log.write(f"--- {context} ---\n{traceback.format_exc()}\n")
+    except OSError:
+        pass
+
 METHODS = {"status", "snapshot", "discover", "get", "set", "invoke", "subscribe", "reconnect"}
 REQUIRED_REGISTRY_OPERATIONS = {"status", "snapshot", "discover", "get", "set", "reconnect", "session.playback"}
 _MODULE_PATH = Path(__file__).resolve()
@@ -251,10 +267,12 @@ class AuthenticatedRemoteScript:
             validate_operation_payload(operation_id, "request", operation_request)
             result = self._operation(request["method"], unsigned)
         except Exception:
+            _debug_trace(f"dispatch {request.get('method')}")
             return self._error(request["id"], "request failed")
         try:
             validate_operation_payload(operation_id, "result", result)
         except Exception:
+            _debug_trace(f"result-contract {operation_id}")
             self.invalid = True
             return self._error(request["id"], "response contract failed")
         return self._response(request["id"], True, result=result)
@@ -294,8 +312,11 @@ class ReferenceRegistry:
         self._object_keys.clear()
 
     def put(self, kind: str, obj: Any, key: str) -> str:
-        stable_key = self._object_keys.setdefault((kind, id(obj)), key)
-        reference = f"{self.epoch}:{kind}:{stable_key}"
+        # Live hands out fresh proxy objects per read and CPython recycles
+        # id() values, so a setdefault memo keyed by id() aliases stale keys
+        # onto unrelated objects. Always re-assert the traversal-derived key.
+        self._object_keys[(kind, id(obj))] = key
+        reference = f"{self.epoch}:{kind}:{key}"
         self._objects[reference] = obj
         self._revisions.setdefault(reference, 1)
         return reference
@@ -381,8 +402,8 @@ class LiveObjectMapper:
             return any(callable(getattr(getattr(slot, "clip", None), "add_new_notes", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
         if operation == "device.parameter.set":
             return any(
-                any(device.get("parameters") for device in self._device_items(track))
-                for track in tracks
+                any(device.get("parameters") for device in self._device_items(track, track_index))
+                for track_index, track in enumerate(tracks)
             )
         return False
 
@@ -396,7 +417,7 @@ class LiveObjectMapper:
         ]
         if self._locator_supported():
             capabilities.extend(("arrangement.read", "arrangement.write"))
-        if any(self._device_items(track) for track in self._items(getattr(self.song, "tracks", []))):
+        if any(self._device_items(track, track_index) for track_index, track in enumerate(self._items(getattr(self.song, "tracks", [])))):
             capabilities.extend(("devices", "parameters", "device.parameter.write"))
         return capabilities
 
@@ -535,21 +556,13 @@ class LiveObjectMapper:
             })
         return rows
 
-    def _device_items(self, track: Any) -> list[dict[str, Any]]:
+    def _device_items(self, track: Any, track_index: int) -> list[dict[str, Any]]:
         devices = self._items(getattr(track, "devices", getattr(track, "device_chain", [])))
         rows: list[dict[str, Any]] = []
-        # Song exposes these collections separately; retaining them here makes
-        # safety discovery include return and main tracks as authoritative rows.
-        tracks = self._items(getattr(self.song, "tracks", []))
-        tracks += self._items(getattr(self.song, "return_tracks", []))
-        main_track = getattr(self.song, "master_track", getattr(self.song, "main_track", None))
-        if main_track is not None:
-            tracks.append(main_track)
-        track_index = tracks.index(track) if track in tracks else -1
         track_ref = self.refs.put("track", track, str(track_index))
         for index, device in enumerate(devices):
             parameters: list[dict[str, Any]] = []
-            device_ref = self.refs.put("device", device, f"{id(track)}:{index}")
+            device_ref = self.refs.put("device", device, f"{track_index}:{index}")
             for parameter_index, parameter in enumerate(self._items(getattr(device, "parameters", []))):
                 minimum = self._read_attr(parameter, "min", "min_value")
                 maximum = self._read_attr(parameter, "max", "max_value")
@@ -667,16 +680,29 @@ class LiveObjectMapper:
                 "monitoringState": self._monitoring_state(self._read_attr(track, "current_monitoring_state", "monitoring")),
                 "playingSlotIndex": self._slot_index(self._read_attr(track, "playing_slot_index")),
                 "firedSlotIndex": self._slot_index(self._read_attr(track, "fired_slot_index")),
-                "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track),
+                "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track, index),
             })
         scene_rows = [{"ref": self.refs.put("scene", scene, str(i)), "parentRef": self.refs.put("set", self.song, "song"), "name": str(getattr(scene, "name", f"Scene {i + 1}")), "index": i, "triggerable": callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None))} for i, scene in enumerate(scenes)]
         locators = self._locator_items()
         return {"set": set_row, "tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators}, "playback": self._playback(track_rows, scene_rows), "epoch": self.refs.epoch}
 
     def _read_notes(self, clip: Any) -> list[dict[str, Any]]:
-        if hasattr(clip, "get_notes"):
-            raw = clip.get_notes(0, 0, 0, 128)
-            return [dict(note) if isinstance(note, dict) else {"pitch": int(getattr(note, "pitch", 0)), "start": float(getattr(note, "start", 0)), "duration": float(getattr(note, "duration", 0)), "velocity": int(getattr(note, "velocity", 0)), "channel": int(getattr(note, "channel", 1))} for note in self._items(raw)][:MAX_WIRE_COLLECTION_LENGTH]
+        if hasattr(clip, "get_all_notes_extended"):
+            raw = list(clip.get_all_notes_extended())
+        elif hasattr(clip, "get_notes"):
+            raw = clip.get_notes(0, 0, 4096, 128)
+        else:
+            raw = []
+        rows: list[dict[str, Any]] = []
+        for item in self._items(raw):
+            if isinstance(item, dict):
+                rows.append({"pitch": int(item.get("pitch", 0)), "start": float(item.get("start_time", item.get("start", 0))), "duration": float(item.get("duration", 0)), "velocity": int(item.get("velocity", 0)), "channel": int(item.get("channel", 1))})
+            elif isinstance(item, (list, tuple)):
+                values = list(item)
+                rows.append({"pitch": int(values[0]) if len(values) > 0 else 0, "start": float(values[1]) if len(values) > 1 else 0.0, "duration": float(values[2]) if len(values) > 2 else 0.0, "velocity": int(values[3]) if len(values) > 3 else 0, "channel": 1})
+            else:
+                rows.append({"pitch": int(getattr(item, "pitch", 0)), "start": float(getattr(item, "start_time", getattr(item, "start", 0))), "duration": float(getattr(item, "duration", 0)), "velocity": int(getattr(item, "velocity", 0)), "channel": int(getattr(item, "channel", 1))})
+        return rows[:MAX_WIRE_COLLECTION_LENGTH]
         return []
 
     def get(self, reference: str) -> Any:
@@ -835,7 +861,9 @@ class LiveObjectMapper:
             armed = track.get("armed")
             monitoring = track.get("monitoringState")
             if track.get("kind") in self._MONITORABLE_KINDS:
-                if armed is not False or monitoring != "off":
+                # Auto monitoring with a verified-unarmed track passes no input;
+                # In monitoring or an unknown state refuses unconditionally.
+                if armed is not False or monitoring not in {"off", "auto"}:
                     raise ValueError("armed, input-monitored, or unknown-state track prevents audition")
             elif armed is True or monitoring == "in":
                 raise ValueError("armed or input-monitored track prevents audition")
@@ -859,13 +887,13 @@ class LiveObjectMapper:
         stop_transport = getattr(self.song, "stop_playing", None)
         if not callable(stop_all) or not callable(stop_transport):
             raise ValueError("guarded stop is unavailable")
-        stop_all()
+        try:
+            # stop_all_clips is quantized by default; an owned or emergency
+            # stop must land immediately, not at the next quantization boundary.
+            stop_all(False)
+        except TypeError:
+            stop_all()
         stop_transport()
-
-    def _verify_stopped(self) -> None:
-        playback = self._playback()
-        if playback["transport"].get("playing") is not False or playback["firedTargets"] or playback["playingTargets"]:
-            raise ValueError("stop was not confirmed by fresh authoritative state")
 
     def _guarded_audition_launch(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")
@@ -905,13 +933,10 @@ class LiveObjectMapper:
         if not callable(fire):
             raise ValueError("scene launch is unavailable")
         fire()
-        active = self._active_targets(self._playback())
-        if not active or any(self._target_key(target) not in eligible_keys or target.get("sceneIndex") != scene_index for target in active):
-            try:
-                self._stop_playback()
-            finally:
-                raise ValueError("launch verification failed; stop was attempted")
-        return {"launched": reference, "targets": active}
+        # Live applies the fire asynchronously at the launch quantization
+        # boundary, so no synchronous post-fire verification is possible here;
+        # the host verifies through fresh authoritative playback reads.
+        return {"launched": reference, "targets": self._active_targets(self._playback())}
 
     def _guarded_audition_stop(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")
@@ -931,7 +956,6 @@ class LiveObjectMapper:
         if any(self._target_key(target) not in eligible_keys or target.get("sceneRef") != reference for target in active):
             raise ValueError("external or unknown playback is active; owned stop refused")
         self._stop_playback()
-        self._verify_stopped()
         return {"stopped": True}
 
     def _guarded_emergency_stop(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -943,7 +967,6 @@ class LiveObjectMapper:
         if not active_keys <= set(expected):
             raise ValueError("active playback exceeds the separately authorized observation; perform fresh discovery")
         self._stop_playback()
-        self._verify_stopped()
         return {"stopped": True, "stoppedTargets": sorted(active_keys)}
 
     def invoke(self, operation: str, args: dict[str, Any]) -> Any:
@@ -992,7 +1015,7 @@ class LiveObjectMapper:
             track = creator(index)
             if hasattr(track, "name"): track.name = name
             if track is None: track = self._items(getattr(self.song, "tracks", []))[index]
-            ref = self.refs.put("track", track, f"created:{id(track)}")
+            ref = self.refs.put("track", track, str(index))
             return {"ref": ref, "name": str(getattr(track, "name", name)), "kind": kind, "index": self._items(getattr(self.song, "tracks", [])).index(track)}
         if operation == "scene.create":
             name, index = args.get("name"), args.get("index")
@@ -1005,7 +1028,7 @@ class LiveObjectMapper:
             scene = creator(index)
             if scene is None: scene = self._items(getattr(self.song, "scenes", []))[index]
             if hasattr(scene, "name"): scene.name = name
-            ref = self.refs.put("scene", scene, f"created:{id(scene)}")
+            ref = self.refs.put("scene", scene, str(index))
             return {"ref": ref, "name": str(getattr(scene, "name", name)), "index": self._items(getattr(self.song, "scenes", [])).index(scene)}
         reference = args.get("ref")
         if not isinstance(reference, str): raise ValueError("object reference is required")
@@ -1072,7 +1095,12 @@ class LiveObjectMapper:
             clip = slot.create_clip(float(length))
             if hasattr(clip, "name"):
                 clip.name = name
-            return {"ref": self.refs.put("clip", clip, f"{args['trackRef']}:{index}"), "name": getattr(clip, "name", ""), "length": float(getattr(clip, "length", length))}
+            all_tracks = self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", []))
+            main_track = getattr(self.song, "master_track", getattr(self.song, "main_track", None))
+            if main_track is not None:
+                all_tracks.append(main_track)
+            track_index = all_tracks.index(track) if track in all_tracks else 0
+            return {"ref": self.refs.put("clip", clip, f"{track_index}:{index}"), "name": getattr(clip, "name", ""), "length": float(getattr(clip, "length", length))}
         if operation == "clip.delete":
             clip = self.refs.get(str(args["ref"]))
             for track in self._items(getattr(self.song, "tracks", [])):
@@ -1096,7 +1124,17 @@ class LiveObjectMapper:
                 or float(note["start"]) < 0 or float(note["duration"]) <= 0
                 or float(note["start"]) + float(note["duration"]) > float(getattr(clip, "length", 0))):
             raise ValueError("note is invalid")
-        clip.add_new_notes([note])
+        note_tuple = (note["pitch"], float(note["start"]), float(note["duration"]), note["velocity"], False)
+        if hasattr(clip, "set_notes") and hasattr(clip, "get_notes"):
+            # Live's note setter replaces the full note list; merge to append.
+            existing = [tuple(item) for item in clip.get_notes(0, 0, 0, 128)]
+            existing.append(note_tuple)
+            clip.set_notes(tuple(existing))
+        elif hasattr(clip, "add_new_notes"):
+            note_spec = {"pitch": note["pitch"], "start_time": float(note["start"]), "duration": float(note["duration"]), "velocity": note["velocity"], "mute": False, "channel": note["channel"]}
+            clip.add_new_notes([note_spec])
+        else:
+            raise ValueError("note writing is unavailable")
         return {"added": True}
 
 
