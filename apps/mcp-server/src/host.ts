@@ -1326,6 +1326,15 @@ export class McpHost {
       const result = await adapter.invokeAsync({ operation, args: { action: transaction.payload.action } }, context) as { recording?: unknown };
       const expected = transaction.payload.action === "start";
       if (result.recording !== expected) throw new Error("recording change was not confirmed");
+      // Recording state applies asynchronously; confirm through fresh reads.
+      const recordField = transaction.payload.lane === "session" ? "sessionRecord" : "arrangementRecord";
+      let confirmed = false;
+      while (Date.now() < context.deadlineMs - 250) {
+        const after = await adapter.snapshotAsync(context);
+        if (after.playback.transport[recordField] === expected) { confirmed = true; break; }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!confirmed) throw new Error("recording change was not confirmed by fresh playback state");
       transaction.applyKey = params.idempotencyKey as string;
       transaction.state = "applied";
       return this.successText(id, { transactionId: transaction.id, state: "applied", recording: result.recording, lane: transaction.payload.lane, idempotent: false });

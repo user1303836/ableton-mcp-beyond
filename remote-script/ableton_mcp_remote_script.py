@@ -2376,11 +2376,10 @@ class LiveObjectMapper:
         current = self._read_attr(self.song, "session_record")
         if not isinstance(current, bool):
             raise ValueError("Session recording control is unavailable")
+        # Recording state applies asynchronously; the host confirms through
+        # fresh playback reads rather than a synchronous postcondition.
         self.song.session_record = action == "start"
-        after = self._read_attr(self.song, "session_record")
-        if after is not (action == "start"):
-            raise ValueError("Session recording change was not confirmed")
-        return {"recording": after}
+        return {"recording": action == "start"}
 
     def _recording_arrangement(self, args: dict[str, Any]) -> dict[str, Any]:
         action = args.get("action")
@@ -2390,10 +2389,7 @@ class LiveObjectMapper:
         if not isinstance(current, bool):
             raise ValueError("Arrangement recording control is unavailable")
         self.song.record_mode = action == "start"
-        after = self._read_attr(self.song, "record_mode")
-        if after is not (action == "start"):
-            raise ValueError("Arrangement recording change was not confirmed")
-        return {"recording": after}
+        return {"recording": action == "start"}
 
     def _note_add(self, args: dict[str, Any]) -> dict[str, Any]:
         clip = self.refs.get(str(args["ref"]))

@@ -1,0 +1,6 @@
+Phase 6C/6D real-Live evidence (Ableton Live 12.4.5b8, MCP-Audition-Disposable set)
+Routing row: inputType "Ext: All Ins", availableInputTypes 4, channels 17; outputType "None" (audio track reports None honestly).
+routing.set arm=true/monitoring=off: verified in fresh discovery.
+recording.arrangement start: applied {"recording":true}, confirmed arrangementRecord=true within bounded poll.
+recording.arrangement stop: applied {"recording":false}, confirmed.
+recording.session start/stop: {"recording":true}/{"recording":false}, confirmed in snapshot.
