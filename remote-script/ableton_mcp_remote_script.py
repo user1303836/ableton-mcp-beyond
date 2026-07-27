@@ -412,6 +412,10 @@ class LiveObjectMapper:
             return any(getattr(slot, "clip", None) is not None and callable(getattr(slot, "delete_clip", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
         if operation == "note.add":
             return any(callable(getattr(getattr(slot, "clip", None), "add_new_notes", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation == "note.update":
+            return any(callable(getattr(getattr(slot, "clip", None), "apply_note_modifications", None)) and callable(getattr(getattr(slot, "clip", None), "get_notes_extended", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation == "note.delete":
+            return any(callable(getattr(getattr(slot, "clip", None), "remove_notes_by_id", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
         if operation == "device.parameter.set":
             return any(
                 any(device.get("parameters") for device in self._device_items(track, track_index))
@@ -723,12 +727,21 @@ class LiveObjectMapper:
         rows: list[dict[str, Any]] = []
         for item in self._items(raw):
             if isinstance(item, dict):
-                rows.append({"pitch": int(item.get("pitch", 0)), "start": float(item.get("start_time", item.get("start", 0))), "duration": float(item.get("duration", 0)), "velocity": int(item.get("velocity", 0)), "channel": int(item.get("channel", 1))})
+                row = {"pitch": int(item.get("pitch", 0)), "start": float(item.get("start_time", item.get("start", 0))), "duration": float(item.get("duration", 0)), "velocity": item.get("velocity", 0), "channel": int(item.get("channel", 1))}
+                note_id = item.get("note_id", item.get("id"))
             elif isinstance(item, (list, tuple)):
                 values = list(item)
-                rows.append({"pitch": int(values[0]) if len(values) > 0 else 0, "start": float(values[1]) if len(values) > 1 else 0.0, "duration": float(values[2]) if len(values) > 2 else 0.0, "velocity": int(values[3]) if len(values) > 3 else 0, "channel": 1})
+                row = {"pitch": int(values[0]) if len(values) > 0 else 0, "start": float(values[1]) if len(values) > 1 else 0.0, "duration": float(values[2]) if len(values) > 2 else 0.0, "velocity": values[3] if len(values) > 3 else 0, "channel": 1}
+                note_id = None
             else:
-                rows.append({"pitch": int(getattr(item, "pitch", 0)), "start": float(getattr(item, "start_time", getattr(item, "start", 0))), "duration": float(getattr(item, "duration", 0)), "velocity": int(getattr(item, "velocity", 0)), "channel": int(getattr(item, "channel", 1))})
+                row = {"pitch": int(getattr(item, "pitch", 0)), "start": float(getattr(item, "start_time", getattr(item, "start", 0))), "duration": float(getattr(item, "duration", 0)), "velocity": getattr(item, "velocity", 0), "channel": int(getattr(item, "channel", 1) or 1)}
+                note_id = getattr(item, "note_id", None)
+            row["velocity"] = int(row["velocity"]) if isinstance(row["velocity"], (int, float)) and float(row["velocity"]).is_integer() else row["velocity"]
+            row["id"] = int(note_id) if isinstance(note_id, int) and not isinstance(note_id, bool) else None
+            for field, attr, convert in (("mute", "mute", bool), ("probability", "probability", float), ("velocityDeviation", "velocity_deviation", float), ("releaseVelocity", "release_velocity", float)):
+                value = item.get(field) if isinstance(item, dict) else getattr(item, attr, None)
+                row[field] = convert(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else (bool(value) if field == "mute" and isinstance(value, bool) else None)
+            rows.append(row)
         return rows[:MAX_WIRE_COLLECTION_LENGTH]
         return []
 
@@ -996,6 +1009,88 @@ class LiveObjectMapper:
         self._stop_playback()
         return {"stopped": True, "stoppedTargets": sorted(active_keys)}
 
+    def _note_update(self, args: dict[str, Any]) -> dict[str, Any]:
+        clip = self.refs.get(str(args["ref"]))
+        patches = args.get("notes")
+        if not isinstance(patches, list) or not 1 <= len(patches) <= 512:
+            raise ValueError("note patches are invalid")
+        if not callable(getattr(clip, "get_notes_extended", None)) or not callable(getattr(clip, "apply_note_modifications", None)) or not callable(getattr(clip, "get_all_notes_extended", None)):
+            raise ValueError("note modification is unavailable on this Live shape")
+        extended = clip.get_notes_extended(0, 0, 4096, 128)
+        by_id = {}
+        for candidate in extended:
+            by_id[int(candidate.note_id)] = candidate
+        targets: list[tuple[Any, dict[str, Any]]] = []
+        seen: set[int] = set()
+        for patch in patches:
+            if not isinstance(patch, dict) or not isinstance(patch.get("id"), int) or isinstance(patch["id"], bool) or patch["id"] < 0:
+                raise ValueError("note patch id is invalid")
+            if set(patch) - {"id", "pitch", "start", "duration", "velocity", "mute", "probability", "velocityDeviation", "releaseVelocity"}:
+                raise ValueError("note patch contains unknown fields")
+            if "pitch" in patch and (not isinstance(patch["pitch"], int) or isinstance(patch["pitch"], bool) or not 0 <= patch["pitch"] <= 127):
+                raise ValueError("note patch pitch is invalid")
+            if "start" in patch and (not isinstance(patch["start"], (int, float)) or isinstance(patch["start"], bool) or not math.isfinite(float(patch["start"])) or float(patch["start"]) < 0):
+                raise ValueError("note patch start is invalid")
+            if "duration" in patch and (not isinstance(patch["duration"], (int, float)) or isinstance(patch["duration"], bool) or not math.isfinite(float(patch["duration"])) or float(patch["duration"]) <= 0):
+                raise ValueError("note patch duration is invalid")
+            if "velocity" in patch and (not isinstance(patch["velocity"], (int, float)) or isinstance(patch["velocity"], bool) or not 0 <= float(patch["velocity"]) <= 127):
+                raise ValueError("note patch velocity is invalid")
+            if "mute" in patch and not isinstance(patch["mute"], bool):
+                raise ValueError("note patch mute is invalid")
+            if "probability" in patch and (not isinstance(patch["probability"], (int, float)) or isinstance(patch["probability"], bool) or not 0 <= float(patch["probability"]) <= 1):
+                raise ValueError("note patch probability is invalid")
+            if "velocityDeviation" in patch and (not isinstance(patch["velocityDeviation"], (int, float)) or isinstance(patch["velocityDeviation"], bool) or not -127 <= float(patch["velocityDeviation"]) <= 127):
+                raise ValueError("note patch velocity deviation is invalid")
+            if "releaseVelocity" in patch and (not isinstance(patch["releaseVelocity"], (int, float)) or isinstance(patch["releaseVelocity"], bool) or not 0 <= float(patch["releaseVelocity"]) <= 127):
+                raise ValueError("note patch release velocity is invalid")
+            if patch["id"] in seen:
+                raise ValueError("duplicate note patch id")
+            target = by_id.get(patch["id"])
+            if target is None:
+                raise ValueError("note id is not present in the clip")
+            seen.add(patch["id"])
+            targets.append((target, patch))
+        for target, patch in targets:
+            if "pitch" in patch: target.pitch = int(patch["pitch"])
+            if "start" in patch: target.start_time = float(patch["start"])
+            if "duration" in patch: target.duration = float(patch["duration"])
+            if "velocity" in patch: target.velocity = float(patch["velocity"])
+            if "mute" in patch: target.mute = bool(patch["mute"])
+            if "probability" in patch: target.probability = float(patch["probability"])
+            if "velocityDeviation" in patch: target.velocity_deviation = float(patch["velocityDeviation"])
+            if "releaseVelocity" in patch: target.release_velocity = float(patch["releaseVelocity"])
+        clip.apply_note_modifications(extended)
+        after = {int(candidate.note_id): candidate for candidate in clip.get_all_notes_extended()}
+        for target, patch in targets:
+            current = after.get(int(target.note_id))
+            if current is None:
+                raise ValueError("note update was not confirmed")
+            if "pitch" in patch and int(current.pitch) != int(patch["pitch"]): raise ValueError("note update was not confirmed")
+            if "start" in patch and abs(float(current.start_time) - float(patch["start"])) > 0.01: raise ValueError("note update was not confirmed")
+            if "duration" in patch and abs(float(current.duration) - float(patch["duration"])) > 0.01: raise ValueError("note update was not confirmed")
+            if "velocity" in patch and abs(float(current.velocity) - float(patch["velocity"])) > 0.51: raise ValueError("note update was not confirmed")
+            if "mute" in patch and bool(current.mute) is not bool(patch["mute"]): raise ValueError("note update was not confirmed")
+            if "probability" in patch and abs(float(current.probability) - float(patch["probability"])) > 0.01: raise ValueError("note update was not confirmed")
+            if "velocityDeviation" in patch and abs(float(current.velocity_deviation) - float(patch["velocityDeviation"])) > 0.51: raise ValueError("note update was not confirmed")
+            if "releaseVelocity" in patch and abs(float(current.release_velocity) - float(patch["releaseVelocity"])) > 0.51: raise ValueError("note update was not confirmed")
+        return {"updated": len(targets)}
+
+    def _note_delete(self, args: dict[str, Any]) -> dict[str, Any]:
+        clip = self.refs.get(str(args["ref"]))
+        note_ids = args.get("noteIds")
+        if not isinstance(note_ids, list) or not 1 <= len(note_ids) <= 512 or len(set(note_ids)) != len(note_ids) or not all(isinstance(item, int) and not isinstance(item, bool) and item >= 0 for item in note_ids):
+            raise ValueError("note ids are invalid")
+        if not callable(getattr(clip, "remove_notes_by_id", None)):
+            raise ValueError("note deletion is unavailable on this Live shape")
+        existing = {int(candidate.note_id) for candidate in clip.get_all_notes_extended()}
+        if any(note_id not in existing for note_id in note_ids):
+            raise ValueError("note id is not present in the clip")
+        clip.remove_notes_by_id(note_ids)
+        after = {int(candidate.note_id) for candidate in clip.get_all_notes_extended()}
+        if any(note_id in after for note_id in note_ids):
+            raise ValueError("note deletion was not confirmed")
+        return {"deleted": len(note_ids)}
+
     def _transport_set(self, args: dict[str, Any]) -> dict[str, Any]:
         expected = args.get("expectedRevision")
         if not isinstance(expected, str) or not 1 <= len(expected) <= 256:
@@ -1163,6 +1258,10 @@ class LiveObjectMapper:
             return {"stopped": True}
         if operation == "session.capture-midi":
             return self._capture_midi()
+        if operation == "note.update":
+            return self._note_update(args)
+        if operation == "note.delete":
+            return self._note_delete(args)
         if operation == "scene.capture":
             return self._scene_capture()
         if operation == "session.playback":
@@ -1301,11 +1400,17 @@ class LiveObjectMapper:
         clip = self.refs.get(str(args["ref"]))
         if not isinstance(args.get("note"), dict):
             raise ValueError("note is invalid")
+        return self._note_add(args)
+
+    def _note_add(self, args: dict[str, Any]) -> dict[str, Any]:
+        clip = self.refs.get(str(args["ref"]))
+        if not isinstance(args.get("note"), dict):
+            raise ValueError("note is invalid")
         note = dict(args["note"])
         if not hasattr(clip, "add_new_notes"):
             raise ValueError("target is not a MIDI clip")
         if (not isinstance(note.get("pitch"), int) or isinstance(note["pitch"], bool) or not 0 <= note["pitch"] <= 127
-                or not isinstance(note.get("velocity"), int) or isinstance(note["velocity"], bool) or not 1 <= note["velocity"] <= 127
+                or not isinstance(note.get("velocity"), (int, float)) or isinstance(note["velocity"], bool) or not 0 <= float(note["velocity"]) <= 127
                 or not isinstance(note.get("channel"), int) or isinstance(note["channel"], bool) or not 1 <= note["channel"] <= 16
                 or not isinstance(note.get("start"), (int, float)) or isinstance(note["start"], bool)
                 or not isinstance(note.get("duration"), (int, float)) or isinstance(note["duration"], bool)
@@ -1313,18 +1418,49 @@ class LiveObjectMapper:
                 or float(note["start"]) < 0 or float(note["duration"]) <= 0
                 or float(note["start"]) + float(note["duration"]) > float(getattr(clip, "length", 0))):
             raise ValueError("note is invalid")
-        note_tuple = (note["pitch"], float(note["start"]), float(note["duration"]), note["velocity"], False)
-        if hasattr(clip, "set_notes") and hasattr(clip, "get_notes"):
-            # Live's note setter replaces the full note list; merge to append.
-            existing = [tuple(item) for item in clip.get_notes(0, 0, 0, 128)]
-            existing.append(note_tuple)
+        probability = note.get("probability")
+        if probability is not None and (not isinstance(probability, (int, float)) or isinstance(probability, bool) or not 0 <= float(probability) <= 1):
+            raise ValueError("note probability is invalid")
+        velocity_deviation = note.get("velocityDeviation")
+        if velocity_deviation is not None and (not isinstance(velocity_deviation, (int, float)) or isinstance(velocity_deviation, bool) or not -127 <= float(velocity_deviation) <= 127):
+            raise ValueError("note velocity deviation is invalid")
+        release_velocity = note.get("releaseVelocity")
+        if release_velocity is not None and (not isinstance(release_velocity, (int, float)) or isinstance(release_velocity, bool) or not 0 <= float(release_velocity) <= 127):
+            raise ValueError("note release velocity is invalid")
+        mute = note.get("mute")
+        if mute is not None and not isinstance(mute, bool):
+            raise ValueError("note mute is invalid")
+        try:
+            spec_class = getattr(__import__("Live.Clip", fromlist=["MidiNoteSpecification"]), "MidiNoteSpecification", None)
+        except Exception:
+            spec_class = None
+        if spec_class is not None:
+            clip.add_new_notes([spec_class(
+                note["pitch"], float(note["start"]), float(note["duration"]), float(note["velocity"]),
+                bool(mute) if mute is not None else False,
+                float(probability) if probability is not None else 1.0,
+                float(velocity_deviation) if velocity_deviation is not None else 0.0,
+                float(release_velocity) if release_velocity is not None else 64.0,
+            )])
+        elif hasattr(clip, "set_notes"):
+            # Legacy fallback carries no advanced fields.
+            if any(field is not None for field in (probability, velocity_deviation, release_velocity, mute)):
+                raise ValueError("advanced note fields are unavailable on this Live shape")
+            if hasattr(clip, "get_all_notes_extended"):
+                existing = [(int(item.pitch), float(item.start_time), float(item.duration), int(item.velocity), bool(item.mute)) for item in clip.get_all_notes_extended()]
+            else:
+                existing = [tuple(item) for item in clip.get_notes(0, 0, 4096, 128)]
+            existing.append((note["pitch"], float(note["start"]), float(note["duration"]), note["velocity"], False))
             clip.set_notes(tuple(existing))
-        elif hasattr(clip, "add_new_notes"):
+        else:
             note_spec = {"pitch": note["pitch"], "start_time": float(note["start"]), "duration": float(note["duration"]), "velocity": note["velocity"], "mute": False, "channel": note["channel"]}
             clip.add_new_notes([note_spec])
-        else:
-            raise ValueError("note writing is unavailable")
-        return {"added": True}
+        note_id = None
+        if hasattr(clip, "get_all_notes_extended"):
+            for candidate in clip.get_all_notes_extended():
+                if int(candidate.pitch) == note["pitch"] and abs(float(candidate.start_time) - float(note["start"])) < 1e-6:
+                    note_id = int(candidate.note_id)
+        return {"added": True, "noteId": note_id}
 
 
 class _DispatchToken:

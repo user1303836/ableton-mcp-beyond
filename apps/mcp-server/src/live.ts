@@ -77,7 +77,7 @@ export interface LiveStatus {
   provenance?: "real-live" | "fake-live" | "simulator" | "unknown";
 }
 
-export interface Note { pitch: number; start: number; duration: number; velocity: number; channel: number; }
+export interface Note { pitch: number; start: number; duration: number; velocity: number; channel: number; id?: number | null; mute?: boolean | null; probability?: number | null; velocityDeviation?: number | null; releaseVelocity?: number | null; }
 export interface AutomationPoint { time: number; value: number; curve?: number; }
 export interface Parameter { ref: LiveRef; name: string; value: number; min: number; max: number; automatable: boolean; quantization?: number; enabled?: boolean; displayValue?: string; revision?: number; }
 export interface Device { ref: LiveRef; name: string; kind: "instrument" | "audio-effect" | "midi-effect" | "plugin" | "rack"; parameters: Parameter[]; enabled?: boolean; }
@@ -99,6 +99,7 @@ export interface LiveEvent { sequence: number; type: "state" | "transport" | "ob
 export type LiveOperation =
   | "transport.set" | "session.audition-launch" | "session.audition-stop" | "session.emergency-stop" | "clip.create" | "clip.delete"
   | "clip.launch" | "track.stop" | "playback.stop-all-clips" | "session.capture-midi" | "scene.capture"
+  | "note.update" | "note.delete"
   | "note.add" | "automation.add" | "audio.warp" | "take.add"
   | "parameter.set" | "routing.set" | "browser.search" | "locator.add" | "locator.delete"
   | "track.create" | "track.delete" | "scene.create" | "scene.delete"
@@ -132,7 +133,7 @@ const clamp = (value: number, min: number, max: number): number => Math.min(max,
 const ref = (kind: LiveObjectKind, id: string): LiveRef => `${kind}:${id}`;
 
 function createSimulatorState(): LiveSnapshot {
-  const kick: Clip = { ref: ref("clip", "clip-1"), name: "Kick Pattern", kind: "midi", start: 0, length: 4, notes: [{ pitch: 36, start: 0, duration: 0.25, velocity: 110, channel: 1 }], warp: false, takes: ["take-1"], automation: [] };
+  const kick: Clip = { ref: ref("clip", "clip-1"), name: "Kick Pattern", kind: "midi", start: 0, length: 4, notes: [{ pitch: 36, start: 0, duration: 0.25, velocity: 110, channel: 1, id: 1, mute: false, probability: 1, velocityDeviation: 0, releaseVelocity: 64 }], warp: false, takes: ["take-1"], automation: [] };
   const track: Track = { ref: ref("track", "track-1"), name: "Drums", kind: "midi", volume: 0.85, pan: 0, mute: false, solo: false, armed: false, monitoringState: "off", playingSlotIndex: null, firedSlotIndex: null, clips: [kick], clipSlots: [{ ref: ref("clip-slot", "track-1:0"), parentRef: ref("track", "track-1"), sceneIndex: 0, clipRef: kick.ref, empty: false }], devices: [], sends: [0, 0] };
   const gain: Parameter = { ref: ref("parameter", "gain-1"), name: "Gain", value: 0.5, min: 0, max: 1, automatable: true, quantization: 0, enabled: true, displayValue: "0.5", revision: 1 };
   const device: Device = { ref: ref("device", "utility-1"), name: "Utility", kind: "audio-effect", parameters: [gain], enabled: true };
@@ -148,7 +149,7 @@ function createSimulatorState(): LiveSnapshot {
   };
 }
 
-export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "set", "reconnect", "session.playback", "transport.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "clip.create", "clip.delete", "clip.launch", "track.create", "track.delete", "track.stop", "scene.create", "scene.delete", "scene.capture", "note.add", "locator.add", "locator.delete", "playback.stop-all-clips", "session.capture-midi", "device.parameter.set"] as const;
+export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "set", "reconnect", "session.playback", "transport.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "clip.create", "clip.delete", "clip.launch", "track.create", "track.delete", "track.stop", "scene.create", "scene.delete", "scene.capture", "note.add", "note.update", "note.delete", "locator.add", "locator.delete", "playback.stop-all-clips", "session.capture-midi", "device.parameter.set"] as const;
 
 export class DeterministicLiveSimulator implements LiveAdapter {
   private state = createSimulatorState();
@@ -388,7 +389,42 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         this.emit({ type: "object", ref: sceneRef, payload: { operation, ref: sceneRef } });
         return { deleted: sceneRef };
       }
-      case "note.add": this.addNote(objectRef("ref"), args.note as Note); return { added: true };
+      case "note.add": return this.addNote(objectRef("ref"), args.note as Note);
+      case "note.update": {
+        const clip = this.findClip(objectRef("ref"));
+        const patches = args.notes;
+        if (!Array.isArray(patches) || patches.length < 1 || patches.length > 512) throw new RangeError("note patches are invalid");
+        const seen = new Set<number>();
+        for (const patch of patches) {
+          if (!patch || typeof patch !== "object" || !Number.isInteger((patch as { id?: unknown }).id) || ((patch as { id: number }).id as number) < 0) throw new RangeError("note patch id is invalid");
+          const id = (patch as { id: number }).id;
+          if (seen.has(id)) throw new RangeError("duplicate note patch id");
+          seen.add(id);
+        }
+        for (const id of seen) if (!clip.notes.some((note) => note.id === id)) throw new Error("note id is not present in the clip");
+        for (const patch of patches as Array<Record<string, unknown>>) {
+          const note = clip.notes.find((item) => item.id === (patch.id as number))!;
+          if (patch.pitch !== undefined) note.pitch = patch.pitch as number;
+          if (patch.start !== undefined) note.start = patch.start as number;
+          if (patch.duration !== undefined) note.duration = patch.duration as number;
+          if (patch.velocity !== undefined) note.velocity = patch.velocity as number;
+          if (patch.mute !== undefined) note.mute = patch.mute as boolean;
+          if (patch.probability !== undefined) note.probability = patch.probability as number;
+          if (patch.velocityDeviation !== undefined) note.velocityDeviation = patch.velocityDeviation as number;
+          if (patch.releaseVelocity !== undefined) note.releaseVelocity = patch.releaseVelocity as number;
+        }
+        this.emit({ type: "object", ref: objectRef("ref"), payload: { operation } });
+        return { updated: seen.size };
+      }
+      case "note.delete": {
+        const clip = this.findClip(objectRef("ref"));
+        const ids = args.noteIds;
+        if (!Array.isArray(ids) || ids.length < 1 || ids.length > 512 || new Set(ids).size !== ids.length || !ids.every((id) => Number.isInteger(id) && (id as number) >= 0)) throw new RangeError("note ids are invalid");
+        for (const id of ids) if (!clip.notes.some((note) => note.id === id)) throw new Error("note id is not present in the clip");
+        clip.notes = clip.notes.filter((note) => !ids.includes(note.id as number));
+        this.emit({ type: "object", ref: objectRef("ref"), payload: { operation } });
+        return { deleted: ids.length };
+      }
       case "automation.add": this.setAutomation(objectRef("ref"), args.point as AutomationPoint); return { added: true };
       case "audio.warp": this.setWarp(objectRef("ref"), args.enabled as boolean); return { changed: true };
       case "take.add": this.addTake(objectRef("ref"), stringArg("take")); return { added: true };
@@ -437,12 +473,19 @@ export class DeterministicLiveSimulator implements LiveAdapter {
   async invokeAsync(invocation: LiveInvocation): Promise<unknown> { return this.invoke(invocation); }
   async reconnectAsync(): Promise<LiveStatus> { return this.reconnect(); }
   async close(): Promise<void> { this.listeners.clear(); }
-  addNote(clipRef: LiveRef, note: Note): void {
+  private nextNoteId = 2;
+  addNote(clipRef: LiveRef, note: Note): { added: boolean; noteId: number } {
     const clip = this.findClip(clipRef);
     if (clip.kind !== "midi") throw new Error("notes require a MIDI clip");
-    if (!Number.isInteger(note.pitch) || note.pitch < 0 || note.pitch > 127 || !Number.isFinite(note.start) || note.start < 0 || !Number.isFinite(note.duration) || note.duration <= 0 || !Number.isInteger(note.velocity) || note.velocity < 1 || note.velocity > 127 || !Number.isInteger(note.channel) || note.channel < 1 || note.channel > 16) throw new RangeError("invalid MIDI note");
-    clip.notes.push(structuredClone(note));
+    if (!Number.isInteger(note.pitch) || note.pitch < 0 || note.pitch > 127 || !Number.isFinite(note.start) || note.start < 0 || !Number.isFinite(note.duration) || note.duration <= 0 || typeof note.velocity !== "number" || !Number.isFinite(note.velocity) || note.velocity < 0 || note.velocity > 127 || !Number.isInteger(note.channel) || note.channel < 1 || note.channel > 16) throw new RangeError("invalid MIDI note");
+    if (note.probability !== undefined && note.probability !== null && (typeof note.probability !== "number" || !Number.isFinite(note.probability) || note.probability < 0 || note.probability > 1)) throw new RangeError("note probability is invalid");
+    if (note.velocityDeviation !== undefined && note.velocityDeviation !== null && (typeof note.velocityDeviation !== "number" || !Number.isFinite(note.velocityDeviation) || note.velocityDeviation < -127 || note.velocityDeviation > 127)) throw new RangeError("note velocity deviation is invalid");
+    if (note.releaseVelocity !== undefined && note.releaseVelocity !== null && (typeof note.releaseVelocity !== "number" || !Number.isFinite(note.releaseVelocity) || note.releaseVelocity < 0 || note.releaseVelocity > 127)) throw new RangeError("note release velocity is invalid");
+    if (note.mute !== undefined && note.mute !== null && typeof note.mute !== "boolean") throw new RangeError("note mute is invalid");
+    const id = this.nextNoteId++;
+    clip.notes.push(structuredClone({ ...note, id, mute: note.mute ?? false, probability: note.probability ?? 1, velocityDeviation: note.velocityDeviation ?? 0, releaseVelocity: note.releaseVelocity ?? 64 }));
     this.emit({ type: "object", ref: clipRef, payload: { operation: "note.add", note } });
+    return { added: true, noteId: id };
   }
   setAutomation(clipRef: LiveRef, point: AutomationPoint): void {
     const clip = this.findClip(clipRef);

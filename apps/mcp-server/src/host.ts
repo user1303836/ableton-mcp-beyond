@@ -102,6 +102,20 @@ interface ClipLaunchTransaction {
   state: "previewed" | "applying" | "applied" | "stopping" | "stopped" | "uncertain";
   inflight?: Promise<JsonObject>;
 }
+interface NoteEditTransaction {
+  id: string;
+  epoch: number;
+  kind: "update" | "delete";
+  clipRef: LiveRef;
+  fence: string;
+  patches?: Array<Record<string, unknown>>;
+  noteIds?: number[];
+  priorNotes: Array<Record<string, unknown>>;
+  expiresAt: number;
+  applyKey?: string;
+  undoKey?: string;
+  state: "previewed" | "applied" | "undone" | "uncertain";
+}
 
 const REQUEST_ID_MAX_LENGTH = 128;
 const SERVER_VERSION = "0.1.0";
@@ -262,6 +276,30 @@ const implementedTools = [
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   },
   {
+    name: "live_note_update_preview",
+    description: "Read-only preflight for bounded MIDI note edits by note id, including velocity, mute, probability, velocity deviation, and release velocity.",
+    inputSchema: { type: "object", properties: { clipRef: { type: "string", minLength: 1, maxLength: 256 }, notes: { type: "array", maxItems: 512, items: { type: "object", properties: { id: { type: "integer", minimum: 0 }, pitch: { type: "integer", minimum: 0, maximum: 127 }, start: { type: "number", minimum: 0 }, duration: { type: "number", exclusiveMinimum: 0 }, velocity: { type: "number", minimum: 0, maximum: 127 }, mute: { type: "boolean" }, probability: { type: "number", minimum: 0, maximum: 1 }, velocityDeviation: { type: "number", minimum: -127, maximum: 127 }, releaseVelocity: { type: "number", minimum: 0, maximum: 127 } }, required: ["id"], additionalProperties: false } } }, required: ["clipRef", "notes"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_note_update_apply",
+    description: "Apply an exact, unexpired note-update preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_note_delete_preview",
+    description: "Read-only preflight for deleting exact MIDI notes by id, capturing the prior notes for guarded undo.",
+    inputSchema: { type: "object", properties: { clipRef: { type: "string", minLength: 1, maxLength: 256 }, noteIds: { type: "array", maxItems: 512, items: { type: "integer", minimum: 0 } } }, required: ["clipRef", "noteIds"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_note_delete_apply",
+    description: "Apply an exact, unexpired note-delete preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+  },
+  {
     name: "live_device_parameter_preview",
     description: "Discover an authoritative device parameter and preview a bounded numeric change without mutation.",
     inputSchema: { type: "object", properties: { deviceRef: { type: "string", minLength: 1, maxLength: 256 }, parameterRef: { type: "string", minLength: 1, maxLength: 256 }, value: { type: "number" } }, required: ["deviceRef", "parameterRef", "value"], additionalProperties: false },
@@ -414,6 +452,7 @@ export class McpHost {
   private readonly auditionTransactions = new Map<string, SessionAuditionTransaction>();
   private readonly transportTransactions = new Map<string, TransportTransaction>();
   private readonly clipLaunchTransactions = new Map<string, ClipLaunchTransaction>();
+  private readonly noteEditTransactions = new Map<string, NoteEditTransaction>();
 
   public constructor(private readonly adapter: LiveAdapter = new UnavailableLiveAdapter()) { this.midiTransactions = new SessionMidiTransactionManager(adapter); }
 
@@ -423,7 +462,7 @@ export class McpHost {
     if (signal?.aborted) return null;
     if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handle(input);
     const name = input.params.name;
-    if (![ "live_session_structure_preview", "live_session_structure_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture"].includes(name)) return this.handle(input);
+    if (![ "live_session_structure_preview", "live_session_structure_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply"].includes(name)) return this.handle(input);
     // Reuse the synchronous validator and request bookkeeping, then execute the
     // adapter operation asynchronously. Invalid requests never reach Live.
     const id = this.requestId(input.id);
@@ -451,6 +490,10 @@ export class McpHost {
       if (name === "live_clip_launch_stop") return await this.liveClipLaunchStopAsync(id, input.params.arguments, signal);
       if (name === "live_capture_midi") return await this.liveCaptureMidiAsync(id, input.params.arguments, signal);
       if (name === "live_scene_capture") return await this.liveSceneCaptureAsync(id, input.params.arguments, signal);
+      if (name === "live_note_update_preview") return await this.liveNoteEditPreviewAsync(id, input.params.arguments, "update");
+      if (name === "live_note_update_apply") return await this.liveNoteEditApplyAsync(id, input.params.arguments, "update", signal);
+      if (name === "live_note_delete_preview") return await this.liveNoteEditPreviewAsync(id, input.params.arguments, "delete");
+      if (name === "live_note_delete_apply") return await this.liveNoteEditApplyAsync(id, input.params.arguments, "delete", signal);
       if (name === "live_device_parameter_preview") return await this.liveDeviceParameterPreviewAsync(id, input.params.arguments);
       if (name === "live_device_parameter_apply") return await this.liveDeviceParameterApplyAsync(id, input.params.arguments);
       if (name === "live_midi_clip_preview") return await this.liveMidiPreviewAsync(id, input.params.arguments);
@@ -1010,6 +1053,112 @@ export class McpHost {
     }
   }
 
+  private noteClip(snapshot: LiveSnapshot, clipRef: LiveRef): { notes: Array<Record<string, unknown>> } {
+    for (const track of snapshot.tracks) {
+      const clip = (track.clips as unknown as Array<Record<string, unknown>>).find((item) => item.ref === clipRef);
+      if (clip && clip.kind === "midi" && Array.isArray(clip.notes)) return { notes: clip.notes as Array<Record<string, unknown>> };
+    }
+    throw new Error("MIDI clip reference is not authoritative");
+  }
+
+  private noteFence(notes: Array<Record<string, unknown>>): string {
+    return JSON.stringify(notes.map((note) => ({ id: note.id ?? null, pitch: note.pitch, start: note.start, duration: note.duration, velocity: note.velocity, mute: note.mute ?? null, probability: note.probability ?? null, velocityDeviation: note.velocityDeviation ?? null, releaseVelocity: note.releaseVelocity ?? null })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+  }
+
+  private async liveNoteEditPreviewAsync(id: RequestId, params: unknown, kind: "update" | "delete"): Promise<JsonObject> {
+    const requiredKeys = kind === "update" ? ["clipRef", "notes"] : ["clipRef", "noteIds"];
+    if (!isObject(params) || !hasOnly(params, requiredKeys) || !isNonEmptyString(params.clipRef, 256)) return error(id, -32602, `${requiredKeys.join(" and ")} are required`);
+    try {
+      const status = this.requireConnected("session.read");
+      const operation = kind === "update" ? "note.update" : "note.delete";
+      if (!(status.operations ?? []).includes(operation)) throw new Error(`${operation} is unavailable`);
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const clip = this.noteClip(snapshot, params.clipRef as LiveRef);
+      const fence = this.noteFence(clip.notes);
+      const present = new Set(clip.notes.map((note) => note.id).filter((value) => typeof value === "number"));
+      let patches: Array<Record<string, unknown>> | undefined;
+      let noteIds: number[] | undefined;
+      if (kind === "update") {
+        if (!Array.isArray(params.notes) || params.notes.length < 1 || params.notes.length > 512) return error(id, -32602, "notes must be 1-512 patch objects");
+        const seen = new Set<number>();
+        for (const patch of params.notes) {
+          if (!isObject(patch) || !Number.isInteger(patch.id) || (patch.id as number) < 0 || !hasOnly(patch, ["id", "pitch", "start", "duration", "velocity", "mute", "probability", "velocityDeviation", "releaseVelocity"])) return error(id, -32602, "note patches require an id and only supported fields");
+          if (seen.has(patch.id as number)) return error(id, -32602, "duplicate note patch id");
+          seen.add(patch.id as number);
+          if (patch.pitch !== undefined && (!Number.isInteger(patch.pitch) || (patch.pitch as number) < 0 || (patch.pitch as number) > 127)) return error(id, -32602, "pitch is out of bounds");
+          if (patch.start !== undefined && (!Number.isFinite(patch.start) || (patch.start as number) < 0)) return error(id, -32602, "start is out of bounds");
+          if (patch.duration !== undefined && (!Number.isFinite(patch.duration) || (patch.duration as number) <= 0)) return error(id, -32602, "duration is out of bounds");
+          if (patch.velocity !== undefined && (!Number.isFinite(patch.velocity) || (patch.velocity as number) < 0 || (patch.velocity as number) > 127)) return error(id, -32602, "velocity is out of bounds");
+          if (patch.mute !== undefined && typeof patch.mute !== "boolean") return error(id, -32602, "mute must be boolean");
+          if (patch.probability !== undefined && (!Number.isFinite(patch.probability) || (patch.probability as number) < 0 || (patch.probability as number) > 1)) return error(id, -32602, "probability is out of bounds");
+          if (patch.velocityDeviation !== undefined && (!Number.isFinite(patch.velocityDeviation) || Math.abs(patch.velocityDeviation as number) > 127)) return error(id, -32602, "velocityDeviation is out of bounds");
+          if (patch.releaseVelocity !== undefined && (!Number.isFinite(patch.releaseVelocity) || (patch.releaseVelocity as number) < 0 || (patch.releaseVelocity as number) > 127)) return error(id, -32602, "releaseVelocity is out of bounds");
+        }
+        if ([...seen].some((noteId) => !present.has(noteId))) return this.transactionError(id, "note id is not present in the clip");
+        patches = structuredClone(params.notes) as Array<Record<string, unknown>>;
+        noteIds = [...seen];
+      } else {
+        if (!Array.isArray(params.noteIds) || params.noteIds.length < 1 || params.noteIds.length > 512 || !params.noteIds.every((value) => Number.isInteger(value) && (value as number) >= 0)) return error(id, -32602, "noteIds must be 1-512 non-negative integers");
+        if (new Set(params.noteIds).size !== params.noteIds.length) return error(id, -32602, "duplicate note id");
+        if ((params.noteIds as number[]).some((noteId) => !present.has(noteId))) return this.transactionError(id, "note id is not present in the clip");
+        noteIds = [...(params.noteIds as number[])];
+      }
+      const priorNotes = clip.notes.filter((note) => noteIds!.includes(note.id as number)).map((note) => structuredClone(note));
+      const transaction: NoteEditTransaction = { id: `note${kind}_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind, clipRef: params.clipRef as LiveRef, fence, patches, noteIds, priorNotes, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.noteEditTransactions, transaction, "note edit");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, clipRef: transaction.clipRef, [kind === "update" ? "patches" : "noteIds"]: kind === "update" ? patches : noteIds, priorNotes: transaction.priorNotes, impact: kind === "update" ? "edits-midi-notes" : "deletes-midi-notes", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Note-edit preview requires fresh authoritative clip state."); }
+  }
+
+  private async liveNoteEditApplyAsync(id: RequestId, params: unknown, kind: "update" | "delete", signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.noteEditTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== kind || transaction.expiresAt <= Date.now()) return this.transactionError(id, "Unknown or expired note-edit transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    if (transaction.state !== "previewed") return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
+      const snapshot = await adapter.snapshotAsync(context);
+      if (this.noteFence(this.noteClip(snapshot, transaction.clipRef).notes) !== transaction.fence) return this.transactionError(id, "clip notes changed since preview; preview again");
+      const operation = kind === "update" ? "note.update" : "note.delete";
+      const args = kind === "update" ? { ref: transaction.clipRef, notes: transaction.patches } : { ref: transaction.clipRef, noteIds: transaction.noteIds };
+      const result = await adapter.invokeAsync({ operation, args }, context) as { updated?: unknown; deleted?: unknown };
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", ...(kind === "update" ? { updated: result.updated } : { deleted: result.deleted }), idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Note-edit state is uncertain; perform fresh discovery before retrying."); }
+  }
+
+  private async liveNoteEditUndoAsync(id: RequestId, transaction: NoteEditTransaction, params: Record<string, unknown>): Promise<JsonObject> {
+    if (transaction.state === "undone" && transaction.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "undone", idempotent: true });
+    if (transaction.state !== "applied") return this.transactionError(id, "Only an applied note-edit transaction can be undone");
+    try {
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+      const adapter = this.asyncAdapter();
+      const context = { deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
+      if (transaction.kind === "update") {
+        const restore = transaction.priorNotes.map((note) => ({ id: note.id, pitch: note.pitch, start: note.start, duration: note.duration, velocity: note.velocity, mute: note.mute ?? false, probability: note.probability ?? 1, velocityDeviation: note.velocityDeviation ?? 0, releaseVelocity: note.releaseVelocity ?? 64 }));
+        await adapter.invokeAsync({ operation: "note.update", args: { ref: transaction.clipRef, notes: restore } }, context);
+        transaction.state = "undone";
+        transaction.undoKey = params.idempotencyKey as string;
+        return this.successText(id, { transactionId: transaction.id, state: "undone", restored: restore.length, idempotent: false });
+      }
+      const reAdded: Array<Record<string, unknown>> = [];
+      for (const note of transaction.priorNotes) {
+        const result = await adapter.invokeAsync({ operation: "note.add", args: { ref: transaction.clipRef, note: { pitch: note.pitch, start: note.start, duration: note.duration, velocity: note.velocity, channel: note.channel ?? 1, mute: note.mute ?? false, probability: note.probability ?? 1, velocityDeviation: note.velocityDeviation ?? 0, releaseVelocity: note.releaseVelocity ?? 64 } } }, context) as { noteId?: unknown };
+        reAdded.push({ priorId: note.id, noteId: result.noteId ?? null });
+      }
+      transaction.state = "undone";
+      transaction.undoKey = params.idempotencyKey as string;
+      return this.successText(id, { transactionId: transaction.id, state: "undone", restored: reAdded.length, reAdded, note: "re-added notes receive new note ids", idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Note-edit undo is uncertain; perform fresh discovery."); }
+  }
+
   private async liveCaptureMidiAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
     if (!isObject(params) || !hasOnly(params, ["confirmation"]) || params.confirmation !== "capture") return error(id, -32602, "confirmation=capture is required");
     try {
@@ -1184,6 +1333,11 @@ export class McpHost {
       if (!transport) return this.transactionError(id, "Unknown or expired transport transaction");
       return this.liveTransportUndoAsync(id, transport, params as Record<string, unknown>);
     }
+    if (!transaction && (String(params.transactionId).startsWith("noteupdate_") || String(params.transactionId).startsWith("notedelete_"))) {
+      const noteEdit = this.noteEditTransactions.get(params.transactionId as string);
+      if (!noteEdit) return this.transactionError(id, "Unknown or expired note-edit transaction");
+      return this.liveNoteEditUndoAsync(id, noteEdit, params as Record<string, unknown>);
+    }
     if (!transaction && String(params.transactionId).startsWith("structure_")) {
       const structure = this.sessionStructureTransactions.get(params.transactionId as string);
       if (!structure || structure.state === "uncertain") return this.transactionError(id, "Session-structure state is uncertain; read authoritative tracks and scenes before undo");
@@ -1331,7 +1485,7 @@ export class McpHost {
       return error(id, -32602, "Invalid tools/call parameters");
     }
     if (params.arguments !== undefined && !isObject(params.arguments)) return error(id, -32602, "Tool arguments must be an object");
-    const argumentTools = new Set(["audio_analyze", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+    const argumentTools = new Set(["audio_analyze", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
     if (!argumentTools.has(params.name) && params.arguments !== undefined && Object.keys(params.arguments as JsonObject).length !== 0) {
       return error(id, -32602, "Tool arguments must be an empty object");
     }
@@ -1344,7 +1498,7 @@ export class McpHost {
     if (params.name === "live_status") return this.liveStatus(id);
     if (params.name === "live_snapshot") return this.liveSnapshot(id);
     if (params.name === "live_discover") return this.liveDiscover(id, params.arguments);
-    if (["live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture"].includes(params.name)) return error(id, -32001, "Session playback operations require the asynchronous host request path");
+    if (["live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply"].includes(params.name)) return error(id, -32001, "Session playback operations require the asynchronous host request path");
     if (params.name === "live_device_parameter_preview") return this.liveDeviceParameterPreview(id, params.arguments);
     if (params.name === "live_device_parameter_apply") return this.liveDeviceParameterApply(id, params.arguments);
     if (params.name === "live_session_structure_preview") return this.liveSessionStructurePreview(id, params.arguments);

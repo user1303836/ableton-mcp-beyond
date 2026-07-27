@@ -116,11 +116,29 @@ const harnessSource = `
 import json, os, pathlib, socket, sys, time
 from AbletonMcpBridge.ableton_mcp_remote_script import AbletonMcpBridge
 
+class FakeMidiNote:
+    _next_id = [0]
+    def __init__(self, pitch, start_time, duration, velocity, mute=False, probability=1.0, velocity_deviation=0.0, release_velocity=64.0):
+        FakeMidiNote._next_id[0] += 1
+        self.note_id = FakeMidiNote._next_id[0]
+        self.pitch = pitch; self.start_time = start_time; self.duration = duration
+        self.velocity = velocity; self.mute = mute
+        self.probability = probability; self.velocity_deviation = velocity_deviation; self.release_velocity = release_velocity
+
 class FakeClip:
     def __init__(self, length=4.0):
         self.length = length; self.name = "Journey Clip"; self.notes = []
-    def add_new_notes(self, notes): self.notes.extend(notes)
+    def add_new_notes(self, notes):
+        for note in notes:
+            if isinstance(note, dict):
+                self.notes.append(FakeMidiNote(note["pitch"], note.get("start_time", note.get("start", 0.0)), note.get("duration", 0.25), note.get("velocity", 100.0), note.get("mute", False), note.get("probability", 1.0), note.get("velocity_deviation", 0.0), note.get("release_velocity", 64.0)))
+            else:
+                self.notes.append(note)
     def get_notes(self, *_): return list(self.notes)
+    def get_all_notes_extended(self): return list(self.notes)
+    def get_notes_extended(self, *_): return list(self.notes)
+    def apply_note_modifications(self, _): pass
+    def remove_notes_by_id(self, ids): self.notes = [n for n in self.notes if n.note_id not in ids]
 
 class FakeSlot:
     def __init__(self, clip=None, track=None, index=0):
@@ -585,6 +603,30 @@ try {
     assert(!(await playback(client)).firedTargets.length && !activeKeys(await playback(client)).length, "clip target remained active after stop");
   });
 
+  await step("complete MIDI note lifecycle: create, update by id, delete, and guarded undo", async () => {
+    const freshTracks = (await textOf(client, "live_discover", { kind: "track" })).parsed.items;
+    const midiPreview = (await client.call("live_midi_clip_preview", { trackRef: freshTracks[0].ref, sceneIndex: 1, name: "Journey Notes", length: 4, notes: [{ pitch: 60, start: 0, duration: 1, velocity: 100, channel: 1 }, { pitch: 64, start: 2, duration: 1, velocity: 90, channel: 1 }] })).parsed;
+    const midiApplied = (await client.call("live_midi_clip_apply", { transactionId: midiPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-midi-clip" })).parsed;
+    const clipRef = midiApplied.clipRef;
+    assert(typeof clipRef === "string", "MIDI clip creation failed");
+    const notes = (await textOf(client, "live_discover", { kind: "note", parent: clipRef })).parsed.items;
+    assert(notes.length === 2 && notes.every((item) => typeof item.id === "number"), "notes lack server-assigned ids");
+    const firstId = notes[0].id;
+    const updatePreview = (await textOf(client, "live_note_update_preview", { clipRef, notes: [{ id: firstId, velocity: 66, probability: 0.5, velocityDeviation: 10, releaseVelocity: 32, mute: true }] })).parsed;
+    const updated = (await textOf(client, "live_note_update_apply", { transactionId: updatePreview.transactionId, confirmation: "apply", idempotencyKey: "journey-note-update" })).parsed;
+    assert(updated.updated === 1, "note update failed");
+    const afterUpdate = (await textOf(client, "live_discover", { kind: "note", parent: clipRef })).parsed.items;
+    const edited = afterUpdate.find((item) => item.id === firstId);
+    assert(edited.velocity === 66 && edited.probability === 0.5 && edited.velocityDeviation === 10 && edited.releaseVelocity === 32 && edited.mute === true, `note fields did not land: ${JSON.stringify(edited)}`);
+    const deletePreview = (await textOf(client, "live_note_delete_preview", { clipRef, noteIds: [firstId] })).parsed;
+    const deleted = (await textOf(client, "live_note_delete_apply", { transactionId: deletePreview.transactionId, confirmation: "apply", idempotencyKey: "journey-note-delete" })).parsed;
+    assert(deleted.deleted === 1, "note delete failed");
+    assert((await textOf(client, "live_discover", { kind: "note", parent: clipRef })).parsed.items.length === 1, "note was not removed");
+    const undone = (await textOf(client, "live_undo", { transactionId: deletePreview.transactionId, confirmation: "undo", idempotencyKey: "journey-note-delete-undo" })).parsed;
+    assert(undone.state === "undone", "note-delete undo failed");
+    assert((await textOf(client, "live_discover", { kind: "note", parent: clipRef })).parsed.items.length === 2, "undo did not restore the note");
+  });
+
   await step("shutdown leaves no residual playback or processes", async () => {
     assert((await playback(client)).transport.playing === false, "playback was active before shutdown");
     await client.close();
@@ -595,9 +637,10 @@ try {
 } finally {
   for (const child of children) terminateChildProcess(child.kill ? child : child);
   await waitMs(100);
-  removeTemporaryDirectory(temporaryDirectory);
+  if (!process.env.KEEP_JOURNEY_TEMP) removeTemporaryDirectory(temporaryDirectory);
+  else console.error(`journey temp kept: ${temporaryDirectory}`);
 }
 
-const summary = { journey: "packaged-production-boundary", provenance: "fake-live", steps: results, passed: !failed && results.every((entry) => entry.passed) && results.length === 16 };
+const summary = { journey: "packaged-production-boundary", provenance: "fake-live", steps: results, passed: !failed && results.every((entry) => entry.passed) && results.length === 17 };
 console.log(JSON.stringify(summary));
 if (!summary.passed) process.exitCode = 1;

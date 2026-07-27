@@ -42,7 +42,7 @@ export class SessionMidiTransactionManager {
     const status = this.require("session.read");
     const snapshot = await adapter.snapshotAsync();
     const track = snapshot.tracks.find((item) => item.ref === (request as SessionMidiRequest).trackRef);
-    if (!track || track.kind !== "midi") throw new Error("MIDI track not found");
+    if (!track || (track.kind !== "midi" && (track as unknown as { mediaKind?: string }).mediaKind !== "midi")) throw new Error("MIDI track not found");
     const typed = request as SessionMidiRequest;
     const clip = track.clips.find((item) => item.start === typed.sceneIndex * 4);
     if (clip) throw new Error("Session slot is occupied");
@@ -70,7 +70,7 @@ export class SessionMidiTransactionManager {
       clipRef = created.ref;
       for (const note of record.proposed.notes) await adapter.invokeAsync({ operation: "note.add", args: { ref: clipRef, note } });
       const verified = await adapter.getAsync(clipRef) as { name?: string; length?: number; notes?: Note[] } | undefined;
-      if (!verified || verified.name !== record.proposed.name || verified.length !== record.proposed.length || JSON.stringify(verified.notes ?? []) !== JSON.stringify(record.proposed.notes)) throw new Error("Live did not confirm MIDI clip contents");
+      if (!verified || verified.name !== record.proposed.name || verified.length !== record.proposed.length || !notesMatch(verified.notes ?? [], record.proposed.notes)) throw new Error("Live did not confirm MIDI clip contents");
       record.state = "applied"; record.clipRef = clipRef; record.appliedNotes = clone(verified.notes ?? []); record.applyKey = idempotencyKey;
       const result = { transactionId, state: "applied", clipRef, notes: record.appliedNotes, epoch: record.epoch, idempotent: false };
       this.idempotency.set(idempotencyKey, { transactionId, result: clone(result) });
@@ -100,7 +100,7 @@ export class SessionMidiTransactionManager {
     const status = this.require("session.read");
     const snapshot = this.adapter.snapshot();
     const track = snapshot.tracks.find((item) => item.ref === request.trackRef);
-    if (!track || track.kind !== "midi") throw new Error("MIDI track not found");
+    if (!track || (track.kind !== "midi" && (track as unknown as { mediaKind?: string }).mediaKind !== "midi")) throw new Error("MIDI track not found");
     const clip = track.clips.find((item) => item.start === request.sceneIndex * 4);
     if (clip) throw new Error("Session slot is occupied");
     const result: SessionMidiPreview = { transactionId: `midi_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, revision: revision(snapshot, request.trackRef, request.sceneIndex), target: { trackRef: request.trackRef, sceneIndex: request.sceneIndex }, prior: { occupied: false }, proposed: clone(request), impact: "creates-session-midi-clip", confirmation: "apply", expiresAt: Date.now() + SESSION_MIDI_TRANSACTION_TTL_MS };
@@ -127,7 +127,7 @@ export class SessionMidiTransactionManager {
       clipRef = created.ref;
       for (const note of record.proposed.notes) this.adapter.invoke({ operation: "note.add", args: { ref: clipRef, note } });
       const verified = this.adapter.get(clipRef) as { name?: string; length?: number; notes?: Note[] } | undefined;
-      if (!verified || verified.name !== record.proposed.name || verified.length !== record.proposed.length || JSON.stringify(verified.notes ?? []) !== JSON.stringify(record.proposed.notes)) throw new Error("Live did not confirm MIDI clip contents");
+      if (!verified || verified.name !== record.proposed.name || verified.length !== record.proposed.length || !notesMatch(verified.notes ?? [], record.proposed.notes)) throw new Error("Live did not confirm MIDI clip contents");
       record.state = "applied"; record.clipRef = clipRef; record.appliedNotes = clone(verified.notes ?? []); record.applyKey = idempotencyKey;
       const result = { transactionId, state: "applied", clipRef, notes: record.appliedNotes, epoch: record.epoch, idempotent: false };
       this.idempotency.set(idempotencyKey, { transactionId, result: clone(result) });
@@ -180,4 +180,14 @@ export async function discoverSessionAsync(adapter: AsyncLiveAdapter, kind: "tra
   if (!Number.isInteger(offset) || offset < 0 || offset > items.length) throw new Error("invalid cursor");
   const page = items.slice(offset, offset + limit); const next = offset + page.length < items.length ? Buffer.from(String(offset + page.length)).toString("base64url") : undefined;
   return { epoch: status.epoch, revision: `${status.epoch}:${items.length}`, items: clone(page), ...(next ? { nextCursor: next } : {}), truncated: next !== undefined };
+}
+
+/** Compare requested note content against authoritative notes enriched with
+ * server-assigned fields (id, mute, probability, deviations, release). */
+function notesMatch(actual: Note[], proposed: Note[]): boolean {
+  if (actual.length !== proposed.length) return false;
+  return proposed.every((wanted, index) => {
+    const found = actual[index]!;
+    return found.pitch === wanted.pitch && found.start === wanted.start && found.duration === wanted.duration && found.velocity === wanted.velocity && found.channel === wanted.channel;
+  });
 }
