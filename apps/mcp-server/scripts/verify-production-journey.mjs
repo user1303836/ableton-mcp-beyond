@@ -123,17 +123,29 @@ class FakeClip:
     def get_notes(self, *_): return list(self.notes)
 
 class FakeSlot:
-    def __init__(self, clip=None): self.clip = clip
+    def __init__(self, clip=None, track=None, index=0):
+        self.clip = clip; self._track = track; self._index = index
     def create_clip(self, length):
         self.clip = FakeClip(length); return self.clip
     def delete_clip(self): self.clip = None
+    def fire(self):
+        if self._track is not None and self.clip is not None:
+            song = self._track._song
+            song.is_playing = True
+            self._track.playing_slot_index = self._index
+            self._track.fired_slot_index = self._index
 
 class FakeTrack:
     has_midi_input = True
-    def __init__(self, name="Journey Drums", clips=None):
+    def __init__(self, name="Journey Drums", clips=None, song=None):
         self.name = name; self.arm = False; self.current_monitoring_state = 2
         self.playing_slot_index = -1; self.fired_slot_index = -1
-        self.clip_slots = [FakeSlot(clip) for clip in (clips if clips is not None else [FakeClip(), None])]; self.devices = []
+        self._song = song
+        self.clip_slots = [FakeSlot(clip, self, i) for i, clip in enumerate(clips if clips is not None else [FakeClip(), None])]; self.devices = []
+    def stop_all_clips(self, quantized=True):
+        self.playing_slot_index = -1; self.fired_slot_index = -1
+        if self._song is not None and all(track.playing_slot_index == -1 and track.fired_slot_index == -1 for track in self._song.tracks):
+            self._song.is_playing = False
 
 class FakeReturnTrack:
     def __init__(self): self.name = "Journey Return"; self.clip_slots = []; self.devices = []
@@ -159,9 +171,11 @@ class FakeExternalScene:
 class FakeSong:
     def __init__(self):
         self.name = "Journey Disposable Set"; self.tempo = 120.0
-        self.tracks = [FakeTrack(), FakeTrack("Journey Bass", [FakeClip(), FakeClip()])]; self.return_tracks = [FakeReturnTrack()]; self.master_track = FakeMasterTrack()
+        self.tracks = [FakeTrack(song=self), FakeTrack("Journey Bass", [FakeClip(), FakeClip()], song=self)]; self.return_tracks = [FakeReturnTrack()]; self.master_track = FakeMasterTrack()
         self.is_playing = False; self.record_mode = False; self.session_record = False
         self.current_song_time = 0.0; self.clip_trigger_quantization = "1_bar"
+        self.loop = False; self.loop_start = 0.0; self.loop_length = 4.0
+        self.punch_in = False; self.punch_out = False; self.metronome = False; self.count_in_duration = 1.0
         self.fire_sleep = 0.0; self.fail_stop = False
         self.scenes = [FakeScene("Journey Scene", self, 0), FakeExternalScene("Other Scene")]
     def stop_all_clips(self):
@@ -538,6 +552,39 @@ try {
     second.socket.destroy();
   });
 
+  await step("transport preview/apply sets loop and position with a revision fence and undoes", async () => {
+    const preview = (await textOf(client, "live_transport_preview", { position: 16, loopEnabled: true, loopStart: 8, loopLength: 8, metronome: true })).parsed;
+    const applied = (await textOf(client, "live_transport_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "journey-transport-1" })).parsed;
+    assert(applied.state === "applied", "transport apply failed");
+    const state = await playback(client);
+    assert(state.transport.loop.enabled === true && state.transport.loop.start === 8 && state.transport.loop.length === 8 && state.transport.metronome === true && state.transport.position === 16, "transport fields did not land");
+    const undone = (await textOf(client, "live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "journey-transport-undo" })).parsed;
+    assert(undone.state === "undone", "transport undo failed");
+    const restored = await playback(client);
+    assert(restored.transport.loop.enabled === preview.prior.loop.enabled && restored.transport.metronome === preview.prior.metronome && restored.transport.position === preview.prior.position, `transport undo did not restore: ${JSON.stringify(restored.transport)}`);
+  });
+
+  await step("clip launch previews, applies once, verifies, and stops through the owning track", async () => {
+    const freshTracks = (await textOf(client, "live_discover", { kind: "track" })).parsed.items;
+    trackRef = freshTracks[0]?.ref;
+    const slots = (await textOf(client, "live_discover", { kind: "clip-slot", parent: trackRef })).parsed.items;
+    const slotRef = slots.find((item) => item.empty === false)?.ref;
+    assert(typeof slotRef === "string", "no playable clip slot found");
+    const unsafe = await textOf(client, "live_clip_launch_preview", { slotRef, outputSafety: { safe: true, provenance: "unknown" } });
+    assert(unsafe.isError === true, "unsafe clip-launch preview was not refused");
+    const preview = (await textOf(client, "live_clip_launch_preview", { slotRef, outputSafety: { safe: true, provenance: "journey-operator-confirmed-headphones" } })).parsed;
+    const [one, two] = await Promise.all([
+      textOf(client, "live_clip_launch_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "journey-clip-1" }),
+      textOf(client, "live_clip_launch_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "journey-clip-1" }),
+    ]);
+    assert(one.parsed.idempotent !== two.parsed.idempotent, "concurrent clip applies did not serialize to one dispatch");
+    const state = await playback(client);
+    assert(activeKeys(state).includes(preview.target.targetKey), "clip launch did not verify the exact target");
+    const stopped = (await textOf(client, "live_clip_launch_stop", { transactionId: preview.transactionId, confirmation: preview.stopConfirmation, idempotencyKey: "journey-clip-stop" })).parsed;
+    assert(stopped.state === "stopped", "clip stop failed");
+    assert(!(await playback(client)).firedTargets.length && !activeKeys(await playback(client)).length, "clip target remained active after stop");
+  });
+
   await step("shutdown leaves no residual playback or processes", async () => {
     assert((await playback(client)).transport.playing === false, "playback was active before shutdown");
     await client.close();
@@ -551,6 +598,6 @@ try {
   removeTemporaryDirectory(temporaryDirectory);
 }
 
-const summary = { journey: "packaged-production-boundary", provenance: "fake-live", steps: results, passed: !failed && results.every((entry) => entry.passed) && results.length === 14 };
+const summary = { journey: "packaged-production-boundary", provenance: "fake-live", steps: results, passed: !failed && results.every((entry) => entry.passed) && results.length === 16 };
 console.log(JSON.stringify(summary));
 if (!summary.passed) process.exitCode = 1;

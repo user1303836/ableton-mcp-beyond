@@ -19,7 +19,7 @@ test("requires initialization and exposes only read-only tools", () => {
   assert.equal((host.handle({ ...initialize, id: 2 }) as any).result.protocolVersion, PROTOCOL_VERSION);
   assert.equal(host.handle(initialized), null);
   const tools = (host.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
-  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
   const auditionPreview = tools.find((tool: { name: string }) => tool.name === "live_session_audition_preview");
   assert.deepEqual(auditionPreview.inputSchema.properties.outputSafety.required, ["safe", "provenance"]);
   const auditionStop = tools.find((tool: { name: string }) => tool.name === "live_session_audition_stop");
@@ -32,7 +32,7 @@ function auditionFixture() {
   const state = base.snapshot() as any;
   state.set = { ...state.set, name: "Disposable Set" };
   state.tracks = state.tracks.map((track: any) => ({ ...track, armed: false, monitoringState: "off", playingSlotIndex: null, firedSlotIndex: null, clipSlots: [{ ref: "clip-slot:track-1:0", parentRef: track.ref, sceneIndex: 0, clipRef: track.clips[0].ref, empty: false }] }));
-  state.playback = { ref: "session-playback:one", epoch: 1, revision: "baseline", transport: { playing: false, arrangementRecord: false, sessionRecord: false, position: 0, launchQuantization: { raw: "1-bar", normalized: "1-bar" } }, firedTargets: [], playingTargets: [] };
+  state.playback = { ref: "session-playback:one", epoch: 1, revision: "baseline", transport: { playing: false, arrangementRecord: false, sessionRecord: false, position: 0, launchQuantization: { raw: "1-bar", normalized: "1-bar" }, loop: { enabled: false, start: 0, length: 4 }, punchIn: false, punchOut: false, metronome: false, countIn: 1 }, firedTargets: [], playingTargets: [] };
   const counts = { launches: 0, stops: 0, emergencies: 0 };
   const target = () => ({ trackRef: state.tracks[0].ref, clipSlotRef: state.tracks[0].clipSlots[0].ref, sceneRef: "scene:scene-1", sceneIndex: 0, clipRef: state.tracks[0].clips[0].ref });
   const adapter = {
@@ -68,6 +68,21 @@ function auditionFixture() {
         if (activeKeys.some((key) => !(invocation.args.expectedTargets as string[]).includes(key))) throw new Error("mapper emergency observation recheck failed");
         state.playback.transport.playing = false; state.playback.firedTargets = []; state.playback.playingTargets = []; state.playback.revision = "stopped";
         return { stopped: true, stoppedTargets: activeKeys };
+      }
+      if (invocation.operation === "transport.set") {
+        const args = invocation.args;
+        if (args.expectedRevision !== state.playback.revision) throw new Error("transport state changed since preview");
+        const transport = state.playback.transport;
+        if (typeof args.position === "number") transport.position = args.position;
+        if (typeof args.loopEnabled === "boolean") transport.loop.enabled = args.loopEnabled;
+        if (typeof args.loopStart === "number") transport.loop.start = args.loopStart;
+        if (typeof args.loopLength === "number") transport.loop.length = args.loopLength;
+        if (typeof args.metronome === "boolean") transport.metronome = args.metronome;
+        if (typeof args.punchIn === "boolean") transport.punchIn = args.punchIn;
+        if (typeof args.punchOut === "boolean") transport.punchOut = args.punchOut;
+        if (typeof args.countIn === "number") transport.countIn = args.countIn;
+        state.playback.revision = `transport:${counts.launches}:${Math.random().toString(36).slice(2, 10)}`;
+        return { changed: true, revision: state.playback.revision };
       }
       throw new Error("unexpected operation");
     },
@@ -311,7 +326,7 @@ test("analyzes supplied PCM through the MCP tool without Live side effects", () 
 test("rejects duplicates, unsupported methods, and unknown fields", () => {
   const host = new McpHost();
   ready(host);
-  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 21);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 28);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).error.message, "Duplicate request identifier");
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set", arguments: {} } }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 4, method: "tools/list", debug: true }) as any).error.code, -32600);
@@ -577,4 +592,91 @@ test("rejects legacy shutdown and cancellation requests", () => {
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "shutdown" }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "$/cancelRequest", params: { requestId: 1 } }) as any).error.code, -32601);
   assert.equal(host.handle({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: 1 } }), null);
+});
+
+test("transport preview applies with a revision fence and guardedly undoes", async () => {
+  const { adapter } = auditionFixture();
+  const host = new McpHost(adapter);
+  ready(host);
+  const preview = await host.handleAsync({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "live_transport_preview", arguments: { position: 8, loopEnabled: true, loopStart: 4, loopLength: 8, metronome: true } } });
+  assert.equal((preview as any).result.isError, false);
+  const p = JSON.parse((preview as any).result.content[0].text);
+  assert.equal(p.prior.position, 0);
+  const empty = await host.handleAsync({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "live_transport_preview", arguments: {} } });
+  assert.equal((empty as any).error !== undefined || (empty as any).result?.isError === true, true);
+  const applied = await host.handleAsync({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "live_transport_apply", arguments: { transactionId: p.transactionId, confirmation: "apply", idempotencyKey: "transport-apply-1" } } });
+  assert.equal((applied as any).result.isError, false);
+  const state = JSON.parse((applied as any).result.content[0].text);
+  assert.equal(state.state, "applied");
+  const playback = (await adapter.snapshotAsync()).playback.transport;
+  assert.equal(playback.position, 8);
+  assert.equal(playback.loop.enabled, true);
+  assert.equal(playback.loop.start, 4);
+  assert.equal(playback.loop.length, 8);
+  assert.equal(playback.metronome, true);
+  const replay = await host.handleAsync({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "live_transport_apply", arguments: { transactionId: p.transactionId, confirmation: "apply", idempotencyKey: "transport-apply-1" } } });
+  assert.equal(JSON.parse((replay as any).result.content[0].text).idempotent, true);
+  const undone = await host.handleAsync({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "live_undo", arguments: { transactionId: p.transactionId, confirmation: "undo", idempotencyKey: "transport-undo-1" } } });
+  assert.equal((undone as any).result.isError, false);
+  const restored = (await adapter.snapshotAsync()).playback.transport;
+  assert.equal(restored.position, 0);
+  assert.equal(restored.loop.enabled, false);
+  assert.equal(restored.metronome, false);
+});
+
+test("clip launch previews, applies with one dispatch, verifies, and stops through the owning track", async () => {
+  const { state, adapter } = auditionFixture();
+  let launches = 0;
+  let trackStops = 0;
+  const innerInvoke = adapter.invokeAsync;
+  adapter.status = () => ({ ...(new DeterministicLiveSimulator()).status(), operations: ["status", "snapshot", "discover", "get", "set", "reconnect", "session.playback", "clip.launch", "track.stop"] });
+  adapter.invokeAsync = async (invocation: any) => {
+    if (invocation.operation === "clip.launch") {
+      launches += 1;
+      const slotRef = invocation.args.ref;
+      const track = state.tracks[0];
+      const scene = state.scenes[0];
+      const target = { trackRef: track.ref, clipSlotRef: slotRef, sceneRef: scene.ref, sceneIndex: 0, clipRef: track.clips[0].ref };
+      state.playback.transport.playing = true;
+      state.playback.firedTargets = [target]; state.playback.playingTargets = [target]; state.playback.revision = "launched";
+      return { launched: slotRef, targets: [target] };
+    }
+    if (invocation.operation === "track.stop") {
+      trackStops += 1;
+      state.playback.firedTargets = []; state.playback.playingTargets = [];
+      return { stopped: true };
+    }
+    return innerInvoke(invocation);
+  };
+  const host = new McpHost(adapter);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(2, "live_clip_launch_preview", { slotRef: "clip-slot:track-1:0", outputSafety: { safe: true, provenance: "operator-confirmed-headphones" } })) as any).result.content[0].text);
+  assert.equal(preview.target.slotRef, "clip-slot:track-1:0");
+  const unsafe = await call(3, "live_clip_launch_preview", { slotRef: "clip-slot:track-1:0", outputSafety: { safe: true, provenance: "unknown" } });
+  assert.equal((unsafe as any).result.isError, true);
+  const [one, two] = await Promise.all([
+    call(4, "live_clip_launch_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "clip-apply-1" }),
+    call(5, "live_clip_launch_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "clip-apply-1" }),
+  ]);
+  assert.equal(launches, 1);
+  assert.deepEqual([one, two].map((r) => JSON.parse((r as any).result.content[0].text).idempotent).sort(), [false, true]);
+  const stopped = JSON.parse(((await call(6, "live_clip_launch_stop", { transactionId: preview.transactionId, confirmation: preview.stopConfirmation, idempotencyKey: "clip-stop-1" })) as any).result.content[0].text);
+  assert.equal(stopped.state, "stopped");
+  assert.equal(trackStops, 1);
+  assert.equal(state.playback.playingTargets.length, 0);
+});
+
+test("capture MIDI and scene capture return verified new references", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const midi = await host.handleAsync({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "live_capture_midi", arguments: { confirmation: "capture" } } });
+  const midiResult = JSON.parse((midi as any).result.content[0].text);
+  assert.equal(midiResult.captured, true);
+  assert.equal(midiResult.clips.length, 1);
+  const scene = await host.handleAsync({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "live_scene_capture", arguments: { confirmation: "capture" } } });
+  const sceneResult = JSON.parse((scene as any).result.content[0].text);
+  assert.equal(sceneResult.captured, true);
+  assert.ok(sceneResult.sceneRef.startsWith("scene:"));
 });

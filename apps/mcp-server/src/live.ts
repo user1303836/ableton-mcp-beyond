@@ -55,6 +55,11 @@ export interface SessionPlaybackState {
     sessionRecord: boolean | null;
     position: number | null;
     launchQuantization: { raw: string | number | null; normalized: string | null };
+    loop: { enabled: boolean | null; start: number | null; length: number | null };
+    punchIn: boolean | null;
+    punchOut: boolean | null;
+    metronome: boolean | null;
+    countIn: number | null;
   };
   firedTargets: SessionPlaybackTarget[];
   playingTargets: SessionPlaybackTarget[];
@@ -93,6 +98,7 @@ export interface LiveEvent { sequence: number; type: "state" | "transport" | "ob
 
 export type LiveOperation =
   | "transport.set" | "session.audition-launch" | "session.audition-stop" | "session.emergency-stop" | "clip.create" | "clip.delete"
+  | "clip.launch" | "track.stop" | "playback.stop-all-clips" | "session.capture-midi" | "scene.capture"
   | "note.add" | "automation.add" | "audio.warp" | "take.add"
   | "parameter.set" | "routing.set" | "browser.search" | "locator.add" | "locator.delete"
   | "track.create" | "track.delete" | "scene.create" | "scene.delete"
@@ -137,10 +143,12 @@ function createSimulatorState(): LiveSnapshot {
     scenes: [{ ref: ref("scene", "scene-1"), name: "Scene 1", index: 0 }],
     arrangement: { length: 16, locators: [{ ref: ref("locator", "locator-1"), name: "Intro", position: 0 }] },
     browser: [{ ref: ref("device", "utility-1"), name: "Utility", kind: "device" }, { ref: ref("clip", "sample-1"), name: "Kick Sample", kind: "sample" }],
-    playback: { ref: ref("session-playback", "playback-1"), epoch: 1, revision: "1:stopped", transport: { playing: false, arrangementRecord: false, sessionRecord: false, position: 0, launchQuantization: { raw: "1-bar", normalized: "1-bar" } }, firedTargets: [], playingTargets: [] },
+    playback: { ref: ref("session-playback", "playback-1"), epoch: 1, revision: "1:stopped", transport: { playing: false, arrangementRecord: false, sessionRecord: false, position: 0, launchQuantization: { raw: "1-bar", normalized: "1-bar" }, loop: { enabled: false, start: 0, length: 4 }, punchIn: false, punchOut: false, metronome: false, countIn: 1 }, firedTargets: [], playingTargets: [] },
     selected: track.ref,
   };
 }
+
+export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "set", "reconnect", "session.playback", "transport.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "clip.create", "clip.delete", "clip.launch", "track.create", "track.delete", "track.stop", "scene.create", "scene.delete", "scene.capture", "note.add", "locator.add", "locator.delete", "playback.stop-all-clips", "session.capture-midi", "device.parameter.set"] as const;
 
 export class DeterministicLiveSimulator implements LiveAdapter {
   private state = createSimulatorState();
@@ -148,7 +156,7 @@ export class DeterministicLiveSimulator implements LiveAdapter {
   private epoch = 1;
   private listeners = new Set<(event: LiveEvent) => void>();
 
-  status(): LiveStatus { return { connected: true, adapter: "simulator", epoch: this.epoch, protocol: LIVE_PROTOCOL_VERSION, capabilities: SIMULATOR_CAPABILITIES }; }
+  status(): LiveStatus { return { connected: true, adapter: "simulator", epoch: this.epoch, protocol: LIVE_PROTOCOL_VERSION, capabilities: SIMULATOR_CAPABILITIES, operations: [...SIMULATOR_OPERATIONS] }; }
   snapshot(): LiveSnapshot { return structuredClone(this.state); }
   get(objectRef: LiveRef): unknown {
     if (objectRef === this.state.set.ref) return structuredClone(this.state.set);
@@ -193,10 +201,76 @@ export class DeterministicLiveSimulator implements LiveAdapter {
     const objectRef = (name: string): LiveRef => stringArg(name) as LiveRef;
     switch (operation) {
       case "transport.set": {
-        const property = stringArg("property");
-        if (!["tempo", "playing", "position"].includes(property)) throw new Error("unsupported transport property");
-        this.set(this.state.set.ref, property, args.value);
-        return this.get(this.state.set.ref);
+        if (typeof args.expectedRevision !== "string" || args.expectedRevision !== this.state.playback.revision) throw new Error("transport state changed since preview");
+        const transport = this.state.playback.transport;
+        const finite = (name: string): number | undefined => { const value = args[name]; if (value === null || value === undefined) return undefined; if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new TypeError(`${name} is invalid`); return value; };
+        const bool = (name: string): boolean | undefined => { const value = args[name]; if (value === null || value === undefined) return undefined; if (typeof value !== "boolean") throw new TypeError(`${name} is invalid`); return value; };
+        const position = finite("position"); const loopStart = finite("loopStart"); const loopLength = finite("loopLength"); const countIn = finite("countIn");
+        const loopEnabled = bool("loopEnabled"); const metronome = bool("metronome"); const punchIn = bool("punchIn"); const punchOut = bool("punchOut");
+        if (loopLength !== undefined && loopLength <= 0) throw new RangeError("loopLength is invalid");
+        if (position !== undefined) { transport.position = position; this.state.set.position = position; }
+        if (loopEnabled !== undefined) transport.loop.enabled = loopEnabled;
+        if (loopStart !== undefined) transport.loop.start = loopStart;
+        if (loopLength !== undefined) transport.loop.length = loopLength;
+        if (metronome !== undefined) transport.metronome = metronome;
+        if (punchIn !== undefined) transport.punchIn = punchIn;
+        if (punchOut !== undefined) transport.punchOut = punchOut;
+        if (countIn !== undefined) transport.countIn = countIn;
+        this.state.playback.revision = `${this.epoch}:transport:${++this.sequence}`;
+        this.emit({ type: "transport", payload: { operation } });
+        return { changed: true, revision: this.state.playback.revision };
+      }
+      case "clip.launch": {
+        const slotRef = objectRef("ref");
+        for (const track of this.state.tracks) for (const slot of track.clipSlots ?? []) {
+          if (slot.ref === slotRef && slot.clipRef) {
+            const scene = this.state.scenes.find((item) => item.index === slot.sceneIndex);
+            if (!scene) throw new Error("clip slot scene is unavailable");
+            const target: SessionPlaybackTarget = { trackRef: track.ref, clipSlotRef: slot.ref, sceneRef: scene.ref, sceneIndex: slot.sceneIndex, clipRef: slot.clipRef };
+            this.state.set.playing = true;
+            this.state.playback.transport.playing = true;
+            this.state.playback.firedTargets = [...this.state.playback.firedTargets.filter((item) => item.clipSlotRef !== slot.ref), target];
+            this.state.playback.playingTargets = [...this.state.playback.playingTargets.filter((item) => item.clipSlotRef !== slot.ref), target];
+            track.firedSlotIndex = slot.sceneIndex; track.playingSlotIndex = slot.sceneIndex;
+            this.state.playback.revision = `${this.epoch}:clip:${scene.ref}`;
+            this.emit({ type: "transport", ref: slotRef, payload: { operation, slot: slotRef } });
+            return { launched: slotRef, targets: [target] };
+          }
+        }
+        throw new Error("clip slot with a clip is required");
+      }
+      case "track.stop": {
+        const trackRef = objectRef("ref");
+        const track = this.state.tracks.find((item) => item.ref === trackRef);
+        if (!track) throw new Error("unknown track reference");
+        this.state.playback.firedTargets = this.state.playback.firedTargets.filter((item) => item.trackRef !== trackRef);
+        this.state.playback.playingTargets = this.state.playback.playingTargets.filter((item) => item.trackRef !== trackRef);
+        track.firedSlotIndex = null; track.playingSlotIndex = null;
+        if (this.state.playback.firedTargets.length === 0 && this.state.playback.playingTargets.length === 0) { this.state.set.playing = false; this.state.playback.transport.playing = false; }
+        this.state.playback.revision = `${this.epoch}:track-stop:${trackRef}`;
+        this.emit({ type: "transport", ref: trackRef, payload: { operation } });
+        return { stopped: true };
+      }
+      case "playback.stop-all-clips": {
+        this.stopPlayback(operation);
+        return { stopped: true };
+      }
+      case "session.capture-midi": {
+        const track = this.state.tracks[0];
+        if (!track) throw new Error("MIDI capture is unavailable");
+        const sceneIndex = this.state.scenes.length;
+        const clip: Clip = { ref: ref("clip", `captured-${++this.sequence}`), name: "Captured", kind: "midi", start: 0, length: 4, notes: [], warp: false, takes: [], automation: [] };
+        track.clips.push(clip);
+        const slot = { ref: ref("clip-slot", `${track.ref}:${sceneIndex}`), parentRef: track.ref, sceneIndex, clipRef: clip.ref, empty: false };
+        track.clipSlots = [...(track.clipSlots ?? []), slot];
+        this.emit({ type: "object", ref: track.ref, payload: { operation, clip: structuredClone(clip) } });
+        return { captured: true, clips: [clip.ref] };
+      }
+      case "scene.capture": {
+        const scene: Scene = { ref: ref("scene", `captured-${++this.sequence}`), name: "Captured", index: this.state.scenes.length };
+        this.state.scenes.push(scene);
+        this.emit({ type: "object", payload: { operation, scene } });
+        return { captured: true, ref: scene.ref };
       }
       case "session.audition-launch": {
         const sceneRef = objectRef("ref");

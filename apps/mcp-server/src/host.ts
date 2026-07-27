@@ -72,6 +72,36 @@ interface SessionAuditionTransaction {
   launched?: unknown;
   inflight?: Promise<JsonObject>;
 }
+interface TransportTransaction {
+  id: string;
+  epoch: number;
+  prior: { position: number | null; loop: { enabled: boolean | null; start: number | null; length: number | null }; punchIn: boolean | null; punchOut: boolean | null; metronome: boolean | null; countIn: number | null };
+  proposed: Record<string, number | boolean>;
+  playbackRevision: string;
+  expiresAt: number;
+  applyKey?: string;
+  undoKey?: string;
+  state: "previewed" | "applied" | "uncertain" | "undone";
+}
+interface ClipLaunchTransaction {
+  id: string;
+  epoch: number;
+  slotRef: LiveRef;
+  trackRef: LiveRef;
+  sceneRef: LiveRef;
+  sceneIndex: number;
+  clipRef: LiveRef;
+  targetKey: string;
+  playbackRevision: string;
+  outputSafety: JsonObject;
+  confirmation: string;
+  stopConfirmation: string;
+  expiresAt: number;
+  applyKey?: string;
+  stopKey?: string;
+  state: "previewed" | "applying" | "applied" | "stopping" | "stopped" | "uncertain";
+  inflight?: Promise<JsonObject>;
+}
 
 const REQUEST_ID_MAX_LENGTH = 128;
 const SERVER_VERSION = "0.1.0";
@@ -188,6 +218,48 @@ const implementedTools = [
     description: "Independently authorized emergency stop of exactly the Session playback targets observed in fresh discovery. Requires no transaction and survives host restart.",
     inputSchema: { type: "object", properties: { confirmation: { type: "string", const: "emergency-stop" }, expectedTargets: { type: "array", items: { type: "string", minLength: 1, maxLength: 1024 }, maxItems: 256, description: "Exact active playback target keys (trackRef|clipSlotRef|sceneRef) observed in a fresh live_discover/live_snapshot read; the stop is refused if Live has anything else playing." }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } }, required: ["confirmation", "expectedTargets"], additionalProperties: false },
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+  },
+  {
+    name: "live_transport_preview",
+    description: "Read-only preflight for one bounded transport change (position, loop, punch, metronome, count-in) with a playback-revision fence.",
+    inputSchema: { type: "object", properties: { position: { type: "number", minimum: 0 }, loopEnabled: { type: "boolean" }, loopStart: { type: "number", minimum: 0 }, loopLength: { type: "number", exclusiveMinimum: 0 }, metronome: { type: "boolean" }, punchIn: { type: "boolean" }, punchOut: { type: "boolean" }, countIn: { type: "number", minimum: 0, maximum: 1000 } }, required: [], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_transport_apply",
+    description: "Apply an exact, unexpired transport preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_clip_launch_preview",
+    description: "Read-only preflight for launching one exact clip slot, with explicit output-safety evidence and a playback-revision fence. Recording-active states refuse.",
+    inputSchema: { type: "object", properties: { slotRef: { type: "string", minLength: 1, maxLength: 256 }, outputSafety: { type: "object", properties: { safe: { type: "boolean", const: true }, provenance: { type: "string", minLength: 1, maxLength: 512 }, observedAt: { type: "string", minLength: 1, maxLength: 128 }, scope: { type: "string", minLength: 1, maxLength: 256 } }, required: ["safe", "provenance"], additionalProperties: false } }, required: ["slotRef", "outputSafety"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_clip_launch_apply",
+    description: "Launch the exact previewed clip slot once and verify fresh fired/playing evidence.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", minLength: 32, maxLength: 128 }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+  },
+  {
+    name: "live_clip_launch_stop",
+    description: "Stop only the preview-owned launched clip through its track and verify it is no longer active; other playback continues.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", minLength: 32, maxLength: 128 }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+  },
+  {
+    name: "live_capture_midi",
+    description: "Capture recently played MIDI into new Session clips and return the verified new clip references.",
+    inputSchema: { type: "object", properties: { confirmation: { type: "string", enum: ["capture"] } }, required: ["confirmation"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_scene_capture",
+    description: "Capture the currently playing Session content into a new scene and return the verified new scene reference.",
+    inputSchema: { type: "object", properties: { confirmation: { type: "string", enum: ["capture"] } }, required: ["confirmation"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   },
   {
     name: "live_device_parameter_preview",
@@ -340,6 +412,8 @@ export class McpHost {
   private readonly deviceParameterTransactions = new Map<string, DeviceParameterTransaction>();
   private readonly midiTransactions: SessionMidiTransactionManager;
   private readonly auditionTransactions = new Map<string, SessionAuditionTransaction>();
+  private readonly transportTransactions = new Map<string, TransportTransaction>();
+  private readonly clipLaunchTransactions = new Map<string, ClipLaunchTransaction>();
 
   public constructor(private readonly adapter: LiveAdapter = new UnavailableLiveAdapter()) { this.midiTransactions = new SessionMidiTransactionManager(adapter); }
 
@@ -349,7 +423,7 @@ export class McpHost {
     if (signal?.aborted) return null;
     if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handle(input);
     const name = input.params.name;
-    if (![ "live_session_structure_preview", "live_session_structure_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop"].includes(name)) return this.handle(input);
+    if (![ "live_session_structure_preview", "live_session_structure_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture"].includes(name)) return this.handle(input);
     // Reuse the synchronous validator and request bookkeeping, then execute the
     // adapter operation asynchronously. Invalid requests never reach Live.
     const id = this.requestId(input.id);
@@ -370,6 +444,13 @@ export class McpHost {
       if (name === "live_session_audition_apply") return await this.liveSessionAuditionApplyAsync(id, input.params.arguments, signal);
       if (name === "live_session_audition_stop") return await this.liveSessionAuditionStopAsync(id, input.params.arguments, signal);
       if (name === "live_session_emergency_stop") return await this.liveSessionEmergencyStopAsync(id, input.params.arguments, signal);
+      if (name === "live_transport_preview") return await this.liveTransportPreviewAsync(id, input.params.arguments);
+      if (name === "live_transport_apply") return await this.liveTransportApplyAsync(id, input.params.arguments, signal);
+      if (name === "live_clip_launch_preview") return await this.liveClipLaunchPreviewAsync(id, input.params.arguments);
+      if (name === "live_clip_launch_apply") return await this.liveClipLaunchApplyAsync(id, input.params.arguments, signal);
+      if (name === "live_clip_launch_stop") return await this.liveClipLaunchStopAsync(id, input.params.arguments, signal);
+      if (name === "live_capture_midi") return await this.liveCaptureMidiAsync(id, input.params.arguments, signal);
+      if (name === "live_scene_capture") return await this.liveSceneCaptureAsync(id, input.params.arguments, signal);
       if (name === "live_device_parameter_preview") return await this.liveDeviceParameterPreviewAsync(id, input.params.arguments);
       if (name === "live_device_parameter_apply") return await this.liveDeviceParameterApplyAsync(id, input.params.arguments);
       if (name === "live_midi_clip_preview") return await this.liveMidiPreviewAsync(id, input.params.arguments);
@@ -681,6 +762,266 @@ export class McpHost {
     } catch (cause) { return this.adapterToolError(id, cause, "Emergency stop is uncertain; perform fresh authoritative playback discovery before any further action."); }
   }
 
+  private static readonly TRANSPORT_FIELDS = ["position", "loopEnabled", "loopStart", "loopLength", "metronome", "punchIn", "punchOut", "countIn"] as const;
+
+  private async liveTransportPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, [...McpHost.TRANSPORT_FIELDS])) return error(id, -32602, "only bounded transport fields are accepted");
+    const proposed: Record<string, number | boolean> = {};
+    for (const field of McpHost.TRANSPORT_FIELDS) {
+      const value = params[field];
+      if (value === undefined) continue;
+      if (["loopEnabled", "metronome", "punchIn", "punchOut"].includes(field)) { if (typeof value !== "boolean") return error(id, -32602, `${field} must be boolean`); }
+      else if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || (field === "countIn" && value > 1000) || (field === "loopLength" && value <= 0)) return error(id, -32602, `${field} is out of bounds`);
+      proposed[field] = value;
+    }
+    if (Object.keys(proposed).length === 0) return error(id, -32602, "at least one transport field is required");
+    try {
+      const status = this.requireConnected("transport");
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const transport = snapshot.playback?.transport;
+      if (!transport || !transport.loop) return this.transactionError(id, "authoritative transport state is unavailable");
+      const transaction: TransportTransaction = { id: `transport_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, prior: structuredClone({ position: transport.position, loop: transport.loop, punchIn: transport.punchIn, punchOut: transport.punchOut, metronome: transport.metronome, countIn: transport.countIn }), proposed, playbackRevision: snapshot.playback.revision, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.transportTransactions, transaction, "transport");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, prior: transaction.prior, proposed, playbackRevision: transaction.playbackRevision, impact: "transport-state", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Transport preview requires fresh authoritative playback state."); }
+  }
+
+  private async liveTransportApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.transportTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.expiresAt <= Date.now()) return this.transactionError(id, "Unknown or expired transport transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    if (transaction.state !== "previewed") return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      const status = this.requireConnected("transport");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
+      const result = await adapter.invokeAsync({ operation: "transport.set", args: { ...transaction.proposed, expectedRevision: transaction.playbackRevision } }, context) as { changed?: unknown; revision?: unknown };
+      if (result.changed !== true || typeof result.revision !== "string") throw new Error("transport change was not confirmed");
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", revision: result.revision, idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Transport state is uncertain; perform fresh discovery before retrying."); }
+  }
+
+  private async liveTransportUndoAsync(id: RequestId, transaction: TransportTransaction, params: Record<string, unknown>): Promise<JsonObject> {
+    if (transaction.state === "undone" && transaction.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "undone", idempotent: true });
+    if (transaction.state !== "applied") return this.transactionError(id, "Only an applied transport transaction can be undone");
+    try {
+      const status = this.requireConnected("transport");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+      const adapter = this.asyncAdapter();
+      const context = { deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
+      const snapshot = await adapter.snapshotAsync(context);
+      const prior = transaction.prior;
+      const restore: Record<string, number | boolean> = {};
+      for (const field of Object.keys(transaction.proposed)) {
+        if (field === "position" && typeof prior.position === "number") restore.position = prior.position;
+        if (field === "loopEnabled" && typeof prior.loop.enabled === "boolean") restore.loopEnabled = prior.loop.enabled;
+        if (field === "loopStart" && typeof prior.loop.start === "number") restore.loopStart = prior.loop.start;
+        if (field === "loopLength" && typeof prior.loop.length === "number") restore.loopLength = prior.loop.length;
+        if (field === "metronome" && typeof prior.metronome === "boolean") restore.metronome = prior.metronome;
+        if (field === "punchIn" && typeof prior.punchIn === "boolean") restore.punchIn = prior.punchIn;
+        if (field === "punchOut" && typeof prior.punchOut === "boolean") restore.punchOut = prior.punchOut;
+        if (field === "countIn" && typeof prior.countIn === "number") restore.countIn = prior.countIn;
+      }
+      const result = await adapter.invokeAsync({ operation: "transport.set", args: { ...restore, expectedRevision: snapshot.playback.revision } }, context) as { changed?: unknown; revision?: unknown };
+      if (result.changed !== true) throw new Error("transport undo was not confirmed");
+      transaction.undoKey = params.idempotencyKey as string;
+      transaction.state = "undone";
+      return this.successText(id, { transactionId: transaction.id, state: "undone", restored: restore, idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Transport undo is uncertain; perform fresh discovery."); }
+  }
+
+  private retainBoundedTransaction<T extends { id: string; expiresAt: number; state: string }>(map: Map<string, T>, transaction: T, kind: string): void {
+    const now = Date.now();
+    for (const [key, candidate] of map) if (candidate.expiresAt <= now && candidate.state !== "applying" && candidate.state !== "stopping") map.delete(key);
+    while (map.size >= MAX_AUDITION_TRANSACTIONS) {
+      const oldest = [...map].find(([, candidate]) => candidate.state !== "applying" && candidate.state !== "stopping");
+      if (!oldest) throw new Error(`${kind} transaction capacity is exhausted by in-flight work`);
+      map.delete(oldest[0]);
+    }
+    map.set(transaction.id, transaction);
+  }
+
+  private validateOutputSafety(outputSafety: unknown): void {
+    if (!isObject(outputSafety) || !hasOnly(outputSafety, ["safe", "provenance", "observedAt", "scope"]) || outputSafety.safe !== true || !isNonEmptyString(outputSafety.provenance, 512) || outputSafety.provenance === "unknown" || outputSafety.provenance === "simulator") throw new Error("explicit authoritative output-safety evidence is required");
+  }
+
+  private async liveClipLaunchPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, ["slotRef", "outputSafety"]) || !isNonEmptyString(params.slotRef, 256)) return error(id, -32602, "slotRef and outputSafety evidence are required");
+    try {
+      this.validateOutputSafety(params.outputSafety);
+      const status = this.requireConnected("session.read");
+      if (!(status.operations ?? []).includes("clip.launch")) throw new Error("clip launch operation is unavailable");
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const transport = snapshot.playback?.transport;
+      if (!transport) throw new Error("authoritative playback state is unavailable");
+      if (transport.arrangementRecord === true || transport.sessionRecord === true) throw new Error("clip launch while recording is active is refused");
+      const target = (snapshot.tracks as unknown as JsonObject[]).flatMap((track) => Array.isArray(track.clipSlots) ? (track.clipSlots as unknown[]).filter(isObject).filter((slot) => slot.ref === params.slotRef).map((slot) => ({ track, slot })) : [])[0];
+      if (!target || typeof target.slot.clipRef !== "string" || typeof target.slot.sceneIndex !== "number" || typeof target.track.ref !== "string") throw new Error("clip slot with an authoritative clip is required");
+      const scene = snapshot.scenes.find((item) => item.index === target.slot.sceneIndex);
+      if (!scene) throw new Error("clip slot scene is not authoritative");
+      const targetKey = `${target.track.ref}|${target.slot.ref}|${scene.ref}`;
+      if (targetKey.split("|").length !== 3) throw new Error("clip references are not encodable as a target key");
+      const transaction: ClipLaunchTransaction = { id: `cliplaunch_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, slotRef: params.slotRef as LiveRef, trackRef: target.track.ref as LiveRef, sceneRef: scene.ref, sceneIndex: scene.index, clipRef: target.slot.clipRef as LiveRef, targetKey, playbackRevision: snapshot.playback.revision, outputSafety: structuredClone(params.outputSafety as JsonObject), confirmation: randomBytes(32).toString("base64url"), stopConfirmation: randomBytes(32).toString("base64url"), expiresAt: Date.now() + AUDITION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLaunchTransactions, transaction, "clip launch");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, target: { slotRef: transaction.slotRef, trackRef: transaction.trackRef, sceneRef: transaction.sceneRef, sceneIndex: transaction.sceneIndex, clipRef: transaction.clipRef, targetKey }, playbackRevision: transaction.playbackRevision, audibleImpact: "potentially-audible-clip-launch", confirmation: transaction.confirmation, stopConfirmation: transaction.stopConfirmation, expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Clip-launch preview refused; obtain fresh authoritative discovery and explicit output-safety evidence."); }
+  }
+
+  private async liveClipLaunchApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!isObject(params) || !hasOnly(params, ["transactionId", "confirmation", "idempotencyKey"]) || !isNonEmptyString(params.transactionId, 128) || !isNonEmptyString(params.confirmation, 128) || !isNonEmptyString(params.idempotencyKey, 128)) return error(id, -32602, "transactionId, exact confirmation, and idempotencyKey are required");
+    const transaction = this.clipLaunchTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.expiresAt <= Date.now()) return this.transactionError(id, "Unknown or expired clip-launch transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey && transaction.confirmation === params.confirmation) return this.successText(id, { transactionId: transaction.id, state: "applied", stopConfirmation: transaction.stopConfirmation, idempotent: true });
+    if (transaction.state === "applying") {
+      if (transaction.applyKey !== params.idempotencyKey || transaction.confirmation !== params.confirmation || !transaction.inflight) return this.transactionError(id, "Clip-launch apply is already in progress with a different request");
+      try {
+        const outcome = await transaction.inflight;
+        return this.successText(id, { ...outcome, idempotent: true });
+      } catch (cause) {
+        return this.adapterToolError(id, cause, "Clip-launch state is uncertain; do not retry. Perform fresh playback discovery.");
+      }
+    }
+    if (transaction.state !== "previewed" || transaction.confirmation !== params.confirmation) return this.transactionError(id, "Exact clip-launch confirmation is required");
+    if (signal?.aborted) return null;
+    transaction.state = "applying";
+    transaction.applyKey = params.idempotencyKey as string;
+    const inflight = this.dispatchClipLaunchApply(transaction, signal);
+    transaction.inflight = inflight;
+    inflight.catch(() => undefined);
+    try {
+      const outcome = await inflight;
+      return this.successText(id, { ...outcome, idempotent: false });
+    } catch (cause) {
+      return this.adapterToolError(id, cause, "Clip-launch state is uncertain; do not retry. Perform fresh playback discovery.");
+    }
+  }
+
+  private async dispatchClipLaunchApply(transaction: ClipLaunchTransaction, signal?: AbortSignal): Promise<JsonObject> {
+    try {
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) throw new Error("Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
+      const snapshot = await adapter.snapshotAsync(context);
+      const transport = snapshot.playback?.transport;
+      if (!transport) throw new Error("authoritative playback state is unavailable");
+      if (snapshot.playback.revision !== transaction.playbackRevision) throw new Error("playback state changed since preview");
+      if (transport.arrangementRecord === true || transport.sessionRecord === true) throw new Error("clip launch while recording is active is refused");
+      const stillThere = (snapshot.tracks as unknown as JsonObject[]).some((track) => track.ref === transaction.trackRef && Array.isArray(track.clipSlots) && (track.clipSlots as unknown[]).filter(isObject).some((slot) => slot.ref === transaction.slotRef && slot.clipRef === transaction.clipRef && slot.sceneIndex === transaction.sceneIndex));
+      if (!stillThere) throw new Error("clip slot content changed since preview");
+      this.validateOutputSafety(transaction.outputSafety);
+      if (signal?.aborted) throw new Error("clip launch cancelled before dispatch");
+      const result = await adapter.invokeAsync({ operation: "clip.launch", args: { ref: transaction.slotRef } }, context) as { launched?: unknown; targets?: unknown };
+      if (result.launched !== transaction.slotRef) throw new Error("clip launch result does not match the previewed slot");
+      let verified = false;
+      while (Date.now() < context.deadlineMs - 250) {
+        const after = await adapter.snapshotAsync(context);
+        const activeTargets = [...after.playback.firedTargets, ...after.playback.playingTargets];
+        if (activeTargets.some((target) => `${target.trackRef}|${target.clipSlotRef}|${target.sceneRef}` === transaction.targetKey)) { verified = true; break; }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!verified) throw new Error("clip launch was not confirmed by fresh fired or playing target evidence");
+      transaction.state = "applied";
+      return { transactionId: transaction.id, state: "applied", verified: { targetKey: transaction.targetKey, firedOrPlaying: true }, stopConfirmation: transaction.stopConfirmation };
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      transaction.state = /cancelled before dispatch/.test(message) ? "previewed" : "uncertain";
+      throw cause;
+    }
+  }
+
+  private async liveClipLaunchStopAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!isObject(params) || !hasOnly(params, ["transactionId", "confirmation", "idempotencyKey"]) || !isNonEmptyString(params.transactionId, 128) || !isNonEmptyString(params.confirmation, 128) || !isNonEmptyString(params.idempotencyKey, 128)) return error(id, -32602, "transactionId, exact stop confirmation, and idempotencyKey are required");
+    const transaction = this.clipLaunchTransactions.get(params.transactionId as string);
+    if (!transaction) return this.transactionError(id, "Unknown clip-launch transaction");
+    if (transaction.state === "stopped" && transaction.stopKey === params.idempotencyKey && params.confirmation === transaction.stopConfirmation) return this.successText(id, { transactionId: transaction.id, state: "stopped", idempotent: true });
+    if (params.confirmation !== transaction.stopConfirmation) return this.transactionError(id, "Exact clip-launch stop confirmation is required");
+    if (transaction.state === "stopping") {
+      if (transaction.stopKey !== params.idempotencyKey || !transaction.inflight) return this.transactionError(id, "Clip-launch stop is already in progress with a different request");
+      try {
+        const outcome = await transaction.inflight;
+        return this.successText(id, { ...outcome, idempotent: true });
+      } catch (cause) {
+        return this.adapterToolError(id, cause, "Clip-launch stop is uncertain; perform fresh playback discovery.");
+      }
+    }
+    if (!(transaction.state === "applied" || transaction.state === "uncertain")) return this.transactionError(id, "Only an applied or uncertain clip launch can be stopped");
+    if (signal?.aborted) return null;
+    transaction.state = "stopping";
+    transaction.stopKey = params.idempotencyKey as string;
+    const inflight = this.dispatchClipLaunchStop(transaction, signal);
+    transaction.inflight = inflight;
+    inflight.catch(() => undefined);
+    try {
+      const outcome = await inflight;
+      return this.successText(id, { ...outcome, idempotent: false });
+    } catch (cause) {
+      return this.adapterToolError(id, cause, "Clip-launch stop is uncertain; perform fresh playback discovery.");
+    }
+  }
+
+  private async dispatchClipLaunchStop(transaction: ClipLaunchTransaction, signal?: AbortSignal): Promise<JsonObject> {
+    try {
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) throw new Error("Live connection epoch changed; stop refused");
+      if (!(status.operations ?? []).includes("track.stop")) throw new Error("track stop operation is unavailable");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
+      const before = await adapter.snapshotAsync(context);
+      const ours = [...before.playback.firedTargets, ...before.playback.playingTargets].some((target) => `${target.trackRef}|${target.clipSlotRef}|${target.sceneRef}` === transaction.targetKey);
+      if (ours) {
+        if (signal?.aborted) throw new Error("clip-launch stop cancelled before dispatch");
+        await adapter.invokeAsync({ operation: "track.stop", args: { ref: transaction.trackRef } }, context);
+      }
+      let confirmed = false;
+      while (Date.now() < context.deadlineMs - 250) {
+        const after = await adapter.snapshotAsync(context);
+        const still = [...after.playback.firedTargets, ...after.playback.playingTargets].some((target) => `${target.trackRef}|${target.clipSlotRef}|${target.sceneRef}` === transaction.targetKey);
+        if (!still) { confirmed = true; break; }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!confirmed) throw new Error("clip stop was not confirmed by fresh authoritative state");
+      transaction.state = "stopped";
+      return { transactionId: transaction.id, state: "stopped", targetCleared: true };
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      transaction.state = /cancelled before dispatch/.test(message) ? "applied" : "uncertain";
+      throw cause;
+    }
+  }
+
+  private async liveCaptureMidiAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!isObject(params) || !hasOnly(params, ["confirmation"]) || params.confirmation !== "capture") return error(id, -32602, "confirmation=capture is required");
+    try {
+      const status = this.requireConnected("session.read");
+      if (!(status.operations ?? []).includes("session.capture-midi")) throw new Error("MIDI capture is unavailable");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
+      const result = await adapter.invokeAsync({ operation: "session.capture-midi", args: {} }, context) as { captured?: unknown; clips?: unknown };
+      const clips = Array.isArray(result.clips) ? result.clips : [];
+      if (result.captured !== true || clips.length === 0) return this.successText(id, { captured: false, clips: [], note: "Live reported nothing captured; nothing was playing or no new MIDI was available" });
+      return this.successText(id, { captured: true, clips });
+    } catch (cause) { return this.adapterToolError(id, cause, "MIDI capture is uncertain; perform fresh discovery."); }
+  }
+
+  private async liveSceneCaptureAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!isObject(params) || !hasOnly(params, ["confirmation"]) || params.confirmation !== "capture") return error(id, -32602, "confirmation=capture is required");
+    try {
+      const status = this.requireConnected("session.read");
+      if (!(status.operations ?? []).includes("scene.capture")) throw new Error("scene capture is unavailable");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
+      const result = await adapter.invokeAsync({ operation: "scene.capture", args: {} }, context) as { captured?: unknown; ref?: unknown };
+      if (result.captured !== true || typeof result.ref !== "string") throw new Error("scene capture was not confirmed");
+      return this.successText(id, { captured: true, sceneRef: result.ref });
+    } catch (cause) { return this.adapterToolError(id, cause, "Scene capture is uncertain; perform fresh discovery."); }
+  }
+
   private parameterTarget(snapshot: LiveSnapshot, deviceRef: string, parameterRef: string): { device: LiveSnapshot["tracks"][number]["devices"][number]; parameter: LiveSnapshot["tracks"][number]["devices"][number]["parameters"][number]; trackRef: LiveRef } {
     for (const track of snapshot.tracks) {
       const device = track.devices.find((item) => item.ref === deviceRef);
@@ -823,6 +1164,11 @@ export class McpHost {
     if (!this.validTransactionParams(params, "undo")) return error(id, -32602, "transactionId, confirmation=undo, and idempotencyKey are required");
     const transaction = this.transactions.get(params.transactionId as string);
     if (!transaction && String(params.transactionId).startsWith("midi_")) return this.successText(id, await this.midiTransactions.undoAsync(params.transactionId as string, params.confirmation, params.idempotencyKey as string));
+    if (!transaction && String(params.transactionId).startsWith("transport_")) {
+      const transport = this.transportTransactions.get(params.transactionId as string);
+      if (!transport) return this.transactionError(id, "Unknown or expired transport transaction");
+      return this.liveTransportUndoAsync(id, transport, params as Record<string, unknown>);
+    }
     if (!transaction && String(params.transactionId).startsWith("structure_")) {
       const structure = this.sessionStructureTransactions.get(params.transactionId as string);
       if (!structure || structure.state === "uncertain") return this.transactionError(id, "Session-structure state is uncertain; read authoritative tracks and scenes before undo");
@@ -970,7 +1316,7 @@ export class McpHost {
       return error(id, -32602, "Invalid tools/call parameters");
     }
     if (params.arguments !== undefined && !isObject(params.arguments)) return error(id, -32602, "Tool arguments must be an object");
-    const argumentTools = new Set(["audio_analyze", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+    const argumentTools = new Set(["audio_analyze", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
     if (!argumentTools.has(params.name) && params.arguments !== undefined && Object.keys(params.arguments as JsonObject).length !== 0) {
       return error(id, -32602, "Tool arguments must be an empty object");
     }
@@ -983,7 +1329,7 @@ export class McpHost {
     if (params.name === "live_status") return this.liveStatus(id);
     if (params.name === "live_snapshot") return this.liveSnapshot(id);
     if (params.name === "live_discover") return this.liveDiscover(id, params.arguments);
-    if (["live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop"].includes(params.name)) return error(id, -32001, "Session audition requires the asynchronous host request path");
+    if (["live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture"].includes(params.name)) return error(id, -32001, "Session playback operations require the asynchronous host request path");
     if (params.name === "live_device_parameter_preview") return this.liveDeviceParameterPreview(id, params.arguments);
     if (params.name === "live_device_parameter_apply") return this.liveDeviceParameterApply(id, params.arguments);
     if (params.name === "live_session_structure_preview") return this.liveSessionStructurePreview(id, params.arguments);

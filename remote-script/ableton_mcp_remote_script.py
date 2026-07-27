@@ -377,6 +377,18 @@ class LiveObjectMapper:
             return True
         if operation == "session.playback":
             return True
+        if operation == "transport.set":
+            return callable(getattr(self.song, "stop_playing", None)) or hasattr(self.song, "current_song_time")
+        if operation == "clip.launch":
+            return any(getattr(slot, "clip", None) is not None and callable(getattr(slot, "fire", None)) for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation == "track.stop":
+            return any(callable(getattr(track, "stop_all_clips", None)) for track in self._items(getattr(self.song, "tracks", [])))
+        if operation == "playback.stop-all-clips":
+            return callable(getattr(self.song, "stop_all_clips", None)) and callable(getattr(self.song, "stop_playing", None))
+        if operation == "session.capture-midi":
+            return callable(getattr(self.song, "capture_midi", None))
+        if operation == "scene.capture":
+            return callable(getattr(self.song, "capture_and_insert_scene", None))
         if operation == "session.audition-launch":
             return any(callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None)) for scene in self._items(getattr(self.song, "scenes", [])))
         if operation in {"session.audition-stop", "session.emergency-stop"}:
@@ -504,6 +516,15 @@ class LiveObjectMapper:
             "sessionRecord": getattr(self.song, "session_record", None) if isinstance(getattr(self.song, "session_record", None), bool) else None,
             "position": float(getattr(self.song, "current_song_time", getattr(self.song, "song_time", 0))) if isinstance(getattr(self.song, "current_song_time", getattr(self.song, "song_time", None)), (int, float)) and not isinstance(getattr(self.song, "current_song_time", getattr(self.song, "song_time", None)), bool) and math.isfinite(float(getattr(self.song, "current_song_time", getattr(self.song, "song_time", 0)))) and float(getattr(self.song, "current_song_time", getattr(self.song, "song_time", 0))) >= 0 else None,
             "launchQuantization": self._quantization(getattr(self.song, "clip_trigger_quantization", getattr(self.song, "launch_quantization", None))),
+            "loop": {
+                "enabled": self._read_attr(self.song, "loop") if isinstance(self._read_attr(self.song, "loop"), bool) else None,
+                "start": float(self._read_attr(self.song, "loop_start")) if isinstance(self._read_attr(self.song, "loop_start"), (int, float)) and not isinstance(self._read_attr(self.song, "loop_start"), bool) and math.isfinite(float(self._read_attr(self.song, "loop_start"))) else None,
+                "length": float(self._read_attr(self.song, "loop_length")) if isinstance(self._read_attr(self.song, "loop_length"), (int, float)) and not isinstance(self._read_attr(self.song, "loop_length"), bool) and math.isfinite(float(self._read_attr(self.song, "loop_length"))) else None,
+            },
+            "punchIn": self._read_attr(self.song, "punch_in") if isinstance(self._read_attr(self.song, "punch_in"), bool) else None,
+            "punchOut": self._read_attr(self.song, "punch_out") if isinstance(self._read_attr(self.song, "punch_out"), bool) else None,
+            "metronome": self._read_attr(self.song, "metronome") if isinstance(self._read_attr(self.song, "metronome"), bool) else None,
+            "countIn": float(self._read_attr(self.song, "count_in_duration")) if isinstance(self._read_attr(self.song, "count_in_duration"), (int, float)) and not isinstance(self._read_attr(self.song, "count_in_duration"), bool) and math.isfinite(float(self._read_attr(self.song, "count_in_duration"))) else None,
         }
         fired: list[dict[str, Any]] = []
         playing: list[dict[str, Any]] = []
@@ -969,6 +990,151 @@ class LiveObjectMapper:
         self._stop_playback()
         return {"stopped": True, "stoppedTargets": sorted(active_keys)}
 
+    def _transport_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        expected = args.get("expectedRevision")
+        if not isinstance(expected, str) or not 1 <= len(expected) <= 256:
+            raise ValueError("expected revision is required")
+        allowed = {"position", "loopEnabled", "loopStart", "loopLength", "metronome", "punchIn", "punchOut", "countIn", "expectedRevision"}
+        if set(args) - allowed:
+            raise ValueError("transport fields are invalid")
+        playback = self._playback()
+        if playback["revision"] != expected:
+            raise ValueError("transport state changed since preview")
+
+        def number(name: str, upper: float) -> float | None:
+            value = args.get(name)
+            if value is None:
+                return None
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not 0 <= float(value) <= upper:
+                raise ValueError(f"{name} is invalid")
+            return float(value)
+
+        def flag(name: str) -> bool | None:
+            value = args.get(name)
+            if value is None:
+                return None
+            if not isinstance(value, bool):
+                raise ValueError(f"{name} is invalid")
+            return value
+
+        position = number("position", 1_000_000_000)
+        loop_enabled = flag("loopEnabled")
+        loop_start = number("loopStart", 1_000_000_000)
+        loop_length = number("loopLength", 1_000_000_000)
+        metronome = flag("metronome")
+        punch_in = flag("punchIn")
+        punch_out = flag("punchOut")
+        count_in = number("countIn", 1000)
+        if loop_length is not None and loop_length <= 0:
+            raise ValueError("loopLength is invalid")
+        if position is not None:
+            self.song.current_song_time = position
+        if loop_enabled is not None:
+            self.song.loop = loop_enabled
+        if loop_start is not None:
+            self.song.loop_start = loop_start
+        if loop_length is not None:
+            self.song.loop_length = loop_length
+        if metronome is not None:
+            self.song.metronome = metronome
+        if punch_in is not None:
+            self.song.punch_in = punch_in
+        if punch_out is not None:
+            self.song.punch_out = punch_out
+        if count_in is not None:
+            self.song.count_in_duration = count_in
+        after = self._playback()
+        transport = after["transport"]
+        loop = transport["loop"]
+        checks = []
+        if position is not None:
+            checks.append(isinstance(transport["position"], (int, float)) and abs(transport["position"] - position) < 0.26)
+        if loop_enabled is not None:
+            checks.append(loop["enabled"] is loop_enabled)
+        if loop_start is not None:
+            checks.append(isinstance(loop["start"], (int, float)) and abs(loop["start"] - loop_start) < 0.26)
+        if loop_length is not None:
+            checks.append(isinstance(loop["length"], (int, float)) and abs(loop["length"] - loop_length) < 0.26)
+        if metronome is not None:
+            checks.append(transport["metronome"] is metronome)
+        if punch_in is not None:
+            checks.append(transport["punchIn"] is punch_in)
+        if punch_out is not None:
+            checks.append(transport["punchOut"] is punch_out)
+        if count_in is not None:
+            checks.append(isinstance(transport["countIn"], (int, float)) and abs(transport["countIn"] - count_in) < 0.26)
+        if not all(checks):
+            raise ValueError("transport change was not confirmed by fresh state")
+        return {"changed": True, "revision": after["revision"]}
+
+    def _clip_launch(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:"):
+            raise ValueError("clip reference is stale or invalid")
+        target = self.refs.get(reference)
+        slot = target if hasattr(target, "fire") else None
+        if slot is None:
+            for track in self._items(getattr(self.song, "tracks", [])):
+                for candidate in self._items(getattr(track, "clip_slots", [])):
+                    if getattr(candidate, "clip", None) is target:
+                        slot = candidate
+                        break
+        if slot is None or getattr(slot, "clip", None) is None:
+            raise ValueError("clip slot with a clip is required")
+        fire = getattr(slot, "fire", None)
+        if not callable(fire):
+            raise ValueError("clip launch is unavailable")
+        fire()
+        return {"launched": reference, "targets": self._active_targets(self._playback())}
+
+    def _track_stop(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:track:"):
+            raise ValueError("track reference is stale or invalid")
+        track = self.refs.get(reference)
+        stop = getattr(track, "stop_all_clips", None)
+        if not callable(stop):
+            raise ValueError("track stop is unavailable")
+        try:
+            stop(False)
+        except TypeError:
+            stop()
+        return {"stopped": True}
+
+    def _capture_midi(self) -> dict[str, Any]:
+        capture = getattr(self.song, "capture_midi", None)
+        if not callable(capture):
+            raise ValueError("MIDI capture is unavailable")
+        def occupied() -> set[tuple[int, int]]:
+            filled: set[tuple[int, int]] = set()
+            for track_index, track in enumerate(self._items(getattr(self.song, "tracks", []))):
+                for slot_index, slot in enumerate(self._items(getattr(track, "clip_slots", []))):
+                    if getattr(slot, "clip", None) is not None:
+                        filled.add((track_index, slot_index))
+            return filled
+        before = occupied()
+        capture()
+        captured: list[str] = []
+        for track_index, track in enumerate(self._items(getattr(self.song, "tracks", []))):
+            for slot_index, slot in enumerate(self._items(getattr(track, "clip_slots", []))):
+                clip = getattr(slot, "clip", None)
+                if clip is not None and (track_index, slot_index) not in before:
+                    captured.append(self.refs.put("clip", clip, f"{track_index}:{slot_index}"))
+        return {"captured": bool(captured), "clips": captured}
+
+    def _scene_capture(self) -> dict[str, Any]:
+        capture = getattr(self.song, "capture_and_insert_scene", None)
+        if not callable(capture):
+            raise ValueError("scene capture is unavailable")
+        before = [scene.name for scene in self._items(getattr(self.song, "scenes", []))]
+        capture()
+        after_scenes = self._items(getattr(self.song, "scenes", []))
+        if len(after_scenes) <= len(before):
+            raise ValueError("scene capture did not create a scene")
+        inserted = next((index for index, scene in enumerate(after_scenes) if index >= len(before) or scene.name != before[index]), len(before))
+        scene = after_scenes[inserted]
+        return {"captured": True, "ref": self.refs.put("scene", scene, str(inserted))}
+
     def invoke(self, operation: str, args: dict[str, Any]) -> Any:
         if operation == "session.audition-launch":
             return self._guarded_audition_launch(args)
@@ -976,6 +1142,19 @@ class LiveObjectMapper:
             return self._guarded_audition_stop(args)
         if operation == "session.emergency-stop":
             return self._guarded_emergency_stop(args)
+        if operation == "transport.set":
+            return self._transport_set(args)
+        if operation == "clip.launch":
+            return self._clip_launch(args)
+        if operation == "track.stop":
+            return self._track_stop(args)
+        if operation == "playback.stop-all-clips":
+            self._stop_playback()
+            return {"stopped": True}
+        if operation == "session.capture-midi":
+            return self._capture_midi()
+        if operation == "scene.capture":
+            return self._scene_capture()
         if operation == "session.playback":
             return self._playback()
         if operation == "session.discover":

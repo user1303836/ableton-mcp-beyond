@@ -63,8 +63,9 @@ test("simulator executes session, media, routing, browser, and realtime operatio
   const locator = live.invoke({ operation: "locator.add", args: { name: "Verse", position: 4 } }) as { name: string };
   assert.equal(locator.name, "Verse");
   assert.equal((live.invoke({ operation: "browser.search", args: { query: "util" } }) as unknown[]).length, 1);
-  live.invoke({ operation: "transport.set", args: { property: "position", value: 4 } });
-  assert.equal(live.snapshot().set.position, 4);
+  live.invoke({ operation: "transport.set", args: { position: 4, expectedRevision: live.snapshot().playback.revision } });
+  assert.equal(live.snapshot().playback.transport.position, 4);
+  assert.throws(() => live.invoke({ operation: "transport.set", args: { position: 8, expectedRevision: "stale" } }), /changed since preview/);
   assert.throws(() => live.invoke({ operation: "max.message", args: { address: "", values: [] } }), /non-empty string/);
 });
 
