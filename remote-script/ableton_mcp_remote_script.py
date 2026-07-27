@@ -1236,14 +1236,11 @@ class LiveObjectMapper:
         if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:"):
             raise ValueError("clip reference is stale or invalid")
         target = self.refs.get(reference)
-        slot = target if hasattr(target, "fire") else None
-        if slot is None:
-            for track in self._items(getattr(self.song, "tracks", [])):
-                for candidate in self._items(getattr(track, "clip_slots", [])):
-                    if getattr(candidate, "clip", None) is target:
-                        slot = candidate
-                        break
-        if slot is None or getattr(slot, "clip", None) is None:
+        if hasattr(target, "fire"):
+            slot = target
+        else:
+            _, slot, _, _ = self._clip_location(reference)
+        if getattr(slot, "clip", None) is None:
             raise ValueError("clip slot with a clip is required")
         fire = getattr(slot, "fire", None)
         if not callable(fire):
@@ -1459,17 +1456,54 @@ class LiveObjectMapper:
             track_index = all_tracks.index(track) if track in all_tracks else 0
             return {"ref": self.refs.put("clip", clip, f"{track_index}:{index}"), "name": getattr(clip, "name", ""), "length": float(getattr(clip, "length", length))}
         if operation == "clip.delete":
-            clip = self.refs.get(str(args["ref"]))
-            for track in self._items(getattr(self.song, "tracks", [])):
-                for slot in self._items(getattr(track, "clip_slots", [])):
-                    if getattr(slot, "clip", None) is clip:
-                        slot.delete_clip()
-                        return {"deleted": args["ref"]}
-            raise ValueError("clip reference is not deletable")
+            _, slot, _, _ = self._clip_location(str(args["ref"]))
+            if getattr(slot, "clip", None) is None or not callable(getattr(slot, "delete_clip", None)):
+                raise ValueError("clip reference is not deletable")
+            slot.delete_clip()
+            return {"deleted": args["ref"]}
         clip = self.refs.get(str(args["ref"]))
         if not isinstance(args.get("note"), dict):
             raise ValueError("note is invalid")
         return self._note_add(args)
+
+    def _clip_location(self, reference: str) -> tuple[Any, Any, int, int]:
+        """Resolve a clip or clip-slot reference to (track, slot, track_index,
+        slot_index) through its traversal key, independent of proxy identity."""
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:"):
+            raise ValueError("clip reference is stale or invalid")
+        segments = reference.split(":")
+        kind = segments[1] if len(segments) >= 3 else ""
+        key = ":".join(segments[2:]) if len(segments) >= 3 else ""
+        parts = key.split(":")
+        if kind not in {"clip", "clip_slot"} or len(parts) != 2 or not all(part.isdigit() for part in parts):
+            raise ValueError("clip reference is not a Session clip slot")
+        track_index, slot_index = int(parts[0]), int(parts[1])
+        tracks = self._items(getattr(self.song, "tracks", []))
+        if not 0 <= track_index < len(tracks):
+            raise ValueError("clip reference track is stale")
+        slots = self._items(getattr(tracks[track_index], "clip_slots", []))
+        if not 0 <= slot_index < len(slots):
+            raise ValueError("clip reference slot is stale")
+        return tracks[track_index], slots[slot_index], track_index, slot_index
+
+    def _arrangement_location(self, reference: str) -> tuple[Any, Any, int, int]:
+        """Resolve an arrangement-clip reference to (track, clip, track_index,
+        clip_index) through its traversal key."""
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:arrangement_clip:"):
+            raise ValueError("arrangement clip reference is stale or invalid")
+        segments = reference.split(":")
+        key = ":".join(segments[2:]) if len(segments) >= 3 else ""
+        parts = key.split(":")
+        if len(parts) != 2 or not all(part.isdigit() for part in parts):
+            raise ValueError("arrangement clip reference is malformed")
+        track_index, clip_index = int(parts[0]), int(parts[1])
+        tracks = self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", []))
+        if not 0 <= track_index < len(tracks):
+            raise ValueError("arrangement clip track is stale")
+        clips = self._items(self._read_attr(tracks[track_index], "arrangement_clips") or [])
+        if not 0 <= clip_index < len(clips):
+            raise ValueError("arrangement clip is stale")
+        return tracks[track_index], clips[clip_index], track_index, clip_index
 
     def _clip_duplicate(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")
@@ -1480,18 +1514,26 @@ class LiveObjectMapper:
         if arrangement_position is not None:
             if not isinstance(arrangement_position, (int, float)) or isinstance(arrangement_position, bool) or not math.isfinite(float(arrangement_position)) or float(arrangement_position) < 0:
                 raise ValueError("arrangement position is invalid")
-            owner = next((track for track in self._items(getattr(self.song, "tracks", [])) if any(getattr(candidate, "clip", None) is clip for candidate in self._items(getattr(track, "clip_slots", [])))), None)
-            if owner is None:
+            owner, source_slot, _, _ = self._clip_location(reference)
+            clip = getattr(source_slot, "clip", None)
+            if clip is None:
+                raise ValueError("only Session clips can duplicate to the Arrangement")
+            duplicate = getattr(owner, "duplicate_clip_to_arrangement", None)
+            if not callable(duplicate):
+                raise ValueError("arrangement duplication is unavailable")
+            owner, source_slot, track_index, _ = self._clip_location(reference)
+            clip = getattr(source_slot, "clip", None)
+            if clip is None:
                 raise ValueError("only Session clips can duplicate to the Arrangement")
             duplicate = getattr(owner, "duplicate_clip_to_arrangement", None)
             if not callable(duplicate):
                 raise ValueError("arrangement duplication is unavailable")
             duplicate(clip, float(arrangement_position))
-            created = next((candidate for candidate in self._items(self._read_attr(owner, "arrangement_clips") or []) if abs(float(getattr(candidate, "start_time", -1)) - float(arrangement_position)) < 0.01), None)
+            clips_after = self._items(self._read_attr(owner, "arrangement_clips") or [])
+            created = next((candidate for candidate in clips_after if abs(float(getattr(candidate, "start_time", -1)) - float(arrangement_position)) < 0.01), None)
             if created is None:
                 raise ValueError("arrangement duplication was not confirmed")
-            track_index = self._items(getattr(self.song, "tracks", [])).index(owner)
-            clip_index = self._items(self._read_attr(owner, "arrangement_clips") or []).index(created)
+            clip_index = clips_after.index(created)
             return {"ref": self.refs.put("arrangement_clip", created, f"{track_index}:{clip_index}"), "name": str(getattr(created, "name", ""))}
         target_track_ref = args.get("targetTrackRef")
         target_scene_index = args.get("targetSceneIndex")
@@ -1506,8 +1548,9 @@ class LiveObjectMapper:
         target_slot = slots[target_scene_index]
         if getattr(target_slot, "clip", None) is not None:
             raise ValueError("target Session slot is occupied")
-        source_slot = next((candidate for track in self._items(getattr(self.song, "tracks", [])) for candidate in self._items(getattr(track, "clip_slots", [])) if getattr(candidate, "clip", None) is clip), None)
-        if source_slot is None:
+        _, source_slot, _, _ = self._clip_location(reference)
+        clip = getattr(source_slot, "clip", None)
+        if clip is None:
             raise ValueError("only Session clips can duplicate to a Session slot")
         duplicate = getattr(source_slot, "duplicate_clip_to", None)
         if not callable(duplicate):
@@ -1536,36 +1579,44 @@ class LiveObjectMapper:
         creator = getattr(track, "create_midi_clip", None)
         if not callable(creator):
             raise ValueError("arrangement clip creation is unavailable")
+        before = len(self._items(self._read_attr(track, "arrangement_clips") or []))
         clip = creator(float(position), float(length))
         if clip is None:
             raise ValueError("arrangement clip creation failed")
         if hasattr(clip, "name"):
             clip.name = name
         clips = self._items(self._read_attr(track, "arrangement_clips") or [])
-        if clip not in clips:
+        if len(clips) <= before:
             raise ValueError("arrangement clip creation was not confirmed")
         track_index = self._items(getattr(self.song, "tracks", [])).index(track)
-        return {"ref": self.refs.put("arrangement_clip", clip, f"{track_index}:{clips.index(clip)}"), "name": str(getattr(clip, "name", "")), "start": float(getattr(clip, "start_time", position)), "length": float(getattr(clip, "length", length))}
+        clip_index = clips.index(clip) if clip in clips else len(clips) - 1
+        return {"ref": self.refs.put("arrangement_clip", clip, f"{track_index}:{clip_index}"), "name": str(getattr(clip, "name", "")), "start": float(getattr(clip, "start_time", position)), "length": float(getattr(clip, "length", length))}
 
     def _arrangement_clip_delete(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")
         if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:arrangement_clip:"):
             raise ValueError("arrangement clip reference is stale or invalid")
-        clip = self.refs.get(reference)
-        owner = next((track for track in self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", [])) if clip in self._items(self._read_attr(track, "arrangement_clips") or [])), None)
-        if owner is None and clip in self._items(getattr(self.song, "arrangement_clips", [])):
+        key = ":".join(reference.split(":")[2:])
+        if ":" not in key:
+            # Song-level arrangement collection (non-track-parented shapes).
+            if not key.isdigit():
+                raise ValueError("arrangement clip reference is malformed")
+            clips = self._items(getattr(self.song, "arrangement_clips", []))
+            index = int(key)
+            if not 0 <= index < len(clips):
+                raise ValueError("arrangement clip is stale")
             deleter = getattr(self.song, "delete_clip", None)
             if not callable(deleter):
                 raise ValueError("arrangement clip deletion is unavailable")
-            deleter(clip)
+            deleter(clips[index])
             return {"deleted": reference}
-        if owner is None:
-            raise ValueError("arrangement clip is not deletable")
+        owner, clip, _, _ = self._arrangement_location(reference)
         deleter = getattr(owner, "delete_clip", None)
         if not callable(deleter):
             raise ValueError("arrangement clip deletion is unavailable")
+        before = len(self._items(self._read_attr(owner, "arrangement_clips") or []))
         deleter(clip)
-        if clip in self._items(self._read_attr(owner, "arrangement_clips") or []):
+        if len(self._items(self._read_attr(owner, "arrangement_clips") or [])) >= before:
             raise ValueError("arrangement clip deletion was not confirmed")
         return {"deleted": reference}
 
@@ -1577,11 +1628,27 @@ class LiveObjectMapper:
         position = args.get("position")
         if not isinstance(position, (int, float)) or isinstance(position, bool) or not math.isfinite(float(position)) or float(position) < 0:
             raise ValueError("position is invalid")
-        clip.start_time = float(position)
-        current = float(getattr(clip, "start_time", -1))
-        if abs(current - float(position)) > 0.01:
-            raise ValueError("arrangement clip move was not confirmed")
-        return {"ref": reference, "start": current}
+        # start_time is read-only in Live; a move composes duplicate+delete
+        # atomically on the main thread and reports the new clip identity.
+        owner, clip, track_index, _ = self._arrangement_location(reference)
+        duplicate = getattr(owner, "duplicate_clip_to_arrangement", None)
+        deleter = getattr(owner, "delete_clip", None)
+        if not callable(duplicate) or not callable(deleter):
+            raise ValueError("arrangement clip move is unavailable")
+        before = len(self._items(self._read_attr(owner, "arrangement_clips") or []))
+        duplicate(clip, float(position))
+        clips_after = self._items(self._read_attr(owner, "arrangement_clips") or [])
+        if len(clips_after) <= before:
+            raise ValueError("arrangement clip move duplication was not confirmed")
+        created = clips_after[-1] if abs(float(getattr(clips_after[-1], "start_time", -1)) - float(position)) < 0.01 else next((candidate for candidate in clips_after if abs(float(getattr(candidate, "start_time", -1)) - float(position)) < 0.01), None)
+        if created is None:
+            raise ValueError("arrangement clip move duplication was not confirmed")
+        deleter(clip)
+        remaining = self._items(self._read_attr(owner, "arrangement_clips") or [])
+        if len(remaining) >= len(clips_after):
+            raise ValueError("arrangement clip move source delete was not confirmed")
+        created_index = remaining.index(created)
+        return {"ref": self.refs.put("arrangement_clip", created, f"{track_index}:{created_index}"), "start": float(getattr(created, "start_time", position))}
 
     def _audio_clip_set(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")

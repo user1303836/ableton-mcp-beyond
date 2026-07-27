@@ -1,0 +1,8 @@
+Phase 5C/5D real-Live evidence (Ableton Live 12.4.5b8, MCP-Audition-Disposable set)
+- clip.duplicate Session->slot: {"ref":"6310520696161920:clip:0:1","name":"Audition 1 Bar"}; target slot snapshot confirms clipRef + empty:false
+- clip.delete: {"deleted":"6310520696161920:clip:0:1"}
+- clip.duplicate Session->Arrangement: {"ref":"6789583456182473:arrangement_clip:0:0","name":"Audition 1 Bar"}
+- arrangement.clip.move (duplicate+delete composition, start_time read-only): {"ref":"6789583456182473:arrangement_clip:0:0","start":20}
+- arrangement.clip.create: {"ref":"...:arrangement_clip:0:1","name":"Verify Created","start":28,"length":4}
+- arrangement.clip.delete: {"deleted":"...:arrangement_clip:0:1"}
+- audio.clip.set on a MIDI clip refuses: ValueError("audio properties require an audio clip")
