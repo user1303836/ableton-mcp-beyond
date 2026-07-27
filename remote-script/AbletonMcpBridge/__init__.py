@@ -34,13 +34,22 @@ def _normalize_bridge_config(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("unsupported bridge configuration")
     if value.get("version") == 2:
-        if set(value) != {"version", "server", "bridge"} or not isinstance(value.get("bridge"), dict) or set(value["bridge"]) != {"host", "port", "secretFile", "timeoutMs"}:
+        server = value.get("server")
+        bridge = value.get("bridge")
+        if (set(value) != {"version", "server", "bridge"} or not isinstance(server, dict) or set(server) != {"command", "args"}
+                or not isinstance(server.get("command"), str) or not server["command"] or not isinstance(server.get("args"), list) or any(not isinstance(item, str) for item in server["args"])
+                or not isinstance(bridge, dict) or not {"host", "port", "secretFile", "timeoutMs"} <= set(bridge) or set(bridge) - {"host", "port", "secretFile", "timeoutMs", "realtimePort"}):
             raise ValueError("unsupported bridge configuration")
-        timeout_ms = value["bridge"]["timeoutMs"]
+        timeout_ms = bridge["timeoutMs"]
         if not isinstance(timeout_ms, int) or isinstance(timeout_ms, bool) or not 100 <= timeout_ms <= 60000:
             raise ValueError("unsupported bridge configuration")
-        bridge = value["bridge"]
-        return {"version": 1, "host": bridge["host"], "port": bridge["port"], "secretFile": bridge["secretFile"]}
+        realtime_port = bridge.get("realtimePort")
+        if realtime_port is not None and (not isinstance(realtime_port, int) or isinstance(realtime_port, bool) or not 1 <= realtime_port <= 65535 or realtime_port == bridge.get("port")):
+            raise ValueError("unsupported bridge configuration")
+        normalized = {"version": 1, "host": bridge["host"], "port": bridge["port"], "secretFile": bridge["secretFile"]}
+        if realtime_port is not None:
+            normalized["realtimePort"] = realtime_port
+        return normalized
     if set(value) != {"version", "host", "port", "secretFile"} or value.get("version") != 1:
         raise ValueError("unsupported bridge configuration")
     return value
@@ -70,6 +79,9 @@ def _read_config() -> dict[str, Any]:
     host, port, secret_file = value.get("host"), value.get("port"), value.get("secretFile")
     if host not in {"127.0.0.1", "::1"} or not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535 or not isinstance(secret_file, str):
         raise ValueError("bridge configuration is invalid")
+    realtime_port = value.get("realtimePort")
+    if realtime_port is not None and (not isinstance(realtime_port, int) or isinstance(realtime_port, bool) or not 1 <= realtime_port <= 65535 or realtime_port == port):
+        raise ValueError("realtime port is invalid")
     secret_path = Path(secret_file)
     if not secret_path.is_absolute() or secret_path.is_symlink() or not secret_path.is_file() or not _owner_controlled(secret_path):
         raise ValueError("bridge secret must be an existing regular file")
@@ -80,7 +92,7 @@ def _read_config() -> dict[str, Any]:
         secret = secret[:-1]
     if not secret or len(secret) < 32 or any(character.isspace() for character in secret):
         raise ValueError("bridge secret is invalid")
-    return {"host": host, "port": port, "secret": secret}
+    return {"host": host, "port": port, "secret": secret, "realtimePort": realtime_port}
 
 
 def _owner_controlled(path: Path) -> bool:

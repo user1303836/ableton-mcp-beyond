@@ -26,6 +26,18 @@ must inspect the Set manually. If playback is proven to be only the mapper-
 owned scene, use the original stop confirmation and a new bounded idempotency
 key; a successful exact replay returns the prior result without dispatch.
 
+## Realtime recovery
+
+Disarm immediately when `live_realtime_stats` reports callback failures,
+revoked work, pre-dispatch drops, or persistent pending work. Disarm, expiry,
+re-arm, and bridge teardown generation-fence callbacks that have not started.
+Do not infer delivery from UDP send success or the `accepted` counter; only
+`applied` reports a completed verified Live-thread write. Restore touched
+parameters through fresh authoritative refs and verify stopped/non-recording
+state. The TCP `live_session_emergency_stop` is the independent recovery path
+when the realtime token is missing or the data plane is suspect. See
+`REALTIME_CONTROL.md`.
+
 ## Restart
 
 1. Stop the supervisor and preserve redacted diagnostics.

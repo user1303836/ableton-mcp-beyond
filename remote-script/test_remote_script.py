@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -20,8 +21,17 @@ from AbletonMcpBridge import _owner_controlled, _normalize_bridge_config
 
 class BridgeConfigNormalizationTests(unittest.TestCase):
     def test_version_two_host_config_normalizes_to_bridge_shape(self):
-        value = {"version": 2, "server": {"command": "node", "args": ["cli.js", "--config", "cfg.json"]}, "bridge": {"host": "127.0.0.1", "port": 9765, "secretFile": "/tmp/secret", "timeoutMs": 5000}}
-        self.assertEqual(_normalize_bridge_config(value), {"version": 1, "host": "127.0.0.1", "port": 9765, "secretFile": "/tmp/secret"})
+        value = {"version": 2, "server": {"command": "node", "args": ["cli.js", "--config", "cfg.json"]}, "bridge": {"host": "127.0.0.1", "port": 9765, "secretFile": "/tmp/secret", "timeoutMs": 5000, "realtimePort": 9766}}
+        self.assertEqual(_normalize_bridge_config(value), {"version": 1, "host": "127.0.0.1", "port": 9765, "secretFile": "/tmp/secret", "realtimePort": 9766})
+
+    def test_version_two_requires_complete_server_and_bridge_shapes(self):
+        with self.assertRaises(ValueError):
+            _normalize_bridge_config({"version": 2, "server": {}, "bridge": {"host": "127.0.0.1", "port": 9765, "secretFile": "/tmp/secret"}})
+
+    def test_realtime_port_must_be_distinct_and_bounded(self):
+        value = {"version": 2, "server": {"command": "node", "args": ["cli.js", "--config", "cfg.json"]}, "bridge": {"host": "127.0.0.1", "port": 9765, "secretFile": "/tmp/secret", "timeoutMs": 5000, "realtimePort": 9765}}
+        with self.assertRaises(ValueError):
+            _normalize_bridge_config(value)
 
     def test_version_two_rejects_unknown_timeout_and_extra_keys(self):
         base = {"version": 2, "server": {"command": "node", "args": []}, "bridge": {"host": "127.0.0.1", "port": 9765, "secretFile": "/tmp/secret", "timeoutMs": 5000}}
@@ -329,7 +339,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "c9ce6e9a1b7cc09f7bf6d1629890a7a17cddb02723f408f05139c6a8a9823bfc")
+        self.assertEqual(digest, "006104fd05c0c2eed6dc790ee2215a9e2154fa0a8f0a6f081b53cca4829f108d")
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         self.assertNotIn("scene.launch", [item["id"] for item in registry["operations"]])
 
@@ -673,6 +683,16 @@ class ControlSurfaceTests(unittest.TestCase):
         try: work.submit(lambda: mutations.append("mutated"), timeout=0.01)
         except TimeoutError as error: errors.append(str(error))
 
+    def test_nonblocking_main_thread_callback_reports_predispatch_expiry(self):
+        work = _MainThreadQueue()
+        mutations = []
+        cancellations = []
+        self.assertTrue(work.submit_nowait(lambda: mutations.append("mutated"), int(time.time() * 1000) + 10, lambda error: cancellations.append(str(error))))
+        time.sleep(0.02)
+        self.assertEqual(work.drain(), 1)
+        self.assertEqual(mutations, [])
+        self.assertEqual(cancellations, ["Live main-thread operation timed out before dispatch"])
+
     def test_bridge_lifecycle_and_main_thread_queue_cleanup(self):
         bridge = AbletonMcpBridge(FakeInstance(), {"host": "127.0.0.1", "port": 45678, "secret": "0123456789abcdef0123456789abcdef"})
         self.assertGreater(bridge.address[1], 0)
@@ -820,3 +840,288 @@ class BoostEnumShapeTests(unittest.TestCase):
 
         canonical = AuthenticatedRemoteScript._bounded_canonical({"raw": FakeBoostQuantization(4)})
         self.assertEqual(canonical, '{"raw":4}')
+
+
+class RealtimePlaneTests(unittest.TestCase):
+    def _plane(self):
+        import socket as _socket
+        from ableton_mcp_remote_script import _RealtimePlane
+
+        class _Queue:
+            def __init__(self):
+                self.calls = []
+                self.accept = True
+                self.defer = False
+                self.raise_once = False
+            def submit_nowait(self, callback, deadline_ms, on_cancel=None):
+                if self.raise_once:
+                    self.raise_once = False
+                    raise RuntimeError("injected queue failure")
+                if not self.accept:
+                    return False
+                self.calls.append(callback)
+                if not self.defer:
+                    try:
+                        callback()
+                    except BaseException:
+                        pass
+                return True
+
+        class _Parameter:
+            def __init__(self):
+                self.min = 0.0
+                self.max = 1.0
+                self.value = 0.0
+                self.enabled = True
+                self.quantization = 0.0
+
+        class _Mapper:
+            def __init__(self):
+                self.parameters = {}
+            def _playback(self):
+                return {"firedTargets": [], "playingTargets": []}
+            def _active_targets(self, playback):
+                return []
+            def _target_key(self, target):
+                return "t|s|sc"
+            def _guarded_emergency_stop(self, args):
+                return {"stopped": True, "stoppedTargets": []}
+            def _resolve_parameter(self, ref):
+                return self.parameters.setdefault(ref, _Parameter())
+            @staticmethod
+            def _read_attr(obj, *names):
+                for name in names:
+                    value = getattr(obj, name, None)
+                    if value is not None:
+                        return value
+                return None
+
+        class _Bridge:
+            def __init__(self):
+                self.queue = _Queue()
+                self.mapper = _Mapper()
+
+        probe = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        return _RealtimePlane(_Bridge(), "127.0.0.1", port)
+
+    @staticmethod
+    def _json(**values):
+        return json.dumps(values, separators=(",", ":")).encode()
+
+    @staticmethod
+    def _osc_string(value):
+        encoded = value.encode() + b"\0"
+        return encoded + b"\0" * ((-len(encoded)) % 4)
+
+    @classmethod
+    def _osc_parameter(cls, token, sequence, reference, value):
+        import struct
+        return b"".join((
+            cls._osc_string("/ableton-mcp/parameter"), cls._osc_string(",sisf"),
+            cls._osc_string(token), struct.pack(">i", sequence), cls._osc_string(reference), struct.pack(">f", value),
+        ))
+
+    def test_bridge_realtime_port_validation_and_conflict_cleanup(self):
+        import socket as _socket
+        tcp_probe = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+        tcp_probe.bind(("127.0.0.1", 0)); tcp_port = tcp_probe.getsockname()[1]; tcp_probe.close()
+        blocker = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        blocker.bind(("127.0.0.1", 0)); realtime_port = blocker.getsockname()[1]
+        try:
+            with self.assertRaises(ValueError):
+                AbletonMcpBridge(FakeInstance(), {"host": "127.0.0.1", "port": tcp_port, "realtimePort": tcp_port, "secret": "x" * 40})
+            with self.assertRaises(OSError):
+                AbletonMcpBridge(FakeInstance(), {"host": "127.0.0.1", "port": tcp_port, "realtimePort": realtime_port, "secret": "x" * 40})
+            checker = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+            checker.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+            try:
+                checker.bind(("127.0.0.1", tcp_port))
+            finally:
+                checker.close()
+        finally:
+            blocker.close()
+
+    def test_configured_plane_is_truthfully_capability_negotiated(self):
+        import socket as _socket
+        tcp_probe = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+        tcp_probe.bind(("127.0.0.1", 0)); tcp_port = tcp_probe.getsockname()[1]; tcp_probe.close()
+        udp_probe = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        udp_probe.bind(("127.0.0.1", 0)); realtime_port = udp_probe.getsockname()[1]; udp_probe.close()
+        bridge = AbletonMcpBridge(FakeInstance(), {"host": "127.0.0.1", "port": tcp_port, "realtimePort": realtime_port, "secret": "x" * 40})
+        try:
+            status = bridge.mapper.status()
+            for operation in ("realtime.arm", "realtime.disarm", "realtime.stats"):
+                self.assertIn(operation, status["operations"])
+            for capability in ("max", "osc", "realtime.events"):
+                self.assertIn(capability, status["capabilities"])
+        finally:
+            bridge.disconnect()
+
+    def test_authenticated_disarm_and_rearm_revoke_fifo_callbacks_before_drain(self):
+        import socket as _socket
+        tcp_probe = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+        tcp_probe.bind(("127.0.0.1", 0)); tcp_port = tcp_probe.getsockname()[1]; tcp_probe.close()
+        udp_probe = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        udp_probe.bind(("127.0.0.1", 0)); realtime_port = udp_probe.getsockname()[1]; udp_probe.close()
+        bridge = AbletonMcpBridge(FakeInstance(), {"host": "127.0.0.1", "port": tcp_port, "realtimePort": realtime_port, "secret": "x" * 40})
+        try:
+            snapshot = bridge.mapper.snapshot()
+            parameter_ref = snapshot["tracks"][0]["devices"][0]["parameters"][0]["ref"]
+            parameter = bridge.mapper._resolve_parameter(parameter_ref)
+            holder = {}
+            arm_request = {"operation": "realtime.arm", "args": {"ttlMs": 30000, "channels": ["udp-json"], "parameterRefs": [parameter_ref]}}
+            armed = bridge._dispatch_with_holder("invoke", arm_request, holder)
+            for sequence in (1, 2):
+                bridge._realtime._handle(self._json(token=armed["token"], seq=sequence, channel="udp-json", op="parameter.set", ref=parameter_ref, value=0.75))
+            self.assertEqual(bridge.queue.items.qsize(), 2)
+            self.assertEqual(bridge._dispatch_with_holder("invoke", {"operation": "realtime.disarm", "args": {}}, holder), {"armed": False})
+
+            armed = bridge._dispatch_with_holder("invoke", arm_request, holder)
+            for sequence in (1, 2):
+                bridge._realtime._handle(self._json(token=armed["token"], seq=sequence, channel="udp-json", op="parameter.set", ref=parameter_ref, value=1.0))
+            self.assertEqual(bridge.queue.items.qsize(), 4)
+            bridge._dispatch_with_holder("invoke", arm_request, holder)
+            self.assertEqual(bridge.queue.drain(), 4)
+            self.assertEqual(parameter.value, 0.5)
+            stats = bridge._realtime.stats()
+            self.assertEqual(stats["applied"], 0)
+            self.assertEqual(stats["revokedBeforeApply"], 4)
+            self.assertEqual(stats["applyFailures"], 4)
+            self.assertEqual(stats["pending"], 0)
+        finally:
+            bridge.disconnect()
+
+    def test_arm_bounds_endpoint_channel_and_drop_accounting(self):
+        plane = self._plane()
+        try:
+            with self.assertRaises(ValueError):
+                plane.arm(500, ["udp-json"], ["p"])
+            with self.assertRaises(ValueError):
+                plane.arm(30000, ["udp-json", "udp-json"], ["p"])
+            armed = plane.arm(30000, ["udp-json", "xy"], ["p", "x", "y"], [41000])
+            self.assertEqual(armed["host"], "127.0.0.1")
+            self.assertEqual(armed["packetLimitBytes"], 512)
+            plane._handle(b"not-json", ("127.0.0.1", 41000))
+            plane._handle(self._json(token="w" * 32, seq=1, channel="udp-json", op="parameter.set", ref="p", value=1), ("127.0.0.1", 41000))
+            plane._handle(self._json(token=armed["token"], seq=1, channel="max", op="parameter.set", ref="p", value=1), ("127.0.0.1", 41000))
+            plane._handle(self._json(token=armed["token"], seq=1, channel="udp-json", op="parameter.set", ref="p", value=1), ("127.0.0.1", 42000))
+            plane._handle(self._json(token=armed["token"], seq=1, channel="udp-json", op="parameter.set", ref="not-allowed", value=1), ("127.0.0.1", 41000))
+            plane._handle(self._json(token=armed["token"], seq=1, channel="udp-json", op="parameter.set", ref="p", value=1, sentAtMs=time.time() * 1000), ("127.0.0.1", 41000))
+            plane._handle(self._json(token=armed["token"], seq=1, channel="udp-json", op="parameter.set", ref="p", value=1), ("127.0.0.1", 41000))
+            plane._handle(self._json(token=armed["token"], seq=4, channel="xy", op="xy.set", xRef="x", x=0.2, yRef="y", y=0.8, sentAtMs=time.time() * 1000), ("127.0.0.1", 41000))
+            stats = plane.stats()
+            self.assertEqual(stats["accepted"], 2)
+            self.assertEqual(stats["applied"], 2)
+            self.assertEqual(stats["droppedUnarmed"], 2)
+            self.assertEqual(stats["droppedEndpoint"], 1)
+            self.assertEqual(stats["droppedTarget"], 1)
+            self.assertEqual(stats["droppedInvalid"], 1)
+            self.assertEqual(stats["droppedReplay"], 1)
+            self.assertEqual(stats["sequenceGaps"], 2)
+            self.assertEqual(stats["lastSequence"], 4)
+            self.assertGreaterEqual(stats["jitterMs"], 0)
+            plane.disarm()
+            plane._handle(self._json(token=armed["token"], seq=6, channel="udp-json", op="emergency-stop"), ("127.0.0.1", 41000))
+            self.assertEqual(plane.stats()["droppedUnarmed"], 3)
+        finally:
+            plane.close()
+
+    def test_osc_max_xy_queue_and_parameter_bounds(self):
+        plane = self._plane()
+        try:
+            armed = plane.arm(30000, ["osc", "max", "xy"], ["p", "x", "y"])
+            plane._handle(self._osc_parameter(armed["token"], 1, "p", 0.25))
+            plane._handle(self._json(token=armed["token"], seq=2, channel="max", op="parameter.set", ref="p", value=2.0))
+            plane._handle(self._json(token=armed["token"], seq=3, channel="xy", op="xy.set", xRef="x", x=0.3, yRef="y", y=0.7))
+            plane._bridge.queue.accept = False
+            plane._handle(self._json(token=armed["token"], seq=4, channel="max", op="emergency-stop"))
+            stats = plane.stats()
+            self.assertEqual(stats["accepted"], 3)
+            self.assertEqual(stats["applied"], 2)
+            self.assertEqual(stats["applyFailures"], 1)
+            self.assertEqual(stats["droppedQueueFull"], 1)
+            self.assertAlmostEqual(plane._bridge.mapper.parameters["p"].value, 0.25)
+            self.assertAlmostEqual(plane._bridge.mapper.parameters["x"].value, 0.3)
+            self.assertAlmostEqual(plane._bridge.mapper.parameters["y"].value, 0.7)
+            plane._handle(b"x" * 513)
+            self.assertEqual(plane.stats()["droppedInvalid"], 1)
+        finally:
+            plane.close()
+
+    def test_disarm_expiry_and_rearm_fence_accepted_callbacks(self):
+        plane = self._plane()
+        try:
+            queue = plane._bridge.queue
+            queue.defer = True
+            armed = plane.arm(30000, ["udp-json"], ["p"])
+            plane._handle(self._json(token=armed["token"], seq=1, channel="udp-json", op="parameter.set", ref="p", value=0.75))
+            self.assertEqual(plane.stats()["accepted"], 1)
+            self.assertEqual(plane.stats()["pending"], 1)
+            plane.disarm()
+            with self.assertRaises(ValueError):
+                queue.calls.pop(0)()
+            self.assertNotIn("p", plane._bridge.mapper.parameters)
+
+            expired = plane.arm(30000, ["udp-json"], ["p"])
+            plane._handle(self._json(token=expired["token"], seq=1, channel="udp-json", op="parameter.set", ref="p", value=0.5))
+            with plane._lock:
+                token, _, channels, ports, parameters = plane._armed
+                plane._armed = (token, time.time() - 1, channels, ports, parameters)
+            with self.assertRaises(ValueError):
+                queue.calls.pop(0)()
+
+            old = plane.arm(30000, ["udp-json"], ["p"])
+            plane._handle(self._json(token=old["token"], seq=1, channel="udp-json", op="parameter.set", ref="p", value=0.4))
+            plane.arm(30000, ["udp-json"], ["p"])
+            with self.assertRaises(ValueError):
+                queue.calls.pop(0)()
+            stats = plane.stats()
+            self.assertEqual(stats["revokedBeforeApply"], 3)
+            self.assertEqual(stats["applyFailures"], 3)
+            self.assertEqual(stats["applied"], 0)
+            self.assertEqual(stats["pending"], 0)
+        finally:
+            plane.close()
+
+    def test_actual_udp_bounds_and_receiver_survives_queue_failure(self):
+        import socket as _socket
+        from ableton_mcp_remote_script import validate_operation_payload
+        plane = self._plane()
+        sender = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        sender.bind(("127.0.0.1", 0))
+        try:
+            armed = plane.arm(30000, ["udp-json"], ["p"], [sender.getsockname()[1]])
+            sender.sendto(b"x" * 513, ("127.0.0.1", plane.port))
+            plane._bridge.queue.raise_once = True
+            sender.sendto(self._json(token=armed["token"], seq=1, channel="udp-json", op="parameter.set", ref="p", value=0.2), ("127.0.0.1", plane.port))
+            sender.sendto(self._json(token=armed["token"], seq=2, channel="udp-json", op="parameter.set", ref="p", value=0.3), ("127.0.0.1", plane.port))
+            deadline = time.time() + 3
+            while time.time() < deadline and plane.stats()["accepted"] < 1:
+                time.sleep(0.02)
+            stats = plane.stats()
+            self.assertGreaterEqual(stats["droppedInvalid"], 1)
+            self.assertGreaterEqual(stats["droppedBeforeDispatch"], 1)
+            self.assertEqual(stats["accepted"], 1)
+            self.assertEqual(stats["applied"], 1)
+            self.assertTrue(plane._thread.is_alive())
+            validate_operation_payload("realtime.stats", "result", stats)
+        finally:
+            sender.close()
+            plane.close()
+
+    def test_rate_limit_drops_bursts_without_replay_gap_double_counting(self):
+        plane = self._plane()
+        try:
+            armed = plane.arm(30000, ["udp-json"], ["p"])
+            for seq in range(1, 41):
+                plane._handle(self._json(token=armed["token"], seq=seq, channel="udp-json", op="parameter.set", ref="p", value=0.5))
+            stats = plane.stats()
+            self.assertGreater(stats["droppedRateLimited"], 0)
+            self.assertLess(stats["accepted"], 40)
+            self.assertEqual(stats["sequenceGaps"], 0)
+            self.assertEqual(stats["lastSequence"], 40)
+        finally:
+            plane.close()

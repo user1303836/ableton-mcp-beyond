@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { configForBridge, configForEntrypoint, diagnostics, generateSecret, installRemoteScript, isSupportedPlatform, migrateConfig, readConfig, readSecretFile, supportedNodeMajor, writeBridgeReference, writeConfig, writeSecretFile } from "../src/delivery.js";
+import { configForBridge, configForEntrypoint, diagnostics, generateSecret, installRemoteScript, isSupportedPlatform, migrateConfig, readAnyConfig, readConfig, readSecretFile, supportedNodeMajor, writeBridgeReference, writeConfig, writeSecretFile } from "../src/delivery.js";
 import { npmExecutable } from "../src/platform.js";
 
 test("writes a versioned config and replaces it only with explicit force", () => {
@@ -104,8 +104,13 @@ test("bridge configuration and secrets are explicit and fail closed", () => {
   assert.equal(secret.length >= 32, true);
   const config = configForBridge("/opt/ableton-mcp/dist/src/cli.js", { host: "127.0.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000 });
   assert.equal(config.version, 2);
-  const generated = configForBridge("/opt/ableton-mcp/dist/src/cli.js", { host: "127.0.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000 }, "/usr/bin/node", join(directory, "bridge-config.json"));
+  const generated = configForBridge("/opt/ableton-mcp/dist/src/cli.js", { host: "127.0.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000, realtimePort: 43211 }, "/usr/bin/node", join(directory, "bridge-config.json"));
   assert.deepEqual(generated.server.args, ["/opt/ableton-mcp/dist/src/cli.js", "--config", join(directory, "bridge-config.json")]);
+  assert.equal(generated.bridge.realtimePort, 43211);
+  writeConfig(join(directory, "bridge-config.json"), generated);
+  assert.equal((readAnyConfig(join(directory, "bridge-config.json")) as any).bridge.realtimePort, 43211);
+  assert.throws(() => configForBridge("/opt/cli.js", { host: "127.0.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000, realtimePort: 43210 }), /realtime port/);
+  assert.throws(() => configForBridge("/opt/cli.js", { host: "127.0.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000, inlineSecret: "forbidden" } as any), /unsupported bridge configuration fields/);
   assert.throws(() => configForBridge("/opt/cli.js", { host: "0.0.0.0", port: 43210, secretFile: secretPath, timeoutMs: 5000 }), /loopback/);
   assert.throws(() => generateSecret(8), /between 32/);
   writeFileSync(join(directory, "bad-secret"), ` ${secret}\n`);

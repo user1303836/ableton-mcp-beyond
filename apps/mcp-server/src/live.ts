@@ -108,7 +108,7 @@ export type LiveOperation =
   | "note.update" | "note.delete" | "clip.duplicate" | "arrangement.clip.create" | "arrangement.clip.delete" | "arrangement.clip.move" | "audio.clip.set"
   | "mixer.set" | "automation.envelope.read" | "automation.envelope.create" | "automation.envelope.delete" | "automation.point.insert" | "automation.point.delete"
   | "device.insert" | "device.delete" | "device.enable" | "device.move" | "browser.search" | "browser.load"
-  | "routing.set" | "recording.session" | "recording.arrangement" | "subscribe"
+  | "routing.set" | "recording.session" | "recording.arrangement" | "subscribe" | "realtime.arm" | "realtime.disarm" | "realtime.stats"
   | "note.add" | "automation.add" | "audio.warp" | "take.add"
   | "parameter.set" | "routing.set" | "browser.search" | "locator.add" | "locator.delete"
   | "track.create" | "track.delete" | "scene.create" | "scene.delete"

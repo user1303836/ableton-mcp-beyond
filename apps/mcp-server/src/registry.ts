@@ -11,7 +11,7 @@ export interface LiveRegistryOperation {
 }
 export interface LiveRegistry { version: number; protocol: string; operations: LiveRegistryOperation[]; }
 
-const SCHEMA_KEYS = new Set(["type", "properties", "required", "additionalProperties", "items", "enum", "const", "minLength", "maxLength", "minimum", "maximum", "maxItems", "maxProperties", "pattern"]);
+const SCHEMA_KEYS = new Set(["type", "properties", "required", "additionalProperties", "items", "enum", "const", "minLength", "maxLength", "minimum", "maximum", "minItems", "maxItems", "uniqueItems", "maxProperties", "pattern"]);
 const SCHEMA_TYPES = new Set(["object", "array", "string", "number", "integer", "boolean", "null"]);
 
 function canonical(value: unknown, depth = 0): string {
@@ -43,9 +43,11 @@ export function loadLiveRegistry(): LiveRegistry {
     if (Object.keys(value).some((key) => !SCHEMA_KEYS.has(key))) throw new Error("unknown registry schema keyword");
     const types = value.type === undefined ? [] : (Array.isArray(value.type) ? value.type : [value.type]);
     if (types.length === 0 || types.length > 4 || types.some((type) => typeof type !== "string" || !SCHEMA_TYPES.has(type))) throw new Error("registry schema type is invalid");
-    for (const key of ["minLength", "maxLength", "maxItems", "maxProperties"] as const) if (value[key] !== undefined && (typeof value[key] !== "number" || !Number.isSafeInteger(value[key]) || value[key] < 0 || value[key] > Number.MAX_SAFE_INTEGER)) throw new Error("registry schema bound is invalid");
+    for (const key of ["minLength", "maxLength", "minItems", "maxItems", "maxProperties"] as const) if (value[key] !== undefined && (typeof value[key] !== "number" || !Number.isSafeInteger(value[key]) || value[key] < 0 || value[key] > Number.MAX_SAFE_INTEGER)) throw new Error("registry schema bound is invalid");
     for (const key of ["minimum", "maximum"] as const) if (value[key] !== undefined && (typeof value[key] !== "number" || !Number.isFinite(value[key]) || value[key] < -Number.MAX_SAFE_INTEGER || value[key] > Number.MAX_SAFE_INTEGER)) throw new Error("registry schema bound is invalid");
-    if (value.maxItems !== undefined && !types.includes("array")) throw new Error("array bound on non-array schema");
+    if ((value.minItems !== undefined || value.maxItems !== undefined || value.uniqueItems !== undefined) && !types.includes("array")) throw new Error("array constraint on non-array schema");
+    if (value.uniqueItems !== undefined && typeof value.uniqueItems !== "boolean") throw new Error("uniqueItems is invalid");
+    if (typeof value.minItems === "number" && typeof value.maxItems === "number" && value.minItems > value.maxItems) throw new Error("array bounds are invalid");
     if (value.maxProperties !== undefined && !types.includes("object")) throw new Error("object bound on non-object schema");
     if (types.includes("object")) {
       if (value.additionalProperties === undefined || typeof value.additionalProperties !== "boolean") throw new Error("object schema must bound additional properties");
@@ -101,7 +103,9 @@ export function validateRegistryValue(schema: Record<string, unknown>, value: un
     if (!Number.isFinite(value) || (typeof schema.minimum === "number" && value < schema.minimum) || (typeof schema.maximum === "number" && value > schema.maximum)) throw new Error(`${path} is outside registry numeric bounds`);
   }
   if (Array.isArray(value)) {
+    if (typeof schema.minItems === "number" && value.length < schema.minItems) throw new Error(`${path} is below registry item bound`);
     if (typeof schema.maxItems === "number" && value.length > schema.maxItems) throw new Error(`${path} exceeds registry item bound`);
+    if (schema.uniqueItems === true && new Set(value.map((item) => canonical(item))).size !== value.length) throw new Error(`${path} contains duplicate registry items`);
     const itemSchema = schema.items as Record<string, unknown>;
     value.forEach((item, index) => validateRegistryValue(itemSchema, item, `${path}[${index}]`));
   }

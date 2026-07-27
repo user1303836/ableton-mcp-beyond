@@ -36,10 +36,12 @@ guarded audition launch, one owned audition stop, and one separately authorized
 emergency stop. Each rechecks Set identity, scene identity, playback revision,
 recording state, arm/monitoring state, quantization, existing playback, and
 target eligibility atomically on Live's main thread immediately before firing,
-and verifies fresh authoritative state after acting. Unsupported shapes are
-unavailable, not fabricated. Discovery
-is not a complete Live object graph and does not imply support for routing
-mutation, recording, or general clip-launch workflows.
+and verifies fresh authoritative state after acting. Purpose-specific guarded
+operations also cover individual clip launch/track stop, transport, bounded
+recording, routing, mixer, Session clip automation, devices, Browser loading,
+Arrangement clips, project-path discovery, and authenticated subscriptions
+when the observed Live shape supports them. Unsupported shapes remain
+unavailable rather than fabricated.
 
 Direct/package construction reports `fake-live`; only the installed Control
 Surface wrapper supplies `real-live` provenance, which still requires external
@@ -48,6 +50,18 @@ visible evidence before it counts as a real-Live test.
 It also loads and hashes the canonical operation registry, validates request
 and result payloads at runtime, advertises only supported operations, and provides bounded device/parameter discovery plus
 guarded writes to enabled, automatable, bounded, quantized numeric parameters.
+
+An optional distinct `realtimePort` enables a second loopback-only UDP socket.
+It grants no standing authority: an authenticated `realtime.arm` request must
+select UDP JSON, OSC, XY, and/or Max-compatible channels plus an exact
+published-parameter allowlist for at most 30 seconds, optionally restrict
+sender ports, and receive an unpredictable bearer token.
+The ingress enforces 512-byte packets, a 64/s token bucket with burst 16,
+positive safe sequences, replay and endpoint rejection, bounded nonblocking
+main-thread queueing, generation fencing on disarm/re-arm/expiry, verified
+published-parameter and compensated XY writes, jitter/loss/drop counters, and
+an emergency stop. See `docs/REALTIME_CONTROL.md` in the repository; no `.amxd`
+device is claimed or bundled.
 
 Run contract tests from the repository root:
 

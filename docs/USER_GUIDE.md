@@ -63,10 +63,11 @@ For a bridge configuration, create a separate owner-only secret file and run:
 ```sh
 npm run setup -- --output /absolute/path/bridge-config.json \
   --bridge-host 127.0.0.1 --bridge-port 9000 \
+  --realtime-port 9001 \
   --secret-file /absolute/path/bridge.secret --bridge-timeout 5000
 ```
 
-Version 2 writes the explicit `--config PATH` argument. The secret is never placed in client arguments, the package, the Remote Script reference, logs, or diagnostics. Paths must be explicit, safe, non-symlink paths; hosts must be loopback; secrets must be strong and owner-controlled.
+Version 2 writes the explicit `--config PATH` argument. The secret is never placed in client arguments, the package, the Remote Script reference, logs, or diagnostics. Paths must be explicit, safe, non-symlink paths; hosts must be loopback; secrets must be strong and owner-controlled. `--realtime-port` is optional, must differ from the authenticated TCP port, and enables only the short-lived separately armed channel described in `REALTIME_CONTROL.md`.
 
 Install only to an explicitly selected destination:
 

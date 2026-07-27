@@ -120,7 +120,7 @@ interface NoteEditTransaction {
 interface ClipLifecycleTransaction {
   id: string;
   epoch: number;
-  kind: "duplicate" | "arrangement-create" | "arrangement-delete" | "move" | "audio-set" | "mixer-set" | "automation" | "browser-load" | "device" | "routing-set" | "recording" | "backup";
+  kind: "duplicate" | "arrangement-create" | "arrangement-delete" | "move" | "audio-set" | "mixer-set" | "automation" | "browser-load" | "device" | "routing-set" | "recording" | "backup" | "realtime-arm";
   fence: string;
   clipRef?: LiveRef;
   payload: Record<string, unknown>;
@@ -128,8 +128,9 @@ interface ClipLifecycleTransaction {
   expiresAt: number;
   applyKey?: string;
   undoKey?: string;
-  state: "previewed" | "applied" | "undone" | "uncertain";
+  state: "previewed" | "applying" | "applied" | "undone" | "uncertain";
   created?: Record<string, unknown>;
+  inflight?: Promise<Record<string, unknown>>;
 }
 
 const REQUEST_ID_MAX_LENGTH = 128;
@@ -483,6 +484,30 @@ const implementedTools = [
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   },
   {
+    name: "live_realtime_arm_preview",
+    description: "Read-only preflight for one short-lived armed realtime UDP control window scoped to exact authoritative parameter refs and explicit output-safety evidence.",
+    inputSchema: { type: "object", properties: { ttlMs: { type: "integer", minimum: 1000, maximum: 30000 }, channels: { type: "array", minItems: 1, maxItems: 4, uniqueItems: true, items: { type: "string", enum: ["udp-json", "osc", "xy", "max"] } }, parameterRefs: { type: "array", maxItems: 32, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 256 } }, sourcePorts: { type: "array", maxItems: 16, uniqueItems: true, items: { type: "integer", minimum: 1, maximum: 65535 } }, outputSafety: { type: "object", properties: { safe: { type: "boolean", const: true }, provenance: { type: "string", minLength: 1, maxLength: 512 }, observedAt: { type: "string", minLength: 1, maxLength: 128 }, scope: { type: "string", minLength: 1, maxLength: 256 } }, required: ["safe", "provenance"], additionalProperties: false } }, required: ["channels", "parameterRefs", "outputSafety"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: true, openWorldHint: true },
+  },
+  {
+    name: "live_realtime_arm_apply",
+    description: "Apply an exact, unexpired realtime arm preview and receive the single-use UDP control token.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+  },
+  {
+    name: "live_realtime_disarm",
+    description: "Immediately end the active realtime control window.",
+    inputSchema: { type: "object", properties: { confirmation: { type: "string", enum: ["disarm"] } }, required: ["confirmation"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+  },
+  {
+    name: "live_realtime_stats",
+    description: "Read realtime control-plane acceptance, drop, replay, rate-limit, and sequence-gap counters.",
+    inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
     name: "live_device_parameter_preview",
     description: "Discover an authoritative device parameter and preview a bounded numeric change without mutation.",
     inputSchema: { type: "object", properties: { deviceRef: { type: "string", minLength: 1, maxLength: 256 }, parameterRef: { type: "string", minLength: 1, maxLength: 256 }, value: { type: "number" } }, required: ["deviceRef", "parameterRef", "value"], additionalProperties: false },
@@ -646,7 +671,7 @@ export class McpHost {
     if (signal?.aborted) return null;
     if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handle(input);
     const name = input.params.name;
-    if (![ "live_session_structure_preview", "live_session_structure_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open"].includes(name)) return this.handle(input);
+    if (![ "live_session_structure_preview", "live_session_structure_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats"].includes(name)) return this.handle(input);
     // Reuse the synchronous validator and request bookkeeping, then execute the
     // adapter operation asynchronously. Invalid requests never reach Live.
     const id = this.requestId(input.id);
@@ -706,6 +731,10 @@ export class McpHost {
       if (name === "live_project_backup_apply") return await this.liveProjectBackupApplyAsync(id, input.params.arguments, signal);
       if (name === "live_project_save") return this.successText(id, projectLimitation("save"));
       if (name === "live_project_open") return this.successText(id, projectLimitation("open/new/export/collect/bounce"));
+      if (name === "live_realtime_arm_preview") return await this.liveRealtimeArmPreviewAsync(id, input.params.arguments);
+      if (name === "live_realtime_arm_apply") return await this.liveRealtimeArmApplyAsync(id, input.params.arguments, signal);
+      if (name === "live_realtime_disarm") return await this.liveRealtimeDisarmAsync(id, input.params.arguments);
+      if (name === "live_realtime_stats") return await this.liveRealtimeStatsAsync(id, input.params.arguments);
       if (name === "live_device_parameter_preview") return await this.liveDeviceParameterPreviewAsync(id, input.params.arguments);
       if (name === "live_device_parameter_apply") return await this.liveDeviceParameterApplyAsync(id, input.params.arguments);
       if (name === "live_midi_clip_preview") return await this.liveMidiPreviewAsync(id, input.params.arguments);
@@ -1491,6 +1520,129 @@ export class McpHost {
       transaction.state = "applied";
       return this.successText(id, { transactionId: transaction.id, state: "applied", recording: result.recording, lane: transaction.payload.lane, idempotent: false });
     } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Recording state is uncertain; perform fresh discovery and use the emergency stop path if needed."); }
+  }
+
+  private realtimeParameterTargets(snapshot: LiveSnapshot, references: string[]): JsonObject[] {
+    const available = new Map<string, JsonObject>();
+    const add = (reference: unknown, value: unknown, details: JsonObject): void => {
+      if (typeof reference === "string") available.set(reference, { ref: reference, value: typeof value === "number" && Number.isFinite(value) ? value : null, ...details });
+    };
+    for (const track of snapshot.tracks as unknown as JsonObject[]) {
+      const mixer = isObject(track.mixer) ? track.mixer : undefined;
+      if (mixer) {
+        add(mixer.volumeRef, mixer.volume, { kind: "mixer-volume", trackRef: track.ref });
+        add(mixer.panRef, mixer.pan, { kind: "mixer-pan", trackRef: track.ref });
+        add(mixer.cueRef, mixer.cueVolume, { kind: "mixer-cue", trackRef: track.ref });
+        const sendRefs = Array.isArray(mixer.sendRefs) ? mixer.sendRefs : [];
+        const sends = Array.isArray(mixer.sends) ? mixer.sends : [];
+        sendRefs.slice(0, 128).forEach((reference, index) => add(reference, sends[index], { kind: "mixer-send", trackRef: track.ref, sendIndex: index }));
+      }
+      const queue: JsonObject[] = Array.isArray(track.devices) ? (track.devices as unknown[]).filter(isObject).slice(0, 512) : [];
+      for (let cursor = 0; cursor < queue.length && cursor < 512; cursor += 1) {
+        const device = queue[cursor]!;
+        for (const parameter of (Array.isArray(device.parameters) ? device.parameters : []).filter(isObject).slice(0, 512)) add(parameter.ref, parameter.value, { kind: "device-parameter", deviceRef: device.ref, min: parameter.min ?? null, max: parameter.max ?? null, enabled: parameter.enabled ?? null, automatable: parameter.automatable ?? null, revision: parameter.revision ?? null });
+        for (const macro of (Array.isArray(device.macros) ? device.macros : []).filter(isObject).slice(0, 128)) add(macro.ref, macro.value, { kind: "rack-macro", deviceRef: device.ref });
+        const parents = [device, ...(Array.isArray(device.drumPads) ? (device.drumPads as unknown[]).filter(isObject) : [])];
+        for (const parent of parents) for (const chain of (Array.isArray(parent.chains) ? parent.chains : []).filter(isObject).slice(0, 128)) for (const nested of (Array.isArray(chain.devices) ? chain.devices : []).filter(isObject).slice(0, 128)) if (queue.length < 512) queue.push(nested);
+      }
+    }
+    return references.map((reference) => {
+      const target = available.get(reference);
+      if (!target) throw new Error(`realtime parameter ref is not an authoritative published target: ${reference}`);
+      return target;
+    });
+  }
+
+  private async liveRealtimeArmPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    const allowedChannels = new Set(["udp-json", "osc", "xy", "max"]);
+    const validChannels = isObject(params) && Array.isArray(params.channels) && params.channels.length >= 1 && params.channels.length <= 4 && new Set(params.channels).size === params.channels.length && params.channels.every((item) => typeof item === "string" && allowedChannels.has(item));
+    const validParameterRefs = isObject(params) && Array.isArray(params.parameterRefs) && params.parameterRefs.length <= 32 && new Set(params.parameterRefs).size === params.parameterRefs.length && params.parameterRefs.every((item) => isNonEmptyString(item, 256));
+    const validSourcePorts = isObject(params) && (params.sourcePorts === undefined || (Array.isArray(params.sourcePorts) && params.sourcePorts.length <= 16 && new Set(params.sourcePorts).size === params.sourcePorts.length && params.sourcePorts.every((item) => isIntegerInRange(item, 1, 65535))));
+    if (!isObject(params) || !hasOnly(params, ["ttlMs", "channels", "parameterRefs", "sourcePorts", "outputSafety"]) || !validChannels || !validParameterRefs || !validSourcePorts || (params.ttlMs !== undefined && !isIntegerInRange(params.ttlMs, 1000, 30000))) return error(id, -32602, "channels, parameterRefs, optional ttlMs/sourcePorts, and outputSafety are invalid");
+    try {
+      this.validateOutputSafety(params.outputSafety);
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || status.provenance !== "real-live") throw new Error("realtime control requires authoritative real-Live provenance");
+      for (const operation of ["realtime.arm", "realtime.disarm", "realtime.stats"]) if (!(status.operations ?? []).includes(operation)) throw new Error(`${operation} is unavailable`);
+      const ttlMs = (params.ttlMs as number | undefined) ?? 10_000;
+      const parameterRefs = [...(params.parameterRefs as string[])];
+      const targets = parameterRefs.length > 0 ? this.realtimeParameterTargets(await this.asyncAdapter().snapshotAsync({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS }), parameterRefs) : [];
+      const payload: Record<string, unknown> = { ttlMs, channels: structuredClone(params.channels), parameterRefs, outputSafety: structuredClone(params.outputSafety as JsonObject) };
+      if (params.sourcePorts !== undefined) payload.sourcePorts = structuredClone(params.sourcePorts);
+      const fence = JSON.stringify({ epoch: status.epoch, registryHash: status.registryHash, operations: ["realtime.arm", "realtime.disarm", "realtime.stats"], targets });
+      const transaction: ClipLifecycleTransaction = { id: `realtime_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "realtime-arm", fence, payload, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "realtime arm");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, ttlMs, channels: payload.channels, parameterTargets: targets, sourcePorts: payload.sourcePorts ?? [], outputSafety: payload.outputSafety, impact: "temporarily-authorizes-bounded-realtime-control", packetLimitBytes: 512, sustainedRatePerSecond: 64, burst: 16, confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Realtime arming requires configured loopback UDP, real-Live provenance, and explicit output-safety evidence."); }
+  }
+
+  private async liveRealtimeArmApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "realtime-arm" || transaction.expiresAt <= Date.now()) return this.transactionError(id, "Unknown or expired realtime-arm transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", endpoint: transaction.created, idempotent: true });
+    if (transaction.state === "applying") {
+      if (transaction.applyKey !== params.idempotencyKey || !transaction.inflight) return this.transactionError(id, "Realtime arm apply is already in progress with a different request");
+      try {
+        const endpoint = await transaction.inflight;
+        return this.successText(id, { transactionId: transaction.id, state: "applied", endpoint, idempotent: true, recovery: "live_realtime_disarm or live_session_emergency_stop remains independent of a realtime packet" });
+      } catch (cause) { return this.adapterToolError(id, cause, "Realtime arm state is uncertain; disarm through the authenticated control channel before retrying."); }
+    }
+    if (transaction.state !== "previewed") return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    transaction.state = "applying";
+    transaction.applyKey = params.idempotencyKey as string;
+    const inflight = this.dispatchRealtimeArmApply(transaction, signal);
+    transaction.inflight = inflight;
+    inflight.catch(() => undefined);
+    try {
+      const endpoint = await inflight;
+      return this.successText(id, { transactionId: transaction.id, state: "applied", endpoint, idempotent: false, recovery: "live_realtime_disarm or live_session_emergency_stop remains independent of a realtime packet" });
+    } catch (cause) { return this.adapterToolError(id, cause, "Realtime arm state is uncertain; disarm through the authenticated control channel before retrying."); }
+  }
+
+  private async dispatchRealtimeArmApply(transaction: ClipLifecycleTransaction, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    try {
+      this.validateOutputSafety(transaction.payload.outputSafety);
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || status.provenance !== "real-live" || status.epoch !== transaction.epoch) throw new Error("Live connection or provenance changed; preview again");
+      const parameterRefs = transaction.payload.parameterRefs as string[];
+      const targets = parameterRefs.length > 0 ? this.realtimeParameterTargets(await this.asyncAdapter().snapshotAsync({ signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS }), parameterRefs) : [];
+      if (JSON.stringify({ epoch: status.epoch, registryHash: status.registryHash, operations: ["realtime.arm", "realtime.disarm", "realtime.stats"], targets }) !== transaction.fence) throw new Error("realtime control contract or parameter targets changed; preview again");
+      if (signal?.aborted) throw new Error("realtime arm cancelled before dispatch");
+      const args: Record<string, unknown> = { ttlMs: transaction.payload.ttlMs, channels: transaction.payload.channels, parameterRefs };
+      if (transaction.payload.sourcePorts !== undefined) args.sourcePorts = transaction.payload.sourcePorts;
+      const result = await this.asyncAdapter().invokeAsync({ operation: "realtime.arm", args }, { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as Record<string, unknown>;
+      if (!isIntegerInRange(result.port, 1, 65535) || !isNonEmptyString(result.host, 64) || !isNonEmptyString(result.token, 128) || !Number.isInteger(result.expiresAt) || (result.expiresAt as number) <= Date.now() || !Array.isArray(result.channels) || JSON.stringify(result.channels) !== JSON.stringify(transaction.payload.channels) || !Array.isArray(result.parameterRefs) || JSON.stringify(result.parameterRefs) !== JSON.stringify(parameterRefs)) throw new Error("realtime arming was not confirmed with the requested bounded endpoint and exact targets");
+      transaction.created = structuredClone(result);
+      transaction.state = "applied";
+      return transaction.created;
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      transaction.state = /cancelled before dispatch/.test(message) ? "previewed" : "uncertain";
+      throw cause;
+    }
+  }
+
+  private async liveRealtimeDisarmAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, ["confirmation"]) || params.confirmation !== "disarm") return error(id, -32602, "confirmation=disarm is required");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.operations ?? []).includes("realtime.disarm")) throw new Error("realtime disarm is unavailable");
+      const result = await this.asyncAdapter().invokeAsync({ operation: "realtime.disarm", args: {} }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as Record<string, unknown>;
+      if (result.armed !== false) throw new Error("realtime disarm was not confirmed");
+      return this.successText(id, { armed: false, disarmed: true });
+    } catch (cause) { return this.adapterToolError(id, cause, "Realtime disarm failed; use the separately authorized emergency-stop path if playback may be active."); }
+  }
+
+  private async liveRealtimeStatsAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, [])) return error(id, -32602, "no arguments accepted");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.operations ?? []).includes("realtime.stats")) throw new Error("realtime stats are unavailable");
+      const result = await this.asyncAdapter().invokeAsync({ operation: "realtime.stats", args: {} }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as Record<string, unknown>;
+      return this.successText(id, result);
+    } catch (cause) { return this.adapterToolError(id, cause, "Realtime stats require the configured loopback control plane."); }
   }
 
   private deviceRow(snapshot: LiveSnapshot, deviceRef: LiveRef): { track: JsonObject; device: JsonObject } {

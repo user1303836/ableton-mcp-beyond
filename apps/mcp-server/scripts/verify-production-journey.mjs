@@ -1,6 +1,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createHmac } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import { createSocket } from "node:dgram";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +20,7 @@ const npmOptions = { shell: process.platform === "win32" };
 const children = new Set();
 const results = [];
 let failed = false;
+let harnessRealtimePort = 0;
 
 function step(name, fn) {
   return Promise.resolve()
@@ -28,6 +30,28 @@ function step(name, fn) {
 }
 
 function assert(condition, message) { if (!condition) throw new Error(`assertion failed: ${message}`); }
+
+function bindUdp() {
+  const socket = createSocket("udp4");
+  return new Promise((resolve, reject) => {
+    socket.once("error", reject);
+    socket.bind(0, "127.0.0.1", () => { socket.removeListener("error", reject); resolve(socket); });
+  });
+}
+function sendUdp(socket, payload, port) {
+  const bytes = Buffer.isBuffer(payload) ? payload : Buffer.from(payload);
+  return new Promise((resolve, reject) => socket.send(bytes, port, "127.0.0.1", (error) => error ? reject(error) : resolve()));
+}
+function oscString(value) {
+  const raw = Buffer.from(`${value}\0`, "utf8");
+  return Buffer.concat([raw, Buffer.alloc((4 - raw.length % 4) % 4)]);
+}
+function oscParameter(token, sequence, reference, value, sentAtMs) {
+  const sequenceBuffer = Buffer.alloc(4); sequenceBuffer.writeInt32BE(sequence);
+  const valueBuffer = Buffer.alloc(4); valueBuffer.writeFloatBE(value);
+  const sentBuffer = Buffer.alloc(8); sentBuffer.writeDoubleBE(sentAtMs);
+  return Buffer.concat([oscString("/ableton-mcp/parameter"), oscString(",sisfd"), oscString(token), sequenceBuffer, oscString(reference), valueBuffer, sentBuffer]);
+}
 
 function terminateChildProcess(child) {
   if (!child || child.exitCode !== null) return;
@@ -364,9 +388,10 @@ class Instance:
     def __init__(self): self.song = FakeSong()
 
 probe = socket.socket(); probe.bind(("127.0.0.1", 0)); port = probe.getsockname()[1]; probe.close()
+realtime_probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); realtime_probe.bind(("127.0.0.1", 0)); realtime_port = realtime_probe.getsockname()[1]; realtime_probe.close()
 secret_path = os.environ.get("ABLETON_MCP_JOURNEY_SECRET_FILE")
 if not secret_path: raise RuntimeError("journey secret file was not provided")
-bridge = AbletonMcpBridge(Instance(), {"host": "127.0.0.1", "port": port, "secret": pathlib.Path(secret_path).read_text(encoding="utf-8").strip()})
+bridge = AbletonMcpBridge(Instance(), {"host": "127.0.0.1", "port": port, "realtimePort": realtime_port, "secret": pathlib.Path(secret_path).read_text(encoding="utf-8").strip()})
 song = bridge.mapper.song
 try:
     from Live.Application import Application
@@ -383,7 +408,7 @@ while time.time() < deadline:
         client.close(); bridge.update_display(); time.sleep(0.01)
 else:
     bridge.disconnect(); raise RuntimeError("journey bridge listener did not become reachable")
-pathlib.Path(sys.argv[1]).write_text(json.dumps({"port": port}), encoding="utf-8")
+pathlib.Path(sys.argv[1]).write_text(json.dumps({"port": port, "realtimePort": realtime_port}), encoding="utf-8")
 
 def apply_control(command):
     name = command.get("command")
@@ -572,9 +597,11 @@ class EnvelopeEvent:
     const deadline = Date.now() + 10_000;
     while (!existsSync(readyPath) && Date.now() < deadline) Atomics.wait(wait, 0, 0, 25);
     if (!existsSync(readyPath)) throw new Error("fake-Live harness did not become ready");
-    harnessPort = JSON.parse(readFileSync(readyPath, "utf8")).port;
+    const readyState = JSON.parse(readFileSync(readyPath, "utf8"));
+    harnessPort = readyState.port;
+    harnessRealtimePort = readyState.realtimePort;
     cliConfigPath = join(temporaryDirectory, "journey-bridge-config.json");
-    execFileSync(process.execPath, [join(installedPackageDirectory, "dist", "src", "setup.js"), "--output", cliConfigPath, "--bridge-host", "127.0.0.1", "--bridge-port", String(harnessPort), "--secret-file", secretPath], { encoding: "utf8" });
+    execFileSync(process.execPath, [join(installedPackageDirectory, "dist", "src", "setup.js"), "--output", cliConfigPath, "--bridge-host", "127.0.0.1", "--bridge-port", String(harnessPort), "--realtime-port", String(harnessRealtimePort), "--secret-file", secretPath], { encoding: "utf8" });
   }
 
   let client = await startClient();
@@ -981,6 +1008,77 @@ class EnvelopeEvent:
     assert(unsubscribed.subscribed === false, "unsubscribe failed");
   });
 
+  await step("armed realtime UDP, OSC, XY, and Max channels are bounded, measured, reconnect-safe, and recoverable", async () => {
+    const freshTracks = (await textOf(client, "live_discover", { kind: "track" })).parsed.items;
+    const volumeRef = freshTracks[0]?.mixer?.volumeRef;
+    const panRef = freshTracks[0]?.mixer?.panRef;
+    assert(typeof volumeRef === "string" && typeof panRef === "string", "published mixer parameters are unavailable for realtime proof");
+    const refused = await textOf(client, "live_realtime_arm_preview", { ttlMs: 5000, channels: ["udp-json"], parameterRefs: [volumeRef], outputSafety: { safe: true, provenance: "journey-operator-confirmed-loopback" } });
+    assert(refused.isError === true, "fake-Live provenance was promoted to realtime host authority");
+    const sender = await bindUdp();
+    const rogue = await bindUdp();
+    try {
+      const sourcePort = sender.address().port;
+      const armed = await adapter_call(client, "realtime.arm", { ttlMs: 30000, channels: ["udp-json", "osc", "xy", "max"], parameterRefs: [volumeRef, panRef], sourcePorts: [sourcePort] });
+      assert(armed.host === "127.0.0.1" && armed.port === harnessRealtimePort && JSON.stringify(armed.parameterRefs) === JSON.stringify([volumeRef, panRef]) && armed.packetLimitBytes === 512 && armed.ratePerSecond === 64 && armed.burst === 16, `realtime arm contract mismatch: ${JSON.stringify(armed)}`);
+      // The token lives in the bridge rather than the MCP process and remains
+      // usable across a host restart for only the arm's bounded lifetime.
+      await restartClient();
+      const packet = (values) => JSON.stringify({ token: armed.token, ...values });
+      await sendUdp(rogue, packet({ seq: 1, channel: "udp-json", op: "parameter.set", ref: volumeRef, value: 0.2 }), harnessRealtimePort);
+      await sendUdp(sender, packet({ seq: 1, channel: "udp-json", op: "parameter.set", ref: "parameter:not-allowed", value: 0.2 }), harnessRealtimePort);
+      await sendUdp(sender, packet({ seq: 1, channel: "udp-json", op: "parameter.set", ref: volumeRef, value: 0.4, sentAtMs: Date.now() }), harnessRealtimePort);
+      await sendUdp(sender, packet({ seq: 3, channel: "xy", op: "xy.set", xRef: volumeRef, x: 0.55, yRef: panRef, y: 0.1, sentAtMs: Date.now() }), harnessRealtimePort);
+      await sendUdp(sender, oscParameter(armed.token, 4, volumeRef, 0.6, Date.now()), harnessRealtimePort);
+      await sendUdp(sender, packet({ seq: 5, channel: "max", op: "parameter.set", ref: volumeRef, value: 0.65, sentAtMs: Date.now() }), harnessRealtimePort);
+      await sendUdp(sender, packet({ seq: 5, channel: "max", op: "parameter.set", ref: volumeRef, value: 0.65 }), harnessRealtimePort);
+      for (let sequence = 6; sequence <= 80; sequence += 1) await sendUdp(sender, packet({ seq: sequence, channel: "udp-json", op: "parameter.set", ref: volumeRef, value: 0.5, sentAtMs: Date.now() }), harnessRealtimePort);
+      let stats;
+      const statsDeadline = Date.now() + 5000;
+      do {
+        await waitMs(50);
+        stats = await adapter_call(client, "realtime.stats", {});
+      } while (Date.now() < statsDeadline && stats.pending > 0);
+      assert(stats.armed === true && stats.accepted >= 4 && stats.applied >= 4 && stats.applyFailures === 0 && stats.pending === 0, `realtime apply counters mismatch: ${JSON.stringify(stats)}`);
+      assert(stats.droppedEndpoint >= 1 && stats.droppedTarget >= 1 && stats.droppedReplay >= 1 && stats.droppedRateLimited >= 1 && stats.sequenceGaps >= 1, `realtime loss/drop counters mismatch: ${JSON.stringify(stats)}`);
+      assert(Number.isFinite(stats.jitterMs) && Number.isFinite(stats.maxJitterMs), "realtime jitter was not measured");
+      const afterParameters = (await textOf(client, "live_discover", { kind: "track" })).parsed.items[0];
+      assert(typeof afterParameters.mixer.volume === "number" && typeof afterParameters.mixer.pan === "number", "realtime parameter changes were not authoritative");
+
+      // Prove the data-plane emergency stop remains independent of the host
+      // transaction after reconnect and while the bounded token is still armed.
+      const slots = (await textOf(client, "live_discover", { kind: "clip-slot", parent: freshTracks[0].ref })).parsed.items;
+      const slotRef = slots.find((item) => item.empty === false)?.ref;
+      const preview = (await textOf(client, "live_clip_launch_preview", { slotRef, outputSafety: { safe: true, provenance: "journey-operator-confirmed-headphones" } })).parsed;
+      await textOf(client, "live_clip_launch_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "journey-realtime-launch" });
+      assert(activeKeys(await playback(client)).length > 0, "realtime emergency proof did not start playback");
+      await waitMs(1000);
+      await sendUdp(sender, packet({ seq: 100, channel: "udp-json", op: "emergency-stop", sentAtMs: Date.now() }), harnessRealtimePort);
+      const stopDeadline = Date.now() + 5000;
+      let stoppedState;
+      do { await waitMs(50); stoppedState = await playback(client); } while (Date.now() < stopDeadline && activeKeys(stoppedState).length > 0);
+      assert(stoppedState.transport.playing === false && activeKeys(stoppedState).length === 0, "realtime emergency stop did not restore playback baseline");
+
+      const beforeDisarm = await adapter_call(client, "realtime.stats", {});
+      const disarmed = await adapter_call(client, "realtime.disarm", {});
+      assert(disarmed.armed === false, "realtime disarm was not confirmed");
+      await sendUdp(sender, packet({ seq: 101, channel: "udp-json", op: "parameter.set", ref: volumeRef, value: 0.2 }), harnessRealtimePort);
+      await waitMs(100);
+      const afterDisarm = await adapter_call(client, "realtime.stats", {});
+      assert(afterDisarm.armed === false && afterDisarm.droppedUnarmed > beforeDisarm.droppedUnarmed, "disarm did not revoke subsequent packets");
+
+      const expiring = await adapter_call(client, "realtime.arm", { ttlMs: 1000, channels: ["udp-json"], parameterRefs: [volumeRef], sourcePorts: [sourcePort] });
+      await waitMs(1100);
+      await sendUdp(sender, JSON.stringify({ token: expiring.token, seq: 1, channel: "udp-json", op: "parameter.set", ref: volumeRef, value: 0.2 }), harnessRealtimePort);
+      await waitMs(100);
+      const expiredStats = await adapter_call(client, "realtime.stats", {});
+      assert(expiredStats.armed === false && expiredStats.droppedUnarmed > afterDisarm.droppedUnarmed, "expired realtime authority accepted a packet");
+      await adapter_call(client, "realtime.disarm", {});
+    } finally {
+      sender.close(); rogue.close();
+    }
+  });
+
   await step("shutdown leaves no residual playback or processes", async () => {
     assert((await playback(client)).transport.playing === false, "playback was active before shutdown");
     await client.close();
@@ -995,6 +1093,6 @@ class EnvelopeEvent:
   else console.error(`journey temp kept: ${temporaryDirectory}`);
 }
 
-const summary = { journey: "packaged-production-boundary", provenance: "fake-live", steps: results, passed: !failed && results.every((entry) => entry.passed) && results.length === 22 };
+const summary = { journey: "packaged-production-boundary", provenance: "fake-live", steps: results, passed: !failed && results.every((entry) => entry.passed) && results.length === 23 };
 console.log(JSON.stringify(summary));
 if (!summary.passed) process.exitCode = 1;

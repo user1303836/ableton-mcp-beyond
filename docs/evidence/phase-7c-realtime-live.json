@@ -1,0 +1,109 @@
+{
+  "capturedAt": "2026-07-27T19:30:26Z",
+  "phase": "7C",
+  "environment": "real-live",
+  "live": {
+    "application": "Ableton Live 12 Beta",
+    "version": "12.4.5b8 (2026-07-20_1b41238d40)",
+    "set": "MCP-Audition-Disposable"
+  },
+  "transport": {
+    "control": "tcp://127.0.0.1:9765",
+    "realtime": "udp://127.0.0.1:9766",
+    "loopbackOnly": true,
+    "secretOrTokenRecorded": false
+  },
+  "productionBoundary": {
+    "adapter": "remote-script",
+    "provenance": "real-live",
+    "epoch": 5218165921475791,
+    "registryHash": "006104fd05c0c2eed6dc790ee2215a9e2154fa0a8f0a6f081b53cca4829f108d",
+    "operations": [
+      "realtime.arm",
+      "realtime.disarm",
+      "realtime.stats"
+    ],
+    "exactParameterAllowlist": true
+  },
+  "checks": {
+    "parameterPlane": {
+      "track": "1-MIDI",
+      "channelsExercised": [
+        "udp-json",
+        "osc",
+        "xy",
+        "max"
+      ],
+      "prior": {
+        "volume": 0.8500000238418579,
+        "pan": 0
+      },
+      "restored": {
+        "volume": 0.8500000238418579,
+        "pan": 0
+      },
+      "acceptedDelta": 27,
+      "appliedDelta": 27,
+      "applyFailuresDelta": 0,
+      "pendingAtVerification": 0,
+      "droppedEndpointDelta": 1,
+      "droppedTargetDelta": 1,
+      "droppedReplayDelta": 1,
+      "droppedRateLimitedDelta": 0,
+      "measuredWindowMs": 6220,
+      "theoreticalTokenBucketMaximum": 416.08,
+      "sequenceGapsDelta": 1,
+      "jitterMs": 134.862385,
+      "maxJitterMs": 409.218262,
+      "hostRestartApplied": true,
+      "disarmed": true
+    },
+    "emergencyStop": {
+      "launchedTarget": "5218165921475791:track:0|5218165921475791:clip_slot:0:0|5218165921475791:scene:0",
+      "stopped": true,
+      "baselineRestored": true,
+      "independentOfLaunchTransaction": true
+    },
+    "expiry": {
+      "ttlMs": 1000,
+      "rejectedAfterExpiry": true
+    }
+  },
+  "packagedFakeLiveCompanionEvidence": {
+    "command": "npm run journey:verify",
+    "steps": 23,
+    "passed": true,
+    "coverage": [
+      "configured realtime port",
+      "authenticated arm with exact parameter refs",
+      "UDP JSON",
+      "OSC packet",
+      "XY pair",
+      "Max-compatible JSON channel",
+      "source-port rejection",
+      "unauthorized-target rejection",
+      "replay rejection",
+      "rate limiting",
+      "sequence gaps",
+      "jitter",
+      "host restart",
+      "disarm and re-arm queue fencing",
+      "expiry",
+      "emergency stop"
+    ],
+    "provenance": "fake-live"
+  },
+  "residual": {
+    "playback": false,
+    "arrangementRecord": false,
+    "sessionRecord": false,
+    "mixerRestored": true,
+    "realtimeArmed": false
+  },
+  "limitations": [
+    "UDP acceptance is not delivery; accepted, applied, applyFailures, pending, and pre-dispatch drops are reported separately.",
+    "The real-Live ingress processed this measured burst below the configured sustained limit, so no additional rate-limit drops occurred in this run; deterministic and packaged overload tests separately force and verify rate-limit drops.",
+    "The Max channel is an authenticated Max-compatible JSON ingress contract. This evidence used a wire-equivalent sender, not a packaged .amxd device.",
+    "Windows real-Live evidence remains external to this macOS run. Deterministic Windows configuration and packaging coverage runs in CI when GitHub Actions billing permits jobs to start."
+  ]
+}

@@ -22,7 +22,7 @@ export interface ServerConfig {
 export interface BridgeConfig {
   version: 2;
   server: { command: string; args: string[] };
-  bridge: { host: string; port: number; secretFile: string; timeoutMs: number };
+  bridge: { host: string; port: number; secretFile: string; timeoutMs: number; realtimePort?: number };
 }
 
 type LiveStatusWithRegistry = { registryHash?: unknown; provenance?: unknown };
@@ -151,12 +151,14 @@ function secureWindowsFile(path: string): void {
 }
 
 export function configForBridge(entrypoint: string, bridge: BridgeConfig["bridge"], nodeCommand = process.execPath, configPath?: string): BridgeConfig {
+  if (Object.keys(bridge).some((key) => !["host", "port", "secretFile", "timeoutMs", "realtimePort"].includes(key))) throw new Error("unsupported bridge configuration fields");
   if (!isAbsolute(entrypoint)) throw new Error("entrypoint must be an absolute path");
   if (!Number.isInteger(bridge.port) || bridge.port < 1 || bridge.port > 65_535) throw new Error("bridge port must be between 1 and 65535");
   validateLoopback(bridge.host);
   validateSecretPath(bridge.secretFile);
   if (configPath !== undefined && (!isAbsolute(configPath) || configPath.includes("\0"))) throw new Error("configuration path must be absolute");
   if (!Number.isInteger(bridge.timeoutMs) || bridge.timeoutMs < 100 || bridge.timeoutMs > 60_000) throw new Error("bridge timeout must be between 100 and 60000 ms");
+  if (bridge.realtimePort !== undefined && (!Number.isInteger(bridge.realtimePort) || bridge.realtimePort < 1 || bridge.realtimePort > 65_535 || bridge.realtimePort === bridge.port)) throw new Error("realtime port must be distinct and between 1 and 65535");
   if (typeof nodeCommand !== "string" || nodeCommand.length === 0) throw new Error("node command must be a non-empty string");
   return { version: 2, server: { command: nodeCommand, args: configPath ? [entrypoint, "--config", configPath] : [entrypoint] }, bridge: { ...bridge } };
 }
@@ -202,11 +204,11 @@ function parseBridgeConfig(value: unknown): BridgeConfig {
   if (candidate.version !== BRIDGE_CONFIG_VERSION || typeof candidate.server !== "object" || candidate.server === null || typeof candidate.bridge !== "object" || candidate.bridge === null) throw new Error("unsupported configuration version");
   const server = candidate.server as Record<string, unknown>;
   const bridge = candidate.bridge as Record<string, unknown>;
-  if (Object.keys(server).some((key) => !["command", "args"].includes(key)) || Object.keys(bridge).some((key) => !["host", "port", "secretFile", "timeoutMs"].includes(key))) throw new Error("unsupported configuration fields");
+  if (Object.keys(server).some((key) => !["command", "args"].includes(key)) || Object.keys(bridge).some((key) => !["host", "port", "secretFile", "timeoutMs", "realtimePort"].includes(key))) throw new Error("unsupported configuration fields");
   if (typeof server.command !== "string" || !server.command || !Array.isArray(server.args) || !server.args.every((arg) => typeof arg === "string")) throw new Error("invalid server configuration");
-  if (typeof bridge.host !== "string" || typeof bridge.port !== "number" || typeof bridge.secretFile !== "string" || typeof bridge.timeoutMs !== "number") throw new Error("invalid bridge configuration");
+  if (typeof bridge.host !== "string" || typeof bridge.port !== "number" || typeof bridge.secretFile !== "string" || typeof bridge.timeoutMs !== "number" || (bridge.realtimePort !== undefined && typeof bridge.realtimePort !== "number")) throw new Error("invalid bridge configuration");
   if (server.args.length !== 3 || server.args[1] !== "--config" || !isAbsolute(server.args[2] ?? "")) throw new Error("version-2 server configuration must include --config PATH");
-  const config = configForBridge(server.args[0] ?? "", { host: bridge.host, port: bridge.port, secretFile: bridge.secretFile, timeoutMs: bridge.timeoutMs }, server.command, server.args[2]);
+  const config = configForBridge(server.args[0] ?? "", { host: bridge.host, port: bridge.port, secretFile: bridge.secretFile, timeoutMs: bridge.timeoutMs, ...(bridge.realtimePort === undefined ? {} : { realtimePort: bridge.realtimePort }) }, server.command, server.args[2]);
   readSecretFile(config.bridge.secretFile);
   return config;
 }

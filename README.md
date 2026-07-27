@@ -52,12 +52,15 @@ generate a version-2 configuration:
 ```sh
 npm run setup -- --output /absolute/path/bridge-config.json \
   --bridge-host 127.0.0.1 --bridge-port 9000 \
+  --realtime-port 9001 \
   --secret-file /absolute/path/bridge.secret --bridge-timeout 5000
 ```
 
 The generated version-2 client entry includes `--config
 /absolute/path/bridge-config.json`; the secret remains in its separate
-owner-only file and is never placed in client arguments.
+owner-only file and is never placed in client arguments. `--realtime-port` is
+optional; when present it enables only the separately armed loopback control
+plane documented in [`docs/REALTIME_CONTROL.md`](docs/REALTIME_CONTROL.md).
 
 The CLI loads a bridge only when `--config /absolute/path/bridge-config.json`
 is supplied. Configuration, secret, and Remote Script installation are never

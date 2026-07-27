@@ -17,6 +17,7 @@ import re
 import math
 import queue
 import socket
+import struct
 import threading
 import time
 import traceback
@@ -64,7 +65,7 @@ def operation_registry() -> tuple[dict[str, Any], str]:
     identifiers = [item.get("id") for item in operations if isinstance(item, dict)]
     if len(identifiers) != len(operations) or identifiers != sorted(identifiers) or len(set(identifiers)) != len(identifiers):
         raise ValueError("operation registry identifiers are not canonical")
-    allowed_schema = {"type", "properties", "required", "additionalProperties", "items", "enum", "const", "minLength", "maxLength", "minimum", "maximum", "maxItems", "maxProperties", "pattern"}
+    allowed_schema = {"type", "properties", "required", "additionalProperties", "items", "enum", "const", "minLength", "maxLength", "minimum", "maximum", "minItems", "maxItems", "uniqueItems", "maxProperties", "pattern"}
     types = {"object", "array", "string", "number", "integer", "boolean", "null"}
     def validate_schema(schema: Any, depth: int = 0) -> None:
         if not isinstance(schema, dict) or depth > 8 or set(schema) - allowed_schema:
@@ -73,7 +74,7 @@ def operation_registry() -> tuple[dict[str, Any], str]:
         declared_types = declared if isinstance(declared, list) else [declared]
         if not declared_types or len(declared_types) > 4 or any(item not in types for item in declared_types):
             raise ValueError("invalid operation schema type")
-        for key in ("minLength", "maxLength", "maxItems", "maxProperties"):
+        for key in ("minLength", "maxLength", "minItems", "maxItems", "maxProperties"):
             value = schema.get(key)
             if value is not None and (not isinstance(value, int) or isinstance(value, bool) or value < 0 or value > 2**53 - 1):
                 raise ValueError("invalid operation schema bound")
@@ -93,6 +94,8 @@ def operation_registry() -> tuple[dict[str, Any], str]:
             for child in properties.values(): validate_schema(child, depth + 1)
         if "array" in declared_types:
             if not isinstance(schema.get("items"), dict): raise ValueError("array schema items are required")
+            if "uniqueItems" in schema and not isinstance(schema["uniqueItems"], bool): raise ValueError("invalid uniqueItems")
+            if schema.get("minItems", 0) > schema.get("maxItems", 2**53 - 1): raise ValueError("invalid array bounds")
             validate_schema(schema["items"], depth + 1)
         if "enum" in schema and (not isinstance(schema["enum"], list) or not 0 < len(schema["enum"]) <= 32):
             raise ValueError("invalid operation schema enum")
@@ -131,7 +134,11 @@ def validate_registry_value(schema: dict[str, Any], value: Any, path: str = "$")
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         if not math.isfinite(float(value)) or ("minimum" in schema and value < schema["minimum"]) or ("maximum" in schema and value > schema["maximum"]): raise ValueError(f"{path} is outside numeric bounds")
     if isinstance(value, list):
+        if "minItems" in schema and len(value) < schema["minItems"]: raise ValueError(f"{path} is below item bound")
         if "maxItems" in schema and len(value) > schema["maxItems"]: raise ValueError(f"{path} exceeds item bound")
+        if schema.get("uniqueItems") is True:
+            encoded = [json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":")) for item in value]
+            if len(set(encoded)) != len(encoded): raise ValueError(f"{path} contains duplicate items")
         for index, item in enumerate(value): validate_registry_value(schema["items"], item, f"{path}[{index}]")
     if isinstance(value, dict):
         if "maxProperties" in schema and len(value) > schema["maxProperties"]: raise ValueError(f"{path} exceeds property bound")
@@ -364,7 +371,7 @@ class LiveObjectMapper:
             "adapter": "remote-script" if self.song is not None else "unavailable",
             "epoch": self.refs.epoch if self.song is not None else None,
             "protocol": "ableton-live/v1",
-            "capabilities": self.capabilities(),
+            "capabilities": self.capabilities(set(operations)),
             "registryHash": registry_hash,
             "operations": operations,
             "provenance": self.provenance,
@@ -430,6 +437,8 @@ class LiveObjectMapper:
             return isinstance(self._read_attr(self.song, "session_record"), bool)
         if operation == "recording.arrangement":
             return isinstance(self._read_attr(self.song, "record_mode"), bool)
+        if operation in {"realtime.arm", "realtime.disarm", "realtime.stats"}:
+            return getattr(self, "realtime_available", False)
         if operation == "session.audition-launch":
             return any(callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None)) for scene in self._items(getattr(self.song, "scenes", [])))
         if operation in {"session.audition-stop", "session.emergency-stop"}:
@@ -464,19 +473,43 @@ class LiveObjectMapper:
             )
         return False
 
-    def capabilities(self) -> list[str]:
+    def capabilities(self, operations: set[str] | None = None) -> list[str]:
         if self.song is None:
             return []
+        supports = (lambda operation: operation in operations) if operations is not None else self._operation_supported
         capabilities = [
             "session.read", "session.write", "tracks", "scenes", "clips", "notes", "session.discovery", "session.structure",
             "session.midi_clip.create", "session.midi_clip.delete",
             "session.midi_note.read", "session.midi_note.write", "transport", "subscriptions", "reconnect",
         ]
-        if self._locator_supported():
-            capabilities.extend(("arrangement.read", "arrangement.write"))
-        if any(self._device_items(track, track_index) for track_index, track in enumerate(self._items(getattr(self.song, "tracks", [])))):
+        if self._locator_supported() or supports("arrangement.clip.delete"): capabilities.append("arrangement.read")
+        if self._locator_supported() or supports("arrangement.clip.create") or supports("arrangement.clip.delete"): capabilities.append("arrangement.write")
+        tracks = self._items(getattr(self.song, "tracks", []))
+        device_objects = [device for track in tracks for device in self._items(getattr(track, "devices", []))]
+        # Shallow attribute traversal is enough for status and avoids building
+        # the full recursive device graph on every capability refresh.
+        cursor = 0
+        while cursor < len(device_objects) and len(device_objects) < 512:
+            device = device_objects[cursor]; cursor += 1
+            for chain in self._items(self._read_attr(device, "chains") or []):
+                for nested in self._items(self._read_attr(chain, "devices") or []):
+                    if len(device_objects) >= 512: break
+                    device_objects.append(nested)
+                if len(device_objects) >= 512: break
+        if device_objects:
             capabilities.extend(("devices", "parameters", "device.parameter.write"))
-        return capabilities
+            if any(self._read_attr(item, "can_have_chains") is True for item in device_objects): capabilities.extend(("racks", "chains"))
+            class_names = [str(self._read_attr(item, "class_name") or item.__class__.__name__).lower() for item in device_objects]
+            if any(any(marker in name for marker in ("plugin", "vst", "audio_unit")) for name in class_names): capabilities.append("plugins")
+        if supports("audio.clip.set"): capabilities.append("audio")
+        if supports("automation.envelope.read"): capabilities.append("automation")
+        if supports("browser.search"): capabilities.append("browser")
+        if supports("routing.set"): capabilities.append("routing")
+        if supports("recording.session") or supports("recording.arrangement"): capabilities.append("recording")
+        if supports("mixer.set"): capabilities.append("mixing")
+        if isinstance(self._read_attr(self.song, "file_path"), str): capabilities.append("projects")
+        if getattr(self, "realtime_available", False): capabilities.extend(("max", "osc", "realtime.events"))
+        return list(dict.fromkeys(capabilities))
 
     def _locator_supported(self) -> bool:
         return hasattr(self.song, "cue_points") and callable(getattr(self.song, "set_or_delete_cue", None))
@@ -680,36 +713,7 @@ class LiveObjectMapper:
         rows: list[dict[str, Any]] = []
         track_ref = self.refs.put("track", track, str(track_index))
         for index, device in enumerate(devices):
-            parameters: list[dict[str, Any]] = []
             device_ref = self.refs.put("device", device, f"{track_index}:{index}")
-            for parameter_index, parameter in enumerate(self._items(getattr(device, "parameters", []))):
-                minimum = self._read_attr(parameter, "min", "min_value")
-                maximum = self._read_attr(parameter, "max", "max_value")
-                value = self._read_attr(parameter, "value")
-                numeric = (minimum, maximum, value)
-                if any(not isinstance(item, (int, float)) or isinstance(item, bool) or not math.isfinite(float(item)) for item in numeric):
-                    continue
-                parameter_ref = self.refs.put("parameter", parameter, f"{device_ref}:{parameter_index}")
-                display = self._read_attr(parameter, "display_value")
-                if display is None:
-                    display = self._read_attr(parameter, "str_for_value")
-                    if callable(display):
-                        try:
-                            display = display(value)
-                        except Exception:
-                            display = value
-                    if display is None:
-                        display = value
-                parameters.append({
-                    "ref": parameter_ref, "parentRef": device_ref,
-                    "name": str(self._read_attr(parameter, "name") or f"Parameter {parameter_index + 1}"),
-                    "value": float(value), "min": float(minimum), "max": float(maximum),
-                    "quantization": float(self._read_attr(parameter, "quantization") or 0),
-                    "enabled": bool(self._read_attr(parameter, "is_enabled", "enabled") if self._read_attr(parameter, "is_enabled", "enabled") is not None else True),
-                    "automatable": bool(self._read_attr(parameter, "is_automatable", "automatable") if self._read_attr(parameter, "is_automatable", "automatable") is not None else True),
-                    "automationState": str(self._read_attr(parameter, "automation_state") or "none"),
-                    "displayValue": str(display), "revision": self.refs.revision(parameter_ref),
-                })
             rows.append(self._device_row(device, device_ref, track_ref, track_index, f"{track_index}:{index}", index))
         return rows
 
@@ -2534,6 +2538,414 @@ class _Subscription:
         self._registrations.clear()
 
 
+REALTIME_MAX_DATAGRAM = 512
+REALTIME_RATE_PER_SECOND = 64.0
+REALTIME_RATE_BURST = 16
+REALTIME_CHANNELS = {"udp-json", "osc", "xy", "max"}
+_REALTIME_JSON_KEYS = {"token", "seq", "channel", "op", "sentAtMs", "ref", "value", "xRef", "x", "yRef", "y"}
+
+
+def _osc_string(data: bytes, offset: int) -> tuple[str, int]:
+    end = data.find(b"\x00", offset)
+    if end < offset:
+        raise ValueError("OSC string is unterminated")
+    try:
+        value = data[offset:end].decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError("OSC string is invalid UTF-8") from error
+    next_offset = (end + 4) & ~3
+    if next_offset > len(data):
+        raise ValueError("OSC string padding is truncated")
+    return value, next_offset
+
+
+def _decode_osc(data: bytes) -> dict[str, Any]:
+    address, offset = _osc_string(data, 0)
+    if address.startswith("#"):
+        raise ValueError("OSC bundles are unavailable")
+    tags, offset = _osc_string(data, offset)
+    if not tags.startswith(",") or len(tags) > 16:
+        raise ValueError("OSC type tags are invalid")
+    values: list[Any] = []
+    for tag in tags[1:]:
+        if tag == "s":
+            value, offset = _osc_string(data, offset)
+        elif tag == "i":
+            if offset + 4 > len(data): raise ValueError("OSC integer is truncated")
+            value = struct.unpack_from(">i", data, offset)[0]; offset += 4
+        elif tag == "h":
+            if offset + 8 > len(data): raise ValueError("OSC integer is truncated")
+            value = struct.unpack_from(">q", data, offset)[0]; offset += 8
+        elif tag == "f":
+            if offset + 4 > len(data): raise ValueError("OSC float is truncated")
+            value = struct.unpack_from(">f", data, offset)[0]; offset += 4
+        elif tag == "d":
+            if offset + 8 > len(data): raise ValueError("OSC float is truncated")
+            value = struct.unpack_from(">d", data, offset)[0]; offset += 8
+        else:
+            raise ValueError("OSC type is unsupported")
+        values.append(value)
+    if offset != len(data):
+        raise ValueError("OSC packet has trailing bytes")
+    if address == "/ableton-mcp/parameter" and len(values) in {4, 5}:
+        token, sequence, reference, value, *sent = values
+        return {"token": token, "seq": sequence, "channel": "osc", "op": "parameter.set", "ref": reference, "value": value, **({"sentAtMs": sent[0]} if sent else {})}
+    if address == "/ableton-mcp/xy" and len(values) in {6, 7}:
+        token, sequence, x_ref, x, y_ref, y, *sent = values
+        return {"token": token, "seq": sequence, "channel": "osc", "op": "xy.set", "xRef": x_ref, "x": x, "yRef": y_ref, "y": y, **({"sentAtMs": sent[0]} if sent else {})}
+    if address == "/ableton-mcp/emergency-stop" and len(values) in {2, 3}:
+        token, sequence, *sent = values
+        return {"token": token, "seq": sequence, "channel": "osc", "op": "emergency-stop", **({"sentAtMs": sent[0]} if sent else {})}
+    raise ValueError("OSC address or arguments are unavailable")
+
+
+class _RealtimePlane:
+    """Short-lived loopback realtime ingress shared by JSON UDP, OSC, XY,
+    and Max clients. Authentication, endpoint/channel allowlists, sequence and
+    rate bounds are enforced before a nonblocking handoff to Live's main thread."""
+
+    def __init__(self, bridge: "AbletonMcpBridge", host: str, port: int) -> None:
+        self._bridge = bridge
+        self.host = host
+        self.port = port
+        self._socket: socket.socket | None = None
+        self._thread: threading.Thread | None = None
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._armed: tuple[str, float, tuple[str, ...], frozenset[int], frozenset[str]] | None = None
+        self._generation = 0
+        self._last_sequence = 0
+        self._tokens = float(REALTIME_RATE_BURST)
+        self._refill_at = time.monotonic()
+        self._last_arrival_ms: float | None = None
+        self._last_interval_ms: float | None = None
+        self._last_transit_ms: float | None = None
+        self._jitter_ms = 0.0
+        self._max_jitter_ms = 0.0
+        self.accepted = 0
+        self.applied = 0
+        self.apply_failures = 0
+        self.dropped_unarmed = 0
+        self.dropped_endpoint = 0
+        self.dropped_target = 0
+        self.dropped_invalid = 0
+        self.dropped_replay = 0
+        self.dropped_rate_limited = 0
+        self.dropped_queue_full = 0
+        self.dropped_before_dispatch = 0
+        self.revoked_before_apply = 0
+        self.sequence_gaps = 0
+        if port > 0:
+            family = socket.AF_INET6 if ":" in host else socket.AF_INET
+            self._socket = socket.socket(family, socket.SOCK_DGRAM)
+            try:
+                self._socket.bind((host, port))
+                self._socket.settimeout(0.2)
+                self._thread = threading.Thread(target=self._recv_loop, name="AbletonMcpRealtime", daemon=True)
+                self._thread.start()
+            except BaseException:
+                self._socket.close()
+                self._socket = None
+                raise
+
+    def _armed_now_locked(self) -> tuple[str, float, tuple[str, ...], frozenset[int], frozenset[str]] | None:
+        if self._armed is not None and time.time() >= self._armed[1]:
+            self._armed = None
+            self._generation += 1
+        return self._armed
+
+    def arm(self, ttl_ms: int, channels: Any, parameter_refs: Any, source_ports: Any = None) -> dict[str, Any]:
+        if self._socket is None:
+            raise ValueError("realtime control plane is disabled by configuration")
+        if not isinstance(ttl_ms, int) or isinstance(ttl_ms, bool) or not 1000 <= ttl_ms <= 30000:
+            raise ValueError("arming ttl is invalid")
+        if not isinstance(channels, list) or not 1 <= len(channels) <= 4 or len(set(channels)) != len(channels) or any(not isinstance(item, str) or item not in REALTIME_CHANNELS for item in channels):
+            raise ValueError("realtime channels are invalid")
+        if not isinstance(parameter_refs, list) or len(parameter_refs) > 32 or len(set(parameter_refs)) != len(parameter_refs) or any(not isinstance(item, str) or not 1 <= len(item) <= 256 for item in parameter_refs):
+            raise ValueError("realtime parameter allowlist is invalid")
+        source_ports = [] if source_ports is None else source_ports
+        if not isinstance(source_ports, list) or len(source_ports) > 16 or len(set(source_ports)) != len(source_ports) or any(not isinstance(item, int) or isinstance(item, bool) or not 1 <= item <= 65535 for item in source_ports):
+            raise ValueError("realtime source ports are invalid")
+        token = secrets.token_urlsafe(24)
+        expires = time.time() + ttl_ms / 1000.0
+        with self._lock:
+            self._generation += 1
+            self._armed = (token, expires, tuple(channels), frozenset(source_ports), frozenset(parameter_refs))
+            self._last_sequence = 0
+            self._tokens = float(REALTIME_RATE_BURST)
+            self._refill_at = time.monotonic()
+            self._last_arrival_ms = None
+            self._last_interval_ms = None
+            self._last_transit_ms = None
+            self._jitter_ms = 0.0
+            self._max_jitter_ms = 0.0
+        return {"host": self.host, "port": self.port, "token": token, "expiresAt": int(expires * 1000), "channels": list(channels), "parameterRefs": list(parameter_refs), "packetLimitBytes": REALTIME_MAX_DATAGRAM, "ratePerSecond": int(REALTIME_RATE_PER_SECOND), "burst": REALTIME_RATE_BURST}
+
+    def disarm(self) -> dict[str, Any]:
+        with self._lock:
+            self._generation += 1
+            self._armed = None
+            self._last_sequence = 0
+        return {"armed": False}
+
+    def stats(self) -> dict[str, Any]:
+        with self._lock:
+            armed = self._armed_now_locked() is not None
+            return {
+                "armed": armed,
+                "accepted": self.accepted,
+                "applied": self.applied,
+                "applyFailures": self.apply_failures,
+                "pending": max(0, self.accepted - self.applied - self.apply_failures - self.dropped_before_dispatch),
+                "droppedUnarmed": self.dropped_unarmed,
+                "droppedEndpoint": self.dropped_endpoint,
+                "droppedTarget": self.dropped_target,
+                "droppedInvalid": self.dropped_invalid,
+                "droppedReplay": self.dropped_replay,
+                "droppedRateLimited": self.dropped_rate_limited,
+                "droppedQueueFull": self.dropped_queue_full,
+                "droppedBeforeDispatch": self.dropped_before_dispatch,
+                "revokedBeforeApply": self.revoked_before_apply,
+                "sequenceGaps": self.sequence_gaps,
+                "lastSequence": self._last_sequence,
+                "jitterMs": round(self._jitter_ms, 6),
+                "maxJitterMs": round(self._max_jitter_ms, 6),
+            }
+
+    def close(self) -> None:
+        self._stop.set()
+        with self._lock:
+            self._generation += 1
+            self._armed = None
+        if self._socket is not None:
+            try:
+                self._socket.close()
+            except OSError:
+                pass
+        if self._thread is not None and self._thread is not threading.current_thread():
+            self._thread.join(timeout=1)
+
+    def _recv_loop(self) -> None:
+        assert self._socket is not None
+        while not self._stop.is_set():
+            try:
+                # Read one byte beyond the contract so oversized datagrams are
+                # distinguishable from exactly-full datagrams.
+                data, address = self._socket.recvfrom(REALTIME_MAX_DATAGRAM + 1)
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            try:
+                self._handle(data, address)
+            except BaseException:
+                # Never let a malformed or failing datagram kill the ingress.
+                with self._lock:
+                    self.dropped_invalid += 1
+                _debug_trace("realtime packet")
+
+    def _decode(self, data: bytes) -> dict[str, Any]:
+        if len(data) > REALTIME_MAX_DATAGRAM:
+            raise ValueError("realtime datagram exceeds packet bound")
+        if data.lstrip().startswith(b"{"):
+            try:
+                message = json.loads(data.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                raise ValueError("realtime JSON is invalid") from error
+            if not isinstance(message, dict) or set(message) - _REALTIME_JSON_KEYS:
+                raise ValueError("realtime JSON shape is invalid")
+            return message
+        return _decode_osc(data)
+
+    @staticmethod
+    def _valid_number(value: Any) -> bool:
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+
+    def _validate_message(self, message: dict[str, Any]) -> tuple[str, int, str, str]:
+        token, sequence, channel, operation = message.get("token"), message.get("seq"), message.get("channel"), message.get("op")
+        if not isinstance(token, str) or not 16 <= len(token) <= 128:
+            raise ValueError("realtime token is invalid")
+        if not isinstance(sequence, int) or isinstance(sequence, bool) or not 1 <= sequence <= 2**53 - 1:
+            raise ValueError("realtime sequence is invalid")
+        if not isinstance(channel, str) or channel not in REALTIME_CHANNELS or not isinstance(operation, str):
+            raise ValueError("realtime channel or operation is invalid")
+        sent_at = message.get("sentAtMs")
+        if sent_at is not None and (not self._valid_number(sent_at) or not 0 <= float(sent_at) <= 2**53 - 1):
+            raise ValueError("realtime sentAtMs is invalid")
+        base_keys = {"token", "seq", "channel", "op", "sentAtMs"}
+        if operation == "parameter.set":
+            if set(message) - (base_keys | {"ref", "value"}) or channel not in {"udp-json", "osc", "max"} or not isinstance(message.get("ref"), str) or not 1 <= len(message["ref"]) <= 256 or not self._valid_number(message.get("value")):
+                raise ValueError("realtime parameter packet is invalid")
+        elif operation == "xy.set":
+            if set(message) - (base_keys | {"xRef", "x", "yRef", "y"}) or channel not in {"xy", "osc", "max"} or not isinstance(message.get("xRef"), str) or not isinstance(message.get("yRef"), str) or not 1 <= len(message["xRef"]) <= 256 or not 1 <= len(message["yRef"]) <= 256 or message["xRef"] == message["yRef"] or not self._valid_number(message.get("x")) or not self._valid_number(message.get("y")):
+                raise ValueError("realtime XY packet is invalid")
+        elif operation == "emergency-stop":
+            if set(message) - base_keys:
+                raise ValueError("realtime emergency packet is invalid")
+        else:
+            raise ValueError("realtime operation is unavailable")
+        return token, sequence, channel, operation
+
+    def _take_token_locked(self) -> bool:
+        now = time.monotonic()
+        elapsed = now - self._refill_at
+        self._refill_at = now
+        self._tokens = min(float(REALTIME_RATE_BURST), self._tokens + elapsed * REALTIME_RATE_PER_SECOND)
+        if self._tokens < 1.0:
+            return False
+        self._tokens -= 1.0
+        return True
+
+    def _measure_jitter_locked(self, message: dict[str, Any], arrival_ms: float) -> None:
+        sent_at = message.get("sentAtMs")
+        variation: float | None = None
+        if self._valid_number(sent_at):
+            transit = arrival_ms - float(sent_at)
+            if self._last_transit_ms is not None:
+                variation = abs(transit - self._last_transit_ms)
+            self._last_transit_ms = transit
+        elif self._last_arrival_ms is not None:
+            interval = arrival_ms - self._last_arrival_ms
+            if self._last_interval_ms is not None:
+                variation = abs(interval - self._last_interval_ms)
+            self._last_interval_ms = interval
+        self._last_arrival_ms = arrival_ms
+        if variation is not None and math.isfinite(variation):
+            variation = min(60000.0, variation)
+            self._jitter_ms += (variation - self._jitter_ms) / 16.0
+            self._max_jitter_ms = max(self._max_jitter_ms, variation)
+
+    def _increment(self, field: str) -> None:
+        with self._lock:
+            setattr(self, field, getattr(self, field) + 1)
+
+    def _handle(self, data: bytes, address: tuple[Any, ...] | None = None) -> None:
+        try:
+            message = self._decode(data)
+            token, sequence, channel, operation = self._validate_message(message)
+        except ValueError:
+            self._increment("dropped_invalid")
+            return
+        address = address or (self.host, 0)
+        arrival_ms = time.time() * 1000.0
+        with self._lock:
+            armed = self._armed_now_locked()
+            if armed is None:
+                self.dropped_unarmed += 1
+                return
+            expected_token, _, channels, source_ports, parameter_refs = armed
+            source_host = str(address[0]) if address else ""
+            source_port = address[1] if len(address) > 1 else 0
+            if source_host != self.host or (source_ports and source_port not in source_ports):
+                self.dropped_endpoint += 1
+                return
+            if not hmac.compare_digest(token, expected_token) or channel not in channels:
+                self.dropped_unarmed += 1
+                return
+            targets = {str(message["ref"])} if operation == "parameter.set" else ({str(message["xRef"]), str(message["yRef"])} if operation == "xy.set" else set())
+            if not targets <= parameter_refs:
+                self.dropped_target += 1
+                return
+            if sequence <= self._last_sequence:
+                self.dropped_replay += 1
+                return
+            if sequence > self._last_sequence + 1:
+                self.sequence_gaps += sequence - self._last_sequence - 1
+            self._last_sequence = sequence
+            self._measure_jitter_locked(message, arrival_ms)
+            if not self._take_token_locked():
+                self.dropped_rate_limited += 1
+                return
+            generation = self._generation
+        if operation == "emergency-stop":
+            callback = self._realtime_emergency_stop
+        elif operation == "parameter.set":
+            callback = lambda: self._realtime_parameter_set(str(message["ref"]), float(message["value"]))
+        else:
+            callback = lambda: self._realtime_xy_set(str(message["xRef"]), float(message["x"]), str(message["yRef"]), float(message["y"]))
+        try:
+            queued = self._bridge.queue.submit_nowait(self._tracked_callback(callback, generation), deadline_ms=int(time.time() * 1000) + 1000, on_cancel=lambda _: self._increment("dropped_before_dispatch"))
+        except BaseException:
+            self._increment("dropped_before_dispatch")
+            return
+        if queued:
+            self._increment("accepted")
+        else:
+            self._increment("dropped_queue_full")
+
+    def _tracked_callback(self, callback: Callable[[], Any], generation: int) -> Callable[[], Any]:
+        def tracked() -> Any:
+            # Keep authority check + Live-thread mutation atomic with respect to
+            # expiry, disarm, and re-arm generation changes.
+            with self._lock:
+                if self._armed_now_locked() is None or generation != self._generation:
+                    self.revoked_before_apply += 1
+                    self.apply_failures += 1
+                    raise ValueError("realtime authority expired or was revoked before apply")
+                try:
+                    result = callback()
+                except BaseException:
+                    self.apply_failures += 1
+                    raise
+                self.applied += 1
+                return result
+        return tracked
+
+    def _realtime_emergency_stop(self) -> dict[str, Any]:
+        mapper = self._bridge.mapper
+        expected = [mapper._target_key(target) for target in mapper._active_targets(mapper._playback())]
+        return mapper._guarded_emergency_stop({"expectedTargets": expected})
+
+    def _parameter_target(self, reference: str, value: float) -> tuple[Any, float]:
+        mapper = self._bridge.mapper
+        parameter = mapper._resolve_parameter(reference)
+        current = mapper._read_attr(parameter, "value")
+        minimum = mapper._read_attr(parameter, "min", "min_value")
+        maximum = mapper._read_attr(parameter, "max", "max_value")
+        enabled = mapper._read_attr(parameter, "is_enabled", "enabled")
+        quantization = mapper._read_attr(parameter, "quantized_step_size", "quantization")
+        if not self._valid_number(current) or not self._valid_number(minimum) or not self._valid_number(maximum) or float(minimum) > float(maximum):
+            raise ValueError("realtime parameter bounds are unavailable")
+        if enabled is False or not float(minimum) <= value <= float(maximum):
+            raise ValueError("realtime parameter is disabled or outside bounds")
+        if self._valid_number(quantization) and float(quantization) > 0:
+            steps = (value - float(minimum)) / float(quantization)
+            if abs(steps - round(steps)) > 1e-6:
+                raise ValueError("realtime parameter value violates quantization")
+        return parameter, float(current)
+
+    @staticmethod
+    def _verify_parameter(parameter: Any, expected: float) -> None:
+        observed = getattr(parameter, "value", None)
+        if not isinstance(observed, (int, float)) or isinstance(observed, bool) or not math.isfinite(float(observed)) or abs(float(observed) - expected) > 1e-6:
+            raise ValueError("realtime parameter write was not confirmed")
+
+    def _realtime_parameter_set(self, reference: str, value: float) -> None:
+        parameter, prior = self._parameter_target(reference, value)
+        try:
+            parameter.value = value
+            self._verify_parameter(parameter, value)
+        except BaseException:
+            try: parameter.value = prior
+            except BaseException: pass
+            raise
+
+    def _realtime_xy_set(self, x_reference: str, x: float, y_reference: str, y: float) -> None:
+        x_parameter, x_prior = self._parameter_target(x_reference, x)
+        y_parameter, y_prior = self._parameter_target(y_reference, y)
+        try:
+            x_parameter.value = x
+            y_parameter.value = y
+            self._verify_parameter(x_parameter, x)
+            self._verify_parameter(y_parameter, y)
+        except BaseException:
+            try: x_parameter.value = x_prior
+            except BaseException: pass
+            try: y_parameter.value = y_prior
+            except BaseException: pass
+            raise
+
+
 class _DispatchToken:
     def __init__(self, deadline_ms: int):
         self.deadline_ms = deadline_ms
@@ -2562,7 +2974,7 @@ class _DispatchToken:
 
 class _MainThreadQueue:
     def __init__(self) -> None:
-        self.items: queue.Queue[tuple[Callable[[], Any], threading.Event, list[Any], _DispatchToken]] = queue.Queue(MAX_QUEUE_ITEMS)
+        self.items: queue.Queue[tuple[Callable[[], Any], threading.Event, list[Any], _DispatchToken, Callable[[BaseException], None] | None]] = queue.Queue(MAX_QUEUE_ITEMS)
         self._closed = False
         self._lock = threading.Lock()
 
@@ -2575,7 +2987,7 @@ class _MainThreadQueue:
         token = _DispatchToken(deadline_ms)
         with self._lock:
             if self._closed: raise RuntimeError("Live bridge is disconnected")
-            self.items.put_nowait((callback, event, result, token))
+            self.items.put_nowait((callback, event, result, token, None))
         wait_seconds = max(0.0, min(timeout, (deadline_ms - int(time.time() * 1000)) / 1000.0))
         if not event.wait(wait_seconds):
             if token.cancel(): raise TimeoutError("Live main-thread operation timed out before dispatch")
@@ -2583,21 +2995,47 @@ class _MainThreadQueue:
         if result and isinstance(result[0], BaseException): raise result[0]
         return result[0] if result else None
 
+    def submit_nowait(self, callback: Callable[[], Any], deadline_ms: int, on_cancel: Callable[[BaseException], None] | None = None) -> bool:
+        now_ms = int(time.time() * 1000)
+        if not isinstance(deadline_ms, int) or isinstance(deadline_ms, bool) or deadline_ms <= now_ms or deadline_ms > now_ms + 60000:
+            return False
+        event = threading.Event()
+        result: list[Any] = []
+        token = _DispatchToken(deadline_ms)
+        with self._lock:
+            if self._closed:
+                return False
+            try:
+                self.items.put_nowait((callback, event, result, token, on_cancel))
+            except queue.Full:
+                return False
+        return True
+
+    @staticmethod
+    def _notify_cancel(callback: Callable[[BaseException], None] | None, error: BaseException) -> None:
+        if callback is not None:
+            try: callback(error)
+            except BaseException: pass
+
     def close(self) -> None:
         with self._lock:
             self._closed = True
             while True:
-                try: _, event, result, token = self.items.get_nowait()
+                try: _, event, result, token, on_cancel = self.items.get_nowait()
                 except queue.Empty: break
-                token.cancel(); result.append(RuntimeError("Live bridge is disconnected")); event.set()
+                error = RuntimeError("Live bridge is disconnected")
+                token.cancel(); result.append(error); event.set()
+                self._notify_cancel(on_cancel, error)
 
     def drain(self, budget: int = MAX_QUEUE_ITEMS) -> int:
         count = 0
         while count < budget:
-            try: callback, event, result, token = self.items.get_nowait()
+            try: callback, event, result, token, on_cancel = self.items.get_nowait()
             except queue.Empty: break
             if not token.claim():
-                event.set(); count += 1; continue
+                error = TimeoutError("Live main-thread operation timed out before dispatch")
+                result.append(error); event.set(); self._notify_cancel(on_cancel, error)
+                count += 1; continue
             try: result.append(callback())
             except BaseException as exc: result.append(exc)
             finally: token.complete(); event.set()
@@ -2613,8 +3051,11 @@ class AbletonMcpBridge:
         host = config.get("host", "")
         port = config.get("port", 0)
         secret = config.get("secret", "")
-        if host not in {"127.0.0.1", "::1"} or not isinstance(port, int) or not 1 <= port <= 65535 or not isinstance(secret, str) or len(secret) < 32:
+        realtime_port = config.get("realtimePort")
+        if host not in {"127.0.0.1", "::1"} or not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535 or not isinstance(secret, str) or len(secret) < 32:
             raise ValueError("explicit loopback host, port, and strong secret are required")
+        if realtime_port is not None and (not isinstance(realtime_port, int) or isinstance(realtime_port, bool) or not 1 <= realtime_port <= 65535 or realtime_port == port):
+            raise ValueError("realtime port must be distinct and between 1 and 65535")
         self.c_instance = c_instance
         self.queue = _MainThreadQueue()
         if song is None:
@@ -2630,6 +3071,13 @@ class AbletonMcpBridge:
         self._server.bind((host, port))
         self._server.listen(4)
         self.address = self._server.getsockname()
+        try:
+            self._realtime = _RealtimePlane(self, host, int(realtime_port or 0))
+        except BaseException:
+            self._server.close()
+            self.queue.close()
+            raise
+        self.mapper.realtime_available = self._realtime.port > 0
         self._stop = threading.Event()
         self._clients: set[socket.socket] = set()
         self._workers: set[threading.Thread] = set()
@@ -2638,6 +3086,8 @@ class AbletonMcpBridge:
         self._thread.start()
 
     def _dispatch(self, method: str, request: dict[str, Any]) -> Any:
+        if method == "invoke" and request.get("operation") in {"realtime.arm", "realtime.disarm", "realtime.stats"}:
+            return self._realtime_op(str(request["operation"]), dict(request.get("args", {})))
         return self.queue.submit(lambda: self._dispatch_main(method, request), deadline_ms=request.get("deadlineMs"))
 
     def _dispatch_main(self, method: str, request: dict[str, Any]) -> Any:
@@ -2693,7 +3143,19 @@ class AbletonMcpBridge:
     def _dispatch_with_holder(self, method: str, request: dict[str, Any], holder: dict[str, Any]) -> Any:
         if method == "subscribe":
             return self.queue.submit(lambda: self._subscribe_main(request, holder), deadline_ms=request.get("deadlineMs"))
+        if method == "invoke" and request.get("operation") in {"realtime.arm", "realtime.disarm", "realtime.stats"}:
+            # Plane authority contains no Live objects. Apply arm/disarm/stats
+            # directly under the plane lock so revocation cannot sit behind the
+            # Live-callback FIFO that it must fence.
+            return self._realtime_op(request["operation"], request.get("args", {}))
         return self.queue.submit(lambda: self._dispatch_main_for(method, request, self.mapper), deadline_ms=request.get("deadlineMs"))
+
+    def _realtime_op(self, operation: str, args: dict[str, Any]) -> Any:
+        if operation == "realtime.arm":
+            return self._realtime.arm(args.get("ttlMs", 30000), args.get("channels"), args.get("parameterRefs"), args.get("sourcePorts"))
+        if operation == "realtime.disarm":
+            return self._realtime.disarm()
+        return self._realtime.stats()
 
     def _client(self, client: socket.socket) -> None:
         client.settimeout(0.2); buffer = b""
@@ -2735,6 +3197,7 @@ class AbletonMcpBridge:
             try: client.close()
             except OSError: pass
         self._clients.clear()
+        self._realtime.close()
         self.queue.close()
         self.mapper.refs.reset()
         if self._thread is not threading.current_thread():

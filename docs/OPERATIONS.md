@@ -25,6 +25,16 @@ Diagnostics separates local host/package/configuration readiness from authentica
 
 The host bounds JSON-RPC frames at 64 MiB, remote frames at 1 MiB, remote pending work at 64 requests, tracked request identifiers at 4096, and tool calls at 120 per rolling minute. Stdio allows bounded concurrent work (default 16, maximum 64), preserves response order, observes output backpressure, and treats cancellation after dispatch as non-retracting. Audio analysis is bounded to the limits in `USER_GUIDE.md`. Close stdin for normal completion. On EOF, signal, initialization failure, cancellation, output failure, timeout, or disconnect, close the adapter and settle pending work; reinitialize to obtain a new epoch. A scene-audition disconnect, timeout, or acknowledgement loss is uncertain playback state, not a safe retry condition.
 
+## Realtime operations
+
+A configured `realtimePort` does not grant authority by itself. Use
+`live_realtime_arm_preview`/`apply`, keep the returned token out of logs, inspect
+`live_realtime_stats`, and always call `live_realtime_disarm`. Accepted UDP
+packets and applied Live-thread callbacks are separate counters. Endpoint,
+replay, rate, queue, expiry, and generation-fence drops are explicit. See
+`REALTIME_CONTROL.md` for packet formats, limits, OSC/XY/Max extension semantics,
+and recovery.
+
 ## Installation
 
 Use `node dist/src/install-remote-script.js --destination <absolute-path>`. Inspect with `--dry-run`; use `--force` only for a known recoverable destination. Installation refuses symlink trees, does not auto-select a Live folder, and writes only the allowlisted bridge assets plus a non-secret reference when configured.

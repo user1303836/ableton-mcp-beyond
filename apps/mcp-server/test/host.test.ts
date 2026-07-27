@@ -19,7 +19,7 @@ test("requires initialization and exposes only read-only tools", () => {
   assert.equal((host.handle({ ...initialize, id: 2 }) as any).result.protocolVersion, PROTOCOL_VERSION);
   assert.equal(host.handle(initialized), null);
   const tools = (host.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
-  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
   const auditionPreview = tools.find((tool: { name: string }) => tool.name === "live_session_audition_preview");
   assert.deepEqual(auditionPreview.inputSchema.properties.outputSafety.required, ["safe", "provenance"]);
   const auditionStop = tools.find((tool: { name: string }) => tool.name === "live_session_audition_stop");
@@ -326,7 +326,7 @@ test("analyzes supplied PCM through the MCP tool without Live side effects", () 
 test("rejects duplicates, unsupported methods, and unknown fields", () => {
   const host = new McpHost();
   ready(host);
-  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 60);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 64);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).error.message, "Duplicate request identifier");
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set", arguments: {} } }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 4, method: "tools/list", debug: true }) as any).error.code, -32600);
@@ -886,6 +886,76 @@ test("routing edits guard feedback and fence on routing state", async () => {
   assert.equal(track.monitoringState, "in");
   const replay = JSON.parse(((await call(5, "live_routing_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "route-1" })) as any).result.content[0].text);
   assert.equal(replay.idempotent, true);
+});
+
+test("realtime control requires real provenance and arms exact bounded channels idempotently", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  let provenance: "fake-live" | "real-live" = "fake-live";
+  let armed = false;
+  let armCalls = 0;
+  const operations = ["status", "snapshot", "discover", "get", "set", "reconnect", "session.playback", "realtime.arm", "realtime.disarm", "realtime.stats"];
+  const adapter = {
+    status: () => ({ ...simulator.status(), adapter: "remote-script", epoch: 7, provenance, registryHash: "registry-v1", operations }),
+    snapshot: () => simulator.snapshot(), get: (ref: LiveRef) => simulator.get(ref), set: (ref: LiveRef, property: string, value: unknown) => simulator.set(ref, property, value), invoke: () => { throw new Error("synchronous invoke is unavailable"); }, subscribe: () => () => undefined, reconnect: () => simulator.status(),
+    snapshotAsync: async () => simulator.snapshot(), discoverAsync: async () => ({ epoch: 7, items: [], truncated: false, revision: "7:empty", kind: "track" }), getAsync: async (ref: LiveRef) => simulator.get(ref), setAsync: async (ref: LiveRef, property: string, value: unknown) => simulator.set(ref, property, value), reconnectAsync: async () => simulator.status(), close: async () => undefined,
+    invokeAsync: async (invocation: any) => {
+      if (invocation.operation === "realtime.arm") {
+        armCalls += 1; armed = true;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return { host: "127.0.0.1", port: 9766, token: String(armCalls).padEnd(32, "t"), expiresAt: Date.now() + invocation.args.ttlMs, channels: invocation.args.channels, parameterRefs: invocation.args.parameterRefs, packetLimitBytes: 512, ratePerSecond: 64, burst: 16 };
+      }
+      if (invocation.operation === "realtime.disarm") { armed = false; return { armed: false }; }
+      if (invocation.operation === "realtime.stats") return { armed, accepted: 2, applied: 2, applyFailures: 0, pending: 0, droppedUnarmed: 0, droppedEndpoint: 0, droppedTarget: 0, droppedInvalid: 0, droppedReplay: 0, droppedRateLimited: 0, droppedQueueFull: 0, droppedBeforeDispatch: 0, revokedBeforeApply: 0, sequenceGaps: 0, lastSequence: 2, jitterMs: 0.2, maxJitterMs: 0.4 };
+      throw new Error("unexpected operation");
+    },
+  } as any;
+  const host = new McpHost(adapter);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const evidence = { safe: true, provenance: "operator-confirmed-loopback", scope: "published device parameters" };
+  const fake = await call(2, "live_realtime_arm_preview", { ttlMs: 5000, channels: ["udp-json"], parameterRefs: [], outputSafety: evidence });
+  assert.equal((fake as any).result.isError, true);
+  provenance = "real-live";
+  const duplicate = await call(3, "live_realtime_arm_preview", { channels: ["xy", "xy"], parameterRefs: [], outputSafety: evidence });
+  assert.equal((duplicate as any).error.code, -32602);
+  const preview = JSON.parse(((await call(4, "live_realtime_arm_preview", { ttlMs: 5000, channels: ["udp-json", "osc", "xy", "max"], parameterRefs: ["parameter:mixer:0:volume"], sourcePorts: [41000], outputSafety: evidence })) as any).result.content[0].text);
+  assert.deepEqual(preview.channels, ["udp-json", "osc", "xy", "max"]);
+  assert.deepEqual(preview.parameterTargets.map((target: any) => target.ref), ["parameter:mixer:0:volume"]);
+  assert.equal(preview.packetLimitBytes, 512);
+  const [firstApply, secondApply] = await Promise.all([
+    call(5, "live_realtime_arm_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "rt-arm-1" }),
+    call(6, "live_realtime_arm_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "rt-arm-1" }),
+  ]);
+  const concurrent = [firstApply, secondApply].map((response) => JSON.parse((response as any).result.content[0].text));
+  assert.deepEqual(concurrent.map((result) => result.idempotent).sort(), [false, true]);
+  assert.ok(concurrent.every((result) => result.endpoint.token === concurrent[0].endpoint.token));
+  assert.equal(concurrent[0].state, "applied");
+  assert.equal(concurrent[0].endpoint.port, 9766);
+  assert.equal(armCalls, 1);
+  const replay = JSON.parse(((await call(7, "live_realtime_arm_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "rt-arm-1" })) as any).result.content[0].text);
+  assert.equal(replay.idempotent, true);
+  assert.equal(armCalls, 1);
+  const stats = JSON.parse(((await call(8, "live_realtime_stats", {})) as any).result.content[0].text);
+  assert.equal(stats.armed, true);
+  assert.equal(stats.applied, 2);
+  const disarmed = JSON.parse(((await call(9, "live_realtime_disarm", { confirmation: "disarm" })) as any).result.content[0].text);
+  assert.equal(disarmed.armed, false);
+  const unknown = await call(10, "live_realtime_arm_preview", { channels: ["udp-json"], parameterRefs: ["parameter:missing"], outputSafety: evidence });
+  assert.equal((unknown as any).result.isError, true);
+  const competing = JSON.parse(((await call(11, "live_realtime_arm_preview", { channels: ["udp-json"], parameterRefs: ["parameter:mixer:0:volume"], outputSafety: evidence })) as any).result.content[0].text);
+  const [winner, refused] = await Promise.all([
+    call(12, "live_realtime_arm_apply", { transactionId: competing.transactionId, confirmation: "apply", idempotencyKey: "rt-winner" }),
+    call(13, "live_realtime_arm_apply", { transactionId: competing.transactionId, confirmation: "apply", idempotencyKey: "rt-other" }),
+  ]);
+  assert.equal((winner as any).result.isError, false);
+  assert.equal((refused as any).result.isError, true);
+  assert.equal(armCalls, 2);
+  await call(14, "live_realtime_disarm", { confirmation: "disarm" });
+  const stale = JSON.parse(((await call(15, "live_realtime_arm_preview", { channels: ["udp-json"], parameterRefs: ["parameter:mixer:0:volume"], outputSafety: evidence })) as any).result.content[0].text);
+  (simulator as any).state.tracks[0].mixer.volume = 0.75;
+  const staleApply = await call(16, "live_realtime_arm_apply", { transactionId: stale.transactionId, confirmation: "apply", idempotencyKey: "rt-stale" });
+  assert.equal((staleApply as any).result.isError, true);
+  assert.equal(armCalls, 2);
 });
 
 test("recording preview gates intent, destination, and recording state", async () => {
