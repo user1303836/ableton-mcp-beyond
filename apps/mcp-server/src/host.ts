@@ -119,7 +119,7 @@ interface NoteEditTransaction {
 interface ClipLifecycleTransaction {
   id: string;
   epoch: number;
-  kind: "duplicate" | "arrangement-create" | "arrangement-delete" | "move" | "audio-set";
+  kind: "duplicate" | "arrangement-create" | "arrangement-delete" | "move" | "audio-set" | "mixer-set" | "automation";
   fence: string;
   clipRef?: LiveRef;
   payload: Record<string, unknown>;
@@ -362,6 +362,30 @@ const implementedTools = [
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   },
   {
+    name: "live_mixer_preview",
+    description: "Read-only preflight for bounded mixer edits (volume, pan, mute, solo, cue, sends) with prior-value capture.",
+    inputSchema: { type: "object", properties: { trackRef: { type: "string", minLength: 1, maxLength: 256 }, volume: { type: "number", minimum: 0, maximum: 1 }, pan: { type: "number", minimum: -1, maximum: 1 }, mute: { type: "boolean" }, solo: { type: "boolean" }, cueVolume: { type: "number", minimum: 0, maximum: 1 }, sends: { type: "array", maxItems: 64, items: { type: "number", minimum: 0, maximum: 1 } } }, required: ["trackRef"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_mixer_apply",
+    description: "Apply an exact, unexpired mixer preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_automation_preview",
+    description: "Read-only preflight for bounded Session clip envelope edits (create/delete envelope, insert/delete points) with conflict-aware fencing.",
+    inputSchema: { type: "object", properties: { action: { type: "string", enum: ["create-envelope", "delete-envelope", "insert", "delete-range"] }, clipRef: { type: "string", minLength: 1, maxLength: 256 }, parameterRef: { type: "string", minLength: 1, maxLength: 256 }, points: { type: "array", maxItems: 512, items: { type: "object", properties: { time: { type: "number", minimum: 0 }, value: { type: "number" } }, required: ["time", "value"], additionalProperties: false } }, from: { type: "number", minimum: 0 }, to: { type: "number", minimum: 0 } }, required: ["action", "clipRef", "parameterRef"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_automation_apply",
+    description: "Apply an exact, unexpired automation preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+  },
+  {
     name: "live_device_parameter_preview",
     description: "Discover an authoritative device parameter and preview a bounded numeric change without mutation.",
     inputSchema: { type: "object", properties: { deviceRef: { type: "string", minLength: 1, maxLength: 256 }, parameterRef: { type: "string", minLength: 1, maxLength: 256 }, value: { type: "number" } }, required: ["deviceRef", "parameterRef", "value"], additionalProperties: false },
@@ -525,7 +549,7 @@ export class McpHost {
     if (signal?.aborted) return null;
     if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handle(input);
     const name = input.params.name;
-    if (![ "live_session_structure_preview", "live_session_structure_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply"].includes(name)) return this.handle(input);
+    if (![ "live_session_structure_preview", "live_session_structure_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply"].includes(name)) return this.handle(input);
     // Reuse the synchronous validator and request bookkeeping, then execute the
     // adapter operation asynchronously. Invalid requests never reach Live.
     const id = this.requestId(input.id);
@@ -565,6 +589,10 @@ export class McpHost {
       if (name === "live_clip_move_apply") return await this.liveClipMoveApplyAsync(id, input.params.arguments, signal);
       if (name === "live_audio_clip_preview") return await this.liveAudioClipPreviewAsync(id, input.params.arguments);
       if (name === "live_audio_clip_apply") return await this.liveAudioClipApplyAsync(id, input.params.arguments, signal);
+      if (name === "live_mixer_preview") return await this.liveMixerPreviewAsync(id, input.params.arguments);
+      if (name === "live_mixer_apply") return await this.liveMixerApplyAsync(id, input.params.arguments, signal);
+      if (name === "live_automation_preview") return await this.liveAutomationPreviewAsync(id, input.params.arguments);
+      if (name === "live_automation_apply") return await this.liveAutomationApplyAsync(id, input.params.arguments, signal);
       if (name === "live_device_parameter_preview") return await this.liveDeviceParameterPreviewAsync(id, input.params.arguments);
       if (name === "live_device_parameter_apply") return await this.liveDeviceParameterApplyAsync(id, input.params.arguments);
       if (name === "live_midi_clip_preview") return await this.liveMidiPreviewAsync(id, input.params.arguments);
@@ -1135,6 +1163,120 @@ export class McpHost {
     }
   }
 
+  private mixerRow(snapshot: LiveSnapshot, trackRef: LiveRef): JsonObject {
+    const track = (snapshot.tracks as unknown as JsonObject[]).find((item) => item.ref === trackRef);
+    if (!track || !isObject(track.mixer)) throw new Error("track with an authoritative mixer is required");
+    return track.mixer as JsonObject;
+  }
+
+  private async liveMixerPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    const fields = ["volume", "pan", "mute", "solo", "cueVolume", "sends"] as const;
+    if (!isObject(params) || !hasOnly(params, ["trackRef", ...fields]) || !isNonEmptyString(params.trackRef, 256)) return error(id, -32602, "trackRef is required");
+    const proposed: Record<string, unknown> = {};
+    for (const field of fields) {
+      const value = params[field];
+      if (value === undefined) continue;
+      if (field === "mute" || field === "solo") { if (typeof value !== "boolean") return error(id, -32602, `${field} must be boolean`); }
+      else if (field === "sends") { if (!Array.isArray(value) || value.length > 64 || !value.every((item) => typeof item === "number" && Number.isFinite(item) && item >= 0 && item <= 1)) return error(id, -32602, "sends must be 0-1 values"); }
+      else if (typeof value !== "number" || !Number.isFinite(value) || (field === "pan" ? Math.abs(value) > 1 : (value < 0 || value > 1))) return error(id, -32602, `${field} is out of bounds`);
+      proposed[field] = value;
+    }
+    if (Object.keys(proposed).length === 0) return error(id, -32602, "at least one mixer field is required");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      if (!(status.operations ?? []).includes("mixer.set")) throw new Error("mixer editing is unavailable");
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const mixer = this.mixerRow(snapshot, params.trackRef as LiveRef);
+      if (Array.isArray(proposed.sends) && (proposed.sends as unknown[]).length > (mixer.sends as unknown[]).length) throw new Error("track has fewer sends than proposed");
+      const prior: Record<string, unknown> = {};
+      for (const field of Object.keys(proposed)) prior[field] = structuredClone(mixer[field] ?? null);
+      const fence = JSON.stringify({ ref: params.trackRef, mixer });
+      const transaction: ClipLifecycleTransaction = { id: `mixer_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "mixer-set", fence, clipRef: params.trackRef as LiveRef, payload: { ref: params.trackRef, ...proposed }, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "mixer");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, trackRef: params.trackRef, prior, proposed, impact: "edits-mixer", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Mixer preview requires fresh authoritative state."); }
+  }
+
+  private async liveMixerApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "mixer-set" || transaction.expiresAt <= Date.now()) return this.transactionError(id, "Unknown or expired mixer transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    if (transaction.state !== "previewed") return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
+      const mixer = this.mixerRow(await adapter.snapshotAsync(context), transaction.clipRef!);
+      if (JSON.stringify({ ref: transaction.clipRef, mixer }) !== transaction.fence) return this.transactionError(id, "mixer state changed since preview; preview again");
+      const result = await adapter.invokeAsync({ operation: "mixer.set", args: transaction.payload }, context) as { changed?: unknown; revision?: unknown };
+      if (result.changed !== true) throw new Error("mixer change was not confirmed");
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", revision: result.revision, idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Mixer state is uncertain; perform fresh discovery before retrying."); }
+  }
+
+  private async liveAutomationPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    const actions = ["create-envelope", "delete-envelope", "insert", "delete-range"] as const;
+    if (!isObject(params) || !hasOnly(params, ["action", "clipRef", "parameterRef", "points", "from", "to"]) || !actions.includes(params.action as typeof actions[number]) || !isNonEmptyString(params.clipRef, 256) || !isNonEmptyString(params.parameterRef, 256)) return error(id, -32602, "action, clipRef, and parameterRef are required");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      const adapter = this.asyncAdapter();
+      const operation = params.action === "insert" ? "automation.point.insert" : params.action === "delete-range" ? "automation.point.delete" : params.action === "create-envelope" ? "automation.envelope.create" : "automation.envelope.delete";
+      if (!(status.operations ?? []).includes(operation)) throw new Error(`${operation} is unavailable`);
+      const context = { deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
+      const read = await adapter.invokeAsync({ operation: "automation.envelope.read", args: { clipRef: params.clipRef, parameterRef: params.parameterRef } }, context) as { available?: unknown; exists?: unknown; points?: unknown };
+      if (read.available !== true) throw new Error("clip envelopes are unavailable");
+      const points = Array.isArray(read.points) ? read.points : [];
+      const fence = JSON.stringify({ clipRef: params.clipRef, parameterRef: params.parameterRef, exists: read.exists, points });
+      const payload: Record<string, unknown> = { clipRef: params.clipRef, parameterRef: params.parameterRef };
+      if (params.action === "insert") {
+        if (!Array.isArray(params.points) || params.points.length < 1 || params.points.length > 512) return error(id, -32602, "points must be 1-512 point objects");
+        for (const point of params.points) if (!isObject(point) || !hasOnly(point, ["time", "value"]) || typeof point.time !== "number" || !Number.isFinite(point.time) || point.time < 0 || typeof point.value !== "number" || !Number.isFinite(point.value)) return error(id, -32602, "points are invalid");
+        payload.points = structuredClone(params.points);
+      }
+      if (params.action === "delete-range") {
+        if (typeof params.from !== "number" || !Number.isFinite(params.from) || params.from < 0 || typeof params.to !== "number" || !Number.isFinite(params.to) || params.to <= params.from) return error(id, -32602, "from/to are invalid");
+        payload.from = params.from; payload.to = params.to;
+      }
+      if (params.action === "delete-envelope" && read.exists !== true) return this.transactionError(id, "envelope does not exist");
+      const transaction: ClipLifecycleTransaction = { id: `automation_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "automation", fence, clipRef: params.clipRef as LiveRef, payload: { action: params.action, ...payload }, prior: { exists: read.exists, points: structuredClone(points) }, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "automation");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, action: params.action, clipRef: params.clipRef, parameterRef: params.parameterRef, current: { exists: read.exists, points }, impact: "edits-clip-automation", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Automation preview requires fresh authoritative state."); }
+  }
+
+  private async liveAutomationApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "automation" || transaction.expiresAt <= Date.now()) return this.transactionError(id, "Unknown or expired automation transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    if (transaction.state !== "previewed") return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
+      const read = await adapter.invokeAsync({ operation: "automation.envelope.read", args: { clipRef: transaction.payload.clipRef, parameterRef: transaction.payload.parameterRef } }, context) as { exists?: unknown; points?: unknown };
+      if (JSON.stringify({ clipRef: transaction.payload.clipRef, parameterRef: transaction.payload.parameterRef, exists: read.exists, points: read.points ?? [] }) !== transaction.fence) return this.transactionError(id, "envelope changed since preview; preview again");
+      const action = transaction.payload.action as string;
+      const operation = action === "insert" ? "automation.point.insert" : action === "delete-range" ? "automation.point.delete" : action === "create-envelope" ? "automation.envelope.create" : "automation.envelope.delete";
+      const args: Record<string, unknown> = { clipRef: transaction.payload.clipRef, parameterRef: transaction.payload.parameterRef };
+      if (action === "insert") args.points = transaction.payload.points;
+      if (action === "delete-range") { args.from = transaction.payload.from; args.to = transaction.payload.to; }
+      const result = await adapter.invokeAsync({ operation, args }, context) as Record<string, unknown>;
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", result, idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Automation state is uncertain; perform fresh discovery before retrying."); }
+  }
+
   private clipRow(snapshot: LiveSnapshot, clipRef: LiveRef): { track?: JsonObject; clip: JsonObject; arrangement: boolean } {
     for (const track of snapshot.tracks as unknown as JsonObject[]) {
       const clip = (track.clips as unknown[]).filter(isObject).find((item) => item.ref === clipRef);
@@ -1672,6 +1814,51 @@ export class McpHost {
       if (!noteEdit) return this.transactionError(id, "Unknown or expired note-edit transaction");
       return this.liveNoteEditUndoAsync(id, noteEdit, params as Record<string, unknown>);
     }
+    if (!transaction && String(params.transactionId).startsWith("mixer_")) {
+      const mixer = this.clipLifecycleTransactions.get(params.transactionId as string);
+      if (!mixer || mixer.kind !== "mixer-set") return this.transactionError(id, "Unknown or expired mixer transaction");
+      if (mixer.state === "undone" && mixer.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: mixer.id, state: "undone", idempotent: true });
+      if (mixer.state !== "applied") return this.transactionError(id, "Only an applied mixer transaction can be undone");
+      try {
+        const status = this.requireConnected("session.read");
+        if (status.epoch !== mixer.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+        const adapter = this.asyncAdapter();
+        const restore: Record<string, unknown> = { ref: mixer.clipRef };
+        for (const field of Object.keys(mixer.payload)) if (field !== "ref") restore[field] = mixer.prior?.[field] ?? null;
+        const result = await adapter.invokeAsync({ operation: "mixer.set", args: restore }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as { changed?: unknown };
+        if (result.changed !== true) throw new Error("mixer undo was not confirmed");
+        mixer.state = "undone"; mixer.undoKey = params.idempotencyKey as string;
+        return this.successText(id, { transactionId: mixer.id, state: "undone", restored: restore, idempotent: false });
+      } catch (cause) { mixer.state = "uncertain"; return this.adapterToolError(id, cause, "Mixer undo is uncertain; perform fresh discovery."); }
+    }
+    if (!transaction && String(params.transactionId).startsWith("automation_")) {
+      const automation = this.clipLifecycleTransactions.get(params.transactionId as string);
+      if (!automation || automation.kind !== "automation") return this.transactionError(id, "Unknown or expired automation transaction");
+      if (automation.state === "undone" && automation.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: automation.id, state: "undone", idempotent: true });
+      if (automation.state !== "applied") return this.transactionError(id, "Only an applied automation transaction can be undone");
+      try {
+        const status = this.requireConnected("session.read");
+        if (status.epoch !== automation.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+        const adapter = this.asyncAdapter();
+        const context = { deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
+        const action = automation.payload.action as string;
+        const prior = automation.prior as { exists?: unknown; points?: unknown };
+        if (action === "insert") {
+          const inserted = automation.payload.points as Array<{ time: number }>;
+          const times = inserted.map((point) => point.time);
+          await adapter.invokeAsync({ operation: "automation.point.delete", args: { clipRef: automation.payload.clipRef, parameterRef: automation.payload.parameterRef, from: Math.min(...times) - 0.001, to: Math.max(...times) + 0.001 } }, context);
+        } else if (action === "delete-range" || action === "delete-envelope") {
+          const points = Array.isArray(prior.points) ? prior.points : [];
+          if (prior.exists === true) await adapter.invokeAsync({ operation: "automation.envelope.create", args: { clipRef: automation.payload.clipRef, parameterRef: automation.payload.parameterRef } }, context);
+          const restorePoints = action === "delete-range" ? points.filter((point) => point.time >= (automation.payload.from as number) && point.time <= (automation.payload.to as number)) : points;
+          if (restorePoints.length > 0) await adapter.invokeAsync({ operation: "automation.point.insert", args: { clipRef: automation.payload.clipRef, parameterRef: automation.payload.parameterRef, points: restorePoints } }, context);
+        } else if (action === "create-envelope") {
+          await adapter.invokeAsync({ operation: "automation.envelope.delete", args: { clipRef: automation.payload.clipRef, parameterRef: automation.payload.parameterRef } }, context);
+        }
+        automation.state = "undone"; automation.undoKey = params.idempotencyKey as string;
+        return this.successText(id, { transactionId: automation.id, state: "undone", idempotent: false });
+      } catch (cause) { automation.state = "uncertain"; return this.adapterToolError(id, cause, "Automation undo is uncertain; perform fresh discovery."); }
+    }
     if (!transaction && String(params.transactionId).startsWith("structure_")) {
       const structure = this.sessionStructureTransactions.get(params.transactionId as string);
       if (!structure || structure.state === "uncertain") return this.transactionError(id, "Session-structure state is uncertain; read authoritative tracks and scenes before undo");
@@ -1819,7 +2006,7 @@ export class McpHost {
       return error(id, -32602, "Invalid tools/call parameters");
     }
     if (params.arguments !== undefined && !isObject(params.arguments)) return error(id, -32602, "Tool arguments must be an object");
-    const argumentTools = new Set(["audio_analyze", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+    const argumentTools = new Set(["audio_analyze", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
     if (!argumentTools.has(params.name) && params.arguments !== undefined && Object.keys(params.arguments as JsonObject).length !== 0) {
       return error(id, -32602, "Tool arguments must be an empty object");
     }
@@ -1832,7 +2019,7 @@ export class McpHost {
     if (params.name === "live_status") return this.liveStatus(id);
     if (params.name === "live_snapshot") return this.liveSnapshot(id);
     if (params.name === "live_discover") return this.liveDiscover(id, params.arguments);
-    if (["live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply"].includes(params.name)) return error(id, -32001, "Session playback operations require the asynchronous host request path");
+    if (["live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply"].includes(params.name)) return error(id, -32001, "Session playback operations require the asynchronous host request path");
     if (params.name === "live_device_parameter_preview") return this.liveDeviceParameterPreview(id, params.arguments);
     if (params.name === "live_device_parameter_apply") return this.liveDeviceParameterApply(id, params.arguments);
     if (params.name === "live_session_structure_preview") return this.liveSessionStructurePreview(id, params.arguments);

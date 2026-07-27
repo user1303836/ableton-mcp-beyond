@@ -19,7 +19,7 @@ test("requires initialization and exposes only read-only tools", () => {
   assert.equal((host.handle({ ...initialize, id: 2 }) as any).result.protocolVersion, PROTOCOL_VERSION);
   assert.equal(host.handle(initialized), null);
   const tools = (host.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
-  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
   const auditionPreview = tools.find((tool: { name: string }) => tool.name === "live_session_audition_preview");
   assert.deepEqual(auditionPreview.inputSchema.properties.outputSafety.required, ["safe", "provenance"]);
   const auditionStop = tools.find((tool: { name: string }) => tool.name === "live_session_audition_stop");
@@ -326,7 +326,7 @@ test("analyzes supplied PCM through the MCP tool without Live side effects", () 
 test("rejects duplicates, unsupported methods, and unknown fields", () => {
   const host = new McpHost();
   ready(host);
-  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 40);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 44);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).error.message, "Duplicate request identifier");
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set", arguments: {} } }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 4, method: "tools/list", debug: true }) as any).error.code, -32600);
@@ -776,4 +776,52 @@ test("clip duplicate, arrangement lifecycle, move, and audio clip edits verify a
   assert.equal((audioRow as any).gain, 0.5);
   assert.equal((audioRow as any).pitchCoarse, -3);
   assert.equal((audioRow as any).warpMode, 2);
+});
+
+test("mixer edits fence on the mixer row and guardedly undo", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(2, "live_mixer_preview", { trackRef: "track:track-1", volume: 0.5, pan: -0.25, cueVolume: 0.75, sends: [0.75, 0.5], solo: true })) as any).result.content[0].text);
+  assert.equal(preview.prior.volume, 0.85);
+  const applied = JSON.parse(((await call(3, "live_mixer_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "mixer-1" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied");
+  const track = (simulator as any).state.tracks[0];
+  assert.equal(track.mixer.volume, 0.5);
+  assert.equal(track.mixer.pan, -0.25);
+  assert.equal(track.mixer.cueVolume, 0.75);
+  assert.deepEqual(track.mixer.sends, [0.75, 0.5]);
+  assert.equal(track.mixer.solo, true);
+  const replay = JSON.parse(((await call(4, "live_mixer_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "mixer-1" })) as any).result.content[0].text);
+  assert.equal(replay.idempotent, true);
+  const undone = JSON.parse(((await call(5, "live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "mixer-undo" })) as any).result.content[0].text);
+  assert.equal(undone.state, "undone");
+  assert.equal(track.mixer.volume, 0.85);
+  assert.equal(track.mixer.solo, false);
+});
+
+test("automation envelope lifecycle inserts, reads, deletes, and restores points", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const volumeRef = "parameter:mixer:0:volume";
+  const create = JSON.parse(((await call(2, "live_automation_preview", { action: "create-envelope", clipRef: "clip:clip-1", parameterRef: volumeRef })) as any).result.content[0].text);
+  const created = JSON.parse(((await call(3, "live_automation_apply", { transactionId: create.transactionId, confirmation: "apply", idempotencyKey: "env-1" })) as any).result.content[0].text);
+  assert.equal(created.state, "applied");
+  const insert = JSON.parse(((await call(4, "live_automation_preview", { action: "insert", clipRef: "clip:clip-1", parameterRef: volumeRef, points: [{ time: 0, value: 0.9 }, { time: 2, value: 0.4 }, { time: 3.5, value: 0.7 }] })) as any).result.content[0].text);
+  const inserted = JSON.parse(((await call(5, "live_automation_apply", { transactionId: insert.transactionId, confirmation: "apply", idempotencyKey: "env-ins" })) as any).result.content[0].text);
+  assert.equal(inserted.state, "applied");
+  const clip = (simulator as any).state.tracks[0].clips[0];
+  assert.equal(clip.envelopes[volumeRef].length, 3);
+  const conflict = JSON.parse(((await call(6, "live_automation_preview", { action: "insert", clipRef: "clip:clip-1", parameterRef: volumeRef, points: [{ time: 1, value: 0.2 }] })) as any).result.content[0].text);
+  assert.equal(conflict.current.points.length, 3);
+  const delRange = JSON.parse(((await call(7, "live_automation_preview", { action: "delete-range", clipRef: "clip:clip-1", parameterRef: volumeRef, from: 1, to: 4 })) as any).result.content[0].text);
+  const deleted = JSON.parse(((await call(8, "live_automation_apply", { transactionId: delRange.transactionId, confirmation: "apply", idempotencyKey: "env-del" })) as any).result.content[0].text);
+  assert.equal(deleted.state, "applied");
+  assert.equal(clip.envelopes[volumeRef].length, 1);
+  const undone = JSON.parse(((await call(9, "live_undo", { transactionId: delRange.transactionId, confirmation: "undo", idempotencyKey: "env-undo" })) as any).result.content[0].text);
+  assert.equal(undone.state, "undone");
+  assert.equal(clip.envelopes[volumeRef].length, 3);
 });

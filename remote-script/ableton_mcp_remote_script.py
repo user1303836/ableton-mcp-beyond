@@ -401,6 +401,12 @@ class LiveObjectMapper:
             return bool(self._arrangement_clip_items())
         if operation == "audio.clip.set":
             return any(self._read_attr(getattr(slot, "clip", None), "is_audio_clip") is True for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation == "mixer.set":
+            return any(self._read_attr(track, "mixer_device") is not None for track in self._items(getattr(self.song, "tracks", [])))
+        if operation in {"automation.envelope.read", "automation.envelope.create", "automation.point.insert", "automation.point.delete"}:
+            return any(getattr(slot, "clip", None) is not None and callable(getattr(getattr(slot, "clip", None), "create_automation_envelope", None)) for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation == "automation.envelope.delete":
+            return any(getattr(slot, "clip", None) is not None and callable(getattr(getattr(slot, "clip", None), "clear_envelope", None)) for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
         if operation == "session.audition-launch":
             return any(callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None)) for scene in self._items(getattr(self.song, "scenes", [])))
         if operation in {"session.audition-stop", "session.emergency-stop"}:
@@ -770,6 +776,7 @@ class LiveObjectMapper:
                 "monitoringState": self._monitoring_state(self._read_attr(track, "current_monitoring_state", "monitoring")),
                 "playingSlotIndex": self._slot_index(self._read_attr(track, "playing_slot_index")),
                 "firedSlotIndex": self._slot_index(self._read_attr(track, "fired_slot_index")),
+                "mixer": self._mixer_row(track, index),
                 "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track, index),
             })
         scene_rows = [{"ref": self.refs.put("scene", scene, str(i)), "parentRef": self.refs.put("set", self.song, "song"), "name": str(getattr(scene, "name", f"Scene {i + 1}")), "index": i, "triggerable": callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None))} for i, scene in enumerate(scenes)]
@@ -1328,6 +1335,18 @@ class LiveObjectMapper:
             return self._arrangement_clip_move(args)
         if operation == "audio.clip.set":
             return self._audio_clip_set(args)
+        if operation == "mixer.set":
+            return self._mixer_set(args)
+        if operation == "automation.envelope.read":
+            return self._envelope_read(args)
+        if operation == "automation.envelope.create":
+            return self._envelope_create(args)
+        if operation == "automation.envelope.delete":
+            return self._envelope_delete(args)
+        if operation == "automation.point.insert":
+            return self._envelope_point_insert(args)
+        if operation == "automation.point.delete":
+            return self._envelope_point_delete(args)
         if operation == "scene.capture":
             return self._scene_capture()
         if operation == "session.playback":
@@ -1709,6 +1728,223 @@ class LiveObjectMapper:
             raise ValueError("audio clip change was not confirmed")
         revision = self.refs.touch(reference)
         return {"changed": True, "revision": revision}
+
+    def _mixer_row(self, track: Any, track_index: int) -> dict[str, Any]:
+        mixer = self._read_attr(track, "mixer_device")
+
+        def param_value(obj: Any) -> float | None:
+            value = self._read_attr(obj, "value") if obj is not None else None
+            return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+
+        def flag(name: str) -> bool | None:
+            value = self._read_attr(track, name)
+            return bool(value) if isinstance(value, bool) else None
+
+        volume_param = self._read_attr(mixer, "volume") if mixer is not None else None
+        pan_param = self._read_attr(mixer, "panning") if mixer is not None else None
+        cue_param = self._read_attr(mixer, "cue_volume") if mixer is not None else None
+        send_params = self._items(self._read_attr(mixer, "sends") or []) if mixer is not None else []
+        return {
+            "volume": param_value(volume_param),
+            "pan": param_value(pan_param),
+            "cueVolume": param_value(cue_param),
+            "mute": flag("mute"),
+            "solo": flag("solo"),
+            "sends": [param_value(send) for send in send_params],
+            "volumeRef": self.refs.put("parameter", volume_param, f"mixer:{track_index}:volume") if volume_param is not None else None,
+            "panRef": self.refs.put("parameter", pan_param, f"mixer:{track_index}:panning") if pan_param is not None else None,
+            "cueRef": self.refs.put("parameter", cue_param, f"mixer:{track_index}:cue_volume") if cue_param is not None else None,
+            "sendRefs": [self.refs.put("parameter", send, f"mixer:{track_index}:sends:{send_index}") for send_index, send in enumerate(send_params)],
+        }
+
+    def _resolve_parameter(self, reference: str) -> Any:
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:parameter:"):
+            raise ValueError("parameter reference is stale or invalid")
+        key = ":".join(reference.split(":")[2:])
+        if key.startswith("mixer:"):
+            parts = key.split(":")
+            if len(parts) < 3 or not parts[1].isdigit():
+                raise ValueError("mixer parameter reference is malformed")
+            track_index = int(parts[1])
+            tracks = self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", [])) + ([getattr(self.song, "master_track", None)] if getattr(self.song, "master_track", None) is not None else [])
+            if not 0 <= track_index < len(tracks):
+                raise ValueError("mixer parameter track is stale")
+            mixer = self._read_attr(tracks[track_index], "mixer_device")
+            if parts[2] == "sends":
+                if len(parts) != 4 or not parts[3].isdigit():
+                    raise ValueError("send parameter reference is malformed")
+                sends = self._items(self._read_attr(mixer, "sends") or [])
+                send_index = int(parts[3])
+                if not 0 <= send_index < len(sends):
+                    raise ValueError("send parameter is stale")
+                return sends[send_index]
+            parameter = self._read_attr(mixer, parts[2])
+            if parameter is None:
+                raise ValueError("mixer parameter is unavailable")
+            return parameter
+        return self.refs.get(reference)
+
+    def _mixer_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:track:"):
+            raise ValueError("track reference is stale or invalid")
+        track = self.refs.get(reference)
+        mixer = self._read_attr(track, "mixer_device")
+        if mixer is None:
+            raise ValueError("mixer is unavailable")
+        allowed = {"ref", "volume", "pan", "mute", "solo", "cueVolume", "sends"}
+        if set(args) - allowed:
+            raise ValueError("mixer fields are invalid")
+
+        def bounded(name: str, lo: float, hi: float) -> float | None:
+            value = args.get(name)
+            if value is None:
+                return None
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not lo <= float(value) <= hi:
+                raise ValueError(f"{name} is invalid")
+            return float(value)
+
+        volume = bounded("volume", 0, 1)
+        pan = bounded("pan", -1, 1)
+        cue = bounded("cueVolume", 0, 1)
+        mute = args.get("mute")
+        if mute is not None and not isinstance(mute, bool):
+            raise ValueError("mute is invalid")
+        solo = args.get("solo")
+        if solo is not None and not isinstance(solo, bool):
+            raise ValueError("solo is invalid")
+        sends = args.get("sends")
+        if sends is not None:
+            send_params = self._items(self._read_attr(mixer, "sends") or [])
+            if not isinstance(sends, list) or len(sends) > len(send_params) or not all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 1 for value in sends):
+                raise ValueError("sends are invalid")
+        if volume is not None:
+            self._read_attr(mixer, "volume").value = volume
+        if pan is not None:
+            self._read_attr(mixer, "panning").value = pan
+        if cue is not None:
+            self._read_attr(mixer, "cue_volume").value = cue
+        if mute is not None:
+            track.mute = mute
+        if solo is not None:
+            track.solo = solo
+        if sends is not None:
+            for send_index, value in enumerate(sends):
+                self._items(self._read_attr(mixer, "sends") or [])[send_index].value = float(value)
+        row = self._mixer_row(track, self._items(getattr(self.song, "tracks", [])).index(track) if track in self._items(getattr(self.song, "tracks", [])) else 0)
+        checks = []
+        if volume is not None:
+            checks.append(isinstance(row["volume"], (int, float)) and abs(row["volume"] - volume) < 0.01)
+        if pan is not None:
+            checks.append(isinstance(row["pan"], (int, float)) and abs(row["pan"] - pan) < 0.01)
+        if cue is not None:
+            checks.append(isinstance(row["cueVolume"], (int, float)) and abs(row["cueVolume"] - cue) < 0.01)
+        if mute is not None:
+            checks.append(row["mute"] is mute)
+        if solo is not None:
+            checks.append(row["solo"] is solo)
+        if sends is not None:
+            checks.append(all(isinstance(row["sends"][i], (int, float)) and abs(row["sends"][i] - float(value)) < 0.01 for i, value in enumerate(sends)))
+        if not all(checks):
+            raise ValueError("mixer change was not confirmed by fresh state")
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _envelope(self, clip_ref: str, parameter_ref: str, create: bool = False) -> tuple[Any, Any]:
+        _, slot, _, _ = self._clip_location(clip_ref)
+        clip = getattr(slot, "clip", None)
+        if clip is None:
+            raise ValueError("automation requires a Session clip")
+        parameter = self._resolve_parameter(parameter_ref)
+        reader = getattr(clip, "automation_envelope", None)
+        if not callable(reader):
+            raise ValueError("clip envelopes are unavailable on this Live shape")
+        envelope = reader(parameter)
+        if envelope is None and create:
+            creator = getattr(clip, "create_automation_envelope", None)
+            if not callable(creator):
+                raise ValueError("envelope creation is unavailable")
+            envelope = creator(parameter)
+        return clip, envelope
+
+    def _envelope_points(self, envelope: Any, limit: int = 512) -> list[dict[str, Any]]:
+        events = envelope.events_in_range(-1.0, 1_000_000_000.0) if callable(getattr(envelope, "events_in_range", None)) else []
+        points: list[dict[str, Any]] = []
+        for event in list(events)[:limit]:
+            time_value = getattr(event, "time", None)
+            value = getattr(event, "value", None)
+            if isinstance(time_value, (int, float)) and isinstance(value, (int, float)) and math.isfinite(float(time_value)) and math.isfinite(float(value)):
+                points.append({"time": float(time_value), "value": float(value)})
+        return points
+
+    def _envelope_read(self, args: dict[str, Any]) -> dict[str, Any]:
+        _, envelope = self._envelope(str(args["clipRef"]), str(args["parameterRef"]))
+        return {"available": True, "exists": envelope is not None, "points": self._envelope_points(envelope) if envelope is not None else []}
+
+    def _envelope_create(self, args: dict[str, Any]) -> dict[str, Any]:
+        _, envelope = self._envelope(str(args["clipRef"]), str(args["parameterRef"]), create=True)
+        if envelope is None:
+            raise ValueError("envelope creation was not confirmed")
+        return {"created": True}
+
+    def _envelope_delete(self, args: dict[str, Any]) -> dict[str, Any]:
+        clip, envelope = self._envelope(str(args["clipRef"]), str(args["parameterRef"]))
+        if envelope is None:
+            raise ValueError("envelope does not exist")
+        parameter = self._resolve_parameter(str(args["parameterRef"]))
+        clearer = getattr(clip, "clear_envelope", None)
+        if not callable(clearer):
+            raise ValueError("envelope deletion is unavailable")
+        clearer(parameter)
+        if getattr(clip, "automation_envelope", lambda _p: None)(parameter) is not None:
+            raise ValueError("envelope deletion was not confirmed")
+        return {"deleted": True}
+
+    def _envelope_point_insert(self, args: dict[str, Any]) -> dict[str, Any]:
+        points = args.get("points")
+        if not isinstance(points, list) or not 1 <= len(points) <= 512:
+            raise ValueError("points are invalid")
+        for point in points:
+            if not isinstance(point, dict) or set(point) != {"time", "value"} or not isinstance(point["time"], (int, float)) or isinstance(point["time"], bool) or not math.isfinite(float(point["time"])) or not 0 <= float(point["time"]) <= 1_000_000_000 or not isinstance(point["value"], (int, float)) or isinstance(point["value"], bool) or not math.isfinite(float(point["value"])) or not -1_000_000 <= float(point["value"]) <= 1_000_000:
+                raise ValueError("points are invalid")
+        _, envelope = self._envelope(str(args["clipRef"]), str(args["parameterRef"]), create=True)
+        if envelope is None:
+            raise ValueError("envelope creation was not confirmed")
+        try:
+            event_class = getattr(__import__("Live.Envelope", fromlist=["EnvelopeEvent"]), "EnvelopeEvent", None)
+        except Exception:
+            event_class = None
+        if event_class is None:
+            # Duck-typed event for fakes and shapes without Live's event class.
+            class _Event:
+                def __init__(self, time: float, value: float):
+                    self.time = time
+                    self.value = value
+            event_class = _Event
+        before = len(self._envelope_points(envelope, 1024))
+        for point in points:
+            envelope.create_event(event_class(float(point["time"]), float(point["value"])))
+        after = len(self._envelope_points(envelope, 1024))
+        if after < before + len(points):
+            raise ValueError("envelope point insert was not confirmed")
+        return {"inserted": len(points)}
+
+    def _envelope_point_delete(self, args: dict[str, Any]) -> dict[str, Any]:
+        from_time = args.get("from")
+        to_time = args.get("to")
+        if not isinstance(from_time, (int, float)) or isinstance(from_time, bool) or not math.isfinite(float(from_time)) or float(from_time) < 0:
+            raise ValueError("from is invalid")
+        if not isinstance(to_time, (int, float)) or isinstance(to_time, bool) or not math.isfinite(float(to_time)) or float(to_time) <= float(from_time):
+            raise ValueError("to is invalid")
+        _, envelope = self._envelope(str(args["clipRef"]), str(args["parameterRef"]))
+        if envelope is None:
+            raise ValueError("envelope does not exist")
+        if not callable(getattr(envelope, "delete_events_in_range", None)):
+            raise ValueError("envelope point deletion is unavailable")
+        before = len(self._envelope_points(envelope, 1024))
+        envelope.delete_events_in_range(float(from_time), float(to_time))
+        after = len(self._envelope_points(envelope, 1024))
+        return {"deleted": before - after}
 
     def _note_add(self, args: dict[str, Any]) -> dict[str, Any]:
         clip = self.refs.get(str(args["ref"]))

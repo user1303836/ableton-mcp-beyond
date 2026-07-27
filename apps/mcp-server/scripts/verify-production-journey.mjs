@@ -116,6 +116,36 @@ const harnessSource = `
 import json, os, pathlib, socket, sys, time
 from AbletonMcpBridge.ableton_mcp_remote_script import AbletonMcpBridge
 
+class FakeParameter:
+    def __init__(self, name, value=0.0, min=0.0, max=1.0):
+        self.name = name; self.value = value; self.min = min; self.max = max
+        self.quantization = 0.0; self.is_enabled = True; self.is_automatable = True
+
+class FakeMixer:
+    def __init__(self):
+        self.volume = FakeParameter("Track Volume", 0.85)
+        self.panning = FakeParameter("Pan", 0.0, -1.0, 1.0)
+        self.cue_volume = FakeParameter("Cue Volume", 1.0)
+        self.sends = [FakeParameter("Send A", 0.0), FakeParameter("Send B", 0.0)]
+
+class FakeEnvelopeEvent:
+    def __init__(self, time, value):
+        self.time = time; self.value = value
+
+class FakeEnvelope:
+    def __init__(self):
+        self.events = []
+    def events_in_range(self, start, end):
+        return [e for e in self.events if start <= e.time <= end]
+    def delete_events_in_range(self, start, end):
+        self.events = [e for e in self.events if not (start <= e.time <= end)]
+    def create_event(self, event):
+        self.events.append(event)
+        self.events.sort(key=lambda e: e.time)
+    def value_at_time(self, time):
+        candidates = [e for e in self.events if e.time <= time]
+        return candidates[-1].value if candidates else 0.0
+
 class FakeMidiNote:
     _next_id = [0]
     def __init__(self, pitch, start_time, duration, velocity, mute=False, probability=1.0, velocity_deviation=0.0, release_velocity=64.0):
@@ -128,6 +158,19 @@ class FakeMidiNote:
 class FakeClip:
     def __init__(self, length=4.0):
         self.length = length; self.name = "Journey Clip"; self.notes = []
+        self._envelopes = {}
+    def create_automation_envelope(self, parameter):
+        key = getattr(parameter, "name", str(id(parameter)))
+        if key not in self._envelopes:
+            self._envelopes[key] = FakeEnvelope()
+        return self._envelopes[key]
+    def automation_envelope(self, parameter):
+        return self._envelopes.get(getattr(parameter, "name", str(id(parameter))))
+    def clear_envelope(self, parameter):
+        self._envelopes.pop(getattr(parameter, "name", str(id(parameter))), None)
+    @property
+    def has_envelopes(self):
+        return bool(self._envelopes)
     def add_new_notes(self, notes):
         for note in notes:
             if isinstance(note, dict):
@@ -164,6 +207,8 @@ class FakeTrack:
         self.name = name; self.arm = False; self.current_monitoring_state = 2
         self.playing_slot_index = -1; self.fired_slot_index = -1
         self._song = song
+        self.mute = False; self.solo = False
+        self.mixer_device = FakeMixer()
         self.clip_slots = [FakeSlot(clip, self, i) for i, clip in enumerate(clips if clips is not None else [FakeClip(), None])]; self.devices = []
         self.arrangement_clips = []
     def create_midi_clip(self, time, length):
@@ -375,6 +420,17 @@ try {
     const client = new McpClient(executable, cliConfigPath);
     await client.initialize();
     return client;
+  };
+  const adapter_call = async (_client, operation, args) => {
+    // Wire-level invoke through the production registry for read-back assertions.
+    const wire = wireClient(harnessPort);
+    const hello = await wire.next();
+    const frame = { version: "ableton-loopback/v1", id: `env-${Math.random().toString(36).slice(2, 10)}`, method: "invoke", operation, args, nonce: `env-nonce-${Date.now()}`, sequence: 1, bridgeEpoch: hello.bridgeEpoch, connectionChallenge: hello.connectionChallenge, deadlineMs: Date.now() + 10000 };
+    wire.send({ ...frame, mac: mac(secret, frame) });
+    const response = await wire.next();
+    wire.socket.destroy();
+    if (!response.ok) throw new Error(`wire invoke ${operation} failed: ${response.error}`);
+    return response.result;
   };
   const textOf = async (client, name, args, timeoutMs) => {
     const response = await client.call(name, args, timeoutMs);
@@ -703,6 +759,39 @@ try {
     assert(afterSlots.find((item) => item.sceneIndex === emptySlot.sceneIndex)?.empty === false, "duplicated clip not in target slot");
   });
 
+  await step("mixer and clip automation lifecycle through the packaged path", async () => {
+    const freshTracks = (await textOf(client, "live_discover", { kind: "track" })).parsed.items;
+    const mixerPreview = (await textOf(client, "live_mixer_preview", { trackRef: freshTracks[0].ref, volume: 0.5, pan: -0.25, cueVolume: 0.75, sends: [0.5, 0.25], solo: true })).parsed;
+    const mixerApplied = (await textOf(client, "live_mixer_apply", { transactionId: mixerPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-mixer" })).parsed;
+    assert(mixerApplied.state === "applied", "mixer apply failed");
+    const trackAfter = (await textOf(client, "live_discover", { kind: "track" })).parsed.items[0];
+    assert(trackAfter.mixer.volume === 0.5 && trackAfter.mixer.pan === -0.25 && trackAfter.mixer.cueVolume === 0.75 && trackAfter.mixer.solo === true, `mixer fields did not land: ${JSON.stringify(trackAfter.mixer)}`);
+    const undone = (await textOf(client, "live_undo", { transactionId: mixerPreview.transactionId, confirmation: "undo", idempotencyKey: "journey-mixer-undo" })).parsed;
+    assert(undone.state === "undone", "mixer undo failed");
+    const restored = (await textOf(client, "live_discover", { kind: "track" })).parsed.items[0];
+    assert(restored.mixer.volume === 0.85 && restored.mixer.solo === false, "mixer undo did not restore");
+    // Automation envelope on the track volume parameter of clip 0
+    const slots = (await textOf(client, "live_discover", { kind: "clip-slot", parent: freshTracks[0].ref })).parsed.items;
+    const clipRef = slots.find((item) => item.empty === false)?.clipRef;
+    const volumeRef = trackAfter.mixer.volumeRef;
+    assert(typeof volumeRef === "string", "mixer volume parameter ref missing");
+    const create = (await textOf(client, "live_automation_preview", { action: "create-envelope", clipRef, parameterRef: volumeRef })).parsed;
+    const created = (await textOf(client, "live_automation_apply", { transactionId: create.transactionId, confirmation: "apply", idempotencyKey: "journey-env-create" })).parsed;
+    assert(created.state === "applied", "envelope create failed");
+    const insert = (await textOf(client, "live_automation_preview", { action: "insert", clipRef, parameterRef: volumeRef, points: [{ time: 0, value: 0.9 }, { time: 2, value: 0.4 }] })).parsed;
+    const inserted = (await textOf(client, "live_automation_apply", { transactionId: insert.transactionId, confirmation: "apply", idempotencyKey: "journey-env-insert" })).parsed;
+    assert(inserted.state === "applied" && inserted.result?.inserted === 2, "envelope insert failed");
+    const readBack = await adapter_call(client, "automation.envelope.read", { clipRef, parameterRef: volumeRef });
+    assert(readBack.exists === true && readBack.points.length === 2 && readBack.points[1].value === 0.4, `envelope readback mismatch: ${JSON.stringify(readBack)}`);
+    const delRange = (await textOf(client, "live_automation_preview", { action: "delete-range", clipRef, parameterRef: volumeRef, from: 1, to: 3 })).parsed;
+    const deleted = (await textOf(client, "live_automation_apply", { transactionId: delRange.transactionId, confirmation: "apply", idempotencyKey: "journey-env-delete" })).parsed;
+    assert(deleted.state === "applied" && deleted.result?.deleted === 1, "envelope delete-range failed");
+    const envUndo = (await textOf(client, "live_undo", { transactionId: delRange.transactionId, confirmation: "undo", idempotencyKey: "journey-env-undo" })).parsed;
+    assert(envUndo.state === "undone", "envelope undo failed");
+    const finalRead = await adapter_call(client, "automation.envelope.read", { clipRef, parameterRef: volumeRef });
+    assert(finalRead.points.length === 2, "envelope undo did not restore points");
+  });
+
   await step("shutdown leaves no residual playback or processes", async () => {
     assert((await playback(client)).transport.playing === false, "playback was active before shutdown");
     await client.close();
@@ -717,6 +806,6 @@ try {
   else console.error(`journey temp kept: ${temporaryDirectory}`);
 }
 
-const summary = { journey: "packaged-production-boundary", provenance: "fake-live", steps: results, passed: !failed && results.every((entry) => entry.passed) && results.length === 18 };
+const summary = { journey: "packaged-production-boundary", provenance: "fake-live", steps: results, passed: !failed && results.every((entry) => entry.passed) && results.length === 19 };
 console.log(JSON.stringify(summary));
 if (!summary.passed) process.exitCode = 1;

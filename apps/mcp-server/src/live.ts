@@ -81,9 +81,10 @@ export interface Note { pitch: number; start: number; duration: number; velocity
 export interface AutomationPoint { time: number; value: number; curve?: number; }
 export interface Parameter { ref: LiveRef; name: string; value: number; min: number; max: number; automatable: boolean; quantization?: number; enabled?: boolean; displayValue?: string; revision?: number; }
 export interface Device { ref: LiveRef; name: string; kind: "instrument" | "audio-effect" | "midi-effect" | "plugin" | "rack"; parameters: Parameter[]; enabled?: boolean; }
-export interface Clip { ref: LiveRef; name: string; kind: "midi" | "audio"; start: number; length: number; notes: Note[]; warp: boolean; takes: string[]; automation: AutomationPoint[]; isAudio?: boolean | null; gain?: number | null; pitchCoarse?: number | null; pitchFine?: number | null; warpMode?: number | null; loopStart?: number | null; loopEnd?: number | null; filePath?: string | null; }
+export interface Clip { ref: LiveRef; name: string; kind: "midi" | "audio"; start: number; length: number; notes: Note[]; warp: boolean; takes: string[]; automation: AutomationPoint[]; envelopes?: Record<string, AutomationPoint[]>; isAudio?: boolean | null; gain?: number | null; pitchCoarse?: number | null; pitchFine?: number | null; warpMode?: number | null; loopStart?: number | null; loopEnd?: number | null; filePath?: string | null; }
+export interface MixerState { volume: number | null; pan: number | null; cueVolume: number | null; mute: boolean | null; solo: boolean | null; sends: (number | null)[]; volumeRef: LiveRef | null; panRef: LiveRef | null; cueRef: LiveRef | null; sendRefs: LiveRef[]; }
 export interface ClipSlot { ref: LiveRef; parentRef: LiveRef; sceneIndex: number; clipRef?: LiveRef | null; empty: boolean; }
-export interface Track { ref: LiveRef; name: string; kind: "audio" | "midi" | "group" | "return" | "main" | "master" | "regular"; volume: number; pan: number; mute: boolean; solo: boolean; armed: boolean | null; monitoringState?: LiveMonitoringState; playingSlotIndex?: number | null; firedSlotIndex?: number | null; clips: Clip[]; clipSlots?: ClipSlot[]; devices: Device[]; sends: number[]; input?: string; output?: string; }
+export interface Track { ref: LiveRef; name: string; kind: "audio" | "midi" | "group" | "return" | "main" | "master" | "regular"; volume: number; pan: number; mute: boolean; solo: boolean; armed: boolean | null; monitoringState?: LiveMonitoringState; playingSlotIndex?: number | null; firedSlotIndex?: number | null; clips: Clip[]; clipSlots?: ClipSlot[]; mixer?: MixerState; devices: Device[]; sends: number[]; input?: string; output?: string; }
 export interface Scene { ref: LiveRef; name: string; index: number; }
 export interface LiveSnapshot {
   set: { ref: LiveRef; name: string; tempo?: number; playing?: boolean; position?: number; loop?: { enabled: boolean; start?: number; length?: number }; [key: string]: unknown };
@@ -101,6 +102,7 @@ export type LiveOperation =
   | "transport.set" | "session.audition-launch" | "session.audition-stop" | "session.emergency-stop" | "clip.create" | "clip.delete"
   | "clip.launch" | "track.stop" | "playback.stop-all-clips" | "session.capture-midi" | "scene.capture"
   | "note.update" | "note.delete" | "clip.duplicate" | "arrangement.clip.create" | "arrangement.clip.delete" | "arrangement.clip.move" | "audio.clip.set"
+  | "mixer.set" | "automation.envelope.read" | "automation.envelope.create" | "automation.envelope.delete" | "automation.point.insert" | "automation.point.delete"
   | "note.add" | "automation.add" | "audio.warp" | "take.add"
   | "parameter.set" | "routing.set" | "browser.search" | "locator.add" | "locator.delete"
   | "track.create" | "track.delete" | "scene.create" | "scene.delete"
@@ -135,7 +137,7 @@ const ref = (kind: LiveObjectKind, id: string): LiveRef => `${kind}:${id}`;
 
 function createSimulatorState(): LiveSnapshot {
   const kick: Clip = { ref: ref("clip", "clip-1"), name: "Kick Pattern", kind: "midi", start: 0, length: 4, notes: [{ pitch: 36, start: 0, duration: 0.25, velocity: 110, channel: 1, id: 1, mute: false, probability: 1, velocityDeviation: 0, releaseVelocity: 64 }], warp: false, takes: ["take-1"], automation: [] };
-  const track: Track = { ref: ref("track", "track-1"), name: "Drums", kind: "midi", volume: 0.85, pan: 0, mute: false, solo: false, armed: false, monitoringState: "off", playingSlotIndex: null, firedSlotIndex: null, clips: [kick], clipSlots: [{ ref: ref("clip-slot", "track-1:0"), parentRef: ref("track", "track-1"), sceneIndex: 0, clipRef: kick.ref, empty: false }], devices: [], sends: [0, 0] };
+  const track: Track = { ref: ref("track", "track-1"), name: "Drums", kind: "midi", volume: 0.85, pan: 0, mute: false, solo: false, armed: false, monitoringState: "off", playingSlotIndex: null, firedSlotIndex: null, clips: [kick], clipSlots: [{ ref: ref("clip-slot", "track-1:0"), parentRef: ref("track", "track-1"), sceneIndex: 0, clipRef: kick.ref, empty: false }], mixer: { volume: 0.85, pan: 0, cueVolume: 1, mute: false, solo: false, sends: [0.5, 0.25], volumeRef: ref("parameter", "mixer:0:volume"), panRef: ref("parameter", "mixer:0:panning"), cueRef: ref("parameter", "mixer:0:cue_volume"), sendRefs: [ref("parameter", "mixer:0:sends:0"), ref("parameter", "mixer:0:sends:1")] }, devices: [], sends: [0, 0] };
   const gain: Parameter = { ref: ref("parameter", "gain-1"), name: "Gain", value: 0.5, min: 0, max: 1, automatable: true, quantization: 0, enabled: true, displayValue: "0.5", revision: 1 };
   const device: Device = { ref: ref("device", "utility-1"), name: "Utility", kind: "audio-effect", parameters: [gain], enabled: true };
   track.devices.push(device);
@@ -151,7 +153,7 @@ function createSimulatorState(): LiveSnapshot {
   };
 }
 
-export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "set", "reconnect", "session.playback", "transport.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "clip.create", "clip.delete", "clip.launch", "track.create", "track.delete", "track.stop", "scene.create", "scene.delete", "scene.capture", "note.add", "note.update", "note.delete", "locator.add", "locator.delete", "playback.stop-all-clips", "session.capture-midi", "device.parameter.set", "clip.duplicate", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "audio.clip.set"] as const;
+export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "set", "reconnect", "session.playback", "transport.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "clip.create", "clip.delete", "clip.launch", "track.create", "track.delete", "track.stop", "scene.create", "scene.delete", "scene.capture", "note.add", "note.update", "note.delete", "locator.add", "locator.delete", "playback.stop-all-clips", "session.capture-midi", "device.parameter.set", "clip.duplicate", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "audio.clip.set", "mixer.set", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.point.insert", "automation.point.delete"] as const;
 
 export class DeterministicLiveSimulator implements LiveAdapter {
   private state = createSimulatorState();
@@ -390,6 +392,69 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         this.state.scenes.forEach((item, itemIndex) => { item.index = itemIndex; });
         this.emit({ type: "object", ref: sceneRef, payload: { operation, ref: sceneRef } });
         return { deleted: sceneRef };
+      }
+      case "mixer.set": {
+        const track = this.findTrack(objectRef("ref"));
+        if (!track?.mixer) throw new Error("mixer is unavailable");
+        const mixer = track.mixer;
+        if (args.volume !== undefined) { if (typeof args.volume !== "number" || !Number.isFinite(args.volume) || args.volume < 0 || args.volume > 1) throw new RangeError("volume is invalid"); mixer.volume = args.volume; track.volume = args.volume; }
+        if (args.pan !== undefined) { if (typeof args.pan !== "number" || !Number.isFinite(args.pan) || args.pan < -1 || args.pan > 1) throw new RangeError("pan is invalid"); mixer.pan = args.pan; track.pan = args.pan; }
+        if (args.mute !== undefined) { if (typeof args.mute !== "boolean") throw new TypeError("mute is invalid"); mixer.mute = args.mute; track.mute = args.mute; }
+        if (args.solo !== undefined) { if (typeof args.solo !== "boolean") throw new TypeError("solo is invalid"); mixer.solo = args.solo; track.solo = args.solo; }
+        if (args.cueVolume !== undefined) { if (typeof args.cueVolume !== "number" || !Number.isFinite(args.cueVolume) || args.cueVolume < 0 || args.cueVolume > 1) throw new RangeError("cueVolume is invalid"); mixer.cueVolume = args.cueVolume; }
+        if (args.sends !== undefined) {
+          if (!Array.isArray(args.sends) || args.sends.length > mixer.sends.length || !args.sends.every((value) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1)) throw new RangeError("sends are invalid");
+          (args.sends as number[]).forEach((value, index) => { mixer.sends[index] = value; });
+        }
+        this.emit({ type: "object", ref: track.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "automation.envelope.read": {
+        const clip = this.findClip(objectRef("clipRef"));
+        const parameterRef = objectRef("parameterRef");
+        const points = (clip.envelopes?.[parameterRef] ?? null);
+        return { available: true, exists: points !== null, points: structuredClone(points ?? []) };
+      }
+      case "automation.envelope.create": {
+        const clip = this.findClip(objectRef("clipRef"));
+        const parameterRef = objectRef("parameterRef");
+        clip.envelopes = clip.envelopes ?? {};
+        clip.envelopes[parameterRef] = clip.envelopes[parameterRef] ?? [];
+        this.emit({ type: "object", ref: clip.ref, payload: { operation } });
+        return { created: true };
+      }
+      case "automation.envelope.delete": {
+        const clip = this.findClip(objectRef("clipRef"));
+        const parameterRef = objectRef("parameterRef");
+        if (!clip.envelopes || !(parameterRef in clip.envelopes)) throw new Error("envelope does not exist");
+        delete clip.envelopes[parameterRef];
+        this.emit({ type: "object", ref: clip.ref, payload: { operation } });
+        return { deleted: true };
+      }
+      case "automation.point.insert": {
+        const clip = this.findClip(objectRef("clipRef"));
+        const parameterRef = objectRef("parameterRef");
+        const points = args.points;
+        if (!Array.isArray(points) || points.length < 1 || points.length > 512) throw new RangeError("points are invalid");
+        for (const point of points) if (!point || typeof point !== "object" || typeof (point as AutomationPoint).time !== "number" || !Number.isFinite((point as AutomationPoint).time) || (point as AutomationPoint).time < 0 || typeof (point as AutomationPoint).value !== "number" || !Number.isFinite((point as AutomationPoint).value)) throw new RangeError("points are invalid");
+        clip.envelopes = clip.envelopes ?? {};
+        const envelope = clip.envelopes[parameterRef] ?? (clip.envelopes[parameterRef] = []);
+        envelope.push(...structuredClone(points as AutomationPoint[]));
+        envelope.sort((a, b) => a.time - b.time);
+        this.emit({ type: "object", ref: clip.ref, payload: { operation } });
+        return { inserted: points.length };
+      }
+      case "automation.point.delete": {
+        const clip = this.findClip(objectRef("clipRef"));
+        const parameterRef = objectRef("parameterRef");
+        const envelope = clip.envelopes?.[parameterRef];
+        if (!envelope) throw new Error("envelope does not exist");
+        const from = args.from; const to = args.to;
+        if (typeof from !== "number" || !Number.isFinite(from) || from < 0 || typeof to !== "number" || !Number.isFinite(to) || to <= from) throw new RangeError("from/to are invalid");
+        const before = envelope.length;
+        clip.envelopes![parameterRef] = envelope.filter((point) => point.time < from || point.time > to);
+        this.emit({ type: "object", ref: clip.ref, payload: { operation } });
+        return { deleted: before - clip.envelopes![parameterRef]!.length };
       }
       case "clip.duplicate": {
         const clipRef = objectRef("ref");
