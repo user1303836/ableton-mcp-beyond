@@ -1189,6 +1189,9 @@ export class McpHost {
       const snapshot = await this.asyncAdapter().snapshotAsync();
       const mixer = this.mixerRow(snapshot, params.trackRef as LiveRef);
       if (Array.isArray(proposed.sends) && (proposed.sends as unknown[]).length > (mixer.sends as unknown[]).length) throw new Error("track has fewer sends than proposed");
+      if (proposed.cueVolume !== undefined && mixer.cueRef === null) throw new Error("cue volume is unavailable on this track");
+      if (proposed.volume !== undefined && mixer.volumeRef === null) throw new Error("volume is unavailable on this track");
+      if (proposed.pan !== undefined && mixer.panRef === null) throw new Error("pan is unavailable on this track");
       const prior: Record<string, unknown> = {};
       for (const field of Object.keys(proposed)) prior[field] = structuredClone(mixer[field] ?? null);
       const fence = JSON.stringify({ ref: params.trackRef, mixer });

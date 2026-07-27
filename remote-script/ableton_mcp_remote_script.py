@@ -1814,6 +1814,12 @@ class LiveObjectMapper:
         if solo is not None and not isinstance(solo, bool):
             raise ValueError("solo is invalid")
         sends = args.get("sends")
+        if volume is not None and self._read_attr(mixer, "volume") is None:
+            raise ValueError("volume is unavailable on this track")
+        if pan is not None and self._read_attr(mixer, "panning") is None:
+            raise ValueError("pan is unavailable on this track")
+        if cue is not None and self._read_attr(mixer, "cue_volume") is None:
+            raise ValueError("cue volume is unavailable on this track")
         if sends is not None:
             send_params = self._items(self._read_attr(mixer, "sends") or [])
             if not isinstance(sends, list) or len(sends) > len(send_params) or not all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 1 for value in sends):
@@ -1868,7 +1874,10 @@ class LiveObjectMapper:
         return clip, envelope
 
     def _envelope_points(self, envelope: Any, limit: int = 512) -> list[dict[str, Any]]:
-        events = envelope.events_in_range(-1.0, 1_000_000_000.0) if callable(getattr(envelope, "events_in_range", None)) else []
+        clip = getattr(envelope, "canonical_parent", None)
+        window = float(getattr(clip, "length", 0.0) or 0.0) + 4.0 if clip is not None else 4096.0
+        window = min(max(window, 4.0), 4096.0)
+        events = envelope.events_in_range(0.0, window) if callable(getattr(envelope, "events_in_range", None)) else []
         points: list[dict[str, Any]] = []
         for event in list(events)[:limit]:
             time_value = getattr(event, "time", None)
