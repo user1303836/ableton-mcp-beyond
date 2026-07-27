@@ -11,6 +11,8 @@ export interface RecordContext {
 export interface StdioOptions {
   /** Maximum number of handler calls that may be active at once. */
   readonly maxInFlight?: number;
+  /** Register a server-initiated emitter (used for event notifications). */
+  readonly notifier?: (emit: (value: string) => Promise<void>) => void;
 }
 
 type JsonRecord = { method?: unknown; id?: unknown; params?: unknown };
@@ -73,6 +75,7 @@ export async function serveStdio(input: Readable, output: Writable, handler: Rec
       output.once("drain", onDrain); output.once("error", onError); output.once("close", onClose);
     });
   };
+  options.notifier?.(write);
   const process = async (event: FrameEvent): Promise<void> => {
     if (event.type === "error") {
       const oversized = event.message === "oversized";

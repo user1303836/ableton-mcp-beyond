@@ -1,7 +1,7 @@
 import type { Readable, Writable } from "node:stream";
 import { randomBytes } from "node:crypto";
 import { analyzePcm, decodeFloat32Le } from "./analysis.js";
-import { LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_UNAVAILABLE_CAPABILITIES, UnavailableLiveAdapter, type LiveAdapter, type LiveCapability, type LiveRef, type LiveSnapshot, type LiveStatus } from "./live.js";
+import { LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_UNAVAILABLE_CAPABILITIES, UnavailableLiveAdapter, type LiveAdapter, type LiveCapability, type LiveEvent, type LiveRef, type LiveSnapshot, type LiveStatus } from "./live.js";
 import { serveStdio, type RecordContext } from "./stdio.js";
 import { SessionMidiTransactionManager, discoverSession } from "./transactions/session-midi.js";
 import type { AsyncLiveAdapter } from "./live.js";
@@ -440,6 +440,18 @@ const implementedTools = [
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
   },
   {
+    name: "live_subscribe",
+    description: "Subscribe to authenticated, epoch- and sequence-bound Live events (transport, object, state) with coalescing, bounded queues, overflow notification, and resnapshot recovery.",
+    inputSchema: { type: "object", properties: { types: { type: "array", maxItems: 16, items: { type: "string", enum: ["state", "transport", "object", "meter", "max", "osc"] } } }, required: [], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_unsubscribe",
+    description: "End the active Live event subscription.",
+    inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
     name: "live_device_parameter_preview",
     description: "Discover an authoritative device parameter and preview a bounded numeric change without mutation.",
     inputSchema: { type: "object", properties: { deviceRef: { type: "string", minLength: 1, maxLength: 256 }, parameterRef: { type: "string", minLength: 1, maxLength: 256 }, value: { type: "number" } }, required: ["deviceRef", "parameterRef", "value"], additionalProperties: false },
@@ -603,7 +615,7 @@ export class McpHost {
     if (signal?.aborted) return null;
     if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handle(input);
     const name = input.params.name;
-    if (![ "live_session_structure_preview", "live_session_structure_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply"].includes(name)) return this.handle(input);
+    if (![ "live_session_structure_preview", "live_session_structure_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe"].includes(name)) return this.handle(input);
     // Reuse the synchronous validator and request bookkeeping, then execute the
     // adapter operation asynchronously. Invalid requests never reach Live.
     const id = this.requestId(input.id);
@@ -656,6 +668,8 @@ export class McpHost {
       if (name === "live_routing_apply") return await this.liveRoutingApplyAsync(id, input.params.arguments, signal);
       if (name === "live_recording_preview") return await this.liveRecordingPreviewAsync(id, input.params.arguments);
       if (name === "live_recording_apply") return await this.liveRecordingApplyAsync(id, input.params.arguments, signal);
+      if (name === "live_subscribe") return await this.liveSubscribeAsync(id, input.params.arguments);
+      if (name === "live_unsubscribe") return await this.liveUnsubscribeAsync(id, input.params.arguments);
       if (name === "live_device_parameter_preview") return await this.liveDeviceParameterPreviewAsync(id, input.params.arguments);
       if (name === "live_device_parameter_apply") return await this.liveDeviceParameterApplyAsync(id, input.params.arguments);
       if (name === "live_midi_clip_preview") return await this.liveMidiPreviewAsync(id, input.params.arguments);
@@ -1277,6 +1291,65 @@ export class McpHost {
       transaction.state = "applied";
       return this.successText(id, { transactionId: transaction.id, state: "applied", revision: result.revision, idempotent: false });
     } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Routing state is uncertain; perform fresh discovery before retrying."); }
+  }
+
+  private eventEmitter: ((value: string) => Promise<void>) | undefined;
+  private readonly eventQueue: string[] = [];
+  private eventOverflow = 0;
+  private eventFlushScheduled = false;
+
+  setEventEmitter(emitter: (value: string) => Promise<void>): void {
+    this.eventEmitter = emitter;
+    const adapter = this.adapter as Partial<LiveAdapter>;
+    if (typeof adapter.subscribe === "function") {
+      adapter.subscribe((event) => this.onLiveEvent(event));
+    }
+  }
+
+  private onLiveEvent(event: LiveEvent): void {
+    const line = JSON.stringify({ jsonrpc: "2.0", method: "notifications/live_event", params: event });
+    if (this.eventQueue.length >= 256) {
+      this.eventOverflow += 1;
+      if (this.eventOverflow === 1) this.eventQueue.push(JSON.stringify({ jsonrpc: "2.0", method: "notifications/live_event_overflow", params: { dropped: "some", resnapshot: true } }));
+      return;
+    }
+    this.eventQueue.push(line);
+    if (!this.eventFlushScheduled) {
+      this.eventFlushScheduled = true;
+      setImmediate(() => {
+        this.eventFlushScheduled = false;
+        const lines = this.eventQueue.splice(0, this.eventQueue.length);
+        void (async () => {
+          for (const queued of lines) await this.eventEmitter?.(queued);
+        })();
+      });
+    }
+  }
+
+  private async liveSubscribeAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    const types = ["state", "transport", "object", "meter", "max", "osc"];
+    const validTypes = !isObject(params) || params.types === undefined || (Array.isArray(params.types) && params.types.length <= 16 && params.types.every((item: unknown) => typeof item === "string" && types.includes(item)));
+    if (!isObject(params) || !hasOnly(params, ["types"]) || !validTypes) return error(id, -32602, "types must be a bounded subset of state, transport, object, meter, max, osc");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("subscriptions")) throw new Error("subscriptions are unavailable");
+      if (!(status.operations ?? []).includes("subscribe")) throw new Error("subscription operation is unavailable");
+      const adapter = this.asyncAdapter();
+      const subscribeArgs: Record<string, unknown> = {};
+      if (params.types !== undefined) subscribeArgs.types = params.types;
+      const result = await adapter.invokeAsync({ operation: "subscribe", args: subscribeArgs }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as { subscribed?: unknown; subscriptionId?: unknown };
+      if (result.subscribed !== true || typeof result.subscriptionId !== "string") throw new Error("subscription was not confirmed");
+      return this.successText(id, { subscribed: true, subscriptionId: result.subscriptionId, epoch: status.epoch, resnapshot: "use live_snapshot for a fresh authoritative state at any point" });
+    } catch (cause) { return this.adapterToolError(id, cause, "Subscription requires a connected Live adapter."); }
+  }
+
+  private async liveUnsubscribeAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, [])) return error(id, -32602, "no arguments accepted");
+    try {
+      const adapter = this.asyncAdapter();
+      const result = await adapter.invokeAsync({ operation: "subscribe", args: { types: [] } }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as { subscribed?: unknown };
+      return this.successText(id, { subscribed: result.subscribed === true });
+    } catch (cause) { return this.adapterToolError(id, cause, "Unsubscribe failed."); }
   }
 
   private async liveRecordingPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
@@ -2320,7 +2393,7 @@ export class McpHost {
       return error(id, -32602, "Invalid tools/call parameters");
     }
     if (params.arguments !== undefined && !isObject(params.arguments)) return error(id, -32602, "Tool arguments must be an object");
-    const argumentTools = new Set(["audio_analyze", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+    const argumentTools = new Set(["audio_analyze", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
     if (!argumentTools.has(params.name) && params.arguments !== undefined && Object.keys(params.arguments as JsonObject).length !== 0) {
       return error(id, -32602, "Tool arguments must be an empty object");
     }
@@ -2333,7 +2406,7 @@ export class McpHost {
     if (params.name === "live_status") return this.liveStatus(id);
     if (params.name === "live_snapshot") return this.liveSnapshot(id);
     if (params.name === "live_discover") return this.liveDiscover(id, params.arguments);
-    if (["live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply"].includes(params.name)) return error(id, -32001, "Session playback operations require the asynchronous host request path");
+    if (["live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe"].includes(params.name)) return error(id, -32001, "Session playback operations require the asynchronous host request path");
     if (params.name === "live_device_parameter_preview") return this.liveDeviceParameterPreview(id, params.arguments);
     if (params.name === "live_device_parameter_apply") return this.liveDeviceParameterApply(id, params.arguments);
     if (params.name === "live_session_structure_preview") return this.liveSessionStructurePreview(id, params.arguments);
@@ -2761,7 +2834,7 @@ export async function serve(input: Readable, output: Writable, diagnostics: Writ
       diagnostics.write("mcp-host: internal fault\n");
       return JSON.stringify(error(null, -32603, "Internal error"));
     }
-  }); } finally {
+  }, { notifier: (emit) => host.setEventEmitter((value) => emit(value)) }); } finally {
     const close = (adapter as Partial<{ close: () => Promise<void> }>).close;
     if (typeof close === "function") await close.call(adapter);
   }

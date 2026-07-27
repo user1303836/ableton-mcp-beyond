@@ -70,6 +70,7 @@ class McpClient {
     this.cancelled = new Set();
     this.nextId = 1;
     this.buffer = "";
+    this.events = [];
     this.child.stdout.on("data", (chunk) => {
       this.buffer += chunk.toString("utf8");
       let index;
@@ -77,6 +78,10 @@ class McpClient {
         const line = this.buffer.slice(0, index); this.buffer = this.buffer.slice(index + 1);
         if (!line.trim()) continue;
         const message = JSON.parse(line);
+        if (message.method === "notifications/live_event" || message.method === "notifications/live_event_overflow") {
+          this.events.push(message.params);
+          continue;
+        }
         const entry = this.pending.get(message.id);
         if (entry) { this.pending.delete(message.id); entry.resolve(message); }
       }
@@ -216,6 +221,7 @@ class FakeSlot:
         if self._track is not None and self.clip is not None:
             song = self._track._song
             song.is_playing = True
+            song._notify("is_playing")
             self._track.playing_slot_index = self._index
             self._track.fired_slot_index = self._index
 
@@ -289,6 +295,7 @@ class FakeScene:
         song = self._song
         if song.fire_sleep > 0: time.sleep(song.fire_sleep)
         song.is_playing = True
+        song._notify("is_playing")
         song.tracks[0].playing_slot_index = self._index
         song.tracks[0].fired_slot_index = self._index
 
@@ -302,6 +309,7 @@ class FakeView:
 class FakeSong:
     def __init__(self):
         self.name = "Journey Disposable Set"; self.tempo = 120.0
+        self._listeners = {"is_playing": [], "record_mode": [], "session_record": [], "tracks": [], "scenes": []}
         self.tracks = [FakeTrack(song=self), FakeTrack("Journey Bass", [FakeClip(), FakeClip()], song=self)]; self.return_tracks = [FakeReturnTrack()]; self.master_track = FakeMasterTrack()
         self.is_playing = False; self.record_mode = False; self.session_record = False
         self.current_song_time = 0.0; self.clip_trigger_quantization = "1_bar"
@@ -310,6 +318,20 @@ class FakeSong:
         self.fire_sleep = 0.0; self.fail_stop = False
         self.scenes = [FakeScene("Journey Scene", self, 0), FakeExternalScene("Other Scene")]
         self.view = FakeView(self)
+
+    def _notify(self, name):
+        for callback in list(self._listeners.get(name, [])):
+            callback()
+    def add_is_playing_listener(self, cb): self._listeners["is_playing"].append(cb)
+    def remove_is_playing_listener(self, cb): self._listeners["is_playing"].remove(cb)
+    def add_record_mode_listener(self, cb): self._listeners["record_mode"].append(cb)
+    def remove_record_mode_listener(self, cb): self._listeners["record_mode"].remove(cb)
+    def add_session_record_listener(self, cb): self._listeners["session_record"].append(cb)
+    def remove_session_record_listener(self, cb): self._listeners["session_record"].remove(cb)
+    def add_tracks_listener(self, cb): self._listeners["tracks"].append(cb)
+    def remove_tracks_listener(self, cb): self._listeners["tracks"].remove(cb)
+    def add_scenes_listener(self, cb): self._listeners["scenes"].append(cb)
+    def remove_scenes_listener(self, cb): self._listeners["scenes"].remove(cb)
     def create_scene(self, index):
         scene = FakeExternalScene(f"Scene {len(self.scenes) + 1}")
         self.scenes.insert(index, scene)
@@ -336,6 +358,7 @@ class FakeSong:
     def stop_playing(self):
         if self.fail_stop: raise RuntimeError("injected stop failure")
         self.is_playing = False
+        self._notify("is_playing")
 
 class Instance:
     def __init__(self): self.song = FakeSong()
@@ -934,6 +957,30 @@ class EnvelopeEvent:
     await textOf(client, "live_routing_apply", { transactionId: disarm.transactionId, confirmation: "apply", idempotencyKey: "journey-disarm" });
   });
 
+  await step("authenticated subscriptions deliver bounded transport events and clean up", async () => {
+    const subscribed = (await textOf(client, "live_subscribe", { types: ["transport", "object"] })).parsed;
+    console.error("subscribed:", JSON.stringify(subscribed).slice(0, 250));
+    assert(subscribed.subscribed === true && typeof subscribed.subscriptionId === "string", "subscribe failed");
+    // Trigger a transport change with a clip launch to see the event.
+    const freshTracks = (await textOf(client, "live_discover", { kind: "track" })).parsed.items;
+    const slots = (await textOf(client, "live_discover", { kind: "clip-slot", parent: freshTracks[0].ref })).parsed.items;
+    const slotRef = slots.find((item) => item.empty === false)?.ref;
+    const preview = (await textOf(client, "live_clip_launch_preview", { slotRef, outputSafety: { safe: true, provenance: "journey-operator-confirmed-headphones" } })).parsed;
+    client.events.length = 0;
+    await textOf(client, "live_clip_launch_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "journey-sub-launch" });
+    const eventDeadline = Date.now() + 5000;
+    let transportEvent;
+    while (Date.now() < eventDeadline && !transportEvent) {
+      transportEvent = client.events.find((event) => event?.type === "transport" && event?.payload?.playing === true);
+      if (!transportEvent) await waitMs(50);
+    }
+    assert(transportEvent && Number.isSafeInteger(transportEvent.sequence) && transportEvent.sequence >= 1, `no transport event observed: ${JSON.stringify(client.events)}`);
+    const stopped = (await textOf(client, "live_clip_launch_stop", { transactionId: preview.transactionId, confirmation: preview.stopConfirmation, idempotencyKey: "journey-sub-stop" })).parsed;
+    assert(stopped.state === "stopped", "subscription-step clip stop failed");
+    const unsubscribed = (await textOf(client, "live_unsubscribe", {})).parsed;
+    assert(unsubscribed.subscribed === false, "unsubscribe failed");
+  });
+
   await step("shutdown leaves no residual playback or processes", async () => {
     assert((await playback(client)).transport.playing === false, "playback was active before shutdown");
     await client.close();
@@ -948,6 +995,6 @@ class EnvelopeEvent:
   else console.error(`journey temp kept: ${temporaryDirectory}`);
 }
 
-const summary = { journey: "packaged-production-boundary", provenance: "fake-live", steps: results, passed: !failed && results.every((entry) => entry.passed) && results.length === 21 };
+const summary = { journey: "packaged-production-boundary", provenance: "fake-live", steps: results, passed: !failed && results.every((entry) => entry.passed) && results.length === 22 };
 console.log(JSON.stringify(summary));
 if (!summary.passed) process.exitCode = 1;

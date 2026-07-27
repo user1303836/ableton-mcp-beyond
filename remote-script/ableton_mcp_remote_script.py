@@ -20,6 +20,7 @@ import socket
 import threading
 import time
 import traceback
+from collections import deque
 from pathlib import Path
 from typing import Any, Callable
 
@@ -377,6 +378,8 @@ class LiveObjectMapper:
             return True
         if operation == "session.playback":
             return True
+        if operation == "subscribe":
+            return True
         if operation == "transport.set":
             return callable(getattr(self.song, "stop_playing", None)) or hasattr(self.song, "current_song_time")
         if operation == "clip.launch":
@@ -467,7 +470,7 @@ class LiveObjectMapper:
         capabilities = [
             "session.read", "session.write", "tracks", "scenes", "clips", "notes", "session.discovery", "session.structure",
             "session.midi_clip.create", "session.midi_clip.delete",
-            "session.midi_note.read", "session.midi_note.write", "transport", "reconnect",
+            "session.midi_note.read", "session.midi_note.write", "transport", "subscriptions", "reconnect",
         ]
         if self._locator_supported():
             capabilities.extend(("arrangement.read", "arrangement.write"))
@@ -2452,6 +2455,82 @@ class LiveObjectMapper:
         return {"added": True, "noteId": note_id}
 
 
+MAX_PENDING_EVENTS = 256
+_EVENT_TYPES = {"state", "transport", "object", "meter", "max", "osc"}
+
+
+class _Subscription:
+    """Per-connection Live listener subscription with bounded coalesced events."""
+
+    def __init__(self, mapper: "LiveObjectMapper", filters: set[str]):
+        self.filters = filters
+        self.events: deque[dict[str, Any]] = deque(maxlen=MAX_PENDING_EVENTS)
+        self.dropped = 0
+        self.sequence = 0
+        self._lock = threading.Lock()
+        self._registrations: list[tuple[Any, str, Callable[[], Any]]] = []
+        self._register(mapper)
+
+    def _register(self, mapper: "LiveObjectMapper") -> None:
+        song = mapper.song
+
+        def make_event(event_type: str, payload: dict[str, Any], ref: str | None = None) -> None:
+            self._emit(event_type, payload, ref)
+
+        listeners = (
+            ("is_playing", "transport", lambda: make_event("transport", {"playing": bool(getattr(song, "is_playing", False))})),
+            ("record_mode", "transport", lambda: make_event("transport", {"arrangementRecord": bool(getattr(song, "record_mode", False))})),
+            ("session_record", "transport", lambda: make_event("transport", {"sessionRecord": bool(getattr(song, "session_record", False))})),
+            ("tracks", "object", lambda: make_event("object", {"changed": "tracks"})),
+            ("scenes", "object", lambda: make_event("object", {"changed": "scenes"})),
+        )
+        for name, event_type, callback in listeners:
+            if event_type not in self.filters:
+                continue
+            register = getattr(song, f"add_{name}_listener", None)
+            if callable(register):
+                register(callback)
+                self._registrations.append((song, name, callback))
+
+    def _emit(self, event_type: str, payload: dict[str, Any], ref: str | None = None) -> None:
+        if event_type not in self.filters:
+            return
+        with self._lock:
+            self.sequence += 1
+            event: dict[str, Any] = {"sequence": self.sequence, "type": event_type, "payload": payload}
+            if ref is not None:
+                event["ref"] = ref
+            # Coalesce adjacent same-kind events so a burst cannot flood the queue.
+            if self.events and self.events[-1]["type"] == event_type and self.events[-1].get("ref") == event.get("ref"):
+                self.dropped += 1
+                event["coalesced"] = self.dropped
+                self.events[-1] = event
+            elif len(self.events) >= MAX_PENDING_EVENTS:
+                self.dropped += 1
+            else:
+                self.events.append(event)
+
+    def drain(self) -> list[dict[str, Any]]:
+        with self._lock:
+            drained = list(self.events)
+            self.events.clear()
+            if self.dropped > 0:
+                self.sequence += 1
+                drained.append({"sequence": self.sequence, "type": "state", "payload": {"overflow": self.dropped, "resnapshot": True}})
+                self.dropped = 0
+            return drained
+
+    def close(self) -> None:
+        for owner, name, callback in self._registrations:
+            remover = getattr(owner, f"remove_{name}_listener", None)
+            if callable(remover):
+                try:
+                    remover(callback)
+                except Exception:
+                    pass
+        self._registrations.clear()
+
+
 class _DispatchToken:
     def __init__(self, deadline_ms: int):
         self.deadline_ms = deadline_ms
@@ -2592,13 +2671,41 @@ class AbletonMcpBridge:
             self._workers.add(worker)
             worker.start()
 
+    def _subscribe_main(self, request: dict[str, Any], holder: dict[str, Any]) -> Any:
+        args = request.get("args", {})
+        types = args.get("types") if isinstance(args, dict) else None
+        existing = holder.get("subscription")
+        if existing is not None:
+            existing.close()
+            holder["subscription"] = None
+        if types is None:
+            types = sorted(_EVENT_TYPES)
+        if not isinstance(types, list) or len(types) > 16 or any(not isinstance(item, str) or item not in _EVENT_TYPES for item in types):
+            raise ValueError("subscription types are invalid")
+        if not types:
+            return {"subscribed": False, "subscriptionId": "none"}
+        holder["subscription"] = _Subscription(self.mapper, set(types))
+        return {"subscribed": True, "subscriptionId": secrets.token_urlsafe(12)}
+
+    def _dispatch_with_holder(self, method: str, request: dict[str, Any], holder: dict[str, Any]) -> Any:
+        if method == "subscribe":
+            return self.queue.submit(lambda: self._subscribe_main(request, holder), deadline_ms=request.get("deadlineMs"))
+        return self.queue.submit(lambda: self._dispatch_main_for(method, request, self.mapper), deadline_ms=request.get("deadlineMs"))
+
     def _client(self, client: socket.socket) -> None:
         client.settimeout(0.2); buffer = b""
         challenge = secrets.token_urlsafe(24)
-        auth = AuthenticatedRemoteScript(self._secret_value, lambda method, request: self.queue.submit(lambda: self._dispatch_main_for(method, request, self.mapper), deadline_ms=request.get("deadlineMs")), self._bridge_epoch, challenge)
+        holder: dict[str, Any] = {"subscription": None}
+        auth = AuthenticatedRemoteScript(self._secret_value, lambda method, request: self._dispatch_with_holder(method, request, holder), self._bridge_epoch, challenge)
         try:
             client.sendall(json.dumps(auth.hello_response(), ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n")
             while not self._stop.is_set():
+                subscription = holder.get("subscription")
+                if subscription is not None:
+                    for event in subscription.drain():
+                        frame: dict[str, Any] = {"version": PROTOCOL, "id": "event", "ok": True, "bridgeEpoch": auth.bridge_epoch, "connectionChallenge": auth.connection_challenge, "result": {"event": event}}
+                        frame["mac"] = auth.sign(frame)
+                        client.sendall(json.dumps(frame, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n")
                 try: chunk = client.recv(65536)
                 except socket.timeout: continue
                 if not chunk: break
@@ -2612,6 +2719,9 @@ class AbletonMcpBridge:
                     client.sendall(json.dumps(response, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n")
                     if auth.invalid: return
         finally:
+            subscription = holder.get("subscription")
+            if subscription is not None:
+                subscription.close()
             self._clients.discard(client); client.close(); self._workers.discard(threading.current_thread())
 
     def disconnect(self) -> None:

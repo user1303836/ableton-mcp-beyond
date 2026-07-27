@@ -127,7 +127,10 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
   }
   getAsync(ref: LiveRef, context?: LiveOperationContext): Promise<unknown> { return this.requestAsync({ method: "get", ref }, "get", context); }
   setAsync(ref: LiveRef, property: string, value: unknown, context?: LiveOperationContext): Promise<void> { return this.requestAsync({ method: "set", ref, property, value }, "set", context).then(() => undefined); }
-  invokeAsync(invocation: LiveInvocation, context?: LiveOperationContext): Promise<unknown> { return this.requestAsync({ method: "invoke", operation: invocation.operation, args: invocation.args }, invocation.operation, context); }
+  invokeAsync(invocation: LiveInvocation, context?: LiveOperationContext): Promise<unknown> {
+    if (invocation.operation === "subscribe") return this.requestAsync({ method: "subscribe", args: invocation.args }, "subscribe", context);
+    return this.requestAsync({ method: "invoke", operation: invocation.operation, args: invocation.args }, invocation.operation, context);
+  }
   reconnectAsync(context?: LiveOperationContext): Promise<LiveStatus> { return this.requestAsync({ method: "reconnect" }, "reconnect", context).then((value) => { const status = value as LiveStatus; if (!validStatus(status)) throw new Error("invalid reconnect status"); this.epoch = status.epoch; this.cached = status; return status; }); }
   /** Re-request the mapper's current status without a reconnect; operations and
    * capabilities reflect the shape at call time (no epoch change). */
