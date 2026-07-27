@@ -820,6 +820,9 @@ class LiveObjectMapper:
     def snapshot(self) -> dict[str, Any]:
         set_ref = self.refs.put("set", self.song, "song")
         set_row: dict[str, Any] = {"ref": set_ref, "name": str(getattr(self.song, "name", "Live Set"))}
+        file_path = getattr(self.song, "file_path", None)
+        if isinstance(file_path, str) and file_path:
+            set_row["filePath"] = file_path
         tempo = getattr(self.song, "tempo", None)
         if isinstance(tempo, (int, float)) and not isinstance(tempo, bool) and math.isfinite(float(tempo)):
             set_row["tempo"] = float(tempo)
