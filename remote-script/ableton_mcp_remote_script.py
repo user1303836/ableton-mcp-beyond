@@ -2124,15 +2124,31 @@ class LiveObjectMapper:
         if not isinstance(enabled, bool):
             raise ValueError("enabled must be boolean")
         _, device, _, _ = self._device_location(str(reference))
-        for attr in ("is_active", "is_enabled", "enabled"):
-            target = self._read_attr(device, attr)
-            if isinstance(target, bool):
-                setattr(device, attr, enabled)
-                current = self._read_attr(device, attr)
-                if current is not enabled:
-                    raise ValueError("device enable change was not confirmed")
-                revision = self.refs.touch(reference)
-                return {"changed": True, "enabled": enabled, "revision": revision}
+        is_active = self._read_attr(device, "is_active")
+        if isinstance(is_active, bool) and is_active is enabled:
+            revision = self.refs.touch(reference)
+            return {"changed": True, "enabled": enabled, "revision": revision}
+        if isinstance(is_active, bool):
+            try:
+                device.is_active = enabled
+            except Exception:
+                pass
+            else:
+                if self._read_attr(device, "is_active") is enabled:
+                    revision = self.refs.touch(reference)
+                    return {"changed": True, "enabled": enabled, "revision": revision}
+        # Enable state commonly lives on the "Device On" parameter.
+        for parameter in self._items(getattr(device, "parameters", [])):
+            name = str(self._read_attr(parameter, "name") or "")
+            if name.lower() in {"device on", "on"} or name.lower().startswith("device on"):
+                minimum = self._read_attr(parameter, "min", "min_value")
+                maximum = self._read_attr(parameter, "max", "max_value")
+                target = float(maximum if enabled else minimum) if isinstance(minimum, (int, float)) and isinstance(maximum, (int, float)) else (1.0 if enabled else 0.0)
+                parameter.value = target
+                current = self._read_attr(parameter, "value")
+                if isinstance(current, (int, float)) and abs(float(current) - target) < 0.01:
+                    revision = self.refs.touch(reference)
+                    return {"changed": True, "enabled": enabled, "revision": revision}
         raise ValueError("device enable is unavailable")
 
     def _device_move(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -2154,7 +2170,8 @@ class LiveObjectMapper:
 
     def _browser(self) -> Any:
         try:
-            application = __import__("Live.Application", fromlist=["Application"]).Application.get_application()
+            import Live  # type: ignore[import-not-found]
+            application = Live.Application.get_application()
         except Exception as error:
             raise ValueError("the Live Browser is unavailable") from error
         browser = getattr(application, "browser", None)
