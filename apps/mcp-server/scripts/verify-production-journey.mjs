@@ -146,6 +146,11 @@ class FakeSlot:
     def create_clip(self, length):
         self.clip = FakeClip(length); return self.clip
     def delete_clip(self): self.clip = None
+    def duplicate_clip_to(self, target):
+        if self.clip is None: raise RuntimeError("no clip to duplicate")
+        if target.clip is not None: raise RuntimeError("target slot occupied")
+        import copy
+        target.clip = copy.deepcopy(self.clip)
     def fire(self):
         if self._track is not None and self.clip is not None:
             song = self._track._song
@@ -160,6 +165,21 @@ class FakeTrack:
         self.playing_slot_index = -1; self.fired_slot_index = -1
         self._song = song
         self.clip_slots = [FakeSlot(clip, self, i) for i, clip in enumerate(clips if clips is not None else [FakeClip(), None])]; self.devices = []
+        self.arrangement_clips = []
+    def create_midi_clip(self, time, length):
+        import copy
+        clip = FakeClip(length)
+        clip.start_time = time
+        self.arrangement_clips.append(clip)
+        return clip
+    def delete_clip(self, clip):
+        self.arrangement_clips = [c for c in self.arrangement_clips if c is not clip]
+    def duplicate_clip_to_arrangement(self, clip, time):
+        import copy
+        dup = copy.deepcopy(clip)
+        dup.start_time = time
+        self.arrangement_clips.append(dup)
+        return dup
     def stop_all_clips(self, quantized=True):
         self.playing_slot_index = -1; self.fired_slot_index = -1
         if self._song is not None and all(track.playing_slot_index == -1 and track.fired_slot_index == -1 for track in self._song.tracks):
@@ -196,6 +216,25 @@ class FakeSong:
         self.punch_in = False; self.punch_out = False; self.metronome = False; self.count_in_duration = 1.0
         self.fire_sleep = 0.0; self.fail_stop = False
         self.scenes = [FakeScene("Journey Scene", self, 0), FakeExternalScene("Other Scene")]
+    def create_scene(self, index):
+        scene = FakeExternalScene(f"Scene {len(self.scenes) + 1}")
+        self.scenes.insert(index, scene)
+        for track in self.tracks:
+            while len(track.clip_slots) < len(self.scenes):
+                track.clip_slots.append(FakeSlot(None, track, len(track.clip_slots)))
+        return scene
+    def delete_scene(self, scene):
+        self.scenes.remove(scene)
+    def create_midi_track(self, index):
+        track = FakeTrack(f"MIDI Track {len(self.tracks) + 1}", [None] * len(self.scenes), song=self)
+        self.tracks.insert(index, track)
+        return track
+    def create_audio_track(self, index):
+        track = FakeTrack(f"Audio Track {len(self.tracks) + 1}", [None] * len(self.scenes), song=self)
+        self.tracks.insert(index, track)
+        return track
+    def delete_track(self, track):
+        self.tracks.remove(track)
     def stop_all_clips(self):
         if self.fail_stop: raise RuntimeError("injected stop failure")
         for track in self.tracks:
@@ -627,6 +666,43 @@ try {
     assert((await textOf(client, "live_discover", { kind: "note", parent: clipRef })).parsed.items.length === 2, "undo did not restore the note");
   });
 
+  await step("clip duplicate, arrangement create/move/delete through the packaged path", async () => {
+    const freshTracks = (await textOf(client, "live_discover", { kind: "track" })).parsed.items;
+    const slots = (await textOf(client, "live_discover", { kind: "clip-slot", parent: freshTracks[0].ref })).parsed.items;
+    const sourceRef = slots.find((item) => item.empty === false)?.clipRef;
+    // Duplicate to arrangement
+    const dupArr = (await textOf(client, "live_clip_duplicate_preview", { clipRef: sourceRef, arrangementPosition: 8 })).parsed;
+    const dupArrApplied = (await textOf(client, "live_clip_duplicate_apply", { transactionId: dupArr.transactionId, confirmation: "apply", idempotencyKey: "journey-dup-arr" })).parsed;
+    assert(dupArrApplied.state === "applied" && typeof dupArrApplied.created?.ref === "string", "arrangement duplication failed");
+    const arrangementClips = (await textOf(client, "live_discover", { kind: "arrangement-clip", parent: freshTracks[0].ref })).parsed.items;
+    assert(arrangementClips.length === 1 && arrangementClips[0].start === 8 && arrangementClips[0].trackRef === freshTracks[0].ref, `arrangement clip row mismatch: ${JSON.stringify(arrangementClips)}`);
+    // Move it
+    const movePreview = (await textOf(client, "live_clip_move_preview", { clipRef: arrangementClips[0].ref, position: 16 })).parsed;
+    console.error("movePreview:", JSON.stringify(movePreview).slice(0, 300));
+    const moved = (await textOf(client, "live_clip_move_apply", { transactionId: movePreview.transactionId, confirmation: "apply", idempotencyKey: "journey-arr-move" })).parsed;
+    assert(moved.state === "applied", "arrangement move failed");
+    assert((await textOf(client, "live_discover", { kind: "arrangement-clip", parent: freshTracks[0].ref })).parsed.items[0].start === 16, "arrangement move did not land");
+    // Create + delete
+    const createPreview = (await textOf(client, "live_arrangement_clip_preview", { action: "create", trackRef: freshTracks[0].ref, position: 24, length: 4, name: "Journey Arranged" })).parsed;
+    const created = (await textOf(client, "live_arrangement_clip_apply", { transactionId: createPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-arr-create" })).parsed;
+    assert(created.state === "applied", "arrangement create failed");
+    assert((await textOf(client, "live_discover", { kind: "arrangement-clip", parent: freshTracks[0].ref })).parsed.items.length === 2, "arrangement create not visible");
+    const delPreview = (await textOf(client, "live_arrangement_clip_preview", { action: "delete", clipRef: created.result.ref })).parsed;
+    const deleted = (await textOf(client, "live_arrangement_clip_apply", { transactionId: delPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-arr-delete" })).parsed;
+    assert(deleted.state === "applied", "arrangement delete failed");
+    assert((await textOf(client, "live_discover", { kind: "arrangement-clip", parent: freshTracks[0].ref })).parsed.items.length === 1, "arrangement delete not visible");
+    // Session duplicate into a fresh empty slot (create a scene first)
+    const structurePreview = (await client.call("live_session_structure_preview", { tracks: [], scenes: [{ name: "Journey Dup Scene" }] })).parsed;
+    await client.call("live_session_structure_apply", { transactionId: structurePreview.transactionId, confirmation: "apply", idempotencyKey: "journey-dup-scene" });
+    const slotsAfter = (await textOf(client, "live_discover", { kind: "clip-slot", parent: freshTracks[0].ref })).parsed.items;
+    const emptySlot = slotsAfter.find((item) => item.empty === true);
+    const dupPreview = (await textOf(client, "live_clip_duplicate_preview", { clipRef: sourceRef, targetTrackRef: freshTracks[0].ref, targetSceneIndex: emptySlot.sceneIndex })).parsed;
+    const dupApplied = (await textOf(client, "live_clip_duplicate_apply", { transactionId: dupPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-dup-slot" })).parsed;
+    assert(dupApplied.state === "applied", "Session duplication failed");
+    const afterSlots = (await textOf(client, "live_discover", { kind: "clip-slot", parent: freshTracks[0].ref })).parsed.items;
+    assert(afterSlots.find((item) => item.sceneIndex === emptySlot.sceneIndex)?.empty === false, "duplicated clip not in target slot");
+  });
+
   await step("shutdown leaves no residual playback or processes", async () => {
     assert((await playback(client)).transport.playing === false, "playback was active before shutdown");
     await client.close();
@@ -641,6 +717,6 @@ try {
   else console.error(`journey temp kept: ${temporaryDirectory}`);
 }
 
-const summary = { journey: "packaged-production-boundary", provenance: "fake-live", steps: results, passed: !failed && results.every((entry) => entry.passed) && results.length === 17 };
+const summary = { journey: "packaged-production-boundary", provenance: "fake-live", steps: results, passed: !failed && results.every((entry) => entry.passed) && results.length === 18 };
 console.log(JSON.stringify(summary));
 if (!summary.passed) process.exitCode = 1;

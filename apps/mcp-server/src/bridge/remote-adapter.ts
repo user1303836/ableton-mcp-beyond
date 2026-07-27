@@ -129,6 +129,9 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
   setAsync(ref: LiveRef, property: string, value: unknown, context?: LiveOperationContext): Promise<void> { return this.requestAsync({ method: "set", ref, property, value }, "set", context).then(() => undefined); }
   invokeAsync(invocation: LiveInvocation, context?: LiveOperationContext): Promise<unknown> { return this.requestAsync({ method: "invoke", operation: invocation.operation, args: invocation.args }, invocation.operation, context); }
   reconnectAsync(context?: LiveOperationContext): Promise<LiveStatus> { return this.requestAsync({ method: "reconnect" }, "reconnect", context).then((value) => { const status = value as LiveStatus; if (!validStatus(status)) throw new Error("invalid reconnect status"); this.epoch = status.epoch; this.cached = status; return status; }); }
+  /** Re-request the mapper's current status without a reconnect; operations and
+   * capabilities reflect the shape at call time (no epoch change). */
+  refreshStatusAsync(context?: LiveOperationContext): Promise<LiveStatus> { return this.requestAsync({ method: "status" }, "status", context).then((value) => { const status = value as LiveStatus; if (!validStatus(status)) throw new Error("invalid refreshed status"); this.cached = status; return status; }); }
   async close(): Promise<void> { this.failPending(new Error("remote adapter disconnected")); this.helloReject?.(new Error("remote adapter disconnected")); this.helloResolve = undefined; this.helloReject = undefined; this.socket?.destroy(); this.socket = undefined; this.cached = { ...this.cached, connected: false, reason: "closed" }; }
 
   private open(): Promise<void> {

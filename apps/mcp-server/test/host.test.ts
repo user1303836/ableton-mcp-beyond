@@ -19,7 +19,7 @@ test("requires initialization and exposes only read-only tools", () => {
   assert.equal((host.handle({ ...initialize, id: 2 }) as any).result.protocolVersion, PROTOCOL_VERSION);
   assert.equal(host.handle(initialized), null);
   const tools = (host.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
-  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
   const auditionPreview = tools.find((tool: { name: string }) => tool.name === "live_session_audition_preview");
   assert.deepEqual(auditionPreview.inputSchema.properties.outputSafety.required, ["safe", "provenance"]);
   const auditionStop = tools.find((tool: { name: string }) => tool.name === "live_session_audition_stop");
@@ -326,7 +326,7 @@ test("analyzes supplied PCM through the MCP tool without Live side effects", () 
 test("rejects duplicates, unsupported methods, and unknown fields", () => {
   const host = new McpHost();
   ready(host);
-  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 32);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 40);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).error.message, "Duplicate request identifier");
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set", arguments: {} } }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 4, method: "tools/list", debug: true }) as any).error.code, -32600);
@@ -725,4 +725,55 @@ test("note delete removes exact ids and undo re-adds content with new ids", asyn
   assert.equal(notes.length, 1);
   assert.equal(notes[0].pitch, 36);
   assert.notEqual(notes[0].id, 1);
+});
+
+test("clip duplicate, arrangement lifecycle, move, and audio clip edits verify and fence", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+
+  // Duplicate to a Session slot (slot 1 of track 1 is empty after creating a slot via structure)
+  (simulator as any).state.tracks[0].clipSlots!.push({ ref: "clip-slot:track-1:1" as any, parentRef: "track:track-1" as any, sceneIndex: 1, empty: true });
+  const dupPreview = JSON.parse(((await call(2, "live_clip_duplicate_preview", { clipRef: "clip:clip-1", targetTrackRef: "track:track-1", targetSceneIndex: 1 })) as any).result.content[0].text);
+  const dup = JSON.parse(((await call(3, "live_clip_duplicate_apply", { transactionId: dupPreview.transactionId, confirmation: "apply", idempotencyKey: "dup-1" })) as any).result.content[0].text);
+  assert.equal(dup.state, "applied");
+  const dupReplay = JSON.parse(((await call(4, "live_clip_duplicate_apply", { transactionId: dupPreview.transactionId, confirmation: "apply", idempotencyKey: "dup-1" })) as any).result.content[0].text);
+  assert.equal(dupReplay.idempotent, true);
+
+  // Duplicate into the Arrangement
+  const arrDupPreview = JSON.parse(((await call(5, "live_clip_duplicate_preview", { clipRef: "clip:clip-1", arrangementPosition: 8 })) as any).result.content[0].text);
+  const arrDup = JSON.parse(((await call(6, "live_clip_duplicate_apply", { transactionId: arrDupPreview.transactionId, confirmation: "apply", idempotencyKey: "dup-arr" })) as any).result.content[0].text);
+  assert.equal(arrDup.state, "applied");
+  assert.equal(((simulator as any).state.arrangementClips ?? []).length, 1);
+
+  // Arrangement create + move + delete with fencing
+  const createPreview = JSON.parse(((await call(7, "live_arrangement_clip_preview", { action: "create", trackRef: "track:track-1", position: 16, length: 4, name: "Arranged" })) as any).result.content[0].text);
+  const created = JSON.parse(((await call(8, "live_arrangement_clip_apply", { transactionId: createPreview.transactionId, confirmation: "apply", idempotencyKey: "arr-1" })) as any).result.content[0].text);
+  assert.equal(created.state, "applied");
+  const createdRef = (created.result as any).ref;
+  const movePreview = JSON.parse(((await call(9, "live_clip_move_preview", { clipRef: createdRef, position: 24 })) as any).result.content[0].text);
+  const moved = JSON.parse(((await call(10, "live_clip_move_apply", { transactionId: movePreview.transactionId, confirmation: "apply", idempotencyKey: "move-1" })) as any).result.content[0].text);
+  assert.equal(moved.state, "applied");
+  assert.equal(((simulator as any).state.arrangementClips ?? []).find((c: any) => c.clip.ref === createdRef)?.clip.start, 24);
+  const deletePreview = JSON.parse(((await call(11, "live_arrangement_clip_preview", { action: "delete", clipRef: createdRef })) as any).result.content[0].text);
+  const deleted = JSON.parse(((await call(12, "live_arrangement_clip_apply", { transactionId: deletePreview.transactionId, confirmation: "apply", idempotencyKey: "arr-del" })) as any).result.content[0].text);
+  assert.equal(deleted.state, "applied");
+
+  // Session slot move (duplicate + delete source)
+  (simulator as any).state.tracks[0].clipSlots!.push({ ref: "clip-slot:track-1:2" as any, parentRef: "track:track-1" as any, sceneIndex: 2, empty: true });
+  const slotMovePreview = JSON.parse(((await call(13, "live_clip_move_preview", { clipRef: "clip:clip-1", targetTrackRef: "track:track-1", targetSceneIndex: 2 })) as any).result.content[0].text);
+  const slotMoved = JSON.parse(((await call(14, "live_clip_move_apply", { transactionId: slotMovePreview.transactionId, confirmation: "apply", idempotencyKey: "move-slot" })) as any).result.content[0].text);
+  assert.equal(slotMoved.state, "applied");
+  assert.equal(((simulator as any).state.tracks[0].clipSlots ?? [])[2]!.clipRef !== undefined, true);
+
+  // Audio clip edits with prior capture and undo
+  const audioClip = simulator.invoke({ operation: "clip.create", args: { trackRef: "track:track-1", kind: "audio", name: "Audio", start: 40, length: 8 } }) as any;
+  const audioPreview = JSON.parse(((await call(15, "live_audio_clip_preview", { clipRef: audioClip.ref, gain: 0.5, pitchCoarse: -3, pitchFine: 12, loopStart: 1, loopEnd: 7, warpMode: 2 })) as any).result.content[0].text);
+  const audioApplied = JSON.parse(((await call(16, "live_audio_clip_apply", { transactionId: audioPreview.transactionId, confirmation: "apply", idempotencyKey: "audio-1" })) as any).result.content[0].text);
+  assert.equal(audioApplied.state, "applied");
+  const audioRow = (simulator as any).state.tracks[0].clips.find((c: any) => c.ref === audioClip.ref)!;
+  assert.equal((audioRow as any).gain, 0.5);
+  assert.equal((audioRow as any).pitchCoarse, -3);
+  assert.equal((audioRow as any).warpMode, 2);
 });

@@ -389,6 +389,18 @@ class LiveObjectMapper:
             return callable(getattr(self.song, "capture_midi", None))
         if operation == "scene.capture":
             return callable(getattr(self.song, "capture_and_insert_scene", None))
+        if operation == "clip.duplicate":
+            session = any(getattr(slot, "clip", None) is not None and callable(getattr(slot, "duplicate_clip_to", None)) for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
+            arrangement = any(getattr(slot, "clip", None) is not None and callable(getattr(track, "duplicate_clip_to_arrangement", None)) for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
+            return session or arrangement
+        if operation == "arrangement.clip.create":
+            return any(callable(getattr(track, "create_midi_clip", None)) for track in self._items(getattr(self.song, "tracks", [])))
+        if operation == "arrangement.clip.delete":
+            return any(callable(getattr(track, "delete_clip", None)) for track in self._items(getattr(self.song, "tracks", []))) or bool(self._items(getattr(self.song, "arrangement_clips", [])))
+        if operation == "arrangement.clip.move":
+            return bool(self._arrangement_clip_items())
+        if operation == "audio.clip.set":
+            return any(self._read_attr(getattr(slot, "clip", None), "is_audio_clip") is True for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
         if operation == "session.audition-launch":
             return any(callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None)) for scene in self._items(getattr(self.song, "scenes", [])))
         if operation in {"session.audition-stop", "session.emergency-stop"}:
@@ -573,18 +585,65 @@ class LiveObjectMapper:
             raise ValueError("invalid discovery cursor")
         return offset
 
+    def _audio_fields(self, clip: Any) -> dict[str, Any]:
+        """Audio-specific clip properties, honestly null when unavailable."""
+        def finite(name: str) -> float | None:
+            value = self._read_attr(clip, name)
+            return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+        is_audio = self._read_attr(clip, "is_audio_clip")
+        warp_mode = self._read_attr(clip, "warping_mode")
+        if isinstance(warp_mode, int) and not isinstance(warp_mode, bool):
+            warp = int(warp_mode)
+        elif isinstance(warp_mode, str):
+            warp = warp_mode
+        else:
+            warp = None
+        file_path = self._read_attr(clip, "file_path")
+        return {
+            "isAudio": bool(is_audio) if isinstance(is_audio, bool) else None,
+            "gain": finite("gain"),
+            "pitchCoarse": finite("pitch_coarse"),
+            "pitchFine": finite("pitch_fine"),
+            "warpMode": warp,
+            "warping": self._read_attr(clip, "warping") if isinstance(self._read_attr(clip, "warping"), bool) else None,
+            "loopStart": finite("loop_start"),
+            "loopEnd": finite("loop_end"),
+            "startMarker": finite("start_marker"),
+            "endMarker": finite("end_marker"),
+            "filePath": str(file_path) if isinstance(file_path, str) and file_path else None,
+        }
+
     def _arrangement_clip_items(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
-        for index, clip in enumerate(self._items(getattr(self.song, "arrangement_clips", []))):
-            reference = self.refs.put("arrangement_clip", clip, str(index))
-            rows.append({
-                "ref": reference,
-                "parentRef": self.refs.put("set", self.song, "song"),
-                "name": str(getattr(clip, "name", "")),
-                "kind": "midi" if hasattr(clip, "add_new_notes") else "audio",
-                "start": float(getattr(clip, "start_time", getattr(clip, "start", 0.0)) or 0.0),
-                "length": float(getattr(clip, "length", 0.0) or 0.0),
-            })
+        song_level = self._items(getattr(self.song, "arrangement_clips", []))
+        if song_level:
+            for index, clip in enumerate(song_level):
+                reference = self.refs.put("arrangement_clip", clip, str(index))
+                rows.append({
+                    "ref": reference,
+                    "parentRef": self.refs.put("set", self.song, "song"),
+                    "trackRef": None,
+                    "name": str(getattr(clip, "name", "")),
+                    "kind": "midi" if hasattr(clip, "add_new_notes") else "audio",
+                    "start": float(getattr(clip, "start_time", getattr(clip, "start", 0.0)) or 0.0),
+                    "length": float(getattr(clip, "length", 0.0) or 0.0),
+                    **self._audio_fields(clip),
+                })
+            return rows
+        for track_index, track in enumerate(self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", []))):
+            track_ref = self.refs.put("track", track, str(track_index))
+            for clip_index, clip in enumerate(self._items(self._read_attr(track, "arrangement_clips") or [])):
+                reference = self.refs.put("arrangement_clip", clip, f"{track_index}:{clip_index}")
+                rows.append({
+                    "ref": reference,
+                    "parentRef": track_ref,
+                    "trackRef": track_ref,
+                    "name": str(getattr(clip, "name", "")),
+                    "kind": "midi" if hasattr(clip, "add_new_notes") else "audio",
+                    "start": float(getattr(clip, "start_time", getattr(clip, "start", 0.0)) or 0.0),
+                    "length": float(getattr(clip, "length", 0.0) or 0.0),
+                    **self._audio_fields(clip),
+                })
         return rows
 
     def _device_items(self, track: Any, track_index: int) -> list[dict[str, Any]]:
@@ -700,7 +759,7 @@ class LiveObjectMapper:
                     continue
                 clip_ref = self.refs.put("clip", clip, f"{index}:{slot_index}")
                 notes = self._read_notes(clip)
-                clips.append({"ref": clip_ref, "parentRef": slot_ref, "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": slot_index * 4, "length": float(getattr(clip, "length", 0.0)), "notes": notes})
+                clips.append({"ref": clip_ref, "parentRef": slot_ref, "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": slot_index * 4, "length": float(getattr(clip, "length", 0.0)), "notes": notes, **self._audio_fields(clip)})
                 slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "sceneIndex": slot_index, "clipRef": clip_ref, "empty": False})
             armed_value = self._read_attr(track, "arm", "armed")
             track_rows.append({
@@ -715,7 +774,7 @@ class LiveObjectMapper:
             })
         scene_rows = [{"ref": self.refs.put("scene", scene, str(i)), "parentRef": self.refs.put("set", self.song, "song"), "name": str(getattr(scene, "name", f"Scene {i + 1}")), "index": i, "triggerable": callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None))} for i, scene in enumerate(scenes)]
         locators = self._locator_items()
-        return {"set": set_row, "tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators}, "playback": self._playback(track_rows, scene_rows), "epoch": self.refs.epoch}
+        return {"set": set_row, "tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators, "clips": self._arrangement_clip_items()}, "playback": self._playback(track_rows, scene_rows), "epoch": self.refs.epoch}
 
     def _read_notes(self, clip: Any) -> list[dict[str, Any]]:
         if hasattr(clip, "get_all_notes_extended"):
@@ -1262,6 +1321,16 @@ class LiveObjectMapper:
             return self._note_update(args)
         if operation == "note.delete":
             return self._note_delete(args)
+        if operation == "clip.duplicate":
+            return self._clip_duplicate(args)
+        if operation == "arrangement.clip.create":
+            return self._arrangement_clip_create(args)
+        if operation == "arrangement.clip.delete":
+            return self._arrangement_clip_delete(args)
+        if operation == "arrangement.clip.move":
+            return self._arrangement_clip_move(args)
+        if operation == "audio.clip.set":
+            return self._audio_clip_set(args)
         if operation == "scene.capture":
             return self._scene_capture()
         if operation == "session.playback":
@@ -1401,6 +1470,178 @@ class LiveObjectMapper:
         if not isinstance(args.get("note"), dict):
             raise ValueError("note is invalid")
         return self._note_add(args)
+
+    def _clip_duplicate(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:"):
+            raise ValueError("clip reference is stale or invalid")
+        clip = self.refs.get(reference)
+        arrangement_position = args.get("arrangementPosition")
+        if arrangement_position is not None:
+            if not isinstance(arrangement_position, (int, float)) or isinstance(arrangement_position, bool) or not math.isfinite(float(arrangement_position)) or float(arrangement_position) < 0:
+                raise ValueError("arrangement position is invalid")
+            owner = next((track for track in self._items(getattr(self.song, "tracks", [])) if any(getattr(candidate, "clip", None) is clip for candidate in self._items(getattr(track, "clip_slots", [])))), None)
+            if owner is None:
+                raise ValueError("only Session clips can duplicate to the Arrangement")
+            duplicate = getattr(owner, "duplicate_clip_to_arrangement", None)
+            if not callable(duplicate):
+                raise ValueError("arrangement duplication is unavailable")
+            duplicate(clip, float(arrangement_position))
+            created = next((candidate for candidate in self._items(self._read_attr(owner, "arrangement_clips") or []) if abs(float(getattr(candidate, "start_time", -1)) - float(arrangement_position)) < 0.01), None)
+            if created is None:
+                raise ValueError("arrangement duplication was not confirmed")
+            track_index = self._items(getattr(self.song, "tracks", [])).index(owner)
+            clip_index = self._items(self._read_attr(owner, "arrangement_clips") or []).index(created)
+            return {"ref": self.refs.put("arrangement_clip", created, f"{track_index}:{clip_index}"), "name": str(getattr(created, "name", ""))}
+        target_track_ref = args.get("targetTrackRef")
+        target_scene_index = args.get("targetSceneIndex")
+        if not isinstance(target_track_ref, str) or not target_track_ref.startswith(f"{self.refs.epoch}:track:"):
+            raise ValueError("target track reference is required for Session duplication")
+        if not isinstance(target_scene_index, int) or isinstance(target_scene_index, bool) or not 0 <= target_scene_index <= 10000:
+            raise ValueError("target scene index is invalid")
+        target_track = self.refs.get(target_track_ref)
+        slots = self._items(getattr(target_track, "clip_slots", []))
+        if target_scene_index >= len(slots):
+            raise ValueError("target scene index is invalid")
+        target_slot = slots[target_scene_index]
+        if getattr(target_slot, "clip", None) is not None:
+            raise ValueError("target Session slot is occupied")
+        source_slot = next((candidate for track in self._items(getattr(self.song, "tracks", [])) for candidate in self._items(getattr(track, "clip_slots", [])) if getattr(candidate, "clip", None) is clip), None)
+        if source_slot is None:
+            raise ValueError("only Session clips can duplicate to a Session slot")
+        duplicate = getattr(source_slot, "duplicate_clip_to", None)
+        if not callable(duplicate):
+            raise ValueError("Session duplication is unavailable")
+        duplicate(target_slot)
+        created = getattr(target_slot, "clip", None)
+        if created is None:
+            raise ValueError("Session duplication was not confirmed")
+        track_index = self._items(getattr(self.song, "tracks", [])).index(target_track)
+        return {"ref": self.refs.put("clip", created, f"{track_index}:{target_scene_index}"), "name": str(getattr(created, "name", ""))}
+
+    def _arrangement_clip_create(self, args: dict[str, Any]) -> dict[str, Any]:
+        track_ref = args.get("trackRef")
+        if not isinstance(track_ref, str) or not track_ref.startswith(f"{self.refs.epoch}:track:"):
+            raise ValueError("track reference is stale or invalid")
+        track = self.refs.get(track_ref)
+        position = args.get("position")
+        length = args.get("length")
+        name = args.get("name")
+        if not isinstance(position, (int, float)) or isinstance(position, bool) or not math.isfinite(float(position)) or float(position) < 0:
+            raise ValueError("position is invalid")
+        if not isinstance(length, (int, float)) or isinstance(length, bool) or not math.isfinite(float(length)) or not 0 < float(length) <= 100000:
+            raise ValueError("length is invalid")
+        if not isinstance(name, str) or not 1 <= len(name) <= 256:
+            raise ValueError("name is invalid")
+        creator = getattr(track, "create_midi_clip", None)
+        if not callable(creator):
+            raise ValueError("arrangement clip creation is unavailable")
+        clip = creator(float(position), float(length))
+        if clip is None:
+            raise ValueError("arrangement clip creation failed")
+        if hasattr(clip, "name"):
+            clip.name = name
+        clips = self._items(self._read_attr(track, "arrangement_clips") or [])
+        if clip not in clips:
+            raise ValueError("arrangement clip creation was not confirmed")
+        track_index = self._items(getattr(self.song, "tracks", [])).index(track)
+        return {"ref": self.refs.put("arrangement_clip", clip, f"{track_index}:{clips.index(clip)}"), "name": str(getattr(clip, "name", "")), "start": float(getattr(clip, "start_time", position)), "length": float(getattr(clip, "length", length))}
+
+    def _arrangement_clip_delete(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:arrangement_clip:"):
+            raise ValueError("arrangement clip reference is stale or invalid")
+        clip = self.refs.get(reference)
+        owner = next((track for track in self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", [])) if clip in self._items(self._read_attr(track, "arrangement_clips") or [])), None)
+        if owner is None and clip in self._items(getattr(self.song, "arrangement_clips", [])):
+            deleter = getattr(self.song, "delete_clip", None)
+            if not callable(deleter):
+                raise ValueError("arrangement clip deletion is unavailable")
+            deleter(clip)
+            return {"deleted": reference}
+        if owner is None:
+            raise ValueError("arrangement clip is not deletable")
+        deleter = getattr(owner, "delete_clip", None)
+        if not callable(deleter):
+            raise ValueError("arrangement clip deletion is unavailable")
+        deleter(clip)
+        if clip in self._items(self._read_attr(owner, "arrangement_clips") or []):
+            raise ValueError("arrangement clip deletion was not confirmed")
+        return {"deleted": reference}
+
+    def _arrangement_clip_move(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:arrangement_clip:"):
+            raise ValueError("arrangement clip reference is stale or invalid")
+        clip = self.refs.get(reference)
+        position = args.get("position")
+        if not isinstance(position, (int, float)) or isinstance(position, bool) or not math.isfinite(float(position)) or float(position) < 0:
+            raise ValueError("position is invalid")
+        clip.start_time = float(position)
+        current = float(getattr(clip, "start_time", -1))
+        if abs(current - float(position)) > 0.01:
+            raise ValueError("arrangement clip move was not confirmed")
+        return {"ref": reference, "start": current}
+
+    def _audio_clip_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:"):
+            raise ValueError("clip reference is stale or invalid")
+        clip = self.refs.get(reference)
+        if self._read_attr(clip, "is_audio_clip") is not True:
+            raise ValueError("audio properties require an audio clip")
+        allowed = {"ref", "gain", "pitchCoarse", "pitchFine", "loopStart", "loopEnd", "warpMode"}
+        if set(args) - allowed:
+            raise ValueError("audio clip fields are invalid")
+        applied: dict[str, Any] = {}
+        if "gain" in args:
+            value = args["gain"]
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not 0 <= float(value) <= 1000000:
+                raise ValueError("gain is invalid")
+            clip.gain = float(value)
+            applied["gain"] = float(value)
+        if "pitchCoarse" in args:
+            value = args["pitchCoarse"]
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not -48 <= float(value) <= 48:
+                raise ValueError("pitchCoarse is invalid")
+            clip.pitch_coarse = float(value)
+            applied["pitchCoarse"] = float(value)
+        if "pitchFine" in args:
+            value = args["pitchFine"]
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not -50 <= float(value) <= 50:
+                raise ValueError("pitchFine is invalid")
+            clip.pitch_fine = float(value)
+            applied["pitchFine"] = float(value)
+        if "loopStart" in args:
+            value = args["loopStart"]
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or float(value) < 0:
+                raise ValueError("loopStart is invalid")
+            clip.loop_start = float(value)
+            applied["loopStart"] = float(value)
+        if "loopEnd" in args:
+            value = args["loopEnd"]
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or float(value) < 0:
+                raise ValueError("loopEnd is invalid")
+            clip.loop_end = float(value)
+            applied["loopEnd"] = float(value)
+        if "warpMode" in args:
+            value = args["warpMode"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 16:
+                raise ValueError("warpMode is invalid")
+            clip.warping_mode = value
+            applied["warpMode"] = value
+        fields = self._audio_fields(clip)
+        checks = []
+        for key, value in applied.items():
+            if key == "warpMode":
+                checks.append(fields["warpMode"] == value)
+            else:
+                current = fields.get(key)
+                checks.append(isinstance(current, (int, float)) and abs(current - value) < 0.01)
+        if not applied or not all(checks):
+            raise ValueError("audio clip change was not confirmed")
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
 
     def _note_add(self, args: dict[str, Any]) -> dict[str, Any]:
         clip = self.refs.get(str(args["ref"]))
