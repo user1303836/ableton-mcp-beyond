@@ -1016,7 +1016,7 @@ class LiveObjectMapper:
             raise ValueError("note patches are invalid")
         if not callable(getattr(clip, "get_notes_extended", None)) or not callable(getattr(clip, "apply_note_modifications", None)) or not callable(getattr(clip, "get_all_notes_extended", None)):
             raise ValueError("note modification is unavailable on this Live shape")
-        extended = clip.get_notes_extended(0, 0, 4096, 128)
+        extended = clip.get_notes_extended(0, 128, 0, 4096)
         by_id = {}
         for candidate in extended:
             by_id[int(candidate.note_id)] = candidate
