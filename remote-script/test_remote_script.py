@@ -282,11 +282,11 @@ class FakeSong:
         self.scenes.insert(index, scene)
         return scene
 
-    def delete_track(self, track):
-        self.tracks.remove(track)
+    def delete_track(self, index):
+        self.tracks.pop(index)
 
-    def delete_scene(self, scene):
-        self.scenes.remove(scene)
+    def delete_scene(self, index):
+        self.scenes.pop(index)
 
 
 class FakeLocator:
@@ -421,7 +421,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "d356425e4321f23167fb6e2fe0b7afc62e74b6bb884e4f59f665e785d2646a1f")
+        self.assertEqual(digest, "9b1b47f6cc37564665439cb1b9c515f0941059b203110ea0ef20d08afea34916")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -873,13 +873,16 @@ class ControlSurfaceTests(unittest.TestCase):
         mapper.song.scenes.pop()
         created_track = mapper.invoke("track.create", {"name": "Strings", "kind": "midi", "index": 1, "expectedStructureRevision": mapper._structure_revision()})
         created_scene = mapper.invoke("scene.create", {"name": "Verse", "index": 1, "expectedStructureRevision": mapper._structure_revision()})
-        self.assertEqual(created_track["name"], "Strings")
-        self.assertEqual(created_scene["name"], "Verse")
+        self.assertEqual(created_track["name"], "Strings"); self.assertTrue(created_track["objectIdentity"])
+        self.assertEqual(created_scene["name"], "Verse"); self.assertTrue(created_scene["objectIdentity"])
         self.assertEqual(mapper.invoke("track.rename", {"ref": created_track["ref"], "name": "Synths", "expectedName": "Strings"})["name"], "Synths")
         with self.assertRaises(ValueError): mapper.invoke("track.rename", {"ref": created_track["ref"], "name": "Wrong", "expectedName": "Strings"})
         self.assertEqual(mapper.invoke("scene.rename", {"ref": created_scene["ref"], "name": "Chorus", "expectedName": "Verse"})["name"], "Chorus")
-        self.assertEqual(mapper.invoke("track.delete", {"ref": created_track["ref"], "expectedStructureRevision": mapper._structure_revision()}), {"deleted": created_track["ref"]})
-        self.assertEqual(mapper.invoke("scene.delete", {"ref": created_scene["ref"], "expectedStructureRevision": mapper._structure_revision()}), {"deleted": created_scene["ref"]})
+        created_track_object = mapper.song.tracks[1]; replacement = FakeTrack(); replacement.name = "Synths"; mapper.song.tracks[1] = replacement
+        with self.assertRaises(ValueError): mapper.invoke("track.delete", {"ref": created_track["ref"], "expectedStructureRevision": mapper._structure_revision(), "expectedObjectIdentity": created_track["objectIdentity"]})
+        mapper.song.tracks[1] = created_track_object
+        self.assertEqual(mapper.invoke("track.delete", {"ref": created_track["ref"], "expectedStructureRevision": mapper._structure_revision(), "expectedObjectIdentity": created_track["objectIdentity"]}), {"deleted": created_track["ref"]})
+        self.assertEqual(mapper.invoke("scene.delete", {"ref": created_scene["ref"], "expectedStructureRevision": mapper._structure_revision(), "expectedObjectIdentity": created_scene["objectIdentity"]}), {"deleted": created_scene["ref"]})
 
     def test_structure_operations_fail_closed_when_live_shape_is_unsupported(self):
         class UnsupportedSong:

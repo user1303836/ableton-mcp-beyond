@@ -405,6 +405,7 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         requireStructureRevision(); const trackRef = objectRef("ref");
         const index = this.state.tracks.findIndex((track) => track.ref === trackRef);
         if (index < 0) throw new Error(`unknown track reference: ${trackRef}`);
+        if (args.expectedObjectIdentity !== this.state.tracks[index]!.objectIdentity) throw new Error("track object identity changed; deletion refused");
         const [deleted] = this.state.tracks.splice(index, 1);
         this.emit({ type: "object", ref: trackRef, payload: { operation, track: deleted } });
         return { deleted: trackRef };
@@ -424,7 +425,7 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         requireStructureRevision(); const sceneRef = objectRef("ref");
         const index = this.state.scenes.findIndex((scene) => scene.ref === sceneRef);
         if (index < 0) throw new Error(`unknown scene reference: ${sceneRef}`);
-        if (args.expectedObjectIdentity !== undefined && args.expectedObjectIdentity !== this.state.scenes[index]!.objectIdentity) throw new Error("scene object identity changed; deletion refused");
+        if (args.expectedObjectIdentity !== this.state.scenes[index]!.objectIdentity) throw new Error("scene object identity changed; deletion refused");
         this.state.scenes.splice(index, 1);
         this.state.scenes.forEach((item, itemIndex) => { item.index = itemIndex; });
         this.emit({ type: "object", ref: sceneRef, payload: { operation, ref: sceneRef } });

@@ -41,8 +41,11 @@ Guarded workflows cover transport; clip launch and exact stop; MIDI clips and
 notes; Arrangement clips and locators; mixer and routing; Session automation;
 devices and Browser loading; Session/Arrangement recording; project backup;
 realtime control; and consent-bound audio capture. Each has narrower checks in
-its user/operations documentation. `live_undo` is transaction-specific and
-refuses a changed epoch or postcondition.
+its user/operations documentation. Session-structure creation returns exact
+object identities; compensation and undo recheck those identities and call
+Live's indexed deletion APIs rather than deleting a stale proxy or reused path.
+`live_undo` is transaction-specific and refuses a changed epoch or
+postcondition.
 
 Read-only operations include status, capability negotiation, snapshot,
 discovery, previews, project inspection, subscription reads, realtime stats,

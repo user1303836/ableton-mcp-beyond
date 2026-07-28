@@ -1686,7 +1686,7 @@ class LiveObjectMapper:
             if hasattr(track, "name"): track.name = name
             if track is None: track = self._items(getattr(self.song, "tracks", []))[index]
             ref = self.refs.put("track", track, str(index))
-            return {"ref": ref, "name": str(getattr(track, "name", name)), "kind": kind, "index": self._items(getattr(self.song, "tracks", [])).index(track)}
+            return {"ref": ref, "objectIdentity": self._capture_object_identity(track), "name": str(getattr(track, "name", name)), "kind": kind, "index": index}
         if operation == "scene.create":
             name, index = args.get("name"), args.get("index")
             scenes = self._items(getattr(self.song, "scenes", []))
@@ -1699,17 +1699,20 @@ class LiveObjectMapper:
             if scene is None: scene = self._items(getattr(self.song, "scenes", []))[index]
             if hasattr(scene, "name"): scene.name = name
             ref = self.refs.put("scene", scene, str(index))
-            return {"ref": ref, "name": str(getattr(scene, "name", name)), "index": self._items(getattr(self.song, "scenes", [])).index(scene)}
+            return {"ref": ref, "objectIdentity": self._capture_object_identity(scene), "name": str(getattr(scene, "name", name)), "index": index}
         reference = args.get("ref")
         if not isinstance(reference, str): raise ValueError("object reference is required")
-        obj = self.refs.get(reference)
-        collection = self._items(getattr(self.song, "tracks" if operation == "track.delete" else "scenes", []))
-        if obj not in collection: raise ValueError("object is not a current Session object")
+        kind = "track" if operation == "track.delete" else "scene"
+        collection = self._items(getattr(self.song, "tracks" if kind == "track" else "scenes", []))
+        current_row = next(((index, item) for index, item in enumerate(collection) if self.refs.put(kind, item, str(index)) == reference), None)
         expected_identity = args.get("expectedObjectIdentity")
-        if expected_identity is not None and (not isinstance(expected_identity, str) or not hmac.compare_digest(expected_identity, self._capture_object_identity(obj))): raise ValueError("Session object identity changed; deletion refused")
+        if current_row is None or not isinstance(expected_identity, str) or not expected_identity: raise ValueError("object is not a current identity-bound Session object")
+        index, obj = current_row
+        if not hmac.compare_digest(expected_identity, self._capture_object_identity(obj)): raise ValueError("Session object identity changed; deletion refused")
         deleter = getattr(self.song, "delete_track" if operation == "track.delete" else "delete_scene", None)
         if not callable(deleter): raise ValueError("object deletion is unavailable")
-        deleter(obj)
+        before = len(collection); deleter(index); after = self._items(getattr(self.song, "tracks" if kind == "track" else "scenes", []))
+        if len(after) != before - 1 or any(self._capture_object_identity(item) == expected_identity for item in after): raise ValueError("Session object deletion was not confirmed")
         self.refs.delete(reference)
         return {"deleted": reference}
 

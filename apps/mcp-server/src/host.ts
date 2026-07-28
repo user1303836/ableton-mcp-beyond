@@ -42,7 +42,7 @@ interface SessionStructureTransaction {
   id: string; epoch: number; revision: string; proposed: SessionStructureItem[];
   priorTracks: Array<{ ref: LiveRef; name: string; kind: string; index: number }>;
   priorScenes: Array<{ ref: LiveRef; name: string; index: number }>;
-  created?: Array<{ ref: LiveRef; kind: "track" | "scene"; name: string; index: number }>;
+  created?: Array<{ ref: LiveRef; objectIdentity: string; kind: "track" | "scene"; name: string; index: number }>;
   expiresAt: number; state: "previewed" | "applying" | "applied" | "undoing" | "uncertain" | "undone"; applyKey?: string; undoKey?: string;
 }
 interface DeviceParameterTransaction {
@@ -1490,14 +1490,14 @@ export class McpHost {
         for (const item of transaction.proposed) {
           const operation = item.kind === "track" ? "track.create" : "scene.create";
           const expectedStructureRevision = this.structureRevision(await adapter.snapshotAsync(context));
-          const result = await adapter.invokeAsync({ operation, args: { name: item.name, ...(item.kind === "track" ? { kind: item.trackKind } : {}), index: item.index, expectedStructureRevision } }, context) as { ref?: LiveRef; name?: string; index?: number };
-          if (!result?.ref || result.name !== item.name) throw new Error(`Live did not confirm created ${item.kind}`);
-          created.push({ ref: result.ref, kind: item.kind, name: result.name, index: result.index ?? item.index });
+          const result = await adapter.invokeAsync({ operation, args: { name: item.name, ...(item.kind === "track" ? { kind: item.trackKind } : {}), index: item.index, expectedStructureRevision } }, context) as { ref?: LiveRef; objectIdentity?: string; name?: string; index?: number };
+          if (!result?.ref || typeof result.objectIdentity !== "string" || result.name !== item.name) throw new Error(`Live did not confirm created ${item.kind}`);
+          created.push({ ref: result.ref, objectIdentity: result.objectIdentity, kind: item.kind, name: result.name, index: result.index ?? item.index });
         }
         const verified = await adapter.snapshotAsync(context);
-        if (!created.every((item) => item.kind === "track" ? verified.tracks.some((track) => track.ref === item.ref && track.name === item.name) : verified.scenes.some((scene) => scene.ref === item.ref && scene.name === item.name))) throw new Error("Live did not confirm Session structure");
+        if (!created.every((item) => item.kind === "track" ? verified.tracks.some((track) => track.ref === item.ref && track.objectIdentity === item.objectIdentity && track.name === item.name) : verified.scenes.some((scene) => scene.ref === item.ref && scene.objectIdentity === item.objectIdentity && scene.name === item.name))) throw new Error("Live did not confirm Session structure");
       } catch (cause) {
-        for (const item of [...created].reverse()) { try { const recoveryContext = { deadlineMs: Date.now() + 5_000 }; const expectedStructureRevision = this.structureRevision(await adapter.snapshotAsync(recoveryContext)); await adapter.invokeAsync({ operation: item.kind === "track" ? "track.delete" : "scene.delete", args: { ref: item.ref, expectedStructureRevision } }, recoveryContext); } catch { transaction.state = "uncertain"; transaction.created = created; throw new Error("Session-structure apply compensation failed; read authoritative structure before retrying"); } }
+        for (const item of [...created].reverse()) { try { const recoveryContext = { deadlineMs: Date.now() + 5_000 }; const expectedStructureRevision = this.structureRevision(await adapter.snapshotAsync(recoveryContext)); await adapter.invokeAsync({ operation: item.kind === "track" ? "track.delete" : "scene.delete", args: { ref: item.ref, expectedStructureRevision, expectedObjectIdentity: item.objectIdentity } }, recoveryContext); } catch { transaction.state = "uncertain"; transaction.created = created; throw new Error("Session-structure apply compensation failed; read authoritative structure before retrying"); } }
         throw cause;
       }
       transaction.created = created; transaction.applyKey = params.idempotencyKey as string; transaction.state = "applied";
@@ -3431,8 +3431,8 @@ export class McpHost {
       if (structure.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: structure.id, state: "undone", idempotent: true });
       const status = this.requireConnected("session.structure"); if (status.epoch !== structure.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
       const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; const current = await adapter.snapshotAsync(context);
-      if (!structure.created.every((item) => item.kind === "track" ? current.tracks.some((track) => track.ref === item.ref && track.name === item.name) : current.scenes.some((scene) => scene.ref === item.ref && scene.name === item.name))) return this.transactionError(id, "Session structure changed after apply; undo refused");
-      try { structure.state = "undoing"; for (const item of [...structure.created].reverse()) { const expectedStructureRevision = this.structureRevision(await adapter.snapshotAsync(context)); await adapter.invokeAsync({ operation: item.kind === "track" ? "track.delete" : "scene.delete", args: { ref: item.ref, expectedStructureRevision } }, context); } }
+      if (!structure.created.every((item) => item.kind === "track" ? current.tracks.some((track) => track.ref === item.ref && track.objectIdentity === item.objectIdentity && track.name === item.name) : current.scenes.some((scene) => scene.ref === item.ref && scene.objectIdentity === item.objectIdentity && scene.name === item.name))) return this.transactionError(id, "Session structure changed after apply; undo refused");
+      try { structure.state = "undoing"; for (const item of [...structure.created].reverse()) { const expectedStructureRevision = this.structureRevision(await adapter.snapshotAsync(context)); await adapter.invokeAsync({ operation: item.kind === "track" ? "track.delete" : "scene.delete", args: { ref: item.ref, expectedStructureRevision, expectedObjectIdentity: item.objectIdentity } }, context); } }
       catch (cause) { structure.state = "uncertain"; return this.adapterToolError(id, cause, "Session-structure undo is uncertain; inspect authoritative tracks and scenes."); }
       structure.state = "undone"; structure.undoKey = params.idempotencyKey as string;
       return this.successText(id, { transactionId: structure.id, state: "undone", restored: { tracks: structure.priorTracks, scenes: structure.priorScenes }, idempotent: false });
@@ -3738,12 +3738,12 @@ export class McpHost {
         for (const item of transaction.proposed) {
           const operation = item.kind === "track" ? "track.create" : "scene.create";
           const expectedStructureRevision = this.structureRevision(this.adapter.snapshot());
-          const result = this.adapter.invoke({ operation, args: { name: item.name, ...(item.kind === "track" ? { kind: item.trackKind } : {}), index: item.index, expectedStructureRevision } }) as { ref?: LiveRef; name?: string; index?: number };
-          if (!result?.ref || result.name !== item.name) throw new Error(`Live did not confirm created ${item.kind}`);
-          created.push({ ref: result.ref, kind: item.kind, name: result.name, index: result.index ?? item.index });
+          const result = this.adapter.invoke({ operation, args: { name: item.name, ...(item.kind === "track" ? { kind: item.trackKind } : {}), index: item.index, expectedStructureRevision } }) as { ref?: LiveRef; objectIdentity?: string; name?: string; index?: number };
+          if (!result?.ref || typeof result.objectIdentity !== "string" || result.name !== item.name) throw new Error(`Live did not confirm created ${item.kind}`);
+          created.push({ ref: result.ref, objectIdentity: result.objectIdentity, kind: item.kind, name: result.name, index: result.index ?? item.index });
         }
-        const verified = this.adapter.snapshot(); if (!created.every((item) => item.kind === "track" ? verified.tracks.some((track) => track.ref === item.ref && track.name === item.name) : verified.scenes.some((scene) => scene.ref === item.ref && scene.name === item.name))) throw new Error("Live did not confirm Session structure");
-      } catch (cause) { for (const item of [...created].reverse()) { try { const expectedStructureRevision = this.structureRevision(this.adapter.snapshot()); this.adapter.invoke({ operation: item.kind === "track" ? "track.delete" : "scene.delete", args: { ref: item.ref, expectedStructureRevision } }); } catch { transaction.state = "uncertain"; transaction.created = created; throw new Error("Session-structure apply compensation failed; read authoritative structure before retrying"); } } throw cause; }
+        const verified = this.adapter.snapshot(); if (!created.every((item) => item.kind === "track" ? verified.tracks.some((track) => track.ref === item.ref && track.objectIdentity === item.objectIdentity && track.name === item.name) : verified.scenes.some((scene) => scene.ref === item.ref && scene.objectIdentity === item.objectIdentity && scene.name === item.name))) throw new Error("Live did not confirm Session structure");
+      } catch (cause) { for (const item of [...created].reverse()) { try { const expectedStructureRevision = this.structureRevision(this.adapter.snapshot()); this.adapter.invoke({ operation: item.kind === "track" ? "track.delete" : "scene.delete", args: { ref: item.ref, expectedStructureRevision, expectedObjectIdentity: item.objectIdentity } }); } catch { transaction.state = "uncertain"; transaction.created = created; throw new Error("Session-structure apply compensation failed; read authoritative structure before retrying"); } } throw cause; }
       transaction.created = created; transaction.applyKey = params.idempotencyKey as string; transaction.state = "applied";
       return this.successText(id, { transactionId: transaction.id, state: "applied", created, epoch: transaction.epoch, idempotent: false });
     } catch (cause) { return this.adapterToolError(id, cause, "Session-structure apply is uncertain; read authoritative tracks and scenes before retrying."); }
@@ -3861,8 +3861,8 @@ export class McpHost {
       if (structure.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: structure.id, state: "undone", idempotent: true });
       try {
         const status = this.requireConnected("session.structure"); if (status.epoch !== structure.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
-        const current = this.adapter.snapshot(); if (!structure.created.every((item) => item.kind === "track" ? current.tracks.some((track) => track.ref === item.ref && track.name === item.name) : current.scenes.some((scene) => scene.ref === item.ref && scene.name === item.name))) return this.transactionError(id, "Session structure changed after apply; undo refused");
-        for (const item of [...structure.created].reverse()) { const expectedStructureRevision = this.structureRevision(this.adapter.snapshot()); this.adapter.invoke({ operation: item.kind === "track" ? "track.delete" : "scene.delete", args: { ref: item.ref, expectedStructureRevision } }); }
+        const current = this.adapter.snapshot(); if (!structure.created.every((item) => item.kind === "track" ? current.tracks.some((track) => track.ref === item.ref && track.objectIdentity === item.objectIdentity && track.name === item.name) : current.scenes.some((scene) => scene.ref === item.ref && scene.objectIdentity === item.objectIdentity && scene.name === item.name))) return this.transactionError(id, "Session structure changed after apply; undo refused");
+        for (const item of [...structure.created].reverse()) { const expectedStructureRevision = this.structureRevision(this.adapter.snapshot()); this.adapter.invoke({ operation: item.kind === "track" ? "track.delete" : "scene.delete", args: { ref: item.ref, expectedStructureRevision, expectedObjectIdentity: item.objectIdentity } }); }
         structure.state = "undone"; structure.undoKey = params.idempotencyKey as string;
         return this.successText(id, { transactionId: structure.id, state: "undone", restored: { tracks: structure.priorTracks, scenes: structure.priorScenes }, idempotent: false });
       } catch (cause) { structure.state = "uncertain"; return this.adapterToolError(id, cause, "Session-structure undo is uncertain; inspect authoritative tracks and scenes."); }
