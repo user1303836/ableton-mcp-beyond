@@ -83,9 +83,9 @@ test("guarded audition and emergency operations replace generic audible invocati
   validateLiveOperationRequest("session.audition-launch", launch);
   validateLiveOperationResult("session.audition-launch", { launched: "1:scene:0", targets: [{ trackRef: "1:track:0", clipSlotRef: "1:clip_slot:0:0", sceneRef: "1:scene:0", sceneIndex: 0, clipRef: "1:clip:0:0" }] });
   assert.throws(() => validateLiveOperationRequest("session.audition-launch", { ...launch, eligibleTargets: [42] }), /type/);
-  const clipAuthority = { slotRef: "1:clip_slot:0:0", trackRef: "1:track:0", sceneRef: "1:scene:0", sceneIndex: 0, clipRef: "1:clip:0:0", playbackRevision: "1:playback:abc", outputSafety };
+  const clipAuthority = { slotRef: "1:clip_slot:0:0", trackRef: "1:track:0", sceneRef: "1:scene:0", sceneIndex: 0, clipRef: "1:clip:0:0", trackIdentity: "live:track:0", sceneIdentity: "live:scene:0", slotIdentity: "live:slot:0:0", clipIdentity: "live:clip:0:0", playbackRevision: "1:playback:abc", outputSafety };
   validateLiveOperationRequest("session.clip-launch", clipAuthority);
-  validateLiveOperationRequest("session.clip-stop", { slotRef: clipAuthority.slotRef, trackRef: clipAuthority.trackRef, sceneRef: clipAuthority.sceneRef, sceneIndex: 0, clipRef: clipAuthority.clipRef });
+  validateLiveOperationRequest("session.clip-stop", { slotRef: clipAuthority.slotRef, trackRef: clipAuthority.trackRef, sceneRef: clipAuthority.sceneRef, sceneIndex: 0, clipRef: clipAuthority.clipRef, trackIdentity: clipAuthority.trackIdentity, sceneIdentity: clipAuthority.sceneIdentity, slotIdentity: clipAuthority.slotIdentity, clipIdentity: clipAuthority.clipIdentity });
   assert.throws(() => validateLiveOperationRequest("session.clip-launch", { ...clipAuthority, trackRef: undefined }), /type|required/);
   validateLiveOperationRequest("session.audition-stop", { ref: "1:scene:0", setName: "Disposable Set", eligibleTargets: [] });
   validateLiveOperationResult("session.audition-stop", { stopped: true });

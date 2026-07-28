@@ -26,6 +26,27 @@ test("simulator covers stable references, bounded edits, subscriptions, and reco
   unsubscribe();
 });
 
+test("simulator clip launch and stop require exact hierarchy identities", () => {
+  const argsFor = (snapshot: ReturnType<DeterministicLiveSimulator["snapshot"]>) => {
+    const track = snapshot.tracks[0]!; const slot = track.clipSlots![0]!; const clip = track.clips.find((item) => item.ref === slot.clipRef)!; const scene = snapshot.scenes[0]!;
+    return { slotRef: slot.ref, trackRef: track.ref, sceneRef: scene.ref, sceneIndex: scene.index, clipRef: clip.ref, trackIdentity: track.objectIdentity!, sceneIdentity: scene.objectIdentity!, slotIdentity: slot.objectIdentity!, clipIdentity: clip.objectIdentity!, playbackRevision: snapshot.playback.revision, outputSafety: { safe: true, provenance: "unit-test" } };
+  };
+  const stopArgsFor = (authority: ReturnType<typeof argsFor>) => ({ slotRef: authority.slotRef, trackRef: authority.trackRef, sceneRef: authority.sceneRef, sceneIndex: authority.sceneIndex, clipRef: authority.clipRef, trackIdentity: authority.trackIdentity, sceneIdentity: authority.sceneIdentity, slotIdentity: authority.slotIdentity, clipIdentity: authority.clipIdentity });
+  const live = new DeterministicLiveSimulator(); const authority = argsFor(live.snapshot());
+  assert.equal((live.invoke({ operation: "session.clip-launch", args: authority }) as { launched: string }).launched, authority.slotRef);
+  assert.equal((live.invoke({ operation: "session.clip-stop", args: stopArgsFor(authority) }) as { stopped: boolean }).stopped, true);
+
+  const replacedBeforeLaunch = new DeterministicLiveSimulator(); const staleLaunch = argsFor(replacedBeforeLaunch.snapshot());
+  (replacedBeforeLaunch as any).state.tracks[0].clips[0].objectIdentity = "simulator:clip:replacement";
+  assert.throws(() => replacedBeforeLaunch.invoke({ operation: "session.clip-launch", args: staleLaunch }), /object identity changed/);
+
+  const replacedBeforeStop = new DeterministicLiveSimulator(); const staleStop = argsFor(replacedBeforeStop.snapshot());
+  replacedBeforeStop.invoke({ operation: "session.clip-launch", args: staleStop });
+  (replacedBeforeStop as any).state.tracks[0].clips[0].objectIdentity = "simulator:clip:replacement";
+  assert.throws(() => replacedBeforeStop.invoke({ operation: "session.clip-stop", args: stopArgsFor(staleStop) }), /object identity changed/);
+  assert.equal(replacedBeforeStop.snapshot().playback.playingTargets.length, 1);
+});
+
 test("simulator exposes domain objects and bounded editing operations", () => {
   const live = new DeterministicLiveSimulator();
   const snapshot = live.snapshot();

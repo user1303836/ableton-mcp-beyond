@@ -919,12 +919,12 @@ class LiveObjectMapper:
                 clip = getattr(slot, "clip", None)
                 slot_ref = self.refs.put("clip_slot", slot, f"{index}:{slot_index}")
                 if clip is None:
-                    slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "sceneIndex": slot_index, "empty": True})
+                    slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "objectIdentity": self._capture_object_identity(slot), "sceneIndex": slot_index, "empty": True})
                     continue
                 clip_ref = self.refs.put("clip", clip, f"{index}:{slot_index}")
                 notes = self._read_notes(clip)
-                clips.append({"ref": clip_ref, "parentRef": slot_ref, "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": slot_index * 4, "length": float(getattr(clip, "length", 0.0)), "notes": notes, **self._audio_fields(clip)})
-                slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "sceneIndex": slot_index, "clipRef": clip_ref, "empty": False})
+                clips.append({"ref": clip_ref, "parentRef": slot_ref, "objectIdentity": self._capture_object_identity(clip), "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": slot_index * 4, "length": float(getattr(clip, "length", 0.0)), "notes": notes, **self._audio_fields(clip)})
+                slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "objectIdentity": self._capture_object_identity(slot), "sceneIndex": slot_index, "clipRef": clip_ref, "empty": False})
             armed_value = self._read_attr(track, "arm", "armed")
             track_rows.append({
                 "ref": track_ref, "parentRef": self.refs.put("set", self.song, "song"), "objectIdentity": self._capture_object_identity(track),
@@ -938,7 +938,7 @@ class LiveObjectMapper:
                 "routing": self._routing_row(track),
                 "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track, index),
             })
-        scene_rows = [{"ref": self.refs.put("scene", scene, str(i)), "parentRef": self.refs.put("set", self.song, "song"), "name": str(getattr(scene, "name", f"Scene {i + 1}")), "index": i, "triggerable": callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None))} for i, scene in enumerate(scenes)]
+        scene_rows = [{"ref": self.refs.put("scene", scene, str(i)), "parentRef": self.refs.put("set", self.song, "song"), "objectIdentity": self._capture_object_identity(scene), "name": str(getattr(scene, "name", f"Scene {i + 1}")), "index": i, "triggerable": callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None))} for i, scene in enumerate(scenes)]
         locators = self._locator_items()
         return {"set": set_row, "tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators, "clips": self._arrangement_clip_items()}, "playback": self._playback(track_rows, scene_rows), "epoch": self.refs.epoch}
 
@@ -1420,28 +1420,39 @@ class LiveObjectMapper:
             raise ValueError("transport change was not confirmed by fresh state")
         return {"changed": True, "revision": after_revision}
 
-    def _guarded_clip_launch(self, args: dict[str, Any]) -> dict[str, Any]:
+    def _guarded_session_target(self, args: dict[str, Any], operation: str) -> tuple[str, str, str, str, int]:
         slot_ref, track_ref, scene_ref, clip_ref = (args.get(name) for name in ("slotRef", "trackRef", "sceneRef", "clipRef"))
-        scene_index, playback_revision = args.get("sceneIndex"), args.get("playbackRevision")
-        if not all(isinstance(item, str) and item.startswith(f"{self.refs.epoch}:") for item in (slot_ref, track_ref, scene_ref, clip_ref)) or not isinstance(scene_index, int) or isinstance(scene_index, bool) or not isinstance(playback_revision, str):
+        scene_index = args.get("sceneIndex")
+        identities = {name: args.get(name) for name in ("trackIdentity", "sceneIdentity", "slotIdentity", "clipIdentity")}
+        if not all(isinstance(item, str) and item.startswith(f"{self.refs.epoch}:") for item in (slot_ref, track_ref, scene_ref, clip_ref)) or not isinstance(scene_index, int) or isinstance(scene_index, bool) or scene_index < 0 or not all(isinstance(item, str) and item for item in identities.values()):
+            raise ValueError(f"guarded {operation} identity is invalid")
+        tracks, scenes = self._items(getattr(self.song, "tracks", [])), self._items(getattr(self.song, "scenes", []))
+        current_track_row = next(((index, item) for index, item in enumerate(tracks) if self.refs.put("track", item, str(index)) == track_ref), None)
+        if current_track_row is None or scene_index >= len(scenes):
+            raise ValueError(f"{operation} hierarchy changed since preview")
+        track_index, current_track = current_track_row
+        current_scene = scenes[scene_index]; slots = self._items(getattr(current_track, "clip_slots", [])); current_slot = slots[scene_index] if scene_index < len(slots) else None; current_clip = getattr(current_slot, "clip", None)
+        if current_slot is None or current_clip is None or self.refs.put("scene", current_scene, str(scene_index)) != scene_ref or self.refs.put("clip_slot", current_slot, f"{track_index}:{scene_index}") != slot_ref or self.refs.put("clip", current_clip, f"{track_index}:{scene_index}") != clip_ref:
+            raise ValueError(f"{operation} hierarchy changed since preview")
+        current_identities = {"trackIdentity": self._capture_object_identity(current_track), "sceneIdentity": self._capture_object_identity(current_scene), "slotIdentity": self._capture_object_identity(current_slot), "clipIdentity": self._capture_object_identity(current_clip)}
+        if any(not hmac.compare_digest(current_identities[name], identities[name]) for name in identities):
+            raise ValueError(f"{operation} object identity changed since preview")
+        return slot_ref, track_ref, scene_ref, clip_ref, scene_index
+
+    def _guarded_clip_launch(self, args: dict[str, Any]) -> dict[str, Any]:
+        playback_revision = args.get("playbackRevision")
+        if not isinstance(playback_revision, str):
             raise ValueError("guarded clip-launch identity is invalid")
         playback = self._playback()
         if playback.get("revision") != playback_revision or playback["transport"].get("playing") is not False or playback["transport"].get("arrangementRecord") is not False or playback["transport"].get("sessionRecord") is not False or playback["firedTargets"] or playback["playingTargets"]:
             raise ValueError("stopped playback or recording baseline changed since clip-launch preview")
-        slot, track, scene, clip = (self.refs.get(item) for item in (slot_ref, track_ref, scene_ref, clip_ref))
-        tracks, scenes = self._items(getattr(self.song, "tracks", [])), self._items(getattr(self.song, "scenes", []))
-        slots = self._items(getattr(track, "clip_slots", []))
-        if track not in tracks or scene_index >= len(scenes) or scene_index >= len(slots) or scenes[scene_index] is not scene or slots[scene_index] is not slot or getattr(slot, "clip", None) is not clip:
-            raise ValueError("clip-launch hierarchy changed since preview")
+        slot_ref, _, _, _, _ = self._guarded_session_target(args, "clip-launch")
         return self._clip_launch({"ref": slot_ref})
 
     def _guarded_clip_stop(self, args: dict[str, Any]) -> dict[str, Any]:
-        slot_ref, track_ref, scene_ref, clip_ref = (args.get(name) for name in ("slotRef", "trackRef", "sceneRef", "clipRef"))
-        scene_index = args.get("sceneIndex")
-        if not all(isinstance(item, str) and item.startswith(f"{self.refs.epoch}:") for item in (slot_ref, track_ref, scene_ref, clip_ref)) or not isinstance(scene_index, int) or isinstance(scene_index, bool):
-            raise ValueError("guarded clip-stop identity is invalid")
-        expected = (track_ref, slot_ref, scene_ref, scene_index, clip_ref)
         active = self._active_targets(self._playback())
+        slot_ref, track_ref, scene_ref, clip_ref, scene_index = self._guarded_session_target(args, "clip-stop")
+        expected = (track_ref, slot_ref, scene_ref, scene_index, clip_ref)
         on_track = [(item.get("trackRef"), item.get("clipSlotRef"), item.get("sceneRef"), item.get("sceneIndex"), item.get("clipRef")) for item in active if item.get("trackRef") == track_ref]
         if any(item != expected for item in on_track):
             raise ValueError("track has foreign playback targets; guarded stop refused")

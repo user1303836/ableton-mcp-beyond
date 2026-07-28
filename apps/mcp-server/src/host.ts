@@ -123,6 +123,10 @@ interface ClipLaunchTransaction {
   sceneRef: LiveRef;
   sceneIndex: number;
   clipRef: LiveRef;
+  trackIdentity: string;
+  sceneIdentity: string;
+  slotIdentity: string;
+  clipIdentity: string;
   targetKey: string;
   playbackRevision: string;
   outputSafety: JsonObject;
@@ -1884,12 +1888,13 @@ export class McpHost {
       const target = (snapshot.tracks as unknown as JsonObject[]).flatMap((track) => Array.isArray(track.clipSlots) ? (track.clipSlots as unknown[]).filter(isObject).filter((slot) => slot.ref === params.slotRef).map((slot) => ({ track, slot })) : [])[0];
       if (!target || typeof target.slot.clipRef !== "string" || typeof target.slot.sceneIndex !== "number" || typeof target.track.ref !== "string") throw new Error("clip slot with an authoritative clip is required");
       const scene = snapshot.scenes.find((item) => item.index === target.slot.sceneIndex);
-      if (!scene) throw new Error("clip slot scene is not authoritative");
+      const clip = (target.track.clips as unknown as JsonObject[]).find((item) => item.ref === target.slot.clipRef);
+      if (!scene || typeof target.track.objectIdentity !== "string" || typeof scene.objectIdentity !== "string" || typeof target.slot.objectIdentity !== "string" || !clip || typeof clip.objectIdentity !== "string") throw new Error("clip-launch target lacks exact authoritative object identity");
       const targetKey = `${target.track.ref}|${target.slot.ref}|${scene.ref}`;
       if (targetKey.split("|").length !== 3) throw new Error("clip references are not encodable as a target key");
-      const transaction: ClipLaunchTransaction = { id: `cliplaunch_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, slotRef: params.slotRef as LiveRef, trackRef: target.track.ref as LiveRef, sceneRef: scene.ref, sceneIndex: scene.index, clipRef: target.slot.clipRef as LiveRef, targetKey, playbackRevision: snapshot.playback.revision, outputSafety: structuredClone(params.outputSafety as JsonObject), confirmation: randomBytes(32).toString("base64url"), stopConfirmation: randomBytes(32).toString("base64url"), expiresAt: Date.now() + AUDITION_TTL_MS, state: "previewed" };
+      const transaction: ClipLaunchTransaction = { id: `cliplaunch_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, slotRef: params.slotRef as LiveRef, trackRef: target.track.ref as LiveRef, sceneRef: scene.ref, sceneIndex: scene.index, clipRef: target.slot.clipRef as LiveRef, trackIdentity: target.track.objectIdentity, sceneIdentity: scene.objectIdentity, slotIdentity: target.slot.objectIdentity, clipIdentity: clip.objectIdentity, targetKey, playbackRevision: snapshot.playback.revision, outputSafety: structuredClone(params.outputSafety as JsonObject), confirmation: randomBytes(32).toString("base64url"), stopConfirmation: randomBytes(32).toString("base64url"), expiresAt: Date.now() + AUDITION_TTL_MS, state: "previewed" };
       this.retainBoundedTransaction(this.clipLaunchTransactions, transaction, "clip launch");
-      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, target: { slotRef: transaction.slotRef, trackRef: transaction.trackRef, sceneRef: transaction.sceneRef, sceneIndex: transaction.sceneIndex, clipRef: transaction.clipRef, targetKey }, playbackRevision: transaction.playbackRevision, audibleImpact: "potentially-audible-clip-launch", confirmation: transaction.confirmation, stopConfirmation: transaction.stopConfirmation, expiresAt: transaction.expiresAt });
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, target: { slotRef: transaction.slotRef, trackRef: transaction.trackRef, sceneRef: transaction.sceneRef, sceneIndex: transaction.sceneIndex, clipRef: transaction.clipRef, trackIdentity: transaction.trackIdentity, sceneIdentity: transaction.sceneIdentity, slotIdentity: transaction.slotIdentity, clipIdentity: transaction.clipIdentity, targetKey }, playbackRevision: transaction.playbackRevision, audibleImpact: "potentially-audible-clip-launch", confirmation: transaction.confirmation, stopConfirmation: transaction.stopConfirmation, expiresAt: transaction.expiresAt });
     } catch (cause) { return this.adapterToolError(id, cause, "Clip-launch preview refused; obtain fresh authoritative discovery and explicit output-safety evidence."); }
   }
 
@@ -1933,11 +1938,14 @@ export class McpHost {
       if (!transport) throw new Error("authoritative playback state is unavailable");
       if (snapshot.playback.revision !== transaction.playbackRevision) throw new Error("playback state changed since preview");
       if (transport.playing !== false || transport.arrangementRecord !== false || transport.sessionRecord !== false || snapshot.playback.firedTargets.length > 0 || snapshot.playback.playingTargets.length > 0) throw new Error("clip launch requires a stopped, non-recording baseline with no active Session targets");
-      const stillThere = (snapshot.tracks as unknown as JsonObject[]).some((track) => track.ref === transaction.trackRef && Array.isArray(track.clipSlots) && (track.clipSlots as unknown[]).filter(isObject).some((slot) => slot.ref === transaction.slotRef && slot.clipRef === transaction.clipRef && slot.sceneIndex === transaction.sceneIndex));
-      if (!stillThere) throw new Error("clip slot content changed since preview");
+      const currentTrack = (snapshot.tracks as unknown as JsonObject[]).find((track) => track.ref === transaction.trackRef && track.objectIdentity === transaction.trackIdentity);
+      const currentSlot = currentTrack && Array.isArray(currentTrack.clipSlots) ? (currentTrack.clipSlots as unknown[]).filter(isObject).find((slot) => slot.ref === transaction.slotRef && slot.objectIdentity === transaction.slotIdentity && slot.clipRef === transaction.clipRef && slot.sceneIndex === transaction.sceneIndex) : undefined;
+      const currentClip = currentTrack && Array.isArray(currentTrack.clips) ? (currentTrack.clips as unknown[]).filter(isObject).find((clip) => clip.ref === transaction.clipRef && clip.objectIdentity === transaction.clipIdentity) : undefined;
+      const currentScene = (snapshot.scenes as unknown as JsonObject[]).find((scene) => scene.ref === transaction.sceneRef && scene.objectIdentity === transaction.sceneIdentity && scene.index === transaction.sceneIndex);
+      if (!currentTrack || !currentSlot || !currentClip || !currentScene) throw new Error("clip-launch target identity changed since preview");
       this.validateOutputSafety(transaction.outputSafety);
       if (signal?.aborted) throw new Error("clip launch cancelled before dispatch");
-      const result = await adapter.invokeAsync({ operation: "session.clip-launch", args: { slotRef: transaction.slotRef, trackRef: transaction.trackRef, sceneRef: transaction.sceneRef, sceneIndex: transaction.sceneIndex, clipRef: transaction.clipRef, playbackRevision: transaction.playbackRevision, outputSafety: transaction.outputSafety } }, context) as { launched?: unknown; targets?: unknown };
+      const result = await adapter.invokeAsync({ operation: "session.clip-launch", args: { slotRef: transaction.slotRef, trackRef: transaction.trackRef, sceneRef: transaction.sceneRef, sceneIndex: transaction.sceneIndex, clipRef: transaction.clipRef, trackIdentity: transaction.trackIdentity, sceneIdentity: transaction.sceneIdentity, slotIdentity: transaction.slotIdentity, clipIdentity: transaction.clipIdentity, playbackRevision: transaction.playbackRevision, outputSafety: transaction.outputSafety } }, context) as { launched?: unknown; targets?: unknown };
       if (result.launched !== transaction.slotRef) throw new Error("clip launch result does not match the previewed slot");
       let verified = false;
       while (Date.now() < context.deadlineMs - 250) {
@@ -1996,8 +2004,13 @@ export class McpHost {
       const before = await adapter.snapshotAsync(context);
       const ours = [...before.playback.firedTargets, ...before.playback.playingTargets].some((target) => `${target.trackRef}|${target.clipSlotRef}|${target.sceneRef}` === transaction.targetKey);
       if (ours) {
+        const currentTrack = (before.tracks as unknown as JsonObject[]).find((track) => track.ref === transaction.trackRef && track.objectIdentity === transaction.trackIdentity);
+        const currentSlot = currentTrack && Array.isArray(currentTrack.clipSlots) ? (currentTrack.clipSlots as unknown[]).filter(isObject).find((slot) => slot.ref === transaction.slotRef && slot.objectIdentity === transaction.slotIdentity && slot.clipRef === transaction.clipRef && slot.sceneIndex === transaction.sceneIndex) : undefined;
+        const currentClip = currentTrack && Array.isArray(currentTrack.clips) ? (currentTrack.clips as unknown[]).filter(isObject).find((clip) => clip.ref === transaction.clipRef && clip.objectIdentity === transaction.clipIdentity) : undefined;
+        const currentScene = (before.scenes as unknown as JsonObject[]).find((scene) => scene.ref === transaction.sceneRef && scene.objectIdentity === transaction.sceneIdentity && scene.index === transaction.sceneIndex);
+        if (!currentTrack || !currentSlot || !currentClip || !currentScene) throw new Error("clip-stop target identity changed; guarded stop refused");
         if (signal?.aborted) throw new Error("clip-launch stop cancelled before dispatch");
-        await adapter.invokeAsync({ operation: "session.clip-stop", args: { slotRef: transaction.slotRef, trackRef: transaction.trackRef, sceneRef: transaction.sceneRef, sceneIndex: transaction.sceneIndex, clipRef: transaction.clipRef } }, context);
+        await adapter.invokeAsync({ operation: "session.clip-stop", args: { slotRef: transaction.slotRef, trackRef: transaction.trackRef, sceneRef: transaction.sceneRef, sceneIndex: transaction.sceneIndex, clipRef: transaction.clipRef, trackIdentity: transaction.trackIdentity, sceneIdentity: transaction.sceneIdentity, slotIdentity: transaction.slotIdentity, clipIdentity: transaction.clipIdentity } }, context);
       }
       let confirmed = false;
       while (Date.now() < context.deadlineMs - 250) {

@@ -92,7 +92,7 @@ export interface Device { ref: LiveRef; parentRef?: LiveRef; name: string; kind:
 export interface Clip { ref: LiveRef; objectIdentity?: string; name: string; kind: "midi" | "audio"; start: number; length: number; notes: Note[]; warp: boolean; takes: string[]; automation: AutomationPoint[]; envelopes?: Record<string, AutomationPoint[]>; isAudio?: boolean | null; gain?: number | null; pitchCoarse?: number | null; pitchFine?: number | null; warpMode?: number | null; warping?: boolean | null; fadeInLength?: number | null; fadeOutLength?: number | null; availableAudioFields?: string[]; loopStart?: number | null; loopEnd?: number | null; filePath?: string | null; }
 export interface RoutingState { inputType: string | null; inputSubRouting: string | null; outputType: string | null; outputSubRouting: string | null; availableInputTypes: number; availableInputChannels: number; availableOutputTypes: number; availableOutputChannels: number; }
 export interface MixerState { volume: number | null; pan: number | null; cueVolume: number | null; mute: boolean | null; solo: boolean | null; sends: (number | null)[]; volumeRef: LiveRef | null; volumeIdentity?: string | null; panRef: LiveRef | null; panIdentity?: string | null; cueRef: LiveRef | null; cueIdentity?: string | null; sendRefs: LiveRef[]; sendIdentities?: string[]; }
-export interface ClipSlot { ref: LiveRef; parentRef: LiveRef; sceneIndex: number; clipRef?: LiveRef | null; empty: boolean; }
+export interface ClipSlot { ref: LiveRef; parentRef: LiveRef; objectIdentity?: string; sceneIndex: number; clipRef?: LiveRef | null; empty: boolean; }
 export interface Track { ref: LiveRef; objectIdentity?: string; name: string; kind: "audio" | "midi" | "group" | "return" | "main" | "master" | "regular"; volume: number; pan: number; mute: boolean; solo: boolean; armed: boolean | null; monitoringState?: LiveMonitoringState; playingSlotIndex?: number | null; firedSlotIndex?: number | null; clips: Clip[]; clipSlots?: ClipSlot[]; mixer?: MixerState; routing?: RoutingState; devices: Device[]; sends: number[]; input?: string; output?: string; }
 export interface Scene { ref: LiveRef; objectIdentity?: string; name: string; index: number; }
 export interface LiveSnapshot {
@@ -145,15 +145,15 @@ const clamp = (value: number, min: number, max: number): number => Math.min(max,
 const ref = (kind: LiveObjectKind, id: string): LiveRef => `${kind}:${id}`;
 
 function createSimulatorState(): LiveSnapshot {
-  const kick: Clip = { ref: ref("clip", "clip-1"), name: "Kick Pattern", kind: "midi", start: 0, length: 4, notes: [{ pitch: 36, start: 0, duration: 0.25, velocity: 110, channel: 1, id: 1, mute: false, probability: 1, velocityDeviation: 0, releaseVelocity: 64 }], warp: false, takes: ["take-1"], automation: [] };
-  const track: Track = { ref: ref("track", "track-1"), objectIdentity: "simulator:track:track-1", name: "Drums", kind: "midi", volume: 0.85, pan: 0, mute: false, solo: false, armed: false, monitoringState: "off", playingSlotIndex: null, firedSlotIndex: null, clips: [kick], clipSlots: [{ ref: ref("clip-slot", "track-1:0"), parentRef: ref("track", "track-1"), sceneIndex: 0, clipRef: kick.ref, empty: false }], mixer: { volume: 0.85, pan: 0, cueVolume: 1, mute: false, solo: false, sends: [0.5, 0.25], volumeRef: ref("parameter", "mixer:0:volume"), volumeIdentity: "simulator:parameter:mixer:0:volume", panRef: ref("parameter", "mixer:0:panning"), panIdentity: "simulator:parameter:mixer:0:panning", cueRef: ref("parameter", "mixer:0:cue_volume"), cueIdentity: "simulator:parameter:mixer:0:cue_volume", sendRefs: [ref("parameter", "mixer:0:sends:0"), ref("parameter", "mixer:0:sends:1")], sendIdentities: ["simulator:parameter:mixer:0:sends:0", "simulator:parameter:mixer:0:sends:1"] }, routing: { inputType: "Ext. In", inputSubRouting: "1", outputType: "Main", outputSubRouting: "1/2", availableInputTypes: 2, availableInputChannels: 16, availableOutputTypes: 3, availableOutputChannels: 4 }, devices: [], sends: [0, 0] };
+  const kick: Clip = { ref: ref("clip", "clip-1"), objectIdentity: "simulator:clip:clip-1", name: "Kick Pattern", kind: "midi", start: 0, length: 4, notes: [{ pitch: 36, start: 0, duration: 0.25, velocity: 110, channel: 1, id: 1, mute: false, probability: 1, velocityDeviation: 0, releaseVelocity: 64 }], warp: false, takes: ["take-1"], automation: [] };
+  const track: Track = { ref: ref("track", "track-1"), objectIdentity: "simulator:track:track-1", name: "Drums", kind: "midi", volume: 0.85, pan: 0, mute: false, solo: false, armed: false, monitoringState: "off", playingSlotIndex: null, firedSlotIndex: null, clips: [kick], clipSlots: [{ ref: ref("clip-slot", "track-1:0"), parentRef: ref("track", "track-1"), objectIdentity: "simulator:clip-slot:track-1:0", sceneIndex: 0, clipRef: kick.ref, empty: false }], mixer: { volume: 0.85, pan: 0, cueVolume: 1, mute: false, solo: false, sends: [0.5, 0.25], volumeRef: ref("parameter", "mixer:0:volume"), volumeIdentity: "simulator:parameter:mixer:0:volume", panRef: ref("parameter", "mixer:0:panning"), panIdentity: "simulator:parameter:mixer:0:panning", cueRef: ref("parameter", "mixer:0:cue_volume"), cueIdentity: "simulator:parameter:mixer:0:cue_volume", sendRefs: [ref("parameter", "mixer:0:sends:0"), ref("parameter", "mixer:0:sends:1")], sendIdentities: ["simulator:parameter:mixer:0:sends:0", "simulator:parameter:mixer:0:sends:1"] }, routing: { inputType: "Ext. In", inputSubRouting: "1", outputType: "Main", outputSubRouting: "1/2", availableInputTypes: 2, availableInputChannels: 16, availableOutputTypes: 3, availableOutputChannels: 4 }, devices: [], sends: [0, 0] };
   const gain: Parameter = { ref: ref("parameter", "gain-1"), objectIdentity: "simulator:parameter:gain-1", name: "Gain", value: 0.5, min: 0, max: 1, automatable: true, quantization: 0, enabled: true, displayValue: "0.5", revision: 1 };
   const device: Device = { ref: ref("device", "utility-1"), parentRef: track.ref, name: "Utility", kind: "audio-effect", parameters: [gain], objectIdentity: "simulator:device:utility-1", enabled: true };
   track.devices.push(device);
   return {
     set: { ref: ref("set", "set-1"), name: "Simulator Set", tempo: 120, playing: false, position: 0, loop: { enabled: false, start: 0, length: 4 } },
     tracks: [track],
-    scenes: [{ ref: ref("scene", "scene-1"), name: "Scene 1", index: 0 }],
+    scenes: [{ ref: ref("scene", "scene-1"), objectIdentity: "simulator:scene:scene-1", name: "Scene 1", index: 0 }],
     arrangement: { length: 16, locators: [{ ref: ref("locator", "locator-1"), name: "Intro", position: 0 }], clips: [] },
     arrangementClips: [],
     browser: [{ ref: ref("device", "utility-1"), name: "Utility", kind: "device" }, { ref: ref("clip", "sample-1"), name: "Kick Sample", kind: "sample" }],
@@ -261,7 +261,8 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         for (const track of this.state.tracks) for (const slot of track.clipSlots ?? []) {
           if (slot.ref === slotRef && slot.clipRef && track.ref === args.trackRef && slot.clipRef === args.clipRef) {
             const scene = this.state.scenes.find((item) => item.index === slot.sceneIndex);
-            if (!scene || scene.ref !== args.sceneRef || scene.index !== args.sceneIndex) throw new Error("clip slot scene identity changed");
+            const clip = track.clips.find((item) => item.ref === slot.clipRef);
+            if (!scene || !clip || scene.ref !== args.sceneRef || scene.index !== args.sceneIndex || track.objectIdentity !== args.trackIdentity || scene.objectIdentity !== args.sceneIdentity || slot.objectIdentity !== args.slotIdentity || clip.objectIdentity !== args.clipIdentity) throw new Error("clip-launch object identity changed");
             const target: SessionPlaybackTarget = { trackRef: track.ref, clipSlotRef: slot.ref, sceneRef: scene.ref, sceneIndex: slot.sceneIndex, clipRef: slot.clipRef };
             this.state.set.playing = true;
             this.state.playback.transport.playing = true;
@@ -281,7 +282,10 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         const active = [...this.state.playback.firedTargets, ...this.state.playback.playingTargets].filter((item) => item.trackRef === trackRef);
         if (active.some((item) => `${item.trackRef}|${item.clipSlotRef}|${item.sceneRef}` !== targetKey || item.clipRef !== args.clipRef || item.sceneIndex !== args.sceneIndex)) throw new Error("track has foreign playback targets");
         const track = this.state.tracks.find((item) => item.ref === trackRef);
-        if (!track) throw new Error("unknown track reference");
+        const scene = this.state.scenes.find((item) => item.ref === args.sceneRef && item.index === args.sceneIndex);
+        const slot = track?.clipSlots?.find((item) => item.ref === args.slotRef && item.sceneIndex === args.sceneIndex && item.clipRef === args.clipRef);
+        const clip = track?.clips.find((item) => item.ref === args.clipRef);
+        if (!track || !scene || !slot || !clip || track.objectIdentity !== args.trackIdentity || scene.objectIdentity !== args.sceneIdentity || slot.objectIdentity !== args.slotIdentity || clip.objectIdentity !== args.clipIdentity) throw new Error("clip-stop object identity changed");
         this.state.playback.firedTargets = this.state.playback.firedTargets.filter((item) => item.trackRef !== trackRef);
         this.state.playback.playingTargets = this.state.playback.playingTargets.filter((item) => item.trackRef !== trackRef);
         track.firedSlotIndex = null; track.playingSlotIndex = null;
@@ -296,7 +300,7 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         const sceneIndex = this.state.scenes.length;
         const clip: Clip = { ref: ref("clip", `captured-${++this.sequence}`), objectIdentity: `sim-object:clip:${this.sequence}`, name: "Captured", kind: "midi", start: 0, length: 4, notes: [], warp: false, takes: [], automation: [] };
         track.clips.push(clip);
-        const slot = { ref: ref("clip-slot", `${track.ref}:${sceneIndex}`), parentRef: track.ref, sceneIndex, clipRef: clip.ref, empty: false };
+        const slot = { ref: ref("clip-slot", `${track.ref}:${sceneIndex}`), parentRef: track.ref, objectIdentity: `sim-object:clip-slot:${this.sequence}`, sceneIndex, clipRef: clip.ref, empty: false };
         track.clipSlots = [...(track.clipSlots ?? []), slot];
         this.emit({ type: "object", ref: track.ref, payload: { operation, clip: structuredClone(clip) } });
         return { captured: true, clips: [clip.ref], clipIdentities: [{ ref: clip.ref, objectIdentity: clip.objectIdentity }] };
@@ -410,7 +414,7 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         const index = args.index === undefined ? this.state.scenes.length : args.index;
         if (!Number.isInteger(index) || (index as number) < 0 || (index as number) > this.state.scenes.length) throw new RangeError("scene index is invalid");
         if (this.state.scenes.some((scene) => scene.name === name)) throw new Error("scene name already exists");
-        const scene: Scene = { ref: ref("scene", `scene-${this.state.scenes.length + this.sequence + 1}`), name, index: index as number };
+        const scene: Scene = { ref: ref("scene", `scene-${this.state.scenes.length + this.sequence + 1}`), objectIdentity: `sim-object:scene:${this.state.scenes.length + this.sequence + 1}`, name, index: index as number };
         this.state.scenes.splice(index as number, 0, scene);
         this.state.scenes.forEach((item, itemIndex) => { item.index = itemIndex; });
         this.emit({ type: "object", ref: scene.ref, payload: { operation, scene } });

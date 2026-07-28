@@ -53,7 +53,9 @@ diagnosis. A read-only tool does not start playback or recording.
 
 Scene/clip launch requires explicit output-safety evidence, exact eligible
 targets, a stopped non-recording baseline, safe monitoring/arm state, fresh
-playback revision, and bounded launch quantization. Owned stop clears only the
+playback revision, bounded launch quantization, and preview-captured
+track/scene/slot/clip identities that are carried to and rechecked on Live's
+thread. Traversal-path replacements are refused. Owned stop clears only the
 preflighted target; `live_session_emergency_stop` independently requires exact
 fresh active target keys and recording state, atomically clears Session clips,
 transport, Session Record, and Arrangement Record, and survives host restart.

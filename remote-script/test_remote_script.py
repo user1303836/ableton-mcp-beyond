@@ -421,7 +421,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "6c68fb78e475e1eb612b237c628c868b71fdb7fc892635abff22f9fc725a1600")
+        self.assertEqual(digest, "d356425e4321f23167fb6e2fe0b7afc62e74b6bb884e4f59f665e785d2646a1f")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -1090,7 +1090,8 @@ class ControlSurfaceTests(unittest.TestCase):
         song.tracks[0].clip_slots.append(second_slot); song.scenes.append(FakeScene("Scene 2"))
         mapper = LiveObjectMapper(song)
         snapshot = mapper.snapshot(); track = snapshot["tracks"][0]; slot = track["clipSlots"][0]; scene = snapshot["scenes"][0]
-        authority = {"slotRef": slot["ref"], "trackRef": track["ref"], "sceneRef": scene["ref"], "sceneIndex": scene["index"], "clipRef": slot["clipRef"], "playbackRevision": snapshot["playback"]["revision"], "outputSafety": {"safe": True, "provenance": "unit-test-operator"}}
+        clip = next(item for item in track["clips"] if item["ref"] == slot["clipRef"])
+        authority = {"slotRef": slot["ref"], "trackRef": track["ref"], "sceneRef": scene["ref"], "sceneIndex": scene["index"], "clipRef": slot["clipRef"], "trackIdentity": track["objectIdentity"], "sceneIdentity": scene["objectIdentity"], "slotIdentity": slot["objectIdentity"], "clipIdentity": clip["objectIdentity"], "playbackRevision": snapshot["playback"]["revision"], "outputSafety": {"safe": True, "provenance": "unit-test-operator"}}
         stale = dict(authority); stale["playbackRevision"] = "stale"
         with self.assertRaises(ValueError): mapper.invoke("session.clip-launch", stale)
         cross_wired = dict(authority); cross_wired["sceneRef"] = snapshot["scenes"][1]["ref"]; cross_wired["sceneIndex"] = 1
@@ -1101,6 +1102,27 @@ class ControlSurfaceTests(unittest.TestCase):
         with self.assertRaises(ValueError): mapper.invoke("session.clip-launch", layered)
         stopped = mapper.invoke("session.clip-stop", {key: value for key, value in authority.items() if key != "playbackRevision"})
         self.assertTrue(stopped["stopped"])
+
+    def test_guarded_clip_launch_accepts_fresh_live_proxies_but_not_replacements(self):
+        song = FakeAuditionSong(); original_track, original_scene, original_slot, original_clip = song.tracks[0], song.scenes[0], song.tracks[0].clip_slots[0], song.tracks[0].clip_slots[0].clip
+        for value, pointer in ((original_track, 101), (original_scene, 102), (original_slot, 103), (original_clip, 104)): value._live_ptr = pointer
+        mapper = LiveObjectMapper(song); snapshot = mapper.snapshot(); track_row = snapshot["tracks"][0]; slot_row = track_row["clipSlots"][0]; scene_row = snapshot["scenes"][0]; clip_row = track_row["clips"][0]
+        authority = {"slotRef": slot_row["ref"], "trackRef": track_row["ref"], "sceneRef": scene_row["ref"], "sceneIndex": 0, "clipRef": slot_row["clipRef"], "trackIdentity": track_row["objectIdentity"], "sceneIdentity": scene_row["objectIdentity"], "slotIdentity": slot_row["objectIdentity"], "clipIdentity": clip_row["objectIdentity"], "playbackRevision": snapshot["playback"]["revision"], "outputSafety": {"safe": True, "provenance": "unit-test-operator"}}
+        fresh_track, fresh_scene, fresh_slot, fresh_clip = FakeTrack(), FakeScene("Scene 1"), FakeSlot(), FakeClip(4.0)
+        for value, pointer in ((fresh_track, 101), (fresh_scene, 102), (fresh_slot, 103), (fresh_clip, 104)): value._live_ptr = pointer
+        fired = []
+        def fresh_fire(): fired.append(True); song.is_playing = True; fresh_track.playing_slot_index = 0; fresh_track.fired_slot_index = 0
+        def fresh_stop(): fresh_track.playing_slot_index = -1; fresh_track.fired_slot_index = -1
+        fresh_slot.clip = fresh_clip; fresh_slot.fire = fresh_fire; fresh_track.stop_all_clips = fresh_stop; fresh_track.clip_slots = [fresh_slot]; song.tracks = [fresh_track]; song.scenes = [fresh_scene]
+        self.assertEqual(mapper.invoke("session.clip-launch", authority)["launched"], slot_row["ref"]); self.assertEqual(fired, [True])
+        stop_authority = {key: value for key, value in authority.items() if key not in {"playbackRevision", "outputSafety"}}
+        replacement = FakeClip(4.0); replacement._live_ptr = 999; fresh_slot.clip = replacement
+        with self.assertRaises(ValueError): mapper.invoke("session.clip-stop", stop_authority)
+        self.assertEqual(fresh_track.playing_slot_index, 0)
+        fresh_slot.clip = fresh_clip; self.assertTrue(mapper.invoke("session.clip-stop", stop_authority)["stopped"])
+        song.is_playing = False; fired.clear(); fresh_slot.clip = replacement
+        with self.assertRaises(ValueError): mapper.invoke("session.clip-launch", authority)
+        self.assertEqual(fired, [])
 
     def test_recording_requires_atomic_state_destination_and_output_authority(self):
         song = FakeAuditionSong(); song.tracks[0].arm = True

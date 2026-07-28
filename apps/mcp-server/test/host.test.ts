@@ -32,7 +32,7 @@ function auditionFixture() {
   const base = new DeterministicLiveSimulator();
   const state = base.snapshot() as any;
   state.set = { ...state.set, name: "Disposable Set" };
-  state.tracks = state.tracks.map((track: any) => ({ ...track, armed: false, monitoringState: "off", playingSlotIndex: null, firedSlotIndex: null, clipSlots: [{ ref: "clip-slot:track-1:0", parentRef: track.ref, sceneIndex: 0, clipRef: track.clips[0].ref, empty: false }] }));
+  state.tracks = state.tracks.map((track: any) => ({ ...track, armed: false, monitoringState: "off", playingSlotIndex: null, firedSlotIndex: null, clipSlots: [{ ref: "clip-slot:track-1:0", parentRef: track.ref, objectIdentity: track.clipSlots[0].objectIdentity, sceneIndex: 0, clipRef: track.clips[0].ref, empty: false }] }));
   state.playback = { ref: "session-playback:one", epoch: 1, revision: "baseline", transport: { playing: false, arrangementRecord: false, sessionRecord: false, position: 0, launchQuantization: { raw: "1-bar", normalized: "1-bar" }, loop: { enabled: false, start: 0, length: 4 }, punchIn: false, punchOut: false, metronome: false, countIn: 1 }, firedTargets: [], playingTargets: [] };
   const counts = { launches: 0, stops: 0, emergencies: 0 };
   const target = () => ({ trackRef: state.tracks[0].ref, clipSlotRef: state.tracks[0].clipSlots[0].ref, sceneRef: "scene:scene-1", sceneIndex: 0, clipRef: state.tracks[0].clips[0].ref });
@@ -725,11 +725,12 @@ test("clip launch previews, applies with one dispatch, verifies, and stops throu
   const { state, adapter } = auditionFixture();
   let launches = 0;
   let trackStops = 0;
+  let launchArgs: any;
   const innerInvoke = adapter.invokeAsync;
   adapter.status = () => ({ ...(new DeterministicLiveSimulator()).status(), operations: ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "session.clip-launch", "session.clip-stop"] });
   adapter.invokeAsync = async (invocation: any) => {
     if (invocation.operation === "session.clip-launch") {
-      launches += 1;
+      launches += 1; launchArgs = structuredClone(invocation.args);
       const slotRef = invocation.args.slotRef;
       const track = state.tracks[0];
       const scene = state.scenes[0];
@@ -750,13 +751,20 @@ test("clip launch previews, applies with one dispatch, verifies, and stops throu
   const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
   const preview = JSON.parse(((await call(2, "live_clip_launch_preview", { slotRef: "clip-slot:track-1:0", outputSafety: { safe: true, provenance: "operator-confirmed-headphones" } })) as any).result.content[0].text);
   assert.equal(preview.target.slotRef, "clip-slot:track-1:0");
+  assert.deepEqual([preview.target.trackIdentity, preview.target.sceneIdentity, preview.target.slotIdentity, preview.target.clipIdentity], ["simulator:track:track-1", "simulator:scene:scene-1", "simulator:clip-slot:track-1:0", "simulator:clip:clip-1"]);
   const unsafe = await call(3, "live_clip_launch_preview", { slotRef: "clip-slot:track-1:0", outputSafety: { safe: true, provenance: "unknown" } });
   assert.equal((unsafe as any).result.isError, true);
+  const replacementPreview = JSON.parse(((await call(7, "live_clip_launch_preview", { slotRef: "clip-slot:track-1:0", outputSafety: { safe: true, provenance: "operator-confirmed-headphones" } })) as any).result.content[0].text);
+  state.tracks[0]!.clips[0]!.objectIdentity = "simulator:clip:replacement";
+  const replacementApply = await call(8, "live_clip_launch_apply", { transactionId: replacementPreview.transactionId, confirmation: replacementPreview.confirmation, idempotencyKey: "clip-replacement" });
+  assert.equal((replacementApply as any).result.isError, true); assert.equal(launches, 0);
+  state.tracks[0]!.clips[0]!.objectIdentity = "simulator:clip:clip-1";
   const [one, two] = await Promise.all([
     call(4, "live_clip_launch_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "clip-apply-1" }),
     call(5, "live_clip_launch_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "clip-apply-1" }),
   ]);
   assert.equal(launches, 1);
+  assert.deepEqual([launchArgs.trackIdentity, launchArgs.sceneIdentity, launchArgs.slotIdentity, launchArgs.clipIdentity], ["simulator:track:track-1", "simulator:scene:scene-1", "simulator:clip-slot:track-1:0", "simulator:clip:clip-1"]);
   assert.deepEqual([one, two].map((r) => JSON.parse((r as any).result.content[0].text).idempotent).sort(), [false, true]);
   const stopped = JSON.parse(((await call(6, "live_clip_launch_stop", { transactionId: preview.transactionId, confirmation: preview.stopConfirmation, idempotencyKey: "clip-stop-1" })) as any).result.content[0].text);
   assert.equal(stopped.state, "stopped");
