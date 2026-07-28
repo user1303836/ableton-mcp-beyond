@@ -45,6 +45,13 @@ must inspect the Set manually. If playback is proven to be only the mapper-
 owned scene, use the original stop confirmation and a new bounded idempotency
 key; a successful exact replay returns the prior result without dispatch.
 
+Recording acknowledgement loss is always uncertain. Re-read both recording
+modes, the exact destination track and playback targets. Never replay start.
+If any recording mode remains active, call `live_session_emergency_stop` with
+the exact fresh playback targets and mandatory `expectedRecording` value (`session`, `arrangement`, or `both`; use `stopped` only when both fresh flags are false); its mapper-side fence also verifies recording
+state and clears Session Record and Arrangement Record before reporting
+`recordingStopped=true`.
+
 ## Realtime recovery
 
 Disarm immediately when `live_realtime_stats` reports callback failures,

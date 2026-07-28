@@ -23,7 +23,10 @@ Diagnostics separates local host/package/configuration readiness from authentica
 
 ## Limits and shutdown
 
-The host bounds JSON-RPC frames at 64 MiB, remote frames at 1 MiB, remote pending work at 64 requests, tracked request identifiers at 4096, and tool calls at 120 per rolling minute. Stdio allows bounded concurrent work (default 16, maximum 64), preserves response order, observes output backpressure, and treats cancellation after dispatch as non-retracting. Public PCM analysis is limited to 10,000,000 scalar samples/600 seconds; reference comparison is limited to 4,000,000 pair samples/30 seconds per source/10 seconds lag. DSP runs in at most two active and four queued disposable workers with a 512 MiB heap, 30 second wall limit, 64 MiB request, 2 MiB stdout, and 16 KiB stderr. Live capture is limited to one mapper-owned lifecycle, one-to-nine requested seconds, a ten-second watchdog, 32 MiB WAV, 12 seconds, and two channels. Close stdin for normal completion. On EOF, signal, initialization failure, cancellation, output failure, timeout, or disconnect, close the adapter and settle pending work; reinitialize to obtain a new epoch. A scene-audition disconnect, timeout, or acknowledgement loss is uncertain playback state, not a safe retry condition.
+The host bounds JSON-RPC frames at 64 MiB, remote frames at 1 MiB, remote pending work at 64 requests, tracked request identifiers at 4096, and tool calls at 120 per rolling minute. Stdio allows bounded concurrent work (default 16, maximum 64), backpressures
+work at four times the configured concurrency, immediately refuses excess
+requests while continuing to read cancellation notifications, preserves
+response order for accepted work, observes output backpressure, and treats cancellation after dispatch as non-retracting. Public PCM analysis is limited to 10,000,000 scalar samples/600 seconds; reference comparison is limited to 4,000,000 pair samples/30 seconds per source/10 seconds lag. DSP runs in at most two active and four queued disposable workers with a 512 MiB heap, 30 second wall limit, 64 MiB request, 2 MiB stdout, and 16 KiB stderr. Live capture is limited to one mapper-owned lifecycle, one-to-nine requested seconds, a ten-second watchdog, 32 MiB WAV, 12 seconds, and two channels. Close stdin for normal completion. On EOF, signal, initialization failure, cancellation, output failure, timeout, or disconnect, close the adapter and settle pending work; reinitialize to obtain a new epoch. A scene-audition disconnect, timeout, or acknowledgement loss is uncertain playback state, not a safe retry condition.
 
 ## Realtime operations
 
@@ -34,6 +37,21 @@ packets and applied Live-thread callbacks are separate counters. Endpoint,
 replay, rate, queue, expiry, and generation-fence drops are explicit. See
 `REALTIME_CONTROL.md` for packet formats, limits, OSC/XY/Max extension semantics,
 and recovery.
+
+## Domain and extension boundaries
+
+Rename, Browser load, and audio-clip changes use purpose-specific preview/apply/undo transactions; generic authenticated `invoke` is not user-facing mutation authority. Browser load requires a fresh exact `browser.inspect` device identity. Audio edits are field-negotiated per clip; warp-marker readback does not grant marker-edit authority. Subscription events include a connection epoch, and overflow emits `reset`; either condition or a sequence gap requires a fresh snapshot.
+
+`ableton://max-extension` truthfully reports that no Max device is bundled. Canonical `project.new/open/save/save-as/collect/export/bounce` identifiers reserve a future adapter contract, but current adapters do not advertise or execute them. Local `project.info` and receipt-bound `.als` backup remain the only project operations.
+
+## Recording operations
+
+Both Session and Arrangement recording start require an exact armed
+destination, explicit intent and output-safety evidence. The mapper atomically
+rechecks both prior recording booleans plus destination and safety authority.
+Do not retry an uncertain start. Discover fresh playback, then use
+`live_session_emergency_stop` with exact active targets and `expectedRecording` set to the freshly observed `stopped`, `session`, `arrangement`, or `both` mode to clear playback and
+both recording modes; verify `recordingStopped=true` and fresh stopped state.
 
 ## Audio capture supervision
 

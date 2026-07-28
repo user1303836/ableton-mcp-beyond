@@ -11,7 +11,7 @@ Source, schemas, and tests are authoritative. Documentation must not promote a c
 - `apps/mcp-server/src/transactions/`: bounded MIDI transaction and async discovery helpers.
 - `apps/mcp-server/src/analysis.ts`: bounded PCM decoding and privacy-preserving analysis.
 - `apps/mcp-server/src/delivery.ts`: configuration, secret validation, packaging, installation, and diagnostics.
-- `protocol/ableton-live-v1.operations.json`: canonical version-1 operation registry. Its SHA-256 is `a6b2ecbd8181221fcb64b6ffc738c7a220082a293118aa266821ee972479fa96` for the current file.
+- `protocol/ableton-live-v1.operations.json`: canonical version-1 operation registry. Its canonical registry hash is `616268a4464c3e3db4ea9f08a67fc1e755714ebd7a42ca070ab3b029213d19c4` for the current contract.
 - `remote-script/AbletonMcpBridge/__init__.py`: one-argument Control Surface entrypoint and fail-closed reference loading.
 - `remote-script/ableton_mcp_remote_script.py`: authenticated transport, bounded main-thread dispatch, epoch-scoped references, shape-dependent operation advertisement, hierarchical discovery, structure, MIDI, locator, and published device-parameter mapping.
 
@@ -20,12 +20,13 @@ Source, schemas, and tests are authoritative. Documentation must not promote a c
 The wire protocol is `ableton-loopback/v1`. Canonical JSON sorts keys and normalizes negative zero; HMAC-SHA256 authenticates requests and responses; frames, collections, nesting, strings, pending work, and sequences are bounded. Negotiation rejects malformed, duplicate, unknown, unsupported, or registry-hash-mismatched operations.
 
 The process-backed adapter is consumed through Promise-based methods such as
-`snapshotAsync`, `getAsync`, `setAsync`, `invokeAsync`, `reconnectAsync`, and
-`close`, while the shared TypeScript interface and simulator retain
+`snapshotAsync`, `getAsync`, `invokeAsync`, `reconnectAsync`, and `close`, while the shared TypeScript interface and simulator retain
 synchronous compatibility methods. This is not yet the planned single
 asynchronous contract. `McpHost.handleAsync` is required for scene audition
 and other process-backed Live tools; verify compatibility work against both
-paths until the synchronous surface is removed.
+paths until the synchronous simulator-only surface is removed. Neither contract
+exposes generic `set`; mutation is available only through canonical,
+purpose-specific operations.
 
 The Python worker performs framing, authentication, sequencing, and queueing only. Live-facing traversal and mutation are drained by the scheduled main-thread callback. A fresh connection epoch invalidates prior references and cursors. Unsupported Live shapes are unavailable, never fabricated. Device control is limited to an authoritative published numeric parameter with valid bounds, quantization, enabled state, automatable state, parentage, and post-mutation readback. Discovery rows retain parent references; empty clip slots are explicit rows and must not be inferred as clips.
 

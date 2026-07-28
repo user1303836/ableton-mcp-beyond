@@ -40,8 +40,8 @@ async function fixture(root: string) {
   const adapter = {
     status: () => ({ connected: true, adapter: "remote-script", epoch: 1, protocol: LIVE_PROTOCOL_VERSION, capabilities: ["session.read", "audio.capture.resampling"], operations, provenance: "real-live" }),
     snapshot: () => structuredClone(state),
-    get: (ref: any) => simulator.get(ref), set: (ref: any, property: string, value: unknown) => simulator.set(ref, property, value), invoke: () => { throw new Error("async only"); }, subscribe: () => () => undefined, reconnect: () => adapter.status(),
-    snapshotAsync: async () => structuredClone(state), discoverAsync: async () => ({ epoch: 1, items: [], truncated: false, revision: "capture", kind: "track" as const }), getAsync: async (ref: any) => simulator.get(ref), setAsync: async (ref: any, property: string, value: unknown) => simulator.set(ref, property, value), reconnectAsync: async () => adapter.status(), close: async () => undefined,
+    get: (ref: any) => simulator.get(ref), invoke: () => { throw new Error("async only"); }, subscribe: () => () => undefined, reconnect: () => adapter.status(),
+    snapshotAsync: async () => structuredClone(state), discoverAsync: async () => ({ epoch: 1, items: [], truncated: false, revision: "capture", kind: "track" as const }), getAsync: async (ref: any) => simulator.get(ref), reconnectAsync: async () => adapter.status(), close: async () => undefined,
     invokeAsync: async (invocation: LiveInvocation, _context?: LiveOperationContext) => {
       const args = invocation.args;
       if (invocation.operation === "audio.capture.inspect") return { supported: true, fence: "a".repeat(64), sourceSlotRef: args.sourceSlotRef, destinationSlotRef: args.destinationSlotRef, destinationTrackRef: destination.ref, captureMode: "session-slot-resampling", prior: { route: "Ext. In", arm: false, monitoring: "auto", position: 0 } };
@@ -51,7 +51,7 @@ async function fixture(root: string) {
       if (invocation.operation === "audio.capture.cleanup") { if (!capture || args.expectedClipRef !== capture.clip?.ref) throw new Error("wrong clip"); capture.state = "cleaned"; capture.active = false; capture.recoveryToken = null; delete capture.clip; destination.clipSlots![0] = { ...destination.clipSlots![0]!, clipRef: null, empty: true }; return { cleaned: true, filePath: mediaPath }; }
       throw new Error(`unexpected ${invocation.operation}`);
     },
-  } as unknown as LiveAdapter & { snapshotAsync(context?: LiveOperationContext): Promise<LiveSnapshot>; discoverAsync(): Promise<any>; getAsync(ref: any): Promise<any>; setAsync(ref: any, property: string, value: unknown): Promise<void>; invokeAsync(invocation: LiveInvocation, context?: LiveOperationContext): Promise<any>; reconnectAsync(): Promise<any>; close(): Promise<void> };
+  } as unknown as LiveAdapter & { snapshotAsync(context?: LiveOperationContext): Promise<LiveSnapshot>; discoverAsync(): Promise<any>; getAsync(ref: any): Promise<any>; invokeAsync(invocation: LiveInvocation, context?: LiveOperationContext): Promise<any>; reconnectAsync(): Promise<any>; close(): Promise<void> };
   return { adapter, state, mediaPath, sourceSlotRef: source.clipSlots[0]!.ref, destinationSlotRef: destination.clipSlots[0]!.ref, capture: () => capture };
 }
 

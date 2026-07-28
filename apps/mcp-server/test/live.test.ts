@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AuthenticatedLoopback, LoopbackLiveAdapter, LOOPBACK_PROTOCOL_VERSION, type LoopbackResponse } from "../src/loopback.js";
-import { DeterministicLiveSimulator, LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_UNAVAILABLE_CAPABILITIES, SIMULATOR_CAPABILITIES } from "../src/live.js";
+import { DeterministicLiveSimulator, LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_UNAVAILABLE_CAPABILITIES, SIMULATOR_CAPABILITIES, type LiveRef } from "../src/live.js";
 
 const secret = "0123456789abcdef0123456789abcdef";
 
@@ -15,9 +15,10 @@ test("simulator covers stable references, bounded edits, subscriptions, and reco
   assert.ok(LIVE_UNAVAILABLE_CAPABILITIES.includes("plugins"));
   const events: unknown[] = [];
   const unsubscribe = live.subscribe((event) => events.push(event));
-  live.set(track.ref, "volume", 2);
+  assert.throws(() => live.invoke({ operation: "mixer.set", args: { ref: track.ref, volume: 2 } }), /volume is invalid/);
+  live.invoke({ operation: "mixer.set", args: { ref: track.ref, volume: 1 } });
   assert.equal((live.get(track.ref) as typeof track).volume, 1);
-  assert.deepEqual(events[0], { sequence: 1, type: "object", ref: track.ref, payload: { property: "volume", value: 1 } });
+  assert.deepEqual(events[0], { epoch: 1, sequence: 1, type: "object", ref: track.ref, payload: { operation: "mixer.set" } });
   live.addNote(track.clips[0]!.ref, { pitch: 40, start: 1, duration: 0.25, velocity: 90, channel: 1 });
   const epoch = live.reconnect().epoch;
   assert.equal(epoch, 2);
@@ -37,7 +38,8 @@ test("simulator exposes domain objects and bounded editing operations", () => {
   assert.equal(snapshot.arrangement.locators[0]!.name, "Intro");
   assert.equal((live.get(snapshot.scenes[0]!.ref) as typeof snapshot.scenes[0]).name, "Scene 1");
   assert.equal((live.get(parameter.ref) as typeof parameter).value, 0.5);
-  live.set(parameter.ref, "value", 9);
+  assert.throws(() => live.invoke({ operation: "device.parameter.set", args: { ref: parameter.ref, value: 9, expectedRevision: 1 } }), /outside numeric bounds/);
+  live.invoke({ operation: "device.parameter.set", args: { ref: parameter.ref, value: 1, expectedRevision: 1 } });
   assert.equal((live.get(parameter.ref) as typeof parameter).value, 1);
   live.setAutomation(clip.ref, { time: 1, value: 0.75, curve: 0 });
   live.addTake(clip.ref, "take-2");
@@ -57,8 +59,10 @@ test("simulator executes session, media, routing, browser, and realtime operatio
   const initial = live.snapshot();
   const track = initial.tracks[0]!;
   const created = live.invoke({ operation: "clip.create", args: { trackRef: track.ref, kind: "audio", name: "Vocal", start: 4, length: 8 } }) as { ref: `${string}:${string}` };
-  live.invoke({ operation: "audio.warp", args: { ref: created.ref, enabled: true } });
-  live.invoke({ operation: "take.add", args: { ref: created.ref, take: "comp-1" } });
+  // These remain explicit simulator-domain helpers, not advertised canonical
+  // operations or production capability evidence.
+  live.setWarp(created.ref as LiveRef, true);
+  live.addTake(created.ref as LiveRef, "comp-1");
   live.invoke({ operation: "routing.set", args: { ref: track.ref, input: "Ext. In 1", output: "Master" } });
   const locator = live.invoke({ operation: "locator.add", args: { name: "Verse", position: 4 } }) as { name: string };
   assert.equal(locator.name, "Verse");
@@ -66,7 +70,7 @@ test("simulator executes session, media, routing, browser, and realtime operatio
   live.invoke({ operation: "transport.set", args: { position: 4, expectedRevision: live.snapshot().playback.revision } });
   assert.equal(live.snapshot().playback.transport.position, 4);
   assert.throws(() => live.invoke({ operation: "transport.set", args: { position: 8, expectedRevision: "stale" } }), /changed since preview/);
-  assert.throws(() => live.invoke({ operation: "max.message", args: { address: "", values: [] } }), /non-empty string/);
+  assert.throws(() => live.invoke({ operation: "max.message", args: { address: "", values: [] } } as any), /unknown operation/);
 });
 
 test("loopback authenticates, rejects replay/tampering, and forwards subscriptions", () => {
@@ -141,7 +145,8 @@ test("loopback adapter negotiates the domain contract and receives authenticated
   assert.equal(adapter.status().adapter, "simulator");
   const seen: unknown[] = [];
   const unsubscribe = adapter.subscribe((event) => seen.push(event));
-  adapter.set(initial.set.ref, "tempo", 123);
+  assert.equal(typeof (adapter as unknown as { set?: unknown }).set, "undefined");
+  adapter.invoke({ operation: "tempo.set", args: { ref: initial.set.ref, value: 123, expectedTempo: 120 } });
   assert.equal((adapter.get(initial.set.ref) as typeof initial.set).tempo, 123);
   assert.equal(events.length, 1);
   adapter.receive(events[0]!);

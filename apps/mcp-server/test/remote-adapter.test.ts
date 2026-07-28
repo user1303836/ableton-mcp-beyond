@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { createServer, type Socket } from "node:net";
 import { test } from "node:test";
 import { RemoteScriptLiveAdapter } from "../src/bridge/remote-adapter.js";
@@ -19,7 +19,7 @@ const response = (id: string, result: unknown, ok = true) => {
   return { ...base, mac: signed(base) };
 };
 const hello = () => response("hello", { protocol: "ableton-live/v1", registryHash: LIVE_REGISTRY_HASH, maxDeadlineMs: 60_000 });
-const requiredOperations = ["status", "snapshot", "discover", "get", "set", "reconnect", "session.playback"];
+const requiredOperations = ["status", "snapshot", "discover", "get", "reconnect", "session.playback"];
 const status = (overrides: Record<string, unknown> = {}) => ({ connected: true, adapter: "remote-script", epoch: 1, protocol: "ableton-live/v1", capabilities: [], registryHash: LIVE_REGISTRY_HASH, operations: requiredOperations, provenance: "fake-live", ...overrides });
 
 function framedServer(handler: (request: Record<string, unknown>, socket: Socket) => void) {
@@ -68,6 +68,23 @@ test("remote adapter rejects an invalid negotiated status", async () => {
   finally { await close(server); }
 });
 
+test("remote adapter rejects forged or operation-inconsistent capabilities", async () => {
+  for (const capabilities of [["session.write"], ["max"], ["transport"], ["warp"], ["takes"]]) {
+    const server = framedServer((request, socket) => socket.write(`${JSON.stringify(response(request.id as string, status({ capabilities })))}\n`));
+    const port = await listen(server);
+    try { await assert.rejects(RemoteScriptLiveAdapter.connect({ host: "127.0.0.1", port, secret, timeoutMs: 200 }), /handshake or negotiation/); }
+    finally { await close(server); }
+  }
+});
+
+test("remote adapter accepts locator-derived arrangement capabilities with canonical operation names", async () => {
+  const server = framedServer((request, socket) => socket.write(`${JSON.stringify(response(request.id as string, status({ capabilities: ["arrangement.read", "arrangement.write"], operations: [...requiredOperations, "locator.add", "locator.delete"] })))}\n`));
+  const port = await listen(server);
+  let adapter: RemoteScriptLiveAdapter | undefined;
+  try { adapter = await RemoteScriptLiveAdapter.connect({ host: "127.0.0.1", port, secret, timeoutMs: 200 }); assert.equal(adapter.status().connected, true); }
+  finally { await adapter?.close(); await close(server); }
+});
+
 test("remote adapter rejects a registry operation outside the canonical set", async () => {
   const server = framedServer((request, socket) => socket.write(`${JSON.stringify(response(request.id as string, status({ operations: [...requiredOperations, "forged.operation"] })))}\n`));
   const port = await listen(server);
@@ -90,6 +107,27 @@ test("remote adapter delegates discovery with exhaustive kind translation and sc
     assert.deepEqual(seen[1]?.args, { kind: "return_track", parent: "set:one", filters: { name: "A" }, requestedFields: ["name"], traversalBudget: 50, limit: 4, cursor: "cursor" });
     await adapter.close();
   } finally { await close(server); }
+});
+
+test("remote adapter obtains mutation preflight authority with stable transaction idempotency", async () => {
+  const seen: Record<string, unknown>[] = []; const idempotencyKeys: unknown[] = [];
+  const server = framedServer((request, socket) => {
+    seen.push(request);
+    if (request.method === "status") { socket.write(`${JSON.stringify(response(request.id as string, status({ operations: [...requiredOperations, "scene.capture"] })))}\n`); return; }
+    const argsDigest = createHash("sha256").update(canonical(request.args ?? {})).digest("hex");
+    if (request.method === "preflight") socket.write(`${JSON.stringify(response(request.id as string, { preflightToken: "p".repeat(32), confirmation: "c".repeat(32), operation: request.operation, argsDigest, stateDigest: "a".repeat(64), impact: "mutates-live", expiresAt: Date.now() + 5000 }))}\n`);
+    else if (request.method === "prepare") { idempotencyKeys.push(request.idempotencyKey); socket.write(`${JSON.stringify(response(request.id as string, { authorityToken: "t".repeat(32), operation: request.operation, argsDigest, stateDigest: "a".repeat(64), expiresAt: Date.now() + 5000 }))}\n`); }
+    else socket.write(`${JSON.stringify(response(request.id as string, { captured: true, ref: "1:scene:captured", objectIdentity: "live:captured-scene" }))}\n`);
+  });
+  const port = await listen(server); let adapter: RemoteScriptLiveAdapter | undefined;
+  try {
+    adapter = await RemoteScriptLiveAdapter.connect({ host: "127.0.0.1", port, secret, timeoutMs: 500 });
+    const context = { deadlineMs: Date.now() + 5000, idempotencyKey: "scene-capture-apply-key", transactionId: "host-scene-capture-transaction" };
+    await adapter.invokeAsync({ operation: "scene.capture", args: {} }, context); await adapter.invokeAsync({ operation: "scene.capture", args: {} }, context);
+    await adapter.invokeAsync({ operation: "scene.capture", args: {} }, { ...context, transactionId: "second-scene-capture-transaction" });
+    assert.deepEqual(seen.map((item) => item.method), ["status", "preflight", "prepare", "invoke", "preflight", "prepare", "invoke", "preflight", "prepare", "invoke"]);
+    assert.equal(idempotencyKeys.length, 3); assert.equal(idempotencyKeys[0], idempotencyKeys[1]); assert.notEqual(idempotencyKeys[1], idempotencyKeys[2]);
+  } finally { await adapter?.close(); await close(server); }
 });
 
 test("remote adapter closes the session on timeout and reports post-dispatch uncertainty", async () => {

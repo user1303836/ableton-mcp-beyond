@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, lstatSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
 
@@ -52,9 +52,11 @@ function sha256File(path: string): string {
 function readSetXml(path: string): string {
   const raw = readFileSync(path);
   let xml: Buffer;
-  try { xml = gunzipSync(raw); }
-  catch { throw new Error("set file is not a valid gzip-compressed Live set"); }
-  if (xml.length > MAX_SET_BYTES) throw new Error("decompressed set exceeds the bounded size");
+  try { xml = gunzipSync(raw, { maxOutputLength: MAX_SET_BYTES }); }
+  catch (cause) {
+    if (cause instanceof Error && /output length|buffer too large|larger than/i.test(cause.message)) throw new Error("decompressed set exceeds the bounded size");
+    throw new Error("set file is not a valid gzip-compressed Live set");
+  }
   return xml.toString("utf8");
 }
 
@@ -87,25 +89,38 @@ export function projectInfo(path: string): ProjectInfo {
   return { ...manifest, missingMedia: missingMedia(resolved), exists: true };
 }
 
-export function projectBackup(path: string): { backup: string; manifest: ProjectManifest; verified: boolean } {
+export function projectBackup(path: string, options: { allowedRoot?: string; expectedSha256?: string; expectedSize?: number; expectedMtimeMs?: number } = {}): { backup: string; manifest: ProjectManifest; verified: boolean } {
   const resolved = assertSafeSetPath(path);
+  if (options.allowedRoot !== undefined) {
+    if (!isAbsolute(options.allowedRoot) || options.allowedRoot.includes("\0")) throw new Error("backup allowlist root must be an absolute safe directory");
+    const root = resolve(options.allowedRoot); const rootStats = lstatSync(root);
+    if (!rootStats.isDirectory() || rootStats.isSymbolicLink()) throw new Error("backup allowlist root must be a real directory");
+    const realRoot = realpathSync(root); const realSet = realpathSync(resolved);
+    if (realSet !== realRoot && !realSet.startsWith(`${realRoot}${sep}`)) throw new Error("set path is outside the explicit backup allowlist root");
+  }
+  const sourceManifest = parseManifest(resolved);
+  if (options.expectedSha256 !== undefined && (sourceManifest.sha256 !== options.expectedSha256 || sourceManifest.size !== options.expectedSize || sourceManifest.mtimeMs !== options.expectedMtimeMs)) throw new Error("set content changed since backup preview");
   const directory = dirname(resolved);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const backupName = `${basename(resolved, ".als")}.backup-${stamp}.als`;
   const target = join(directory, backupName);
   const temporary = join(directory, `.ableton-mcp-backup-${process.pid}-${Date.now()}.tmp`);
-  copyFileSync(resolved, temporary);
-  const sourceSha = sha256File(resolved);
-  const copySha = sha256File(temporary);
-  if (sourceSha !== copySha) throw new Error("backup copy verification failed");
-  renameSync(temporary, target);
-  const verified = sha256File(target) === sourceSha;
-  const manifest = parseManifest(target);
-  return { backup: target, manifest, verified };
+  if (existsSync(target)) throw new Error("backup target already exists");
+  try {
+    copyFileSync(resolved, temporary);
+    const sourceSha = sha256File(resolved); const copySha = sha256File(temporary);
+    if (sourceSha !== sourceManifest.sha256 || sourceSha !== copySha) throw new Error("set changed during backup or copy verification failed");
+    renameSync(temporary, target);
+    const verified = sha256File(target) === sourceSha;
+    const manifest = parseManifest(target);
+    return { backup: target, manifest, verified };
+  } finally {
+    if (existsSync(temporary)) unlinkSync(temporary);
+  }
 }
 
 /** Save/save-as/open/new/export/collect/bounce are not exposed by the Live
  * 12.4.5b8 Remote Script API. Report the precise negotiated limitation. */
 export function projectLimitation(operation: string): { available: false; operation: string; reason: string; extensionPoint: string } {
-  return { available: false, operation, reason: `${operation} is not exposed by the Live Remote Script API in this Live version and is not fabricated`, extensionPoint: "project.info and project.backup are the supported host-side project operations" };
+  return { available: false, operation, reason: `${operation} is not exposed by the Live Remote Script API in this Live version and is not fabricated`, extensionPoint: "canonical project.new/open/save/save-as/collect/export/bounce operations are reserved for a future adapter and remain unadvertised until executable; project.info and project.backup are available now" };
 }

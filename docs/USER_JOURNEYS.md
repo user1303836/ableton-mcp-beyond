@@ -162,8 +162,9 @@ or Ableton Live. VoiceOver/Narrator support, focus order, key bindings, and the
 accessibility of Live plug-in windows depend on those products and versions.
 The tracked installed-package evidence currently validates ordered semantic
 text and non-color statuses on macOS only. The same verifier is configured in
-the Windows CI matrix, but no Windows result is treated as passing while hosted
-jobs are externally blocked. Even a passing stdio contract test would not be
+the Windows CI matrix, but the latest Windows jobs were skipped after an
+upstream candidate failure and no Windows result is treated as passing until a
+new exact-SHA matrix succeeds. Even a passing stdio contract test would not be
 evidence that every third-party client or Live window is screen-reader
 accessible. Operators requiring assistive
 technology should validate their chosen client and Live version; inaccessible

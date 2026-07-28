@@ -10,8 +10,8 @@ const request = { trackRef: "track:track-1" as const, sceneIndex: 1, name: "Boun
 
 function asynchronous(simulator: DeterministicLiveSimulator): AsyncLiveAdapter {
   return {
-    status: () => simulator.status(), snapshot: () => simulator.snapshot(), get: (ref) => simulator.get(ref), set: (ref, property, value) => simulator.set(ref, property, value), invoke: (value) => simulator.invoke(value), subscribe: (listener) => simulator.subscribe(listener), reconnect: () => simulator.reconnect(),
-    snapshotAsync: async () => simulator.snapshot(), discoverAsync: async () => { throw new Error("not used by this test adapter"); }, getAsync: async (ref) => simulator.get(ref), setAsync: async (ref, property, value) => simulator.set(ref, property, value), invokeAsync: async (value) => simulator.invoke(value), reconnectAsync: async () => simulator.reconnect(), close: async () => undefined,
+    status: () => simulator.status(), snapshot: () => simulator.snapshot(), get: (ref) => simulator.get(ref), invoke: (value) => simulator.invoke(value), subscribe: (listener) => simulator.subscribe(listener), reconnect: () => simulator.reconnect(),
+    snapshotAsync: async () => simulator.snapshot(), discoverAsync: async () => { throw new Error("not used by this test adapter"); }, getAsync: async (ref) => simulator.get(ref), invokeAsync: async (value) => simulator.invoke(value), reconnectAsync: async () => simulator.reconnect(), close: async () => undefined,
   };
 }
 
@@ -32,6 +32,27 @@ test("creates, verifies, idempotently replays, discovers, and exactly undoes a S
   assert.throws(() => discoverSession(simulator, "track", 0), /limit/);
   const undone = manager.undo(preview.transactionId, "undo", "undo-1") as any;
   assert.equal(undone.state, "undone"); assert.equal((manager.undo(preview.transactionId, "undo", "undo-1") as any).idempotent, true);
+});
+
+test("bounded MIDI retention never evicts an applied transaction needed for recovery", () => {
+  const simulator = new DeterministicLiveSimulator(); const manager = new SessionMidiTransactionManager(simulator);
+  const protectedPreview = manager.preview(request);
+  manager.apply(protectedPreview.transactionId, "apply", "protected-apply");
+  const spare = { ...request, sceneIndex: 2, name: "Spare" };
+  for (let index = 0; index < 80; index += 1) manager.preview(spare);
+  const undone = manager.undo(protectedPreview.transactionId, "undo", "protected-undo") as { state: string };
+  assert.equal(undone.state, "undone");
+});
+
+test("expired applied MIDI records retain recovery authority until safely undone", () => {
+  const simulator = new DeterministicLiveSimulator(); const manager = new SessionMidiTransactionManager(simulator);
+  const preview = manager.preview(request); manager.apply(preview.transactionId, "apply", "terminal-apply");
+  ((manager as any).records.get(preview.transactionId) as { expiresAt: number }).expiresAt = 0;
+  manager.preview({ ...request, sceneIndex: 2, name: "Replacement" });
+  assert.equal((manager as any).records.has(preview.transactionId), true);
+  manager.undo(preview.transactionId, "undo", "terminal-undo");
+  manager.preview({ ...request, sceneIndex: 3, name: "After Undo" });
+  assert.equal((manager as any).records.has(preview.transactionId), false);
 });
 
 test("supports the asynchronous guarded Session MIDI lifecycle and async pagination", async () => {

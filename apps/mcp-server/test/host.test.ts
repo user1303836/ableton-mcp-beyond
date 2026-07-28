@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import { McpHost, PROTOCOL_VERSION, serve } from "../src/host.js";
-import { DeterministicLiveSimulator, type LiveAdapter, type LiveRef } from "../src/live.js";
+import { DeterministicLiveSimulator, type LiveAdapter, type LiveInvocation, type LiveRef } from "../src/live.js";
 
 const initialize = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "test", version: "1" } } };
 const initialized = { jsonrpc: "2.0", method: "notifications/initialized" };
@@ -19,7 +20,7 @@ test("requires initialization and exposes only read-only tools", () => {
   assert.equal((host.handle({ ...initialize, id: 2 }) as any).result.protocolVersion, PROTOCOL_VERSION);
   assert.equal(host.handle(initialized), null);
   const tools = (host.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
-  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
   const auditionPreview = tools.find((tool: { name: string }) => tool.name === "live_session_audition_preview");
   assert.deepEqual(auditionPreview.inputSchema.properties.outputSafety.required, ["safe", "provenance"]);
   const auditionStop = tools.find((tool: { name: string }) => tool.name === "live_session_audition_stop");
@@ -36,11 +37,11 @@ function auditionFixture() {
   const counts = { launches: 0, stops: 0, emergencies: 0 };
   const target = () => ({ trackRef: state.tracks[0].ref, clipSlotRef: state.tracks[0].clipSlots[0].ref, sceneRef: "scene:scene-1", sceneIndex: 0, clipRef: state.tracks[0].clips[0].ref });
   const adapter = {
-    status: () => ({ ...base.status(), operations: ["status", "snapshot", "discover", "get", "set", "reconnect", "session.playback", "session.audition-launch", "session.audition-stop", "session.emergency-stop"] }),
-    snapshot: () => structuredClone(state), get: (ref) => base.get(ref), set: (ref, property, value) => base.set(ref, property, value),
+    status: () => ({ ...base.status(), operations: ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "session.audition-launch", "session.audition-stop", "session.emergency-stop"] }),
+    snapshot: () => structuredClone(state), get: (ref) => base.get(ref),
     invoke: () => { throw new Error("synchronous invoke is unavailable"); },
     subscribe: () => () => undefined, reconnect: () => base.status(),
-    getAsync: async (ref: LiveRef) => base.get(ref), setAsync: async (ref: LiveRef, property: string, value: unknown) => base.set(ref, property, value), reconnectAsync: async () => base.status(),
+    getAsync: async (ref: LiveRef) => base.get(ref), reconnectAsync: async () => base.status(),
     snapshotAsync: async () => structuredClone(state),
     discoverAsync: async () => ({ epoch: 1, items: [], truncated: false, revision: "1:empty", kind: "track" }),
     invokeAsync: async (invocation) => {
@@ -65,7 +66,7 @@ function auditionFixture() {
       if (invocation.operation === "session.emergency-stop") {
         counts.emergencies += 1;
         const activeKeys = [...new Set([...state.playback.firedTargets, ...state.playback.playingTargets].map((item) => `${item.trackRef}|${item.clipSlotRef}|${item.sceneRef}`))];
-        if (activeKeys.some((key) => !(invocation.args.expectedTargets as string[]).includes(key))) throw new Error("mapper emergency observation recheck failed");
+        if (invocation.args.expectedRecording !== "stopped" || activeKeys.some((key) => !(invocation.args.expectedTargets as string[]).includes(key))) throw new Error("mapper emergency observation recheck failed");
         state.playback.transport.playing = false; state.playback.firedTargets = []; state.playback.playingTargets = []; state.playback.revision = "stopped";
         return { stopped: true, stoppedTargets: activeKeys };
       }
@@ -127,7 +128,7 @@ test("concurrent duplicate audition applies dispatch exactly one launch and one 
   const preview = JSON.parse(((await call(2, "live_session_audition_preview", { sceneRef: "scene:scene-1", setName: "Disposable Set", outputSafety: { safe: true, provenance: "operator-confirmed-headphones", scope: "master" } })) as any).result.content[0].text);
   const [first, second] = await Promise.all([
     call(3, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-1" }),
-    call(4, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-1" }),
+    call(4, "live_session_audition_apply", { idempotencyKey: "audition-apply-1", confirmation: preview.confirmation, transactionId: preview.transactionId }),
   ]);
   assert.equal(counts.launches, 1);
   const outcomes = [first, second].map((response) => JSON.parse((response as any).result.content[0].text));
@@ -152,10 +153,10 @@ test("emergency stop requires exact fresh observation and survives host restart"
   const preview = JSON.parse(((await call(2, "live_session_audition_preview", { sceneRef: "scene:scene-1", setName: "Disposable Set", outputSafety: { safe: true, provenance: "operator-confirmed-headphones", scope: "master" } })) as any).result.content[0].text);
   await call(3, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-1" });
   assert.equal(counts.launches, 1);
-  const wrongLiteral = await call(4, "live_session_emergency_stop", { confirmation: "stop", expectedTargets: [] });
+  const wrongLiteral = await call(4, "live_session_emergency_stop", { confirmation: "stop", expectedTargets: [], expectedRecording: "stopped" });
   assert.equal((wrongLiteral as any).error !== undefined || (wrongLiteral as any).result?.isError === true, true);
   assert.equal(counts.emergencies, 0);
-  const blind = await call(5, "live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets: [] });
+  const blind = await call(5, "live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets: [], expectedRecording: "stopped" });
   assert.equal((blind as any).result.isError, true);
   assert.equal(counts.emergencies, 0);
   // Simulate host restart: a new host has no transaction state but retains the independent stop authority.
@@ -163,12 +164,12 @@ test("emergency stop requires exact fresh observation and survives host restart"
   ready(restarted);
   const restartedCall = (id: number, name: string, args: unknown) => restarted.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
   const activeKey = `${state.tracks[0].ref}|${state.tracks[0].clipSlots[0].ref}|scene:scene-1`;
-  const stopped = await restartedCall(6, "live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets: [activeKey] });
+  const stopped = await restartedCall(6, "live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets: [activeKey], expectedRecording: "stopped" });
   assert.equal((stopped as any).result.isError, false);
   assert.equal(counts.emergencies, 1);
   assert.equal(state.playback.transport.playing, false);
   assert.equal(state.playback.playingTargets.length, 0);
-  const alreadyStopped = await restartedCall(7, "live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets: [] });
+  const alreadyStopped = await restartedCall(7, "live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets: [], expectedRecording: "stopped" });
   assert.equal((alreadyStopped as any).result.isError, false);
 });
 
@@ -205,7 +206,7 @@ test("refuses device parameter changes for invalid token, stale revision, epoch 
   const value = JSON.parse((preview as any).result.content[0].text) as { transactionId: string; confirmation: string };
   const wrongToken = host.handle({ jsonrpc: "2.0", id: 206, method: "tools/call", params: { name: "live_device_parameter_apply", arguments: { transactionId: value.transactionId, confirmation: "wrong", idempotencyKey: "parameter-bad-token" } } });
   assert.equal((wrongToken as any).result.isError, true);
-  simulator.set("parameter:gain-1", "value", 0.4);
+  simulator.simulateExternalEdit("parameter:gain-1", "value", 0.4);
   const stale = host.handle({ jsonrpc: "2.0", id: 207, method: "tools/call", params: { name: "live_device_parameter_apply", arguments: { transactionId: value.transactionId, confirmation: value.confirmation, idempotencyKey: "parameter-stale" } } });
   assert.equal((stale as any).result.isError, true);
   assert.match((stale as any).result.content[0].text, /changed since preview/);
@@ -241,13 +242,23 @@ test("previews, applies idempotently, verifies, and guardedly undoes Session str
   assert.deepEqual(simulator.snapshot().scenes.map((scene) => scene.name), ["Scene 1"]);
 });
 
+test("previews, applies, verifies, and undoes a purpose-specific rename", async () => {
+  const simulator = new DeterministicLiveSimulator(); const host = new McpHost(simulator); ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(2, "live_object_rename_preview", { kind: "track", ref: "track:track-1", name: "Renamed Track" })) as any).result.content[0].text);
+  const applied = JSON.parse(((await call(3, "live_object_rename_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "rename-apply" })) as any).result.content[0].text);
+  assert.equal(applied.name, "Renamed Track"); assert.equal((simulator.get("track:track-1") as any).name, "Renamed Track");
+  const undone = JSON.parse(((await call(4, "live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "rename-undo" })) as any).result.content[0].text);
+  assert.equal(undone.state, "undone"); assert.equal((simulator.get("track:track-1") as any).name, "Drums");
+});
+
 test("refuses Session-structure mutation when the precondition revision changes", () => {
   const simulator = new DeterministicLiveSimulator();
   const host = new McpHost(simulator);
   ready(host);
   const preview = host.handle({ jsonrpc: "2.0", id: 84, method: "tools/call", params: { name: "live_session_structure_preview", arguments: { tracks: [{ name: "Lead", kind: "midi" }], scenes: [] } } });
   const transactionId = JSON.parse((preview as any).result.content[0].text).transactionId as string;
-  simulator.set("track:track-1", "name", "Externally renamed");
+  simulator.simulateExternalEdit("track:track-1", "name", "Externally renamed");
   const applied = host.handle({ jsonrpc: "2.0", id: 85, method: "tools/call", params: { name: "live_session_structure_apply", arguments: { transactionId, confirmation: "apply", idempotencyKey: "structure-conflict" } } });
   assert.equal((applied as any).result.isError, true);
   assert.match((applied as any).result.content[0].text, /changed since preview/);
@@ -270,10 +281,12 @@ test("advertises and serves static safety resources and a complete audio workflo
   const init = host.handle({ ...initialize, id: 99 });
   assert.equal((init as any).error.code, -32600);
   const resources = host.handle({ jsonrpc: "2.0", id: 30, method: "resources/list", params: {} });
-  assert.deepEqual((resources as any).result.resources.map((resource: { uri: string }) => resource.uri), ["ableton://capabilities", "ableton://safety", "ableton://journeys", "ableton://live-workflow"]);
+  assert.deepEqual((resources as any).result.resources.map((resource: { uri: string }) => resource.uri), ["ableton://capabilities", "ableton://safety", "ableton://max-extension", "ableton://journeys", "ableton://live-workflow"]);
   const safety = host.handle({ jsonrpc: "2.0", id: 31, method: "resources/read", params: { uri: "ableton://safety" } });
   assert.match((safety as any).result.contents[0].text, /does not connect to Ableton Live/);
   assert.match((safety as any).result.contents[0].text, /explicit project mutations/);
+  const maxExtension = JSON.parse((host.handle({ jsonrpc: "2.0", id: 41, method: "resources/read", params: { uri: "ableton://max-extension" } }) as any).result.contents[0].text);
+  assert.equal(maxExtension.available, false); assert.equal(maxExtension.bundledDevice, false); assert.deepEqual(maxExtension.operations, ["parameter.set", "xy.set", "emergency-stop"]);
   const journeys = host.handle({ jsonrpc: "2.0", id: 38, method: "resources/read", params: { uri: "ableton://journeys" } });
   const journeyCatalog = JSON.parse((journeys as any).result.contents[0].text);
   assert.equal(journeyCatalog.journeys.length, 5);
@@ -366,7 +379,7 @@ test("cancels an in-flight audio worker without a response", async () => {
 test("rejects duplicates, unsupported methods, and unknown fields", () => {
   const host = new McpHost();
   ready(host);
-  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 71);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 75);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).error.message, "Duplicate request identifier");
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set", arguments: {} } }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 4, method: "tools/list", debug: true }) as any).error.code, -32600);
@@ -397,10 +410,23 @@ test("completes a simulator tempo preview, confirmed apply, verification, and co
   assert.equal(JSON.parse((applied as any).result.content[0].text).tempo, 128);
   const repeated = host.handle({ jsonrpc: "2.0", id: 45, method: "tools/call", params: { name: "live_tempo_apply", arguments: { transactionId: previewValue.transactionId, confirmation: "apply", idempotencyKey: "apply-1" } } });
   assert.equal(JSON.parse((repeated as any).result.content[0].text).idempotent, true);
-  simulator.set("set:set-1", "tempo", 130);
+  simulator.simulateExternalEdit("set:set-1", "tempo", 130);
   const conflictedUndo = host.handle({ jsonrpc: "2.0", id: 46, method: "tools/call", params: { name: "live_undo", arguments: { transactionId: previewValue.transactionId, confirmation: "undo", idempotencyKey: "undo-1" } } });
   assert.equal((conflictedUndo as any).result.isError, true);
   assert.equal(simulator.snapshot().set.tempo, 130);
+});
+
+test("expired applied host transactions retain replay and undo authority under preview pressure", () => {
+  const simulator = new DeterministicLiveSimulator(); const host = new McpHost(simulator); ready(host);
+  const parse = (value: unknown) => JSON.parse((value as any).result.content[0].text);
+  const preview = parse(host.handle({ jsonrpc: "2.0", id: 6000, method: "tools/call", params: { name: "live_tempo_preview", arguments: { tempo: 125 } } }));
+  host.handle({ jsonrpc: "2.0", id: 6001, method: "tools/call", params: { name: "live_tempo_apply", arguments: { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "retained-apply" } } });
+  (host as any).transactions.get(preview.transactionId).expiresAt = 0;
+  for (let index = 0; index < 140; index += 1) host.handle({ jsonrpc: "2.0", id: 6100 + index, method: "tools/call", params: { name: "live_tempo_preview", arguments: { tempo: 126 + (index % 2) } } });
+  const replay = parse(host.handle({ jsonrpc: "2.0", id: 6300, method: "tools/call", params: { name: "live_tempo_apply", arguments: { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "retained-apply" } } }));
+  assert.equal(replay.idempotent, true);
+  const undone = parse(host.handle({ jsonrpc: "2.0", id: 6301, method: "tools/call", params: { name: "live_undo", arguments: { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "retained-undo" } } }));
+  assert.equal(undone.state, "undone"); assert.equal(simulator.snapshot().set.tempo, 120);
 });
 
 test("routes configured adapter calls through the asynchronous host boundary", async () => {
@@ -681,11 +707,11 @@ test("clip launch previews, applies with one dispatch, verifies, and stops throu
   let launches = 0;
   let trackStops = 0;
   const innerInvoke = adapter.invokeAsync;
-  adapter.status = () => ({ ...(new DeterministicLiveSimulator()).status(), operations: ["status", "snapshot", "discover", "get", "set", "reconnect", "session.playback", "clip.launch", "track.stop"] });
+  adapter.status = () => ({ ...(new DeterministicLiveSimulator()).status(), operations: ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "session.clip-launch", "session.clip-stop"] });
   adapter.invokeAsync = async (invocation: any) => {
-    if (invocation.operation === "clip.launch") {
+    if (invocation.operation === "session.clip-launch") {
       launches += 1;
-      const slotRef = invocation.args.ref;
+      const slotRef = invocation.args.slotRef;
       const track = state.tracks[0];
       const scene = state.scenes[0];
       const target = { trackRef: track.ref, clipSlotRef: slotRef, sceneRef: scene.ref, sceneIndex: 0, clipRef: track.clips[0].ref };
@@ -693,7 +719,7 @@ test("clip launch previews, applies with one dispatch, verifies, and stops throu
       state.playback.firedTargets = [target]; state.playback.playingTargets = [target]; state.playback.revision = "launched";
       return { launched: slotRef, targets: [target] };
     }
-    if (invocation.operation === "track.stop") {
+    if (invocation.operation === "session.clip-stop") {
       trackStops += 1;
       state.playback.firedTargets = []; state.playback.playingTargets = [];
       return { stopped: true };
@@ -719,18 +745,25 @@ test("clip launch previews, applies with one dispatch, verifies, and stops throu
   assert.equal(state.playback.playingTargets.length, 0);
 });
 
-test("capture MIDI and scene capture return verified new references", async () => {
-  const simulator = new DeterministicLiveSimulator();
-  const host = new McpHost(simulator);
-  ready(host);
-  const midi = await host.handleAsync({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "live_capture_midi", arguments: { confirmation: "capture" } } });
-  const midiResult = JSON.parse((midi as any).result.content[0].text);
-  assert.equal(midiResult.captured, true);
-  assert.equal(midiResult.clips.length, 1);
-  const scene = await host.handleAsync({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "live_scene_capture", arguments: { confirmation: "capture" } } });
-  const sceneResult = JSON.parse((scene as any).result.content[0].text);
-  assert.equal(sceneResult.captured, true);
-  assert.ok(sceneResult.sceneRef.startsWith("scene:"));
+test("capture MIDI and scene capture use fenced idempotent transactions with guarded undo", async () => {
+  const simulator = new DeterministicLiveSimulator(); const host = new McpHost(simulator); ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const midiPreview = JSON.parse(((await call(2, "live_capture_midi_preview", {})) as any).result.content[0].text);
+  const midiResult = JSON.parse(((await call(3, "live_capture_midi_apply", { transactionId: midiPreview.transactionId, confirmation: "apply", idempotencyKey: "capture-midi-apply" })) as any).result.content[0].text);
+  assert.equal(midiResult.state, "applied"); assert.equal(midiResult.created.clips.length, 1);
+  const midiReplay = JSON.parse(((await call(4, "live_capture_midi_apply", { transactionId: midiPreview.transactionId, confirmation: "apply", idempotencyKey: "capture-midi-apply" })) as any).result.content[0].text);
+  assert.equal(midiReplay.idempotent, true);
+  assert.equal(JSON.parse(((await call(5, "live_undo", { transactionId: midiPreview.transactionId, confirmation: "undo", idempotencyKey: "capture-midi-undo" })) as any).result.content[0].text).state, "undone");
+  const replacementPreview = JSON.parse(((await call(6, "live_capture_midi_preview", {})) as any).result.content[0].text);
+  const replacementApplied = JSON.parse(((await call(7, "live_capture_midi_apply", { transactionId: replacementPreview.transactionId, confirmation: "apply", idempotencyKey: "capture-midi-apply" })) as any).result.content[0].text);
+  const replacementRef = replacementApplied.created.clips[0].ref; const clips = (simulator as any).state.tracks[0].clips; const position = clips.findIndex((clip: any) => clip.ref === replacementRef);
+  clips[position] = { ...structuredClone(clips[position]), name: "Foreign Replacement", objectIdentity: "foreign-object" };
+  const refusedUndo = await call(8, "live_undo", { transactionId: replacementPreview.transactionId, confirmation: "undo", idempotencyKey: "capture-replacement-undo" });
+  assert.equal((refusedUndo as any).result.isError, true); assert.equal(clips[position].name, "Foreign Replacement");
+  const scenePreview = JSON.parse(((await call(9, "live_scene_capture_preview", {})) as any).result.content[0].text);
+  const sceneResult = JSON.parse(((await call(10, "live_scene_capture_apply", { transactionId: scenePreview.transactionId, confirmation: "apply", idempotencyKey: "scene-capture-apply" })) as any).result.content[0].text);
+  assert.equal(sceneResult.state, "applied"); assert.ok(sceneResult.created.sceneRef.startsWith("scene:"));
+  assert.equal(JSON.parse(((await call(11, "live_undo", { transactionId: scenePreview.transactionId, confirmation: "undo", idempotencyKey: "scene-capture-undo" })) as any).result.content[0].text).state, "undone");
 });
 
 test("note update edits velocity and probability by id with a note-list fence and undo", async () => {
@@ -821,11 +854,11 @@ test("clip duplicate, arrangement lifecycle, move, and audio clip edits verify a
 
   // Audio clip edits with prior capture and undo
   const audioClip = simulator.invoke({ operation: "clip.create", args: { trackRef: "track:track-1", kind: "audio", name: "Audio", start: 40, length: 8 } }) as any;
-  const audioPreview = JSON.parse(((await call(15, "live_audio_clip_preview", { clipRef: audioClip.ref, gain: 0.5, pitchCoarse: -3, pitchFine: 12, loopStart: 1, loopEnd: 7, warpMode: 2 })) as any).result.content[0].text);
+  const audioPreview = JSON.parse(((await call(15, "live_audio_clip_preview", { clipRef: audioClip.ref, gain: 0.5, pitchCoarse: -3, pitchFine: 12, loopStart: 1, loopEnd: 7, warpMode: 2, warping: false, fadeInLength: 0.25, fadeOutLength: 0.5 })) as any).result.content[0].text);
   const audioApplied = JSON.parse(((await call(16, "live_audio_clip_apply", { transactionId: audioPreview.transactionId, confirmation: "apply", idempotencyKey: "audio-1" })) as any).result.content[0].text);
   assert.equal(audioApplied.state, "applied");
   const audioRow = (simulator as any).state.tracks[0].clips.find((c: any) => c.ref === audioClip.ref)!;
-  assert.equal((audioRow as any).gain, 0.5);
+  assert.equal((audioRow as any).gain, 0.5); assert.equal((audioRow as any).warping, false); assert.equal((audioRow as any).fadeOutLength, 0.5);
   assert.equal((audioRow as any).pitchCoarse, -3);
   assert.equal((audioRow as any).warpMode, 2);
 });
@@ -888,15 +921,37 @@ test("browser search returns stable identities and browser load verifies onto th
   assert.equal(search.items[0].id, "instruments/Drum Rack");
   const empty = JSON.parse(((await call(3, "live_browser_search", { query: "nonexistent-xyz" })) as any).result.content[0].text);
   assert.equal(empty.items.length, 0);
+  const unsafeNonDevice = await call(20, "live_browser_load_preview", { itemId: "drums/Kick Core", trackRef: "track:track-1" });
+  assert.equal((unsafeNonDevice as any).result.isError, true); assert.equal((simulator as any).state.tracks[0].devices.length, 1);
   const preview = JSON.parse(((await call(4, "live_browser_load_preview", { itemId: "instruments/Drum Rack", trackRef: "track:track-1" })) as any).result.content[0].text);
-  const applied = JSON.parse(((await call(5, "live_browser_load_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "load-1" })) as any).result.content[0].text);
-  assert.equal(applied.state, "applied");
+  const [firstApply, concurrentReplay] = await Promise.all([
+    call(5, "live_browser_load_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "load-1" }),
+    call(6, "live_browser_load_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "load-1" }),
+  ]);
+  const applied = JSON.parse((firstApply as any).result.content[0].text); const concurrent = JSON.parse((concurrentReplay as any).result.content[0].text);
+  assert.equal(applied.state, "applied"); assert.equal(concurrent.idempotent, true);
   assert.ok(applied.deviceRef.startsWith("device:"));
   const rack = (simulator as any).state.tracks[0].devices.at(-1);
   assert.equal(rack.name, "Drum Rack");
   assert.equal(rack.canHaveDrumPads, true);
   assert.equal(rack.drumPads.length, 16);
-  const replay = JSON.parse(((await call(6, "live_browser_load_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "load-1" })) as any).result.content[0].text);
+  assert.equal((simulator as any).state.tracks[0].devices.filter((item: any) => item.name === "Drum Rack").length, 1);
+  const replay = JSON.parse(((await call(7, "live_browser_load_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "load-1" })) as any).result.content[0].text);
+  assert.equal(replay.idempotent, true);
+});
+
+test("an in-flight Browser mutation cannot be evicted by preview pressure", async () => {
+  const simulator = new DeterministicLiveSimulator(); const originalInvoke = simulator.invokeAsync.bind(simulator);
+  let signalStarted!: () => void; const started = new Promise<void>((resolve) => { signalStarted = resolve; });
+  let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; });
+  simulator.invokeAsync = async (invocation: LiveInvocation) => { if (invocation.operation === "browser.load") { signalStarted(); await gate; } return originalInvoke(invocation); };
+  const host = new McpHost(simulator); ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(7000, "live_browser_load_preview", { itemId: "instruments/Drum Rack", trackRef: "track:track-1" })) as any).result.content[0].text);
+  const applying = call(7001, "live_browser_load_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "pressure-apply" }); await started;
+  for (let index = 0; index < 80; index += 1) await call(7100 + index, "live_browser_load_preview", { itemId: "instruments/Drum Rack", trackRef: "track:track-1" });
+  release(); const applied = JSON.parse(((await applying) as any).result.content[0].text); assert.equal(applied.state, "applied");
+  const replay = JSON.parse(((await call(7200, "live_browser_load_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "pressure-apply" })) as any).result.content[0].text);
   assert.equal(replay.idempotent, true);
 });
 
@@ -945,11 +1000,11 @@ test("realtime control requires real provenance and arms exact bounded channels 
   let provenance: "fake-live" | "real-live" = "fake-live";
   let armed = false;
   let armCalls = 0;
-  const operations = ["status", "snapshot", "discover", "get", "set", "reconnect", "session.playback", "realtime.arm", "realtime.disarm", "realtime.stats"];
+  const operations = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "realtime.arm", "realtime.disarm", "realtime.stats"];
   const adapter = {
     status: () => ({ ...simulator.status(), adapter: "remote-script", epoch: 7, provenance, registryHash: "a".repeat(64), operations }),
-    snapshot: () => simulator.snapshot(), get: (ref: LiveRef) => simulator.get(ref), set: (ref: LiveRef, property: string, value: unknown) => simulator.set(ref, property, value), invoke: () => { throw new Error("synchronous invoke is unavailable"); }, subscribe: () => () => undefined, reconnect: () => simulator.status(),
-    snapshotAsync: async () => simulator.snapshot(), discoverAsync: async () => ({ epoch: 7, items: [], truncated: false, revision: "7:empty", kind: "track" }), getAsync: async (ref: LiveRef) => simulator.get(ref), setAsync: async (ref: LiveRef, property: string, value: unknown) => simulator.set(ref, property, value), reconnectAsync: async () => simulator.status(), close: async () => undefined,
+    snapshot: () => simulator.snapshot(), get: (ref: LiveRef) => simulator.get(ref), invoke: () => { throw new Error("synchronous invoke is unavailable"); }, subscribe: () => () => undefined, reconnect: () => simulator.status(),
+    snapshotAsync: async () => simulator.snapshot(), discoverAsync: async () => ({ epoch: 7, items: [], truncated: false, revision: "7:empty", kind: "track" }), getAsync: async (ref: LiveRef) => simulator.get(ref), reconnectAsync: async () => simulator.status(), close: async () => undefined,
     invokeAsync: async (invocation: any) => {
       if (invocation.operation === "realtime.arm") {
         armCalls += 1; armed = true;
@@ -1017,10 +1072,21 @@ test("recording preview gates intent, destination, and recording state", async (
   const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
   const unsafe = await call(2, "live_recording_preview", { action: "start", lane: "session", intent: "capture a take", outputSafety: { safe: true, provenance: "unknown" } });
   assert.equal((unsafe as any).result.isError, true);
+  const missingDestination = await call(20, "live_recording_preview", { action: "start", lane: "session", intent: "capture a take", outputSafety: { safe: true, provenance: "operator-confirmed" } });
+  assert.equal((missingDestination as any).result.isError, true);
   const unarmed = await call(3, "live_recording_preview", { action: "start", lane: "arrangement", intent: "record arrangement pass", destinationTrackRef: "track:track-1", outputSafety: { safe: true, provenance: "operator-confirmed" } });
   assert.equal((unarmed as any).result.isError, true);
   (simulator as any).state.tracks[0].armed = true;
-  const preview = JSON.parse(((await call(4, "live_recording_preview", { action: "start", lane: "arrangement", intent: "record arrangement pass", destinationTrackRef: "track:track-1", outputSafety: { safe: true, provenance: "operator-confirmed" } })) as any).result.content[0].text);
+  const structure = simulator.snapshot(); const expectedStructureRevision = createHash("sha256").update(JSON.stringify({ tracks: structure.tracks.map((item, index) => [item.ref, item.name, item.kind, index]), scenes: structure.scenes.map((item, index) => [item.ref, item.name, index]) })).digest("hex");
+  simulator.invoke({ operation: "track.create", args: { name: "Other Armed", kind: "audio", index: 1, expectedStructureRevision } }); (simulator as any).state.tracks[1].armed = true;
+  const multipleArmed = await call(21, "live_recording_preview", { action: "start", lane: "arrangement", intent: "record arrangement pass", destinationTrackRef: "track:track-1", outputSafety: { safe: true, provenance: "operator-confirmed" } });
+  assert.equal((multipleArmed as any).result.isError, true); (simulator as any).state.tracks[1].armed = false;
+  let preview = JSON.parse(((await call(4, "live_recording_preview", { action: "start", lane: "arrangement", intent: "record arrangement pass", destinationTrackRef: "track:track-1", outputSafety: { safe: true, provenance: "operator-confirmed" } })) as any).result.content[0].text);
+  (simulator as any).state.tracks[1].armed = true;
+  const racedArm = await call(22, "live_recording_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "rec-raced-arm" });
+  assert.equal((racedArm as any).result.isError, true); assert.equal((simulator as any).state.playback.transport.arrangementRecord, false);
+  (simulator as any).state.tracks[1].armed = false;
+  preview = JSON.parse(((await call(23, "live_recording_preview", { action: "start", lane: "arrangement", intent: "record arrangement pass", destinationTrackRef: "track:track-1", outputSafety: { safe: true, provenance: "operator-confirmed" } })) as any).result.content[0].text);
   const applied = JSON.parse(((await call(5, "live_recording_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "rec-1" })) as any).result.content[0].text);
   assert.equal(applied.state, "applied");
   assert.equal((simulator as any).state.playback.transport.arrangementRecord, true);
@@ -1029,4 +1095,20 @@ test("recording preview gates intent, destination, and recording state", async (
   const stopPreview = JSON.parse(((await call(7, "live_recording_preview", { action: "stop", lane: "arrangement", intent: "stop the pass", outputSafety: { safe: true, provenance: "operator-confirmed" } })) as any).result.content[0].text);
   const stopped = JSON.parse(((await call(8, "live_recording_apply", { transactionId: stopPreview.transactionId, confirmation: "apply", idempotencyKey: "rec-stop" })) as any).result.content[0].text);
   assert.equal(stopped.recording, false);
+
+  let recordingDispatches = 0; const originalInvokeAsync = simulator.invokeAsync.bind(simulator);
+  simulator.invokeAsync = async (invocation) => { if (invocation.operation === "recording.arrangement") { recordingDispatches += 1; await new Promise((resolve) => setTimeout(resolve, 10)); } return originalInvokeAsync(invocation); };
+  const concurrentPreview = JSON.parse(((await call(9, "live_recording_preview", { action: "start", lane: "arrangement", intent: "one exact pass", destinationTrackRef: "track:track-1", outputSafety: { safe: true, provenance: "operator-confirmed" } })) as any).result.content[0].text);
+  const [first, replay, conflictingAuthority, differentOperation] = await Promise.all([
+    call(10, "live_recording_apply", { transactionId: concurrentPreview.transactionId, confirmation: "apply", idempotencyKey: "rec-concurrent" }),
+    call(11, "live_recording_apply", { transactionId: concurrentPreview.transactionId, confirmation: "apply", idempotencyKey: "rec-concurrent" }),
+    call(13, "live_recording_apply", { transactionId: concurrentPreview.transactionId, confirmation: "wrong", idempotencyKey: "rec-concurrent" }),
+    call(14, "live_undo", { transactionId: concurrentPreview.transactionId, confirmation: "undo", idempotencyKey: "rec-concurrent" }),
+  ]);
+  assert.equal(recordingDispatches, 1); assert.equal((first as any).id, 10); assert.equal((replay as any).id, 11);
+  assert.equal((conflictingAuthority as any).result.isError, true); assert.equal((differentOperation as any).result.isError, true);
+  const staleRecordingAuthority = await call(15, "live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets: [], expectedRecording: "stopped", idempotencyKey: "recording-emergency-stale" });
+  assert.equal((staleRecordingAuthority as any).result.isError, true); assert.equal((simulator as any).state.playback.transport.arrangementRecord, true);
+  const emergency = await call(12, "live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets: [], expectedRecording: "arrangement", idempotencyKey: "recording-emergency" });
+  assert.equal((emergency as any).result.isError, false); assert.equal((simulator as any).state.playback.transport.arrangementRecord, false);
 });

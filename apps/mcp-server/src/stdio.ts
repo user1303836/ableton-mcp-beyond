@@ -46,6 +46,8 @@ function requestId(record: string): string | number | undefined {
 export async function serveStdio(input: Readable, output: Writable, handler: RecordHandler, options: StdioOptions = {}): Promise<void> {
   const maxInFlight = options.maxInFlight ?? 16;
   if (!Number.isSafeInteger(maxInFlight) || maxInFlight < 1 || maxInFlight > 64) throw new RangeError("maxInFlight must be an integer from 1 to 64");
+  const maxPending = maxInFlight * 4;
+  const maxQueuedWrites = maxPending * 4;
   const framer = new NdjsonFramer();
   const controllers = new Map<string, AbortController>();
   const pending = new Map<number, Promise<string | null>>();
@@ -65,7 +67,7 @@ export async function serveStdio(input: Readable, output: Writable, handler: Rec
     active -= 1;
     waiters.shift()?.();
   };
-  const write = async (value: string): Promise<void> => {
+  const writeRaw = async (value: string): Promise<void> => {
     if (output.destroyed) throw new Error("output unavailable");
     if (!output.write(`${value}\n`)) await new Promise<void>((resolve, reject) => {
       const onDrain = (): void => { cleanup(); resolve(); };
@@ -74,6 +76,15 @@ export async function serveStdio(input: Readable, output: Writable, handler: Rec
       const cleanup = (): void => { output.off("drain", onDrain); output.off("error", onError); output.off("close", onClose); };
       output.once("drain", onDrain); output.once("error", onError); output.once("close", onClose);
     });
+  };
+  let queuedWrites = 0;
+  let writeTail: Promise<void> = Promise.resolve();
+  const write = (value: string): Promise<void> => {
+    if (queuedWrites >= maxQueuedWrites) throw new Error("bounded output queue is saturated");
+    queuedWrites += 1;
+    const result = writeTail.then(() => writeRaw(value)).finally(() => { queuedWrites -= 1; });
+    writeTail = result.catch(() => undefined);
+    return result;
   };
   options.notifier?.(write);
   const process = async (event: FrameEvent): Promise<void> => {
@@ -91,6 +102,24 @@ export async function serveStdio(input: Readable, output: Writable, handler: Rec
     if (id === undefined) {
       try { const result = await handler(event.value); if (result !== null) await write(result); }
       catch { await write(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32603, message: "Internal error" } })); }
+      return;
+    }
+    if (pending.size >= maxPending) {
+      // Never stop reading the control stream behind saturated work: doing so
+      // would strand cancellation notifications behind the request they must
+      // abort. Refuse excess work immediately and keep the bounded control
+      // plane responsive.
+      // Queue the bounded busy response without blocking input consumption, so
+      // a following cancellation can still abort its matching in-flight work
+      // even while stdout is backpressured.
+      try {
+        void write(JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32000, message: "Server is busy; retry after in-flight work completes" } })).catch(() => { closed = true; for (const controller of controllers.values()) controller.abort(new Error("output unavailable")); });
+      } catch {
+        // A peer that supplies more response-producing requests than the
+        // bounded output queue can hold loses the connection's work
+        // authority immediately; no mutation may remain stranded behind it.
+        closed = true; for (const controller of controllers.values()) controller.abort(new Error("bounded output queue saturated")); output.destroy(); input.destroy();
+      }
       return;
     }
     const key = requestKey(id)!;
@@ -129,6 +158,7 @@ export async function serveStdio(input: Readable, output: Writable, handler: Rec
     for (const event of framer.end()) await process(event);
     await Promise.all(pending.values());
     if (flushPromise) await flushPromise;
+    await writeTail;
   } finally {
     closed = true;
     for (const controller of controllers.values()) controller.abort(new Error("stdio shutting down"));

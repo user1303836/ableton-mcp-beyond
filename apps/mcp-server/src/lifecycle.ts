@@ -115,6 +115,8 @@ const JOURNAL_NAME = "lifecycle-journal.json";
 const REMOTE_PACKAGE = "AbletonMcpBridge";
 const REMOTE_MODULE = "ableton_mcp_remote_script.py";
 const ARTIFACT_SHA_PATTERN = /^[a-f0-9]{64}$/;
+const MAX_ARTIFACT_BYTES = 32 * 1024 * 1024;
+const MAX_ARTIFACT_TAR_BYTES = 64 * 1024 * 1024;
 
 function sha256(value: Buffer | string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -274,11 +276,15 @@ function verifyArtifactBinding(artifactPath: string | undefined, expectedSha256:
   assertNoLinkedAncestors(artifactPath);
   const entry = lstatSync(artifactPath);
   if (!entry.isFile() || entry.isSymbolicLink()) throw new Error("artifact must be a regular local file");
+  if (entry.size < 1 || entry.size > MAX_ARTIFACT_BYTES) throw new Error("artifact exceeds the bounded compressed size");
   const compressed = readFileSync(artifactPath);
   const artifactSha256 = sha256(compressed);
   if (!expectedSha256 || !ARTIFACT_SHA_PATTERN.test(expectedSha256) || expectedSha256 !== artifactSha256) throw new Error("artifact SHA-256 does not match the exact tarball bytes");
   let tar: Buffer;
-  try { tar = gunzipSync(compressed); } catch { throw new Error("artifact is not a valid gzip-compressed npm tarball"); }
+  try { tar = gunzipSync(compressed, { maxOutputLength: MAX_ARTIFACT_TAR_BYTES }); } catch (cause) {
+    if (cause instanceof Error && /output length|buffer too large|larger than/i.test(cause.message)) throw new Error("artifact exceeds the bounded decompressed size");
+    throw new Error("artifact is not a valid gzip-compressed npm tarball");
+  }
   const tarFiles = new Map<string, Buffer>();
   let terminated = false;
   for (let offset = 0; offset + 512 <= tar.length;) {

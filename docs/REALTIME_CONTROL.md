@@ -63,11 +63,12 @@ Atomic XY pair with best-effort rollback if either verified write fails:
 {"token":"<arm token>","seq":2,"channel":"xy","op":"xy.set","xRef":"<parameter ref>","x":0.4,"yRef":"<parameter ref>","y":0.6,"sentAtMs":1700000000000}
 ```
 
-A Max client can use the same strict objects with `channel:"max"`. This is a
-Max-compatible authenticated extension contract, not a claim that an `.amxd`
-device is bundled. A Max for Live patch can serialize the object and send it
-with `udpsend` to the returned loopback endpoint. Distribution and validation
-of a ready-made Max device remain a separately versioned extension.
+An operator-authored client, including a Max patch, may serialize the same
+strict objects with `channel:"max"`. This is only an authenticated extension
+packet label: runtime status does not advertise a `max` capability, no Max
+handshake occurs, and no `.amxd` device is bundled. A patch may send it with
+`udpsend` to the returned loopback endpoint; distribution and validation of a
+ready-made Max device remain a separately versioned extension.
 
 Emergency stop:
 

@@ -16,13 +16,16 @@ a current capability report.
 - Authenticated `ableton-loopback/v1` bridge with connection challenge and
   bridge epoch binding, canonical HMAC frames, replay/deadline fencing, bounded
   Live-main-thread dispatch, epoch-scoped refs/cursors, signed subscriptions,
-  and canonical registry negotiation.
+  canonical registry negotiation, and a read-only preflight → unpredictable
+  confirmation → one-use mutation authority protocol. Stable transaction-scoped
+  replay keys and the bridge-epoch executed-result ledger survive TCP response
+  loss without conflating distinct host transactions.
 - Real-Live discovery and guarded lifecycle evidence for Live 12.4.5b8:
   transport; Session clip launch/stop/emergency stop; MIDI notes and clips;
   Arrangement clips and locators; mixer; Session automation; nested devices,
   racks/chains/pads/macros; Browser search/load; routing; Session and
   Arrangement recording; project path/manifest/backup; subscriptions; and
-  realtime UDP JSON/OSC/XY/Max-compatible ingress.
+  realtime UDP JSON/OSC/XY plus bounded `max`-label extension packets (not a Max capability).
 - Purpose-specific preview/apply/verify/undo or cleanup workflows with exact
   targets, epochs/revisions, expiry, idempotency, fresh postconditions, bounded
   compensation, and explicit uncertain state. Unsupported Live shapes remain
@@ -67,7 +70,7 @@ a current capability report.
   isolated resource benchmarks, compatibility/package verification, and
   Windows permission hardening.
 - Private/unpublished `UNLICENSED` release staging with an independently exact
-  76-file allowlist, full payload hashes, and clean-SHA/toolchain/lock/workflow
+  77-file allowlist, full payload hashes, and clean-SHA/toolchain/lock/workflow
   provenance. The release workflow is configured to require fresh-clone byte
   reproducibility and share one exact candidate across Node 22/24/25 on Ubuntu 24.04, macOS 15, and Windows Server 2025.
 - Receipt-driven install, truthful manual activation, strict newer-version
@@ -90,8 +93,11 @@ be opened, copied, staged, packaged, or cited as implementation evidence.
 
 ## Truthful limitations
 
-- Live save/open/new/export/collect/bounce and Arrangement automation remain
-  unavailable where the observed API has no authoritative operation.
+- Live save/open/new/export/collect/bounce, Arrangement automation, warp-marker
+  editing, take/comp editing, and Browser audio preview remain unavailable where
+  the observed API has no authoritative operation. Strict reserved canonical
+  contracts are tested but remain unadvertised until an adapter can execute and
+  verify them.
 - No Max for Live `.amxd`, plug-in UI control, streaming PCM tap, arbitrary
   path/URL analysis, immersive/object loudness layout, automatic mastering
   verdict, or forensic secure erase is claimed.
@@ -99,9 +105,10 @@ be opened, copied, staged, packaged, or cited as implementation evidence.
   unavailable.
 - Live capture requires a saved Set, WAV recording, a selectable restorable
   destination route, explicit consent/output safety, and real-Live provenance.
-- Current real-Live proof is on macOS. Windows hosted CI is externally blocked
-  when GitHub account billing prevents jobs from starting; that is not treated
-  as a passing check.
+- Current real-Live proof is on macOS. The latest pushed Phase 10 candidate jobs
+  started but failed because performance tests were run under V8 coverage
+  instrumentation, so all dependent Windows jobs were skipped. Performance now
+  remains an uninstrumented independent gate; a new exact-SHA run is required.
 - The stdio journey surface is text-first and has no server-owned visual focus,
   but VoiceOver/Narrator behavior in third-party MCP clients, Ableton Live, and
   plug-in windows remains client/version-dependent and is not claimed.

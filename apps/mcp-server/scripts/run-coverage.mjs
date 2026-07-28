@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
 const testDirectory = resolve("dist/test");
-const testFiles = readdirSync(testDirectory).filter((file) => file.endsWith(".test.js")).sort().map((file) => resolve(testDirectory, file));
+const testFiles = readdirSync(testDirectory).filter((file) => file.endsWith(".test.js") && file !== "benchmark.test.js").sort().map((file) => resolve(testDirectory, file));
 if (testFiles.length === 0) throw new Error("no compiled tests are available for coverage");
 const args = [
   "--test", "--test-concurrency=1", "--experimental-test-coverage", "--test-coverage-include=dist/src/**/*.js",

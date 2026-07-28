@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 export interface LiveRegistryOperation {
   id: string;
-  method: "status" | "snapshot" | "discover" | "get" | "set" | "invoke" | "subscribe" | "reconnect";
+  method: "status" | "snapshot" | "discover" | "get" | "preflight" | "prepare" | "invoke" | "subscribe" | "reconnect";
   request: Record<string, unknown>;
   result: Record<string, unknown>;
 }
@@ -27,7 +27,7 @@ function canonical(value: unknown, depth = 0): string {
 
 function registryPath(): string {
   const here = dirname(fileURLToPath(import.meta.url));
-  return [join(here, "../../remote-script/AbletonMcpBridge/ableton-live-v1.operations.json"), join(here, "../../../protocol/ableton-live-v1.operations.json"), join(process.cwd(), "../../protocol/ableton-live-v1.operations.json"), join(process.cwd(), "protocol/ableton-live-v1.operations.json")].find((candidate) => {
+  return [join(here, "../../../protocol/ableton-live-v1.operations.json"), join(process.cwd(), "../../protocol/ableton-live-v1.operations.json"), join(process.cwd(), "protocol/ableton-live-v1.operations.json"), join(here, "../../remote-script/AbletonMcpBridge/ableton-live-v1.operations.json")].find((candidate) => {
     try { readFileSync(candidate); return true; } catch { return false; }
   }) ?? join(here, "../../../protocol/ableton-live-v1.operations.json");
 }
@@ -64,7 +64,7 @@ export function loadLiveRegistry(): LiveRegistry {
     if (value.const !== undefined && (typeof value.const === "object" || typeof value.const === "function")) throw new Error("const is invalid");
   };
   for (const operation of parsed.operations) {
-    if (!operation || !["status", "snapshot", "discover", "get", "set", "invoke", "subscribe", "reconnect"].includes(operation.method) || !operation.request || !operation.result) throw new Error(`invalid registry operation: ${operation?.id ?? "unknown"}`);
+    if (!operation || !["status", "snapshot", "discover", "get", "preflight", "prepare", "invoke", "subscribe", "reconnect"].includes(operation.method) || !operation.request || !operation.result) throw new Error(`invalid registry operation: ${operation?.id ?? "unknown"}`);
     validateSchema(operation.request);
     validateSchema(operation.result);
   }

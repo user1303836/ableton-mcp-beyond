@@ -42,6 +42,22 @@ test("stdio runs bounded concurrent work but writes responses in request order",
   assert.deepEqual(received, ["{\"jsonrpc\":\"2.0\",\"id\":1}", "{\"jsonrpc\":\"2.0\",\"id\":2}", "{\"jsonrpc\":\"2.0\",\"id\":3}"]);
 });
 
+test("stdio saturation refuses excess work without stranding cancellation behind backpressure", async () => {
+  const input = new PassThrough(); const received: string[] = []; let aborted = false; let releaseWrite: (() => void) | undefined; let writes = 0;
+  const output = new Writable({ highWaterMark: 1, write(chunk, _encoding, callback) { received.push(String(chunk).trim()); writes += 1; if (writes === 1) releaseWrite = callback; else callback(); } });
+  const done = serveStdio(input, output, async (record: string, context?: RecordContext) => {
+    const id = (JSON.parse(record) as { id: number }).id;
+    if (id === 1) await new Promise<void>((resolve) => context!.signal.addEventListener("abort", () => { aborted = true; resolve(); }, { once: true }));
+    return record;
+  }, { maxInFlight: 1 });
+  input.end(Array.from({ length: 15 }, (_, index) => index + 1).map((id) => JSON.stringify({ jsonrpc: "2.0", id, method: "work" })).join("\n") + '\n' + JSON.stringify({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: 1 } }) + '\n');
+  for (let index = 0; index < 50 && !aborted; index += 1) await new Promise((resolve) => setTimeout(resolve, 2));
+  assert.equal(aborted, true);
+  assert.ok(received.some((value) => JSON.parse(value).id === 5 && JSON.parse(value).error?.code === -32000));
+  releaseWrite?.(); await done;
+  assert.ok(received.some((value) => JSON.parse(value).id === 15 && JSON.parse(value).error?.code === -32000));
+});
+
 test("stdio cancellation aborts the matching request and emits no response", async () => {
   const input = new PassThrough();
   const received: string[] = [];

@@ -94,7 +94,8 @@ Live, follows symlink/junction ancestors, deletes drift, or claims activation
 without authenticated `real-live` discovery. See
 [`docs/DELIVERY.md`](docs/DELIVERY.md),
 [`docs/DISTRIBUTION_POLICY.md`](docs/DISTRIBUTION_POLICY.md),
-[`docs/SUPPORT_MATRIX.md`](docs/SUPPORT_MATRIX.md), and
+[`docs/SUPPORT_MATRIX.md`](docs/SUPPORT_MATRIX.md),
+[`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md), and
 [`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md).
 
 Scene audition is a potentially audible workflow. Preview is read-only and

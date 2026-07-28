@@ -48,7 +48,9 @@ All Live mutations require a connected negotiated adapter, fresh discovery, a re
 - `live_arrangement_section_preview/apply` for two named locators in a bounded non-colliding range.
 - `live_tempo_preview/apply` for a bounded tempo change.
 - `live_undo` for an applied transaction whose epoch and verified postcondition still match.
-- Purpose-specific clip launch/stop, transport, note update/delete, clip duplicate/move/delete, Arrangement clip, audio-clip, mixer, Session automation, Browser/device, routing, recording, project-backup, subscriptions, and realtime workflows when their exact operations are negotiated.
+- Purpose-specific clip launch/stop, transport, note update/delete, clip duplicate/move/delete/rename, track/scene/device/locator rename, Arrangement clip, audio-clip, mixer, Session automation, Browser/device, routing, recording, project-backup, subscriptions, and realtime workflows when their exact operations are negotiated.
+- Audio-clip preview accepts only fields advertised by the exact clip (`availableAudioFields`): supported Live objects may expose gain, pitch, loop, warp enable/mode, and fades. Warp markers are bounded readback only; marker editing, take lanes, and comping remain unavailable unless a future canonical operation is negotiated.
+- Device discovery traverses racks/chains recursively with canonical parent refs. Browser loading requires a fresh exact `browser.inspect` result and rejects non-device items before mutation.
 - `live_session_audition_preview/apply/stop` for one guarded, potentially audible Session scene launch. Preview is read-only; it requires the exact Set name, authoritative stopped/non-recording playback, no armed or input-monitored track, safe launch quantization, callable launch/stop operations, and explicit output-safety evidence. Apply requires the exact preview confirmation and idempotency key, launches once, and verifies fresh fired/playing state. Stop requires the returned stop confirmation, stops only mapper-owned playback, and verifies the stopped baseline.
 
 Preview records expire after 30 seconds. A lost acknowledgement, timeout,

@@ -156,7 +156,8 @@ try {
   let playback = (await client.call("live_discover", { kind: "session-playback" })).items[0];
   if (playback.transport.playing || playback.transport.arrangementRecord || playback.transport.sessionRecord || playback.firedTargets.length || playback.playingTargets.length) {
     const expectedTargets = [...playback.firedTargets, ...playback.playingTargets].map((target) => `${target.trackRef}|${target.clipSlotRef}|${target.sceneRef}`);
-    await client.call("live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets, idempotencyKey: `phase8-initial-stop-${Date.now()}` });
+    const expectedRecording = playback.transport.sessionRecord && playback.transport.arrangementRecord ? "both" : playback.transport.sessionRecord ? "session" : playback.transport.arrangementRecord ? "arrangement" : "stopped";
+    await client.call("live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets, expectedRecording, idempotencyKey: `phase8-initial-stop-${Date.now()}` });
   }
 
   let tracks = (await client.call("live_discover", { kind: "track" })).items;

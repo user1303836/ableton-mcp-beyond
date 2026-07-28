@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { LiveAdapter, LiveEvent, LiveInvocation, LiveRef, LiveSnapshot, LiveStatus } from "./live.js";
+import { validateLiveOperationRequest, validateLiveOperationResult } from "./registry.js";
 
 export const LOOPBACK_PROTOCOL_VERSION = "ableton-loopback/v1";
 const MAX_NONCE_LENGTH = 256;
@@ -7,7 +8,9 @@ const MAX_WIRE_BYTES = 1_048_576;
 const MAX_WIRE_DEPTH = 16;
 const MAX_WIRE_STRING_LENGTH = 16_384;
 const MAX_WIRE_COLLECTION_LENGTH = 256;
-export type LoopbackRequest = { version: string; id: string; method: "status" | "snapshot" | "discover" | "get" | "set" | "invoke" | "subscribe" | "reconnect"; ref?: LiveRef; property?: string; value?: unknown; operation?: LiveInvocation["operation"]; args?: Record<string, unknown>; nonce: string; sequence: number; bridgeEpoch: string; connectionChallenge: string; deadlineMs: number; mac: string };
+type WireRequestBase = { version: string; id: string; ref?: LiveRef; operation?: LiveInvocation["operation"]; args?: Record<string, unknown>; nonce: string; sequence: number; bridgeEpoch: string; connectionChallenge: string; deadlineMs: number; mac: string };
+export type LoopbackRequest = WireRequestBase & { method: "status" | "snapshot" | "discover" | "get" | "invoke" | "subscribe" | "reconnect" };
+export type RemoteBridgeRequest = WireRequestBase & { method: "status" | "snapshot" | "discover" | "get" | "preflight" | "prepare" | "invoke" | "subscribe" | "reconnect"; preflightToken?: string; confirmation?: string; idempotencyKey?: string; authorityToken?: string };
 export type LoopbackResponse = { version: string; id: string; ok: boolean; bridgeEpoch: string; connectionChallenge: string; result?: unknown; error?: string; mac: string };
 export type LoopbackExchange = (request: LoopbackRequest) => LoopbackResponse;
 
@@ -69,8 +72,7 @@ export class AuthenticatedLoopback {
         case "snapshot": result = this.adapter.snapshot(); break;
         case "discover": throw new Error("in-process discovery requires the asynchronous adapter contract");
         case "get": if (!request.ref) throw new Error("ref is required"); result = this.adapter.get(request.ref); break;
-        case "set": if (!request.ref || !request.property) throw new Error("ref and property are required"); this.adapter.set(request.ref, request.property, request.value); result = { changed: true }; break;
-        case "invoke": if (!request.operation || !request.args || typeof request.args !== "object" || Array.isArray(request.args)) throw new Error("operation and args are required"); result = this.adapter.invoke({ operation: request.operation, args: request.args }); break;
+        case "invoke": if (!request.operation || !request.args || typeof request.args !== "object" || Array.isArray(request.args)) throw new Error("operation and args are required"); validateLiveOperationRequest(request.operation, request.args); result = this.adapter.invoke({ operation: request.operation, args: request.args }); validateLiveOperationResult(request.operation, result); break;
         case "reconnect": result = this.adapter.reconnect(); break;
         case "subscribe": this.unsubscribe?.(); this.unsubscribe = this.adapter.subscribe((event) => this.emit(this.eventResponse(request.id, event))); result = { subscribed: true }; break;
       }
@@ -86,7 +88,7 @@ export class AuthenticatedLoopback {
     catch { const fallback = { version: LOOPBACK_PROTOCOL_VERSION, id: unsigned.id, ok: false, bridgeEpoch: this.bridgeEpoch, connectionChallenge: this.connectionChallenge, error: "response exceeds wire limits" }; return { ...fallback, mac: sign(this.secret, boundedCanonical(fallback)) }; }
   }
   private eventResponse(id: string, event: LiveEvent): LoopbackResponse { return this.response(id, true, undefined, { event }); }
-  private isRequest(value: unknown): value is LoopbackRequest { if (!value || typeof value !== "object" || Array.isArray(value)) return false; const request = value as Partial<LoopbackRequest>; return Object.keys(value).every((key) => ["version", "id", "method", "ref", "property", "value", "operation", "args", "nonce", "sequence", "bridgeEpoch", "connectionChallenge", "deadlineMs", "mac"].includes(key)) && typeof request.version === "string" && typeof request.id === "string" && typeof request.method === "string" && typeof request.nonce === "string" && typeof request.sequence === "number" && typeof request.bridgeEpoch === "string" && typeof request.connectionChallenge === "string" && typeof request.deadlineMs === "number" && typeof request.mac === "string" && ["status", "snapshot", "discover", "get", "set", "invoke", "subscribe", "reconnect"].includes(request.method); }
+  private isRequest(value: unknown): value is LoopbackRequest { if (!value || typeof value !== "object" || Array.isArray(value)) return false; const request = value as Partial<LoopbackRequest>; return Object.keys(value).every((key) => ["version", "id", "method", "ref", "operation", "args", "nonce", "sequence", "bridgeEpoch", "connectionChallenge", "deadlineMs", "mac"].includes(key)) && typeof request.version === "string" && typeof request.id === "string" && typeof request.method === "string" && typeof request.nonce === "string" && typeof request.sequence === "number" && typeof request.bridgeEpoch === "string" && typeof request.connectionChallenge === "string" && typeof request.deadlineMs === "number" && typeof request.mac === "string" && ["status", "snapshot", "discover", "get", "invoke", "subscribe", "reconnect"].includes(request.method); }
 }
 
 /**
@@ -107,8 +109,11 @@ export class LoopbackLiveAdapter implements LiveAdapter {
   status(): LiveStatus { return this.request({ method: "status" }) as LiveStatus; }
   snapshot(): LiveSnapshot { return this.request({ method: "snapshot" }) as LiveSnapshot; }
   get(objectRef: LiveRef): unknown { return this.request({ method: "get", ref: objectRef }); }
-  set(objectRef: LiveRef, property: string, value: unknown): void { this.request({ method: "set", ref: objectRef, property, value }); }
-  invoke(invocation: LiveInvocation): unknown { return this.request({ method: "invoke", operation: invocation.operation, args: invocation.args }); }
+  invoke(invocation: LiveInvocation): unknown {
+    const status = this.status();
+    if (!status.operations?.includes(invocation.operation)) throw new Error(`loopback operation is not negotiated: ${invocation.operation}`);
+    return this.request({ method: "invoke", operation: invocation.operation, args: invocation.args });
+  }
 
   subscribe(listener: (event: LiveEvent) => void): () => void {
     this.listeners.add(listener);

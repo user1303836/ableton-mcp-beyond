@@ -41,8 +41,15 @@ def _debug_trace(context: str) -> None:
     except OSError:
         pass
 
-METHODS = {"status", "snapshot", "discover", "get", "set", "invoke", "subscribe", "reconnect"}
-REQUIRED_REGISTRY_OPERATIONS = {"status", "snapshot", "discover", "get", "set", "reconnect", "session.playback"}
+METHODS = {"status", "snapshot", "discover", "get", "preflight", "prepare", "invoke", "subscribe", "reconnect"}
+_READ_ONLY_INVOKES = {"session.playback", "automation.envelope.read", "browser.search", "browser.inspect", "audio.capture.inspect", "audio.capture.status", "realtime.stats", "session.reconnect"}
+def _mutation_authority_required(operation: str) -> bool: return operation not in _READ_ONLY_INVOKES
+
+def _require_output_safety(args: dict[str, Any]) -> None:
+    evidence = args.get("outputSafety")
+    if not isinstance(evidence, dict) or set(evidence) - {"safe", "provenance", "observedAt", "scope"} or evidence.get("safe") is not True or not isinstance(evidence.get("provenance"), str) or evidence.get("provenance") in {"", "unknown", "simulator"}:
+        raise ValueError("explicit authoritative output-safety evidence is required")
+REQUIRED_REGISTRY_OPERATIONS = {"status", "snapshot", "discover", "get", "reconnect", "session.playback"}
 _MODULE_PATH = Path(__file__).resolve()
 _REGISTRY_CANDIDATES = (
     _MODULE_PATH.with_name("ableton-live-v1.operations.json"),
@@ -232,13 +239,16 @@ class AuthenticatedRemoteScript:
             args = dict(request.get("args", {}))
             return ("session.playback", {}) if args.get("kind") == "session_playback" else ("discover", args)
         if method == "get": return "get", {"ref": request.get("ref")}
-        if method == "set": return "set", {"ref": request.get("ref"), "property": request.get("property"), "value": request.get("value")}
+        if method in {"preflight", "prepare"}:
+            args = dict(request.get("args", {})); operation = str(request.get("operation")); digest = hashlib.sha256(self._bounded_canonical(args).encode("utf-8")).hexdigest()
+            if method == "preflight": return "authority.preflight", {"operation": operation, "argsDigest": digest}
+            return "authority.prepare", {"operation": operation, "argsDigest": digest, "preflightToken": request.get("preflightToken"), "confirmation": request.get("confirmation"), "idempotencyKey": request.get("idempotencyKey")}
         if method == "invoke": return str(request.get("operation")), dict(request.get("args", {}))
         return method, dict(request.get("args", {}))
 
     def dispatch(self, request: dict[str, Any]) -> dict[str, Any]:
         required = {"version", "id", "method", "nonce", "sequence", "bridgeEpoch", "connectionChallenge", "deadlineMs", "mac"}
-        optional = {"ref", "property", "value", "operation", "args"}
+        optional = {"ref", "property", "value", "operation", "args", "preflightToken", "confirmation", "idempotencyKey", "authorityToken"}
         if not isinstance(request, dict) or set(request) - required - optional or not required <= set(request):
             return self._error("invalid", "invalid request")
         unsigned = {key: value for key, value in request.items() if key != "mac"}
@@ -252,14 +262,16 @@ class AuthenticatedRemoteScript:
             or not isinstance(request["id"], str)
             or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", request["id"])
             or request["method"] not in METHODS
+            or (request["method"] == "prepare" and (not isinstance(request.get("preflightToken"), str) or not 24 <= len(request["preflightToken"]) <= 128 or not isinstance(request.get("confirmation"), str) or not 24 <= len(request["confirmation"]) <= 128 or not isinstance(request.get("idempotencyKey"), str) or not 8 <= len(request["idempotencyKey"]) <= 128))
+            or (request["method"] == "invoke" and _mutation_authority_required(str(request.get("operation"))) and (not isinstance(request.get("authorityToken"), str) or not 24 <= len(request["authorityToken"]) <= 128))
             or not isinstance(request["nonce"], str)
             or not isinstance(request["sequence"], int) or isinstance(request["sequence"], bool)
             or not 1 <= request["sequence"] <= (2**53 - 1)
             or not isinstance(request["mac"], str)
         ):
             return self._error(request.get("id", "invalid"), "invalid request")
-        if request["method"] in {"invoke", "discover"}:
-            if request["method"] == "invoke" and (not isinstance(request.get("operation"), str) or not re.fullmatch(r"[a-z]+(?:[.-][a-z]+)+", request["operation"])):
+        if request["method"] in {"invoke", "preflight", "prepare", "discover"}:
+            if request["method"] in {"invoke", "preflight", "prepare"} and (not isinstance(request.get("operation"), str) or not re.fullmatch(r"[a-z]+(?:[.-][a-z]+)+", request["operation"])):
                 return self._error(request["id"], "operation is required")
             if not isinstance(request.get("args", {}), dict) or len(request.get("args", {})) > 32:
                 return self._error(request["id"], "args must be a bounded object")
@@ -390,12 +402,12 @@ class LiveObjectMapper:
             return True
         if operation == "transport.set":
             return callable(getattr(self.song, "stop_playing", None)) or hasattr(self.song, "current_song_time")
-        if operation == "clip.launch":
+        if operation == "session.clip-launch":
             return any(getattr(slot, "clip", None) is not None and callable(getattr(slot, "fire", None)) for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
-        if operation == "track.stop":
+        if operation == "session.clip-stop":
             return any(callable(getattr(track, "stop_all_clips", None)) for track in self._items(getattr(self.song, "tracks", [])))
-        if operation == "playback.stop-all-clips":
-            return callable(getattr(self.song, "stop_all_clips", None)) and callable(getattr(self.song, "stop_playing", None))
+        if operation == "tempo.set":
+            return isinstance(self._read_attr(self.song, "tempo"), (int, float))
         if operation == "session.capture-midi":
             return callable(getattr(self.song, "capture_midi", None))
         if operation == "scene.capture":
@@ -411,7 +423,7 @@ class LiveObjectMapper:
         if operation == "arrangement.clip.move":
             return bool(self._arrangement_clip_items())
         if operation == "audio.clip.set":
-            return any(self._read_attr(getattr(slot, "clip", None), "is_audio_clip") is True for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
+            return any(self._read_attr(getattr(slot, "clip", None), "is_audio_clip") is True and bool(self._audio_fields(getattr(slot, "clip"))["availableAudioFields"]) for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
         if operation in {"audio.capture.inspect", "audio.capture.start", "audio.capture.stop", "audio.capture.status", "audio.capture.emergency-stop", "audio.capture.cleanup"} and self._capture_state is not None and self._capture_state.get("state") != "cleaned":
             # Recovery authority and the negotiated provider identity must
             # remain advertised while the one destination is occupied or a
@@ -433,26 +445,28 @@ class LiveObjectMapper:
             return any(any(isinstance(self._read_attr(device, attr), bool) for attr in ("is_active", "is_enabled", "enabled")) for track in self._items(getattr(self.song, "tracks", [])) for device in self._items(getattr(track, "devices", [])))
         if operation == "device.move":
             return any(callable(getattr(track, "move_device", None)) for track in self._items(getattr(self.song, "tracks", [])))
-        if operation in {"browser.search", "browser.load"}:
+        if operation in {"browser.search", "browser.inspect", "browser.load"}:
             try:
-                self._browser()
-                return True
+                browser = self._browser()
+                return operation != "browser.load" or callable(getattr(browser, "load_item", None))
             except ValueError:
                 return False
+        if operation == "track.rename": return any(hasattr(track, "name") for track in self._items(getattr(self.song, "tracks", [])))
+        if operation == "scene.rename": return any(hasattr(scene, "name") for scene in self._items(getattr(self.song, "scenes", [])))
+        if operation == "clip.rename": return any(hasattr(getattr(slot, "clip", None), "name") for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])) if getattr(slot, "clip", None) is not None)
+        if operation == "device.rename": return any(hasattr(device, "name") for track in self._items(getattr(self.song, "tracks", [])) for device in self._items(getattr(track, "devices", [])))
+        if operation == "locator.rename": return any(hasattr(locator, "name") for locator in self._items(getattr(self.song, "cue_points", [])))
         if operation == "routing.set":
             return any(self._read_attr(track, "available_output_routing_types") is not None or self._read_attr(track, "can_be_armed") is True or isinstance(self._read_attr(track, "current_monitoring_state"), int) for track in self._items(getattr(self.song, "tracks", [])))
-        if operation == "recording.session":
-            return isinstance(self._read_attr(self.song, "session_record"), bool)
-        if operation == "recording.arrangement":
-            return isinstance(self._read_attr(self.song, "record_mode"), bool)
+        if operation in {"recording.session", "recording.arrangement"}:
+            tracks = self._items(getattr(self.song, "tracks", []))
+            return isinstance(self._read_attr(self.song, "session_record"), bool) and isinstance(self._read_attr(self.song, "record_mode"), bool) and any(isinstance(self._read_attr(track, "arm"), bool) for track in tracks)
         if operation in {"realtime.arm", "realtime.disarm", "realtime.stats"}:
             return getattr(self, "realtime_available", False)
         if operation == "session.audition-launch":
             return any(callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None)) for scene in self._items(getattr(self.song, "scenes", [])))
         if operation in {"session.audition-stop", "session.emergency-stop"}:
             return callable(getattr(self.song, "stop_all_clips", None)) and callable(getattr(self.song, "stop_playing", None))
-        if operation == "set":
-            return True
         if operation == "locator.add" or operation == "locator.delete":
             return self._locator_supported()
         tracks = self._items(getattr(self.song, "tracks", []))
@@ -485,11 +499,17 @@ class LiveObjectMapper:
         if self.song is None:
             return []
         supports = (lambda operation: operation in operations) if operations is not None else self._operation_supported
-        capabilities = [
-            "session.read", "session.write", "tracks", "scenes", "clips", "notes", "session.discovery", "session.structure",
-            "session.midi_clip.create", "session.midi_clip.delete",
-            "session.midi_note.read", "session.midi_note.write", "transport", "subscriptions", "reconnect",
-        ]
+        capabilities = ["reconnect"]
+        if supports("snapshot") and supports("discover") and supports("get"):
+            capabilities.extend(("session.read", "tracks", "scenes", "clips", "session.discovery"))
+        structure_operations = {"track.create", "track.delete", "scene.create", "scene.delete"}
+        if any(supports(item) for item in structure_operations): capabilities.append("session.structure")
+        if supports("clip.create"): capabilities.append("session.midi_clip.create")
+        if supports("clip.delete"): capabilities.append("session.midi_clip.delete")
+        if any(supports(item) for item in {"note.add", "note.update", "note.delete"}): capabilities.extend(("notes", "session.midi_note.read"))
+        if supports("note.add"): capabilities.append("session.midi_note.write")
+        if supports("transport.set") and supports("tempo.set"): capabilities.append("transport")
+        if supports("subscribe"): capabilities.append("subscriptions")
         if self._locator_supported() or supports("arrangement.clip.delete"): capabilities.append("arrangement.read")
         if self._locator_supported() or supports("arrangement.clip.create") or supports("arrangement.clip.delete"): capabilities.append("arrangement.write")
         tracks = self._items(getattr(self.song, "tracks", []))
@@ -505,7 +525,9 @@ class LiveObjectMapper:
                     device_objects.append(nested)
                 if len(device_objects) >= 512: break
         if device_objects:
-            capabilities.extend(("devices", "parameters", "device.parameter.write"))
+            capabilities.append("devices")
+            if any(self._items(getattr(device, "parameters", [])) for device in device_objects): capabilities.append("parameters")
+            if supports("device.parameter.set"): capabilities.append("device.parameter.write")
             if any(self._read_attr(item, "can_have_chains") is True for item in device_objects): capabilities.extend(("racks", "chains"))
             class_names = [str(self._read_attr(item, "class_name") or item.__class__.__name__).lower() for item in device_objects]
             if any(any(marker in name for marker in ("plugin", "vst", "audio_unit")) for name in class_names): capabilities.append("plugins")
@@ -517,7 +539,7 @@ class LiveObjectMapper:
         if supports("recording.session") or supports("recording.arrangement"): capabilities.append("recording")
         if supports("mixer.set"): capabilities.append("mixing")
         if isinstance(self._read_attr(self.song, "file_path"), str): capabilities.append("projects")
-        if getattr(self, "realtime_available", False): capabilities.extend(("max", "osc", "realtime.events"))
+        if getattr(self, "realtime_available", False): capabilities.extend(("osc", "realtime.events"))
         return list(dict.fromkeys(capabilities))
 
     def _locator_supported(self) -> bool:
@@ -670,19 +692,19 @@ class LiveObjectMapper:
         else:
             warp = None
         file_path = self._read_attr(clip, "file_path")
-        return {
+        values = {
             "isAudio": bool(is_audio) if isinstance(is_audio, bool) else None,
-            "gain": finite("gain"),
-            "pitchCoarse": finite("pitch_coarse"),
-            "pitchFine": finite("pitch_fine"),
-            "warpMode": warp,
-            "warping": self._read_attr(clip, "warping") if isinstance(self._read_attr(clip, "warping"), bool) else None,
-            "loopStart": finite("loop_start"),
-            "loopEnd": finite("loop_end"),
-            "startMarker": finite("start_marker"),
-            "endMarker": finite("end_marker"),
+            "gain": finite("gain"), "pitchCoarse": finite("pitch_coarse"), "pitchFine": finite("pitch_fine"),
+            "warpMode": warp, "warping": self._read_attr(clip, "warping") if isinstance(self._read_attr(clip, "warping"), bool) else None,
+            "fadeInLength": finite("fade_in_length"), "fadeOutLength": finite("fade_out_length"),
+            "loopStart": finite("loop_start"), "loopEnd": finite("loop_end"), "startMarker": finite("start_marker"), "endMarker": finite("end_marker"),
             "filePath": str(file_path) if isinstance(file_path, str) and file_path else None,
         }
+        values["availableAudioFields"] = [field for field in ("gain", "pitchCoarse", "pitchFine", "warpMode", "warping", "fadeInLength", "fadeOutLength", "loopStart", "loopEnd") if values.get(field) is not None]
+        markers = self._items(self._read_attr(clip, "warp_markers") or [])
+        values["warpMarkers"] = [{"beatTime": float(self._read_attr(marker, "beat_time")), "sampleTime": float(self._read_attr(marker, "sample_time"))} for marker in markers[:256] if isinstance(self._read_attr(marker, "beat_time"), (int, float)) and isinstance(self._read_attr(marker, "sample_time"), (int, float))]
+        values["warpMarkerEditingAvailable"] = False
+        return values
 
     def _arrangement_clip_items(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -725,6 +747,18 @@ class LiveObjectMapper:
             device_ref = self.refs.put("device", device, f"{track_index}:{index}")
             rows.append(self._device_row(device, device_ref, track_ref, track_index, f"{track_index}:{index}", index))
         return rows
+
+    def _flatten_device_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        flattened: list[dict[str, Any]] = []
+        def visit(device: dict[str, Any]) -> None:
+            flattened.append(device)
+            for chain in device.get("chains", []):
+                for nested in chain.get("devices", []): visit(nested)
+            for pad in device.get("drumPads", []):
+                for chain in pad.get("chains", []):
+                    for nested in chain.get("devices", []): visit(nested)
+        for row in rows: visit(row)
+        return flattened[:MAX_WIRE_COLLECTION_LENGTH]
 
     def _device_row(self, device: Any, device_ref: str, track_ref: str, track_index: int, path: str, index: int) -> dict[str, Any]:
         parameters: list[dict[str, Any]] = []
@@ -951,7 +985,7 @@ class LiveObjectMapper:
             return next((clip for track in self.snapshot()["tracks"] for clip in track["clips"] if clip["ref"] == reference), None)
         if kind in {"device", "parameter"}:
             for track in self.snapshot()["tracks"]:
-                for device in track.get("devices", []):
+                for device in self._flatten_device_rows(track.get("devices", [])):
                     if device["ref"] == reference:
                         return device
                     for parameter in device["parameters"]:
@@ -968,39 +1002,24 @@ class LiveObjectMapper:
             return next(row for row in self.snapshot()["tracks"] if row["ref"] == reference) if obj in tracks else None
         return None
 
-    def set(self, reference: str, property_name: str, value: Any) -> dict[str, Any]:
-        if property_name == "value":
-            parameter = self.refs.get(reference)
-            if not hasattr(parameter, "value"):
-                raise ValueError("property is unavailable")
-            minimum = getattr(parameter, "min", getattr(parameter, "min_value", None))
-            maximum = getattr(parameter, "max", getattr(parameter, "max_value", None))
-            quantization = float(getattr(parameter, "quantization", 0) or 0)
-            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)):
-                raise ValueError("parameter value is invalid")
-            if not bool(getattr(parameter, "is_enabled", getattr(parameter, "enabled", True))) or not bool(getattr(parameter, "is_automatable", getattr(parameter, "automatable", True))):
-                raise ValueError("parameter is disabled or not automatable")
-            if not isinstance(minimum, (int, float)) or not isinstance(maximum, (int, float)) or not float(minimum) <= float(value) <= float(maximum):
-                raise ValueError("parameter value is outside authoritative bounds")
-            if quantization > 0 and abs((float(value) - float(minimum)) / quantization - round((float(value) - float(minimum)) / quantization)) > 1e-9:
-                raise ValueError("parameter value does not match authoritative quantization")
-            parameter.value = float(value)
-            revision = self.refs.touch(reference)
-            return {"changed": True, "ref": reference, "property": property_name, "value": float(parameter.value), "revision": revision}
-        if property_name not in {"name", "tempo"}:
-            raise ValueError("property is unavailable")
-        obj = self.refs.get(reference)
-        if obj is None:
-            raise ValueError("object reference is stale or unknown")
-        if property_name == "name":
-            if not isinstance(value, str) or not 1 <= len(value) <= 128:
-                raise ValueError("name is invalid")
-            obj.name = value
-        elif obj is not self.song or not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not 20 <= float(value) <= 999:
-            raise ValueError("tempo is invalid")
-        else:
-            obj.tempo = float(value)
-        return {"changed": True, "ref": reference, "property": property_name, "value": value}
+    def _set_parameter_value(self, reference: str, value: Any) -> dict[str, Any]:
+        parameter = self.refs.get(reference)
+        if not hasattr(parameter, "value"):
+            raise ValueError("parameter value is unavailable")
+        minimum = getattr(parameter, "min", getattr(parameter, "min_value", None))
+        maximum = getattr(parameter, "max", getattr(parameter, "max_value", None))
+        quantization = float(getattr(parameter, "quantization", 0) or 0)
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)):
+            raise ValueError("parameter value is invalid")
+        if not bool(getattr(parameter, "is_enabled", getattr(parameter, "enabled", True))) or not bool(getattr(parameter, "is_automatable", getattr(parameter, "automatable", True))):
+            raise ValueError("parameter is disabled or not automatable")
+        if not isinstance(minimum, (int, float)) or not isinstance(maximum, (int, float)) or not float(minimum) <= float(value) <= float(maximum):
+            raise ValueError("parameter value is outside authoritative bounds")
+        if quantization > 0 and abs((float(value) - float(minimum)) / quantization - round((float(value) - float(minimum)) / quantization)) > 1e-9:
+            raise ValueError("parameter value does not match authoritative quantization")
+        parameter.value = float(value)
+        revision = self.refs.touch(reference)
+        return {"changed": True, "ref": reference, "property": "value", "value": float(parameter.value), "revision": revision}
 
     def discover(self, kind: str, limit: int = 100, cursor: str | None = None, parent: str | None = None, filters: dict[str, Any] | None = None, requested_fields: list[str] | None = None, traversal_budget: int = 1000) -> dict[str, Any]:
         supported = {"set", "song", "track", "group_track", "return_track", "main_track", "scene", "clip_slot", "clip", "session_clip", "arrangement_clip", "note", "locator", "device", "parameter", "selection", "routing_choice", "session_playback"}
@@ -1032,10 +1051,16 @@ class LiveObjectMapper:
         elif kind == "arrangement_clip": items = self._arrangement_clip_items()
         elif kind == "note": items = [note | {"ref": f"{clip['ref']}:note:{index}", "parentRef": clip["ref"]} for track in snapshot["tracks"] for clip in track["clips"] for index, note in enumerate(clip["notes"])]
         elif kind == "locator": items = snapshot["arrangement"]["locators"]
-        elif kind == "device": items = [device for track in snapshot["tracks"] for device in track["devices"]]
-        elif kind == "parameter": items = [parameter for track in snapshot["tracks"] for device in track["devices"] for parameter in device["parameters"]]
+        elif kind == "device": items = [device for track in snapshot["tracks"] for device in self._flatten_device_rows(track["devices"])]
+        elif kind == "parameter": items = [parameter for track in snapshot["tracks"] for device in self._flatten_device_rows(track["devices"]) for parameter in device["parameters"]]
         elif kind == "session_playback": items = [snapshot["playback"]]
-        elif kind == "selection": items = [{"ref": f"{self.refs.epoch}:selection:current", "parentRef": set_row["ref"], "selectedRef": getattr(self.song, "view", None) and getattr(getattr(self.song, "view", None), "selected_track", None) and self.refs.put("track", getattr(self.song.view, "selected_track"), "selected")}]
+        elif kind == "selection":
+            view = getattr(self.song, "view", None); selected_track = getattr(view, "selected_track", None); selected_scene = getattr(view, "selected_scene", None); highlighted_slot = getattr(view, "highlighted_clip_slot", None)
+            track_objects = self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", [])) + ([getattr(self.song, "master_track")] if getattr(self.song, "master_track", None) is not None else [])
+            track_ref = snapshot["tracks"][track_objects.index(selected_track)]["ref"] if selected_track in track_objects and track_objects.index(selected_track) < len(snapshot["tracks"]) else None
+            scene_objects = self._items(getattr(self.song, "scenes", [])); scene_ref = snapshot["scenes"][scene_objects.index(selected_scene)]["ref"] if selected_scene in scene_objects else None
+            slot_ref = next((slot["ref"] for track in snapshot["tracks"] for slot in track.get("clipSlots", []) if self.refs.get(slot["ref"]) is highlighted_slot), None) if highlighted_slot is not None else None
+            items = [{"ref": f"{self.refs.epoch}:selection:current", "parentRef": set_row["ref"], "selectedRef": track_ref or scene_ref or slot_ref, "selectedTrackRef": track_ref, "selectedSceneRef": scene_ref, "highlightedClipSlotRef": slot_ref}]
         else:
             # Routing choices are track-scoped Live objects. Enumerating a
             # non-existent Song.routing_choices collection made parent-scoped
@@ -1210,15 +1235,22 @@ class LiveObjectMapper:
         return {"stopped": True}
 
     def _guarded_emergency_stop(self, args: dict[str, Any]) -> dict[str, Any]:
-        expected = args.get("expectedTargets")
+        expected, expected_recording = args.get("expectedTargets"), args.get("expectedRecording")
         if not isinstance(expected, list) or len(expected) > 256 or len(set(expected)) != len(expected) or not all(isinstance(item, str) and 1 <= len(item) <= 1024 for item in expected):
             raise ValueError("expected targets are invalid")
-        active = self._active_targets(self._playback())
+        playback = self._playback()
+        session_record, arrangement_record = playback["transport"].get("sessionRecord") is True, playback["transport"].get("arrangementRecord") is True
+        recording = "both" if session_record and arrangement_record else "session" if session_record else "arrangement" if arrangement_record else "stopped"
+        if expected_recording != recording:
+            raise ValueError("recording state exceeds the separately authorized observation; perform fresh discovery")
+        active = self._active_targets(playback)
         active_keys = {self._target_key(target) for target in active}
-        if not active_keys <= set(expected):
-            raise ValueError("active playback exceeds the separately authorized observation; perform fresh discovery")
+        if active_keys != set(expected):
+            raise ValueError("active playback does not exactly match the separately authorized observation; perform fresh discovery")
         self._stop_playback()
-        return {"stopped": True, "stoppedTargets": sorted(active_keys)}
+        if isinstance(self._read_attr(self.song, "session_record"), bool): self.song.session_record = False
+        if isinstance(self._read_attr(self.song, "record_mode"), bool): self.song.record_mode = False
+        return {"stopped": True, "stoppedTargets": sorted(active_keys), "recordingStopped": True}
 
     def _note_update(self, args: dict[str, Any]) -> dict[str, Any]:
         clip = self.refs.get(str(args["ref"]))
@@ -1383,6 +1415,44 @@ class LiveObjectMapper:
             raise ValueError("transport change was not confirmed by fresh state")
         return {"changed": True, "revision": after_revision}
 
+    def _guarded_clip_launch(self, args: dict[str, Any]) -> dict[str, Any]:
+        slot_ref, track_ref, scene_ref, clip_ref = (args.get(name) for name in ("slotRef", "trackRef", "sceneRef", "clipRef"))
+        scene_index, playback_revision = args.get("sceneIndex"), args.get("playbackRevision")
+        if not all(isinstance(item, str) and item.startswith(f"{self.refs.epoch}:") for item in (slot_ref, track_ref, scene_ref, clip_ref)) or not isinstance(scene_index, int) or isinstance(scene_index, bool) or not isinstance(playback_revision, str):
+            raise ValueError("guarded clip-launch identity is invalid")
+        playback = self._playback()
+        if playback.get("revision") != playback_revision or playback["transport"].get("playing") is not False or playback["transport"].get("arrangementRecord") is not False or playback["transport"].get("sessionRecord") is not False or playback["firedTargets"] or playback["playingTargets"]:
+            raise ValueError("stopped playback or recording baseline changed since clip-launch preview")
+        slot, track, scene, clip = (self.refs.get(item) for item in (slot_ref, track_ref, scene_ref, clip_ref))
+        tracks, scenes = self._items(getattr(self.song, "tracks", [])), self._items(getattr(self.song, "scenes", []))
+        slots = self._items(getattr(track, "clip_slots", []))
+        if track not in tracks or scene_index >= len(scenes) or scene_index >= len(slots) or scenes[scene_index] is not scene or slots[scene_index] is not slot or getattr(slot, "clip", None) is not clip:
+            raise ValueError("clip-launch hierarchy changed since preview")
+        return self._clip_launch({"ref": slot_ref})
+
+    def _guarded_clip_stop(self, args: dict[str, Any]) -> dict[str, Any]:
+        slot_ref, track_ref, scene_ref, clip_ref = (args.get(name) for name in ("slotRef", "trackRef", "sceneRef", "clipRef"))
+        scene_index = args.get("sceneIndex")
+        if not all(isinstance(item, str) and item.startswith(f"{self.refs.epoch}:") for item in (slot_ref, track_ref, scene_ref, clip_ref)) or not isinstance(scene_index, int) or isinstance(scene_index, bool):
+            raise ValueError("guarded clip-stop identity is invalid")
+        expected = (track_ref, slot_ref, scene_ref, scene_index, clip_ref)
+        active = self._active_targets(self._playback())
+        on_track = [(item.get("trackRef"), item.get("clipSlotRef"), item.get("sceneRef"), item.get("sceneIndex"), item.get("clipRef")) for item in active if item.get("trackRef") == track_ref]
+        if any(item != expected for item in on_track):
+            raise ValueError("track has foreign playback targets; guarded stop refused")
+        if on_track:
+            self._track_stop({"ref": track_ref})
+        return {"stopped": True}
+
+    def _tempo_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference, value, expected = args.get("ref"), args.get("value"), args.get("expectedTempo")
+        if not isinstance(reference, str) or not isinstance(value, (int, float)) or isinstance(value, bool) or not isinstance(expected, (int, float)) or isinstance(expected, bool):
+            raise ValueError("tempo authority is invalid")
+        if self.refs.get(reference) is not self.song or not math.isclose(float(self._read_attr(self.song, "tempo")), float(expected), rel_tol=0, abs_tol=1e-9):
+            raise ValueError("tempo changed since preview")
+        self.song.tempo = float(value)
+        return {"changed": True, "tempo": float(self.song.tempo), "revision": self.refs.touch(reference)}
+
     def _clip_launch(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")
         if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:"):
@@ -1427,28 +1497,29 @@ class LiveObjectMapper:
             return filled
         before = occupied()
         capture()
-        captured: list[str] = []
+        captured: list[str] = []; identities: list[dict[str, str]] = []
         for track_index, track in enumerate(self._items(getattr(self.song, "tracks", []))):
             for slot_index, slot in enumerate(self._items(getattr(track, "clip_slots", []))):
                 clip = getattr(slot, "clip", None)
                 if clip is not None and (track_index, slot_index) not in before:
-                    captured.append(self.refs.put("clip", clip, f"{track_index}:{slot_index}"))
-        return {"captured": bool(captured), "clips": captured}
+                    reference = self.refs.put("clip", clip, f"{track_index}:{slot_index}"); captured.append(reference); identities.append({"ref": reference, "objectIdentity": self._capture_object_identity(clip)})
+        return {"captured": bool(captured), "clips": captured, "clipIdentities": identities}
 
     def _scene_capture(self) -> dict[str, Any]:
         capture = getattr(self.song, "capture_and_insert_scene", None)
         if not callable(capture):
             raise ValueError("scene capture is unavailable")
-        before = [scene.name for scene in self._items(getattr(self.song, "scenes", []))]
+        before_scenes = self._items(getattr(self.song, "scenes", [])); before_identities = {self._capture_object_identity(scene) for scene in before_scenes}
         capture()
         after_scenes = self._items(getattr(self.song, "scenes", []))
-        if len(after_scenes) <= len(before):
-            raise ValueError("scene capture did not create a scene")
-        inserted = next((index for index, scene in enumerate(after_scenes) if index >= len(before) or scene.name != before[index]), len(before))
-        scene = after_scenes[inserted]
-        return {"captured": True, "ref": self.refs.put("scene", scene, str(inserted))}
+        created = [(index, scene, self._capture_object_identity(scene)) for index, scene in enumerate(after_scenes) if self._capture_object_identity(scene) not in before_identities]
+        if len(after_scenes) != len(before_scenes) + 1 or len(created) != 1:
+            raise ValueError("scene capture did not produce one identity-distinct scene")
+        inserted, scene, identity = created[0]
+        return {"captured": True, "ref": self.refs.put("scene", scene, str(inserted)), "objectIdentity": identity}
 
     def invoke(self, operation: str, args: dict[str, Any]) -> Any:
+        if operation in {"session.audition-launch", "session.clip-launch", "audio.capture.start"}: _require_output_safety(args)
         if operation == "session.audition-launch":
             return self._guarded_audition_launch(args)
         if operation == "session.audition-stop":
@@ -1457,13 +1528,12 @@ class LiveObjectMapper:
             return self._guarded_emergency_stop(args)
         if operation == "transport.set":
             return self._transport_set(args)
-        if operation == "clip.launch":
-            return self._clip_launch(args)
-        if operation == "track.stop":
-            return self._track_stop(args)
-        if operation == "playback.stop-all-clips":
-            self._stop_playback()
-            return {"stopped": True}
+        if operation == "session.clip-launch":
+            return self._guarded_clip_launch(args)
+        if operation == "session.clip-stop":
+            return self._guarded_clip_stop(args)
+        if operation == "tempo.set":
+            return self._tempo_set(args)
         if operation == "session.capture-midi":
             return self._capture_midi()
         if operation == "note.update":
@@ -1514,6 +1584,8 @@ class LiveObjectMapper:
             return self._device_move(args)
         if operation == "browser.search":
             return self._browser_search(args)
+        if operation == "browser.inspect":
+            return self._browser_inspect(args)
         if operation == "browser.load":
             return self._browser_load(args)
         if operation == "routing.set":
@@ -1545,11 +1617,45 @@ class LiveObjectMapper:
             return self._mutate(operation, args)
         if operation in {"track.create", "track.delete", "scene.create", "scene.delete"}:
             return self._structure_mutate(operation, args)
+        if operation in {"track.rename", "scene.rename", "clip.rename", "device.rename", "locator.rename"}:
+            return self._rename(operation, args)
         if operation == "device.parameter.set":
-            return self.set(str(args.get("ref")), "value", args.get("value"))
+            reference, expected = str(args.get("ref")), args.get("expectedRevision")
+            if not isinstance(expected, int) or isinstance(expected, bool) or self.refs.revision(reference) != expected:
+                raise ValueError("parameter revision changed since preview")
+            return self._set_parameter_value(reference, args.get("value"))
         raise ValueError("live operation unavailable")
 
+    def _rename(self, operation: str, args: dict[str, Any]) -> dict[str, Any]:
+        reference, name, expected_name = args.get("ref"), args.get("name"), args.get("expectedName")
+        kind = operation.split(".", 1)[0]
+        if not isinstance(reference, str) or f":{kind}:" not in reference or not isinstance(name, str) or not 1 <= len(name) <= 256 or not isinstance(expected_name, str):
+            raise ValueError("rename authority is invalid")
+        target = self.refs.get(reference)
+        if not hasattr(target, "name") or str(getattr(target, "name", "")) != expected_name:
+            raise ValueError("rename target changed since preview")
+        if kind == "track" and target not in self._items(getattr(self.song, "tracks", [])): raise ValueError("rename track is stale")
+        if kind == "scene" and target not in self._items(getattr(self.song, "scenes", [])): raise ValueError("rename scene is stale")
+        if kind == "locator" and target not in self._items(getattr(self.song, "cue_points", [])): raise ValueError("rename locator is stale")
+        if kind == "clip":
+            current_clips = [getattr(slot, "clip", None) for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", []))] + [item for item in self._items(getattr(self.song, "arrangement_clips", []))]
+            if target not in current_clips: raise ValueError("rename clip is stale")
+        if kind == "device":
+            current_refs = {device["ref"] for track in self.snapshot()["tracks"] for device in self._flatten_device_rows(track.get("devices", []))}
+            if reference not in current_refs: raise ValueError("rename device is stale")
+        target.name = name
+        if str(getattr(target, "name", "")) != name: raise ValueError("rename postcondition was not confirmed")
+        return {"renamed": reference, "name": name}
+
+    def _structure_revision(self) -> str:
+        snapshot = self.snapshot()
+        identity = {"tracks": [[item["ref"], item["name"], item["kind"], index] for index, item in enumerate(snapshot["tracks"])], "scenes": [[item["ref"], item["name"], index] for index, item in enumerate(snapshot["scenes"])]}
+        return hashlib.sha256(json.dumps(identity, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
+
     def _structure_mutate(self, operation: str, args: dict[str, Any]) -> dict[str, Any]:
+        expected_revision = args.get("expectedStructureRevision")
+        if not isinstance(expected_revision, str) or expected_revision != self._structure_revision():
+            raise ValueError("Session structure changed since preview")
         if operation == "track.create":
             name, kind, index = args.get("name"), args.get("kind"), args.get("index")
             if not isinstance(name, str) or not 1 <= len(name) <= 128 or kind not in {"audio", "midi"}:
@@ -1583,6 +1689,8 @@ class LiveObjectMapper:
         obj = self.refs.get(reference)
         collection = self._items(getattr(self.song, "tracks" if operation == "track.delete" else "scenes", []))
         if obj not in collection: raise ValueError("object is not a current Session object")
+        expected_identity = args.get("expectedObjectIdentity")
+        if expected_identity is not None and (not isinstance(expected_identity, str) or not hmac.compare_digest(expected_identity, self._capture_object_identity(obj))): raise ValueError("Session object identity changed; deletion refused")
         deleter = getattr(self.song, "delete_track" if operation == "track.delete" else "delete_scene", None)
         if not callable(deleter): raise ValueError("object deletion is unavailable")
         deleter(obj)
@@ -1650,9 +1758,12 @@ class LiveObjectMapper:
             track_index = all_tracks.index(track) if track in all_tracks else 0
             return {"ref": self.refs.put("clip", clip, f"{track_index}:{index}"), "name": getattr(clip, "name", ""), "length": float(getattr(clip, "length", length))}
         if operation == "clip.delete":
-            _, slot, _, _ = self._clip_location(str(args["ref"]))
-            if getattr(slot, "clip", None) is None or not callable(getattr(slot, "delete_clip", None)):
+            _, slot, _, _ = self._clip_location(str(args["ref"])); clip = getattr(slot, "clip", None)
+            if clip is None or not callable(getattr(slot, "delete_clip", None)):
                 raise ValueError("clip reference is not deletable")
+            expected_identity = args.get("expectedObjectIdentity")
+            if expected_identity is not None and (not isinstance(expected_identity, str) or not hmac.compare_digest(expected_identity, self._capture_object_identity(clip))):
+                raise ValueError("clip object identity changed; deletion refused")
             slot.delete_clip()
             return {"deleted": args["ref"]}
         clip = self.refs.get(str(args["ref"]))
@@ -1851,51 +1962,64 @@ class LiveObjectMapper:
         clip = self.refs.get(reference)
         if self._read_attr(clip, "is_audio_clip") is not True:
             raise ValueError("audio properties require an audio clip")
-        allowed = {"ref", "gain", "pitchCoarse", "pitchFine", "loopStart", "loopEnd", "warpMode"}
+        allowed = {"ref", "gain", "pitchCoarse", "pitchFine", "loopStart", "loopEnd", "warpMode", "warping", "fadeInLength", "fadeOutLength"}
         if set(args) - allowed:
             raise ValueError("audio clip fields are invalid")
+        def assign(attribute: str, value: Any) -> None:
+            if self._read_attr(clip, attribute) is None: raise ValueError(f"{attribute} is unavailable on this audio clip")
+            try: setattr(clip, attribute, value)
+            except Exception as error: raise ValueError(f"{attribute} is not writable on this audio clip") from error
         applied: dict[str, Any] = {}
         if "gain" in args:
             value = args["gain"]
             if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not 0 <= float(value) <= 1000000:
                 raise ValueError("gain is invalid")
-            clip.gain = float(value)
+            assign("gain", float(value))
             applied["gain"] = float(value)
         if "pitchCoarse" in args:
             value = args["pitchCoarse"]
             if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not -48 <= float(value) <= 48:
                 raise ValueError("pitchCoarse is invalid")
-            clip.pitch_coarse = float(value)
+            assign("pitch_coarse", float(value))
             applied["pitchCoarse"] = float(value)
         if "pitchFine" in args:
             value = args["pitchFine"]
             if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not -50 <= float(value) <= 50:
                 raise ValueError("pitchFine is invalid")
-            clip.pitch_fine = float(value)
+            assign("pitch_fine", float(value))
             applied["pitchFine"] = float(value)
         if "loopStart" in args:
             value = args["loopStart"]
             if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or float(value) < 0:
                 raise ValueError("loopStart is invalid")
-            clip.loop_start = float(value)
+            assign("loop_start", float(value))
             applied["loopStart"] = float(value)
         if "loopEnd" in args:
             value = args["loopEnd"]
             if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or float(value) < 0:
                 raise ValueError("loopEnd is invalid")
-            clip.loop_end = float(value)
+            assign("loop_end", float(value))
             applied["loopEnd"] = float(value)
         if "warpMode" in args:
             value = args["warpMode"]
             if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 16:
                 raise ValueError("warpMode is invalid")
-            clip.warping_mode = value
+            assign("warping_mode", value)
             applied["warpMode"] = value
+        if "warping" in args:
+            value = args["warping"]
+            if not isinstance(value, bool): raise ValueError("warping is invalid")
+            assign("warping", value); applied["warping"] = value
+        for field, attribute in (("fadeInLength", "fade_in_length"), ("fadeOutLength", "fade_out_length")):
+            if field in args:
+                value = args[field]
+                if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or float(value) < 0: raise ValueError(f"{field} is invalid")
+                assign(attribute, float(value)); applied[field] = float(value)
         fields = self._audio_fields(clip)
         checks = []
         for key, value in applied.items():
-            if key == "warpMode":
-                checks.append(fields["warpMode"] == value)
+            if key == "warpMode" or isinstance(value, bool):
+                checks.append(fields.get(key) == value)
             else:
                 current = fields.get(key)
                 checks.append(isinstance(current, (int, float)) and abs(current - value) < 0.01)
@@ -2131,22 +2255,29 @@ class LiveObjectMapper:
         return {"deleted": before - after}
 
     def _device_location(self, reference: str) -> tuple[Any, Any, int, int]:
-        """Resolve a top-level device reference to (track, device, track_index,
-        device_index) through its traversal key."""
+        """Resolve a discovered device to its exact track/chain owner without
+        trusting a parseable traversal key."""
         if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:"):
             raise ValueError("device reference is stale or invalid")
-        segments = reference.split(":")
-        parts = ":".join(segments[2:]).split(":") if len(segments) >= 3 else []
-        if len(parts) != 2 or not all(part.isdigit() for part in parts):
-            raise ValueError("device reference is not a top-level device")
-        track_index, device_index = int(parts[0]), int(parts[1])
+        target = self.refs.get(reference)
         tracks = self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", []))
-        if not 0 <= track_index < len(tracks):
-            raise ValueError("device track is stale")
-        devices = self._items(getattr(tracks[track_index], "devices", []))
-        if not 0 <= device_index < len(devices):
-            raise ValueError("device is stale")
-        return tracks[track_index], devices[device_index], track_index, device_index
+        def locate(owner: Any, track_index: int, seen: set[int]) -> tuple[Any, Any, int, int] | None:
+            if id(owner) in seen: return None
+            seen.add(id(owner)); devices = self._items(self._read_attr(owner, "devices") or [])
+            for device_index, device in enumerate(devices):
+                if device is target: return owner, device, track_index, device_index
+                for chain in self._items(self._read_attr(device, "chains") or []):
+                    found = locate(chain, track_index, seen)
+                    if found is not None: return found
+                for pad in self._items(self._read_attr(device, "visible_drum_pads") or self._read_attr(device, "drum_pads") or []):
+                    for chain in self._items(self._read_attr(pad, "chains") or []):
+                        found = locate(chain, track_index, seen)
+                        if found is not None: return found
+            return None
+        for track_index, track in enumerate(tracks):
+            found = locate(track, track_index, set())
+            if found is not None: return found
+        raise ValueError("device owner is stale or unavailable")
 
     def _device_insert(self, args: dict[str, Any]) -> dict[str, Any]:
         track_ref = args.get("trackRef")
@@ -2176,14 +2307,14 @@ class LiveObjectMapper:
 
     def _device_delete(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")
-        track, device, _, _ = self._device_location(str(reference))
-        deleter = getattr(track, "delete_device", None)
+        owner, device, _, _ = self._device_location(str(reference))
+        deleter = getattr(owner, "delete_device", None)
         if not callable(deleter):
             raise ValueError("device deletion is unavailable")
-        devices_before = self._items(getattr(track, "devices", []))
+        devices_before = self._items(getattr(owner, "devices", []))
         index = devices_before.index(device)
         deleter(index)
-        if len(self._items(getattr(track, "devices", []))) >= len(devices_before):
+        if len(self._items(getattr(owner, "devices", []))) >= len(devices_before):
             raise ValueError("device deletion was not confirmed")
         return {"deleted": reference}
 
@@ -2193,19 +2324,17 @@ class LiveObjectMapper:
         if not isinstance(enabled, bool):
             raise ValueError("enabled must be boolean")
         _, device, _, _ = self._device_location(str(reference))
-        is_active = self._read_attr(device, "is_active")
-        if isinstance(is_active, bool) and is_active is enabled:
-            revision = self.refs.touch(reference)
-            return {"changed": True, "enabled": enabled, "revision": revision}
-        if isinstance(is_active, bool):
-            try:
-                device.is_active = enabled
-            except Exception:
-                pass
-            else:
-                if self._read_attr(device, "is_active") is enabled:
-                    revision = self.refs.touch(reference)
-                    return {"changed": True, "enabled": enabled, "revision": revision}
+        for attribute in ("is_active", "is_enabled", "enabled"):
+            current = self._read_attr(device, attribute)
+            if not isinstance(current, bool): continue
+            if current is enabled:
+                revision = self.refs.touch(reference)
+                return {"changed": True, "enabled": enabled, "revision": revision}
+            try: setattr(device, attribute, enabled)
+            except Exception: continue
+            if self._read_attr(device, attribute) is enabled:
+                revision = self.refs.touch(reference)
+                return {"changed": True, "enabled": enabled, "revision": revision}
         # Enable state commonly lives on the "Device On" parameter.
         for parameter in self._items(getattr(device, "parameters", [])):
             name = str(self._read_attr(parameter, "name") or "")
@@ -2225,14 +2354,14 @@ class LiveObjectMapper:
         index = args.get("index")
         if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index <= 256:
             raise ValueError("device index is invalid")
-        track, device, _, current = self._device_location(str(reference))
+        owner, device, _, current = self._device_location(str(reference))
         if index == current:
             return {"ref": reference, "index": index}
-        mover = getattr(track, "move_device", None)
+        mover = getattr(owner, "move_device", None)
         if not callable(mover):
             raise ValueError("device move is unavailable")
         mover(current, index)
-        devices = self._items(getattr(track, "devices", []))
+        devices = self._items(getattr(owner, "devices", []))
         if index >= len(devices) or devices[index] is not device:
             raise ValueError("device move was not confirmed")
         return {"ref": reference, "index": index}
@@ -2249,6 +2378,7 @@ class LiveObjectMapper:
         return browser
 
     _BROWSER_CATEGORIES = {"instruments", "audio_effects", "midi_effects", "drums", "plugins", "packs", "max_for_live", "clips"}
+    _DEVICE_BROWSER_CATEGORIES = {"instruments", "audio_effects", "midi_effects", "plugins"}
 
     def _browser_search(self, args: dict[str, Any]) -> dict[str, Any]:
         browser = self._browser()
@@ -2262,7 +2392,7 @@ class LiveObjectMapper:
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
             raise ValueError("browser limit is invalid")
         needle = query.strip().lower() if isinstance(query, str) else ""
-        items: list[dict[str, Any]] = []
+        items: list[dict[str, Any]] = []; seen_ids: set[str] = set()
 
         def walk(node: Any, path: str, depth: int) -> None:
             if len(items) >= limit or depth > 6:
@@ -2273,10 +2403,12 @@ class LiveObjectMapper:
                     return
                 name = str(self._read_attr(child, "name") or "")
                 child_path = f"{path}/{name}"
-                is_device = bool(self._read_attr(child, "is_device") or self._read_attr(child, "is_loadable"))
+                explicit_device = self._read_attr(child, "is_device"); is_loadable = self._read_attr(child, "is_loadable") is True
+                is_device = explicit_device is True or (explicit_device is None and category_name in self._DEVICE_BROWSER_CATEGORIES and is_loadable)
                 if not self._items(self._read_attr(child, "children") or []) or is_device:
                     if not needle or needle in name.lower() or needle in child_path.lower():
-                        items.append({"id": child_path, "name": name, "category": category_name, "path": child_path, "isDevice": is_device})
+                        if child_path in seen_ids: raise ValueError("browser item identity collision")
+                        seen_ids.add(child_path); items.append({"id": child_path, "name": name, "category": category_name, "path": child_path, "isDevice": is_device})
                 if not is_device:
                     walk(child, child_path, depth + 1)
 
@@ -2289,52 +2421,59 @@ class LiveObjectMapper:
                 walk(node, category_name, 0)
         return {"items": items}
 
-    def _browser_load(self, args: dict[str, Any]) -> dict[str, Any]:
-        item_id = args.get("itemId")
-        if not isinstance(item_id, str) or not 1 <= len(item_id) <= 512:
+    def _browser_find(self, item_id: Any) -> tuple[Any, dict[str, Any]]:
+        if not isinstance(item_id, str) or not 1 <= len(item_id) <= 256:
             raise ValueError("browser item id is invalid")
-        track_ref = args.get("trackRef")
-        browser = self._browser()
-        item = None
-        item_category = item_id.split("/", 1)[0] if "/" in item_id else ""
-        if item_category not in self._BROWSER_CATEGORIES:
-            raise ValueError("browser item id is invalid")
-
-        def find(node: Any, path: str, depth: int) -> Any:
-            if depth > 6:
-                return None
+        browser = self._browser(); item_category = item_id.split("/", 1)[0] if "/" in item_id else ""
+        if item_category not in self._BROWSER_CATEGORIES: raise ValueError("browser item id is invalid")
+        matches: list[Any] = []
+        def find(node: Any, path: str, depth: int) -> None:
+            if depth > 6: return
             for child in self._items(self._read_attr(node, "children") or []):
-                name = str(self._read_attr(child, "name") or "")
-                if f"{path}/{name}" == item_id:
-                    return child
-                found = find(child, f"{path}/{name}", depth + 1)
-                if found is not None:
-                    return found
-            return None
+                name = str(self._read_attr(child, "name") or ""); child_path = f"{path}/{name}"
+                if child_path == item_id: matches.append(child)
+                find(child, child_path, depth + 1)
+        find(self._read_attr(browser, item_category), item_category, 0)
+        if len(matches) != 1: raise ValueError("browser item identity is missing or ambiguous")
+        item = matches[0]; name = str(self._read_attr(item, "name") or ""); explicit_device = self._read_attr(item, "is_device"); is_device = explicit_device is True or (explicit_device is None and item_category in self._DEVICE_BROWSER_CATEGORIES and self._read_attr(item, "is_loadable") is True)
+        return item, {"id": item_id, "name": name, "category": item_category, "path": item_id, "isDevice": is_device}
 
-        item = find(self._read_attr(browser, item_category), item_category, 0)
-        if item is None:
-            raise ValueError("browser item is not present")
+    def _browser_inspect(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._browser_find(args.get("itemId"))[1]
+
+    def _browser_load(self, args: dict[str, Any]) -> dict[str, Any]:
+        item, metadata = self._browser_find(args.get("itemId")); track_ref = args.get("trackRef")
+        if metadata["isDevice"] is not True or args.get("expectedName") != metadata["name"]:
+            raise ValueError("browser item is not an exact loadable device")
+        browser = self._browser()
         loader = getattr(browser, "load_item", None)
         if not callable(loader):
             raise ValueError("browser loading is unavailable")
-        if track_ref is not None:
-            if not isinstance(track_ref, str) or not track_ref.startswith(f"{self.refs.epoch}:track:"):
-                raise ValueError("track reference is stale or invalid")
-            track = self.refs.get(track_ref)
-            view = getattr(self.song, "view", None)
-            if view is None or not hasattr(view, "selected_track"):
-                raise ValueError("track-targeted browser loading is unavailable")
+        if not isinstance(track_ref, str) or not track_ref.startswith(f"{self.refs.epoch}:track:"):
+            raise ValueError("an exact regular-track reference is required")
+        track = self.refs.get(track_ref); regular_tracks = self._items(getattr(self.song, "tracks", []))
+        if track not in regular_tracks:
+            raise ValueError("browser loading is limited to regular Set tracks")
+        view = getattr(self.song, "view", None)
+        if view is None or not hasattr(view, "selected_track"):
+            raise ValueError("track-targeted browser loading is unavailable")
+        previous_selection = getattr(view, "selected_track", None); before_devices = self._items(getattr(track, "devices", []))
+        try:
             view.selected_track = track
-            before = len(self._items(getattr(track, "devices", [])))
+            if getattr(view, "selected_track", None) is not track: raise ValueError("target-track selection was not confirmed")
             loader(item)
-            devices = self._items(getattr(track, "devices", []))
-            if len(devices) <= before:
-                raise ValueError("browser load was not confirmed on the target track")
-            device = devices[-1]
-            return {"loaded": True, "deviceRef": self.refs.put("device", device, f"{self._items(getattr(self.song, 'tracks', [])).index(track)}:{len(devices) - 1}")}
-        loader(item)
-        return {"loaded": True, "deviceRef": None}
+        finally:
+            try:
+                view.selected_track = previous_selection
+                if getattr(view, "selected_track", None) is not previous_selection: raise ValueError("selection restoration was not confirmed")
+            except Exception as error: raise ValueError("browser load selection restoration failed") from error
+        devices = self._items(getattr(track, "devices", []))
+        if len(devices) != len(before_devices) + 1:
+            raise ValueError("browser load was not confirmed as one device on the target track")
+        created = [candidate for candidate in devices if all(candidate is not prior for prior in before_devices)]
+        if len(created) != 1: raise ValueError("browser load device identity is ambiguous")
+        device = created[0]; device_index = devices.index(device); track_index = regular_tracks.index(track)
+        return {"loaded": True, "deviceRef": self.refs.put("device", device, f"{track_index}:{device_index}")}
 
     @staticmethod
     def _capture_object_identity(value: Any) -> str:
@@ -2959,25 +3098,46 @@ class LiveObjectMapper:
         revision = self.refs.touch(reference)
         return {"changed": True, "revision": revision}
 
-    def _recording_session(self, args: dict[str, Any]) -> dict[str, Any]:
+    def _recording_authority(self, args: dict[str, Any], lane: str) -> str:
         action = args.get("action")
-        if action not in {"start", "stop"}:
-            raise ValueError("action is invalid")
-        current = self._read_attr(self.song, "session_record")
-        if not isinstance(current, bool):
-            raise ValueError("Session recording control is unavailable")
+        expected_session, expected_arrangement = args.get("expectedSessionRecord"), args.get("expectedArrangementRecord")
+        destination_ref, output_safety = args.get("destinationTrackRef"), args.get("outputSafety")
+        if action not in {"start", "stop"} or not isinstance(expected_session, bool) or not isinstance(expected_arrangement, bool):
+            raise ValueError("recording authority is invalid")
+        current_session, current_arrangement = self._read_attr(self.song, "session_record"), self._read_attr(self.song, "record_mode")
+        if not isinstance(current_session, bool) or not isinstance(current_arrangement, bool):
+            raise ValueError("recording control is unavailable")
+        if current_session is not expected_session or current_arrangement is not expected_arrangement:
+            raise ValueError("recording state changed since preview")
+        if not isinstance(output_safety, dict) or output_safety.get("safe") is not True or not isinstance(output_safety.get("provenance"), str) or output_safety.get("provenance") in {"", "unknown", "simulator"}:
+            raise ValueError("authoritative output safety is required")
+        if destination_ref is not None:
+            if not isinstance(destination_ref, str):
+                raise ValueError("recording destination is invalid")
+            destination = self.refs.get(destination_ref)
+            if destination not in self._items(getattr(self.song, "tracks", [])):
+                raise ValueError("recording destination is stale or foreign")
+        elif action == "start":
+            raise ValueError("recording start requires an exact destination track")
+        if action == "start":
+            armed_tracks = [track for track in self._items(getattr(self.song, "tracks", [])) if self._read_attr(track, "arm") is True]
+            if self._read_attr(destination, "arm") is not True or armed_tracks != [destination]:
+                raise ValueError("recording destination must be the only armed track")
+        if lane == "session" and action == "start" and current_session:
+            raise ValueError("Session recording is already active")
+        if lane == "arrangement" and action == "start" and current_arrangement:
+            raise ValueError("Arrangement recording is already active")
+        return action
+
+    def _recording_session(self, args: dict[str, Any]) -> dict[str, Any]:
+        action = self._recording_authority(args, "session")
         # Recording state applies asynchronously; the host confirms through
         # fresh playback reads rather than a synchronous postcondition.
         self.song.session_record = action == "start"
         return {"recording": action == "start"}
 
     def _recording_arrangement(self, args: dict[str, Any]) -> dict[str, Any]:
-        action = args.get("action")
-        if action not in {"start", "stop"}:
-            raise ValueError("action is invalid")
-        current = self._read_attr(self.song, "record_mode")
-        if not isinstance(current, bool):
-            raise ValueError("Arrangement recording control is unavailable")
+        action = self._recording_authority(args, "arrangement")
         self.song.record_mode = action == "start"
         return {"recording": action == "start"}
 
@@ -3043,7 +3203,7 @@ class LiveObjectMapper:
 
 
 MAX_PENDING_EVENTS = 256
-_EVENT_TYPES = {"state", "transport", "object", "meter", "max", "osc"}
+_EVENT_TYPES = {"state", "transport", "object", "meter", "max", "osc", "reset"}
 
 
 class _Subscription:
@@ -3051,6 +3211,8 @@ class _Subscription:
 
     def __init__(self, mapper: "LiveObjectMapper", filters: set[str]):
         self.filters = filters
+        self.mapper = mapper
+        self.epoch = mapper.refs.epoch
         self.events: deque[dict[str, Any]] = deque(maxlen=MAX_PENDING_EVENTS)
         self.dropped = 0
         self.sequence = 0
@@ -3083,8 +3245,12 @@ class _Subscription:
         if event_type not in self.filters:
             return
         with self._lock:
+            current_epoch = self.mapper.refs.epoch
+            if current_epoch != self.epoch:
+                self.epoch = current_epoch; self.sequence = 1; self.events.clear(); self.dropped = 0
+                self.events.append({"epoch": self.epoch, "sequence": self.sequence, "type": "reset", "payload": {"reconnect": True, "resnapshot": True}})
             self.sequence += 1
-            event: dict[str, Any] = {"sequence": self.sequence, "type": event_type, "payload": payload}
+            event: dict[str, Any] = {"epoch": self.epoch, "sequence": self.sequence, "type": event_type, "payload": payload}
             if ref is not None:
                 event["ref"] = ref
             # Coalesce adjacent same-kind events so a burst cannot flood the queue.
@@ -3102,9 +3268,8 @@ class _Subscription:
             drained = list(self.events)
             self.events.clear()
             if self.dropped > 0:
-                self.sequence += 1
-                drained.append({"sequence": self.sequence, "type": "state", "payload": {"overflow": self.dropped, "resnapshot": True}})
-                self.dropped = 0
+                dropped = self.dropped; self.dropped = 0; self.sequence += 1
+                return [{"epoch": self.epoch, "sequence": self.sequence, "type": "reset", "payload": {"overflow": dropped, "resnapshot": True}}]
             return drained
 
     def close(self) -> None:
@@ -3473,8 +3638,10 @@ class _RealtimePlane:
 
     def _realtime_emergency_stop(self) -> dict[str, Any]:
         mapper = self._bridge.mapper
-        expected = [mapper._target_key(target) for target in mapper._active_targets(mapper._playback())]
-        return mapper._guarded_emergency_stop({"expectedTargets": expected})
+        playback = mapper._playback(); expected = [mapper._target_key(target) for target in mapper._active_targets(playback)]
+        session_record, arrangement_record = playback["transport"].get("sessionRecord") is True, playback["transport"].get("arrangementRecord") is True
+        expected_recording = "both" if session_record and arrangement_record else "session" if session_record else "arrangement" if arrangement_record else "stopped"
+        return mapper._guarded_emergency_stop({"expectedTargets": expected, "expectedRecording": expected_recording})
 
     def _parameter_target(self, reference: str, value: float) -> tuple[Any, float]:
         mapper = self._bridge.mapper
@@ -3623,6 +3790,35 @@ class _MainThreadQueue:
         return count
 
 
+def _authority_state_digest(mapper: LiveObjectMapper, args: dict[str, Any]) -> str:
+    references: list[str] = []
+    def collect(value: Any, key: str = "") -> None:
+        if isinstance(value, dict):
+            for child_key, child in value.items(): collect(child, child_key)
+        elif isinstance(value, list):
+            for child in value: collect(child, key)
+        elif isinstance(value, str) and (key == "ref" or key.endswith("Ref") or key.endswith("Refs")):
+            references.append(value)
+    collect(args)
+    observed = []
+    attributes = ("name", "value", "min", "max", "is_enabled", "is_automatable", "arm", "mute", "solo", "current_monitoring_state", "input_routing_type", "input_routing_channel", "output_routing_type", "output_routing_channel", "gain", "pitch_coarse", "pitch_fine", "warping", "warping_mode", "fade_in_length", "fade_out_length", "loop_start", "loop_end", "start_time", "length", "is_playing", "is_triggered", "is_recording")
+    for reference in sorted(set(references)):
+        try:
+            revision = mapper.refs.revision(reference); row = mapper.get(reference)
+            if row is None:
+                obj = mapper.refs.get(reference)
+                if isinstance(obj, dict): row = {key: value for key, value in obj.items() if isinstance(value, (str, int, float, bool, type(None)))}
+                else: row = {attribute: mapper._read_attr(obj, attribute) for attribute in attributes if isinstance(mapper._read_attr(obj, attribute), (str, int, float, bool, type(None)))}
+            observed.append([reference, revision, row])
+        except (KeyError, ValueError, StopIteration): observed.append([reference, None, None])
+    playback = mapper._playback(); playback.pop("position", None)
+    song_state = {key: mapper._read_attr(mapper.song, key) for key in ("tempo", "loop", "loop_start", "loop_length", "is_playing", "record_mode", "session_record")}
+    locators = [{key: row.get(key) for key in ("ref", "name", "position")} for row in mapper._locator_items()[:256]]
+    arrangement = [{key: row.get(key) for key in ("ref", "trackRef", "name", "start", "length")} for row in mapper._arrangement_clip_items()[:256]]
+    identity = {"epoch": mapper.refs.epoch, "structure": mapper._structure_revision(), "song": song_state, "playback": playback, "locators": locators, "arrangement": arrangement, "references": observed}
+    return hashlib.sha256(AuthenticatedRemoteScript._bounded_canonical(identity).encode("utf-8")).hexdigest()
+
+
 class AbletonMcpBridge:
     """Installable Control Surface boundary with fail-closed loopback listener."""
 
@@ -3662,6 +3858,8 @@ class AbletonMcpBridge:
         self._clients: set[socket.socket] = set()
         self._workers: set[threading.Thread] = set()
         self._secret_value = secret
+        self._executed_mutations: dict[str, dict[str, Any]] = {}
+        self._executed_lock = threading.Lock()
         self._thread = threading.Thread(target=self._accept, name="AbletonMcpBridge", daemon=True)
         self._thread.start()
 
@@ -3682,7 +3880,6 @@ class AbletonMcpBridge:
             if args.get("kind") == "session_playback": return mapper._playback()
             return mapper.discover(args.get("kind", "track"), args.get("limit", 100), args.get("cursor"), args.get("parent"), args.get("filters"), args.get("requestedFields"), args.get("traversalBudget", 1000))
         if method == "get": return mapper.get(str(request.get("ref")))
-        if method == "set": return mapper.set(str(request.get("ref")), str(request.get("property")), request.get("value"))
         if method == "reconnect": return mapper.invoke("session.reconnect", {})
         if method == "invoke": return mapper.invoke(str(request.get("operation")), dict(request.get("args", {})))
         raise ValueError("operation unavailable")
@@ -3724,15 +3921,64 @@ class AbletonMcpBridge:
     def _dispatch_with_holder(self, method: str, request: dict[str, Any], holder: dict[str, Any]) -> Any:
         if method == "subscribe":
             return self.queue.submit(lambda: self._subscribe_main(request, holder), deadline_ms=request.get("deadlineMs"))
-        if method == "invoke" and request.get("operation") in {"realtime.arm", "realtime.disarm", "realtime.stats"}:
-            # Plane authority contains no Live objects. Apply arm/disarm/stats
-            # directly under the plane lock so revocation cannot sit behind the
-            # Live-callback FIFO that it must fence.
+        if method == "preflight":
+            def preflight() -> dict[str, Any]:
+                operation = str(request["operation"]); args = dict(request.get("args", {})); now = int(time.time() * 1000); preflights = holder.setdefault("preflights", {})
+                for key, row in list(preflights.items()):
+                    if row["expiresAt"] <= now: preflights.pop(key, None)
+                if len(preflights) >= 64: raise ValueError("too many pending mutation preflights")
+                args_digest = hashlib.sha256(AuthenticatedRemoteScript._bounded_canonical(args).encode("utf-8")).hexdigest(); state_digest = _authority_state_digest(self.mapper, args)
+                token = secrets.token_urlsafe(24); confirmation = secrets.token_urlsafe(24); expires_at = now + 10000
+                preflights[token] = {"operation": operation, "argsDigest": args_digest, "stateDigest": state_digest, "confirmation": confirmation, "expiresAt": expires_at}
+                return {"preflightToken": token, "confirmation": confirmation, "operation": operation, "argsDigest": args_digest, "stateDigest": state_digest, "impact": "mutates-live", "expiresAt": expires_at}
+            return self.queue.submit(preflight, deadline_ms=request.get("deadlineMs"))
+        if method == "prepare":
+            def prepare() -> dict[str, Any]:
+                operation = str(request["operation"]); args = dict(request.get("args", {})); now = int(time.time() * 1000); preflight_token = str(request["preflightToken"])
+                preflight_row = holder.setdefault("preflights", {}).pop(preflight_token, None); authorities = holder.setdefault("authorities", {})
+                for key, row in list(authorities.items()):
+                    if row["expiresAt"] <= now: authorities.pop(key, None)
+                args_digest = hashlib.sha256(AuthenticatedRemoteScript._bounded_canonical(args).encode("utf-8")).hexdigest(); state_digest = _authority_state_digest(self.mapper, args)
+                if preflight_row is None or preflight_row["expiresAt"] <= now or preflight_row["operation"] != operation or preflight_row["argsDigest"] != args_digest or preflight_row["stateDigest"] != state_digest or not hmac.compare_digest(preflight_row["confirmation"], str(request["confirmation"])):
+                    raise ValueError("missing, expired, stale, or mismatched mutation preflight")
+                if len(authorities) >= 64: raise ValueError("too many pending mutation authorities")
+                token = secrets.token_urlsafe(24); expires_at = now + 10000
+                authorities[token] = {"operation": operation, "argsDigest": args_digest, "stateDigest": state_digest, "expiresAt": expires_at, "idempotencyKey": request["idempotencyKey"]}
+                return {"authorityToken": token, "operation": operation, "argsDigest": args_digest, "stateDigest": state_digest, "expiresAt": expires_at}
+            return self.queue.submit(prepare, deadline_ms=request.get("deadlineMs"))
+        if method == "invoke" and _mutation_authority_required(str(request.get("operation"))):
+            token = str(request.get("authorityToken", "")); authority = holder.setdefault("authorities", {}).pop(token, None); now = int(time.time() * 1000)
+            args = dict(request.get("args", {})); digest = hashlib.sha256(AuthenticatedRemoteScript._bounded_canonical(args).encode("utf-8")).hexdigest()
+            if authority is None or authority["expiresAt"] <= now or authority["operation"] != request.get("operation") or authority["argsDigest"] != digest:
+                raise ValueError("missing, expired, or mismatched mutation authority")
+            idempotency_key = authority["idempotencyKey"]
+            def replay_or_apply(apply: Callable[[], Any]) -> Any:
+                with self._executed_lock:
+                    prior = self._executed_mutations.get(idempotency_key)
+                    if prior is not None:
+                        if prior["operation"] != request.get("operation") or prior["argsDigest"] != digest: raise ValueError("idempotency key conflicts with an executed mutation")
+                        return prior["result"]
+                    if len(self._executed_mutations) >= 256: raise ValueError("executed mutation ledger is full; reconnect after authoritative recovery")
+                    result = apply(); self._executed_mutations[idempotency_key] = {"operation": request["operation"], "argsDigest": digest, "result": result}; return result
+            if request.get("operation") in {"realtime.arm", "realtime.disarm"}:
+                return replay_or_apply(lambda: self._realtime_op(request["operation"], args))
+            def invoke_authorized() -> Any:
+                if _authority_state_digest(self.mapper, args) != authority["stateDigest"]: raise ValueError("Live state changed after mutation authority preparation")
+                return replay_or_apply(lambda: self.mapper.invoke(str(request["operation"]), args))
+            return self.queue.submit(invoke_authorized, deadline_ms=request.get("deadlineMs"))
+        if method == "invoke" and request.get("operation") == "realtime.stats":
             return self._realtime_op(request["operation"], request.get("args", {}))
+        if method == "reconnect":
+            def reconnect() -> Any:
+                result = self._dispatch_main_for(method, request, self.mapper)
+                with self._executed_lock: self._executed_mutations.clear()
+                return result
+            return self.queue.submit(reconnect, deadline_ms=request.get("deadlineMs"))
         return self.queue.submit(lambda: self._dispatch_main_for(method, request, self.mapper), deadline_ms=request.get("deadlineMs"))
 
     def _realtime_op(self, operation: str, args: dict[str, Any]) -> Any:
         if operation == "realtime.arm":
+            _require_output_safety(args)
             return self._realtime.arm(args.get("ttlMs", 30000), args.get("channels"), args.get("parameterRefs"), args.get("sourcePorts"))
         if operation == "realtime.disarm":
             return self._realtime.disarm()
@@ -3782,6 +4028,7 @@ class AbletonMcpBridge:
         try: self.mapper.capture_shutdown()
         except BaseException: pass
         self.queue.close()
+        with self._executed_lock: self._executed_mutations.clear()
         self.mapper.refs.reset()
         if self._thread is not threading.current_thread():
             self._thread.join(timeout=1)

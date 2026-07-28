@@ -24,6 +24,17 @@ Every mutation requires:
 A client must never replay an uncertain mutation automatically. Unsupported
 attributes or enum values are unavailable evidence, not safe defaults.
 
+Authentication is not mutation authority. Before every mutating bridge
+`invoke`, the production adapter performs a read-only `authority.preflight`,
+echoes its unpredictable one-use confirmation through `authority.prepare`, and
+obtains a one-use 10-second token bound to the exact operation/argument digest,
+connection epoch, fresh authoritative target values, playback/recording state,
+referenced-object revisions, and Session structure. The bridge consumes it
+before Live-thread dispatch and rejects direct authenticated mutation frames,
+preflight or token replay, guessed confirmation, mismatched arguments, expiry,
+and intervening state change. Stable host transaction keys are transformed into per-operation replay keys; the bridge keeps a bounded executed-result ledger for its full bridge epoch, across TCP reconnections, and clears it only on explicit mapper reconnect/teardown. Audible launch, capture-start, recording, and realtime-arm contracts also revalidate explicit output-safety evidence on the bridge side. This transport fence supplements rather than replaces the host preview,
+confirmation, idempotency, verification, and recovery protocol.
+
 ## Implemented mutation classes
 
 Guarded workflows cover transport; clip launch and exact stop; MIDI clips and
@@ -44,7 +55,18 @@ Scene/clip launch requires explicit output-safety evidence, exact eligible
 targets, a stopped non-recording baseline, safe monitoring/arm state, fresh
 playback revision, and bounded launch quantization. Owned stop clears only the
 preflighted target; `live_session_emergency_stop` independently requires exact
-fresh active target keys and survives host restart.
+fresh active target keys and recording state, atomically clears Session clips,
+transport, Session Record, and Arrangement Record, and survives host restart.
+
+## Recording authority
+
+A recording start preview requires explicit intent, output-safety evidence and
+an exact armed destination for either lane. Apply carries the exact prior
+Session/Arrangement recording booleans, destination identity and output-safety
+evidence into the mapper; all are rechecked on Live's mutation thread before
+record state changes. Concurrent identical applies are single-flight, while
+acknowledgement loss becomes uncertain and is never blindly replayed. Stop uses
+the same fenced operation; independent emergency stop clears both modes.
 
 ## Realtime authority
 

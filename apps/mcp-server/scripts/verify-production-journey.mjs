@@ -636,7 +636,16 @@ class EnvelopeEvent:
     // Wire-level invoke through the production registry for read-back assertions.
     const wire = wireClient(harnessPort);
     const hello = await wire.next();
-    const frame = { version: "ableton-loopback/v1", id: `env-${Math.random().toString(36).slice(2, 10)}`, method: "invoke", operation, args, nonce: `env-nonce-${Date.now()}`, sequence: 1, bridgeEpoch: hello.bridgeEpoch, connectionChallenge: hello.connectionChallenge, deadlineMs: Date.now() + 10000 };
+    let sequence = 1; let authorityToken;
+    if (!["realtime.stats"].includes(operation)) {
+      const preflight = { version: "ableton-loopback/v1", id: `preflight-${Math.random().toString(36).slice(2, 10)}`, method: "preflight", operation, args, nonce: `preflight-nonce-${Date.now()}`, sequence: sequence++, bridgeEpoch: hello.bridgeEpoch, connectionChallenge: hello.connectionChallenge, deadlineMs: Date.now() + 10000 };
+      wire.send({ ...preflight, mac: mac(secret, preflight) }); const preflighted = await wire.next();
+      if (!preflighted.ok) throw new Error(`wire preflight ${operation} failed: ${preflighted.error}`);
+      const prepare = { version: "ableton-loopback/v1", id: `prepare-${Math.random().toString(36).slice(2, 10)}`, method: "prepare", operation, args, preflightToken: preflighted.result.preflightToken, confirmation: preflighted.result.confirmation, idempotencyKey: `journey-${Math.random().toString(36).slice(2, 18)}`, nonce: `prepare-nonce-${Date.now()}`, sequence: sequence++, bridgeEpoch: hello.bridgeEpoch, connectionChallenge: hello.connectionChallenge, deadlineMs: Date.now() + 10000 };
+      wire.send({ ...prepare, mac: mac(secret, prepare) }); const prepared = await wire.next();
+      if (!prepared.ok) throw new Error(`wire prepare ${operation} failed: ${prepared.error}`); authorityToken = prepared.result.authorityToken;
+    }
+    const frame = { version: "ableton-loopback/v1", id: `env-${Math.random().toString(36).slice(2, 10)}`, method: "invoke", operation, args, ...(authorityToken ? { authorityToken } : {}), nonce: `env-nonce-${Date.now()}`, sequence, bridgeEpoch: hello.bridgeEpoch, connectionChallenge: hello.connectionChallenge, deadlineMs: Date.now() + 10000 };
     wire.send({ ...frame, mac: mac(secret, frame) });
     const response = await wire.next();
     wire.socket.destroy();
@@ -833,7 +842,7 @@ class EnvelopeEvent:
     assert(refused.isError === true, "stale-epoch apply was not refused");
     assert((await playback(client)).transport.playing === false, "stale-epoch apply mutated playback");
     // Stale preview cannot stop, but the separate emergency authority works.
-    const stopped = (await textOf(client, "live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets: [] })).parsed;
+    const stopped = (await textOf(client, "live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets: [], expectedRecording: "stopped" })).parsed;
     assert(stopped.stopped === true, "emergency stop after epoch change failed");
     // The epoch bump replaced every reference; refresh discovery for later steps.
     const scenes = (await textOf(client, "live_discover", { kind: "scene" })).parsed.items;
@@ -883,7 +892,7 @@ class EnvelopeEvent:
     do { state = await playback(client); await waitMs(100); } while (Date.now() < deadline && state.transport.playing !== true);
     assert(state.transport.playing === true, "claimed dispatch did not complete; cancellation semantics are dishonest");
     const keys = activeKeys(state);
-    const stopped = (await textOf(client, "live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets: keys })).parsed;
+    const stopped = (await textOf(client, "live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets: keys, expectedRecording: "stopped" })).parsed;
     assert(stopped.stopped === true, "emergency stop after cancellation failed");
     assert((await playback(client)).transport.playing === false, "post-cancellation playback was not stopped");
   });
@@ -898,9 +907,9 @@ class EnvelopeEvent:
     const state = await playback(client);
     const keys = activeKeys(state);
     assert(keys.length === 2, "expected owned plus external targets");
-    const blind = await textOf(client, "live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets: [keys[0]] });
+    const blind = await textOf(client, "live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets: [keys[0]], expectedRecording: "stopped" });
     assert(blind.isError === true, "emergency stop accepted an incomplete observation");
-    const stopped = (await textOf(client, "live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets: keys })).parsed;
+    const stopped = (await textOf(client, "live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets: keys, expectedRecording: "stopped" })).parsed;
     assert(stopped.stopped === true, "exact emergency stop failed");
     const after = await playback(client);
     assert(after.transport.playing === false && activeKeys(after).length === 0, "playback remained active after emergency stop");
@@ -926,7 +935,7 @@ class EnvelopeEvent:
     await restartClient();
     const keys = activeKeys(await playback(client));
     assert(keys.length === 1, "restarted host lost authoritative playback observation");
-    const stopped = (await textOf(client, "live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets: keys })).parsed;
+    const stopped = (await textOf(client, "live_session_emergency_stop", { confirmation: "emergency-stop", expectedTargets: keys, expectedRecording: "stopped" })).parsed;
     assert(stopped.stopped === true, "restarted host could not stop residual playback");
     assert(activeKeys(await playback(client)).length === 0, "residual playback survived the restarted host's stop");
   });
@@ -1300,7 +1309,7 @@ class EnvelopeEvent:
     assert(unsubscribed.subscribed === false, "unsubscribe failed");
   });
 
-  await step("armed realtime UDP, OSC, XY, and Max channels are bounded, measured, reconnect-safe, and recoverable", async () => {
+  await step("armed realtime UDP, OSC, XY, and max-labelled extension packets are bounded, measured, reconnect-safe, and recoverable", async () => {
     const freshTracks = (await textOf(client, "live_discover", { kind: "track" })).parsed.items;
     const volumeRef = freshTracks[0]?.mixer?.volumeRef;
     const panRef = freshTracks[0]?.mixer?.panRef;
@@ -1311,7 +1320,7 @@ class EnvelopeEvent:
     const rogue = await bindUdp();
     try {
       const sourcePort = sender.address().port;
-      const armed = await adapter_call(client, "realtime.arm", { ttlMs: 30000, channels: ["udp-json", "osc", "xy", "max"], parameterRefs: [volumeRef, panRef], sourcePorts: [sourcePort] });
+      const armed = await adapter_call(client, "realtime.arm", { ttlMs: 30000, channels: ["udp-json", "osc", "xy", "max"], parameterRefs: [volumeRef, panRef], sourcePorts: [sourcePort], outputSafety: { safe: true, provenance: "journey-operator-confirmed-headphones" } });
       assert(armed.host === "127.0.0.1" && armed.port === harnessRealtimePort && JSON.stringify(armed.parameterRefs) === JSON.stringify([volumeRef, panRef]) && armed.packetLimitBytes === 512 && armed.ratePerSecond === 64 && armed.burst === 16, `realtime arm contract mismatch: ${JSON.stringify(armed)}`);
       // The token lives in the bridge rather than the MCP process and remains
       // usable across a host restart for only the arm's bounded lifetime.
@@ -1359,7 +1368,7 @@ class EnvelopeEvent:
       const afterDisarm = await adapter_call(client, "realtime.stats", {});
       assert(afterDisarm.armed === false && afterDisarm.droppedUnarmed > beforeDisarm.droppedUnarmed, "disarm did not revoke subsequent packets");
 
-      const expiring = await adapter_call(client, "realtime.arm", { ttlMs: 1000, channels: ["udp-json"], parameterRefs: [volumeRef], sourcePorts: [sourcePort] });
+      const expiring = await adapter_call(client, "realtime.arm", { ttlMs: 1000, channels: ["udp-json"], parameterRefs: [volumeRef], sourcePorts: [sourcePort], outputSafety: { safe: true, provenance: "journey-operator-confirmed-headphones" } });
       await waitMs(1100);
       await sendUdp(sender, JSON.stringify({ token: expiring.token, seq: 1, channel: "udp-json", op: "parameter.set", ref: volumeRef, value: 0.2 }), harnessRealtimePort);
       await waitMs(100);

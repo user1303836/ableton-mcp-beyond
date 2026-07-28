@@ -25,6 +25,7 @@ const documentation = [
   ["docs/IMPLEMENTATION_STATUS.md", "IMPLEMENTATION_STATUS.md"],
   ["docs/DISTRIBUTION_POLICY.md", "DISTRIBUTION_POLICY.md"],
   ["docs/SUPPORT_MATRIX.md", "SUPPORT_MATRIX.md"],
+  ["docs/CAPABILITY_MATRIX.md", "CAPABILITY_MATRIX.md"],
 ];
 
 rmSync(docsRoot, { recursive: true, force: true });

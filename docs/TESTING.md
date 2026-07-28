@@ -81,10 +81,12 @@ capture, requires mapper-watchdog finalization, independently recovers, and
 compensates its temporary notes/mixer/device mutations on failure.
 
 The built-in V8 coverage gate measures compiled runtime code (excluding the
-separate benchmark-only entrypoints) and enforces at least 85% lines, 65%
+separate benchmark-only entrypoints and wall-clock benchmark test, which runs
+uninstrumented only in the standalone `npm run benchmark` gate and is deliberately excluded from `npm test` and coverage) and enforces at least 85% lines, 65%
 branches, and 84% functions overall, production-module floors, and stronger
 thresholds for delivery, lifecycle, host, remote-adapter, project, and Session
-MIDI modules. Coverage is a regression signal, not a substitute
+MIDI modules. Instrumented timing is not performance evidence. Coverage is a
+regression signal, not a substitute
 for real-Live, security, recovery, or platform evidence.
 
 The benchmark warms the declared maximum PCM input and reports repeated latency measurements. `audio:oracle` generates temporary PCM, compares BS.1770/EBU and true-peak outputs to FFmpeg `ebur128`, and removes the owner-only temporary tree; it commits no third-party audio. Latency, output size, bounded-memory, DSP-oracle, package, and real-Live evidence are distinct concerns; none substitutes for another.

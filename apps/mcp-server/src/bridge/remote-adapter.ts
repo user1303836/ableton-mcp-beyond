@@ -1,11 +1,11 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
 import {
-  LIVE_REGISTRY_HASH, LIVE_REGISTRY_OPERATIONS,
+  LIVE_CAPABILITIES, LIVE_REGISTRY_HASH, LIVE_REGISTRY_OPERATIONS,
   type AsyncLiveAdapter, type LiveDiscoveryKind, type LiveDiscoveryRequest, type LiveDiscoveryResult,
-  type LiveEvent, type LiveInvocation, type LiveOperationContext, type LiveRef, type LiveSnapshot, type LiveStatus,
+  type LiveCapability, type LiveEvent, type LiveInvocation, type LiveOperationContext, type LiveRef, type LiveSnapshot, type LiveStatus,
 } from "../live.js";
-import { LOOPBACK_PROTOCOL_VERSION, type LoopbackRequest, type LoopbackResponse } from "../loopback.js";
+import { LOOPBACK_PROTOCOL_VERSION, type RemoteBridgeRequest, type LoopbackResponse } from "../loopback.js";
 import { validateLiveOperationRequest, validateLiveOperationResult } from "../registry.js";
 
 const MAX_FRAME_BYTES = 1_048_576;
@@ -14,7 +14,9 @@ const DEFAULT_TIMEOUT_MS = 5_000;
 const MAX_SEQUENCE = Number.MAX_SAFE_INTEGER;
 const LIVE_PROTOCOL = "ableton-live/v1";
 const ADAPTERS = new Set(["remote-script", "simulator", "extension", "unavailable"]);
-const EVENT_TYPES = new Set(["state", "transport", "object", "meter", "max", "osc"]);
+const EVENT_TYPES = new Set(["state", "transport", "object", "meter", "max", "osc", "reset"]);
+const READ_ONLY_INVOKES = new Set(["session.playback", "automation.envelope.read", "browser.search", "browser.inspect", "audio.capture.inspect", "audio.capture.status", "realtime.stats", "session.reconnect"]);
+function mutationAuthorityRequired(operation: string): boolean { return !READ_ONLY_INVOKES.has(operation); }
 const KIND_TO_WIRE: Readonly<Record<LiveDiscoveryKind, string>> = {
   set: "set", track: "track", "return-track": "return_track", "main-track": "main_track", scene: "scene",
   "clip-slot": "clip_slot", "session-clip": "session_clip", "arrangement-clip": "arrangement_clip", note: "note",
@@ -57,10 +59,32 @@ function validStatus(value: unknown): value is LiveStatus {
       status.protocol !== LIVE_PROTOCOL || !Array.isArray(capabilities) || capabilities.length > 256 ||
       !capabilities.every((capability) => typeof capability === "string" && capability.length > 0 && capability.length <= 128) ||
       status.registryHash !== LIVE_REGISTRY_HASH || !Array.isArray(operations) || operations.length > 256) return false;
-  return operations.every((operation) => typeof operation === "string" && operation.length > 0 && operation.length <= 128) &&
-    new Set(operations).size === operations.length &&
-    operations.every((operation) => (LIVE_REGISTRY_OPERATIONS as readonly string[]).includes(operation)) &&
-    ["status", "snapshot", "discover", "get", "set", "reconnect", "session.playback"].every((operation) => operations.includes(operation));
+  if (new Set(capabilities).size !== capabilities.length || !capabilities.every((capability) => (LIVE_CAPABILITIES as readonly string[]).includes(capability))) return false;
+  if (!operations.every((operation) => typeof operation === "string" && operation.length > 0 && operation.length <= 128) ||
+      new Set(operations).size !== operations.length ||
+      !operations.every((operation) => (LIVE_REGISTRY_OPERATIONS as readonly string[]).includes(operation)) ||
+      !["status", "snapshot", "discover", "get", "reconnect", "session.playback"].every((operation) => operations.includes(operation))) return false;
+  const all = (...required: string[]): boolean => required.every((operation) => operations.includes(operation));
+  const any = (...required: string[]): boolean => required.some((operation) => operations.includes(operation));
+  const readableHierarchy = all("snapshot", "discover", "get");
+  const requirements: Record<(typeof LIVE_CAPABILITIES)[number], boolean> = {
+    "session.read": readableHierarchy && all("session.playback"), "tracks": readableHierarchy, "scenes": readableHierarchy, "clips": readableHierarchy,
+    "notes": readableHierarchy, "session.discovery": all("discover"),
+    "session.structure": any("track.create", "track.delete", "scene.create", "scene.delete"),
+    "session.midi_clip.create": all("clip.create"), "session.midi_clip.delete": all("clip.delete"),
+    "session.midi_note.read": readableHierarchy, "session.midi_note.write": all("note.add"),
+    "arrangement.read": any("locator.add", "arrangement.clip.delete"),
+    "arrangement.write": any("locator.add", "locator.delete", "arrangement.clip.create", "arrangement.clip.delete"),
+    "audio": all("audio.clip.set"), "audio.capture.resampling": all("audio.capture.inspect", "audio.capture.start", "audio.capture.stop", "audio.capture.cleanup"),
+    "warp": false, "takes": false, "automation": all("automation.envelope.read"),
+    "devices": readableHierarchy, "racks": readableHierarchy, "chains": readableHierarchy, "parameters": readableHierarchy,
+    "browser": all("browser.search"), "device.parameter.write": all("device.parameter.set"), "routing": all("routing.set"),
+    "recording": any("recording.session", "recording.arrangement"), "projects": all("snapshot"), "mixing": all("mixer.set"),
+    "transport": all("transport.set", "tempo.set"), "max": false,
+    "osc": all("realtime.arm", "realtime.disarm", "realtime.stats"), "realtime.events": all("realtime.arm", "realtime.disarm", "realtime.stats"),
+    "plugins": readableHierarchy, "subscriptions": all("subscribe"), "reconnect": all("reconnect"),
+  };
+  return capabilities.every((capability) => requirements[capability as LiveCapability] === true);
 }
 function verifySigned(secret: string, response: LoopbackResponse): void {
   const unsigned = { ...response } as Partial<LoopbackResponse>;
@@ -69,11 +93,12 @@ function verifySigned(secret: string, response: LoopbackResponse): void {
   const received = Buffer.from(response.mac);
   if (expected.length !== received.length || !timingSafeEqual(expected, received)) throw new Error("remote response authentication failed");
 }
-function registryRequest(operationId: string, fields: Omit<LoopbackRequest, "version" | "id" | "nonce" | "sequence" | "bridgeEpoch" | "connectionChallenge" | "deadlineMs" | "mac">): unknown {
+function registryRequest(operationId: string, fields: Omit<RemoteBridgeRequest, "version" | "id" | "nonce" | "sequence" | "bridgeEpoch" | "connectionChallenge" | "deadlineMs" | "mac">): unknown {
   if (operationId === "status" || operationId === "snapshot" || operationId === "reconnect" || operationId === "session.playback") return {};
   if (operationId === "discover") return fields.args ?? {};
   if (operationId === "get") return { ref: fields.ref };
-  if (operationId === "set") return { ref: fields.ref, property: fields.property, value: fields.value };
+  if (operationId === "authority.preflight") return { operation: fields.operation, argsDigest: createHash("sha256").update(canonical(fields.args ?? {})).digest("hex") };
+  if (operationId === "authority.prepare") return { operation: fields.operation, argsDigest: createHash("sha256").update(canonical(fields.args ?? {})).digest("hex"), preflightToken: fields.preflightToken, confirmation: fields.confirmation, idempotencyKey: fields.idempotencyKey };
   return fields.args ?? {};
 }
 
@@ -90,6 +115,8 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
   private cached: LiveStatus = { connected: false, adapter: "unavailable", epoch: null, protocol: LIVE_PROTOCOL, capabilities: [], reason: "not-connected" };
   private readonly pending = new Map<string, Pending>();
   private readonly listeners = new Set<(event: LiveEvent) => void>();
+  private lastEventEpoch: number | null = null;
+  private lastEventSequence = 0;
   private constructor(private readonly endpoint: Endpoint) { validEndpoint(endpoint); }
 
   static async connect(endpoint: Endpoint): Promise<RemoteScriptLiveAdapter> {
@@ -103,7 +130,6 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
   status(): LiveStatus { return this.cached; }
   snapshot(): never { throw new Error("remote adapter is asynchronous; use snapshotAsync"); }
   get(): never { throw new Error("remote adapter is asynchronous; use getAsync"); }
-  set(): never { throw new Error("remote adapter is asynchronous; use setAsync"); }
   invoke(): never { throw new Error("remote adapter is asynchronous; use invokeAsync"); }
   subscribe(listener: (event: LiveEvent) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   reconnect(): LiveStatus { throw new Error("remote adapter is asynchronous; use reconnectAsync"); }
@@ -126,10 +152,20 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
     return { ...(result as unknown as LiveDiscoveryResult), kind: translated };
   }
   getAsync(ref: LiveRef, context?: LiveOperationContext): Promise<unknown> { return this.requestAsync({ method: "get", ref }, "get", context); }
-  setAsync(ref: LiveRef, property: string, value: unknown, context?: LiveOperationContext): Promise<void> { return this.requestAsync({ method: "set", ref, property, value }, "set", context).then(() => undefined); }
-  invokeAsync(invocation: LiveInvocation, context?: LiveOperationContext): Promise<unknown> {
+  async invokeAsync(invocation: LiveInvocation, context?: LiveOperationContext): Promise<unknown> {
+    if (!this.cached.operations?.includes(invocation.operation)) throw new Error(`remote operation is not negotiated: ${invocation.operation}`);
     if (invocation.operation === "subscribe") return this.requestAsync({ method: "subscribe", args: invocation.args }, "subscribe", context);
-    return this.requestAsync({ method: "invoke", operation: invocation.operation, args: invocation.args }, invocation.operation, context);
+    if (!mutationAuthorityRequired(invocation.operation)) return this.requestAsync({ method: "invoke", operation: invocation.operation, args: invocation.args }, invocation.operation, context);
+    const argsDigest = createHash("sha256").update(canonical(invocation.args)).digest("hex");
+    const baseIdempotencyKey = context?.idempotencyKey ?? randomBytes(18).toString("base64url");
+    const transactionScope = context?.transactionId ?? randomBytes(18).toString("base64url");
+    if (baseIdempotencyKey.length < 8 || baseIdempotencyKey.length > 128 || transactionScope.length < 8 || transactionScope.length > 128) throw new Error("remote mutation idempotency authority is invalid");
+    const bridgeIdempotencyKey = createHash("sha256").update(`${transactionScope}\0${baseIdempotencyKey}\0${invocation.operation}\0${argsDigest}`).digest("base64url");
+    const preflight = await this.requestAsync({ method: "preflight", operation: invocation.operation, args: invocation.args }, "authority.preflight", context) as { preflightToken?: unknown; confirmation?: unknown; operation?: unknown; argsDigest?: unknown; expiresAt?: unknown };
+    if (typeof preflight.preflightToken !== "string" || typeof preflight.confirmation !== "string" || preflight.operation !== invocation.operation || typeof preflight.argsDigest !== "string" || typeof preflight.expiresAt !== "number" || preflight.expiresAt <= Date.now()) throw new Error("remote mutation authority preflight failed");
+    const prepared = await this.requestAsync({ method: "prepare", operation: invocation.operation, args: invocation.args, preflightToken: preflight.preflightToken, confirmation: preflight.confirmation, idempotencyKey: bridgeIdempotencyKey }, "authority.prepare", context) as { authorityToken?: unknown; operation?: unknown; argsDigest?: unknown; expiresAt?: unknown };
+    if (typeof prepared.authorityToken !== "string" || prepared.operation !== invocation.operation || prepared.argsDigest !== preflight.argsDigest || typeof prepared.expiresAt !== "number" || prepared.expiresAt <= Date.now()) throw new Error("remote mutation authority preparation failed");
+    return this.requestAsync({ method: "invoke", operation: invocation.operation, args: invocation.args, authorityToken: prepared.authorityToken }, invocation.operation, context);
   }
   reconnectAsync(context?: LiveOperationContext): Promise<LiveStatus> { return this.requestAsync({ method: "reconnect" }, "reconnect", context).then((value) => { const status = value as LiveStatus; if (!validStatus(status)) throw new Error("invalid reconnect status"); this.epoch = status.epoch; this.cached = status; return status; }); }
   /** Re-request the mapper's current status without a reconnect; operations and
@@ -150,7 +186,7 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
     });
   }
 
-  private requestAsync(fields: Omit<LoopbackRequest, "version" | "id" | "nonce" | "sequence" | "bridgeEpoch" | "connectionChallenge" | "deadlineMs" | "mac">, operationId: string, context?: LiveOperationContext): Promise<unknown> {
+  private requestAsync(fields: Omit<RemoteBridgeRequest, "version" | "id" | "nonce" | "sequence" | "bridgeEpoch" | "connectionChallenge" | "deadlineMs" | "mac">, operationId: string, context?: LiveOperationContext): Promise<unknown> {
     if (!this.socket || this.socket.destroyed || !this.bridgeEpoch || !this.connectionChallenge) return Promise.reject(new Error("remote adapter is disconnected"));
     if (this.pending.size >= MAX_PENDING) return Promise.reject(new Error("remote adapter queue is full"));
     if (this.sequence >= MAX_SEQUENCE) return Promise.reject(new Error("remote adapter sequence exhausted"));
@@ -201,12 +237,17 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
     if (response.bridgeEpoch !== this.bridgeEpoch || response.connectionChallenge !== this.connectionChallenge) throw new Error("remote response channel binding failed");
     if (response.result && typeof response.result === "object" && "event" in (response.result as Record<string, unknown>)) {
       const event = (response.result as { event?: unknown }).event;
-      if (!event || typeof event !== "object" || !Number.isSafeInteger((event as { sequence?: unknown }).sequence) || (event as { sequence: number }).sequence <= 0 || typeof (event as { type?: unknown }).type !== "string" || !EVENT_TYPES.has((event as { type: string }).type)) throw new Error("invalid remote event");
+      if (!event || typeof event !== "object" || !Number.isSafeInteger((event as { epoch?: unknown }).epoch) || (event as { epoch: number }).epoch <= 0 || !Number.isSafeInteger((event as { sequence?: unknown }).sequence) || (event as { sequence: number }).sequence <= 0 || typeof (event as { type?: unknown }).type !== "string" || !EVENT_TYPES.has((event as { type: string }).type)) throw new Error("invalid remote event");
+      const liveEvent = event as LiveEvent;
+      if (liveEvent.epoch !== this.epoch) throw new Error("remote event epoch does not match the current connection");
+      if (this.lastEventEpoch !== liveEvent.epoch) { this.lastEventEpoch = liveEvent.epoch; this.lastEventSequence = 0; }
+      if (liveEvent.sequence <= this.lastEventSequence || (liveEvent.type !== "reset" && liveEvent.sequence !== this.lastEventSequence + 1)) throw new Error("remote event sequence gap or replay requires reset");
+      this.lastEventSequence = liveEvent.sequence;
       for (const listener of this.listeners) listener(event as LiveEvent); return;
     }
     const pending = this.pending.get(response.id); if (!pending) throw new Error("unknown or duplicate remote response");
     this.pending.delete(response.id); clearTimeout(pending.timer); pending.abortCleanup?.();
-    if (response.ok) { try { validateLiveOperationResult(pending.operationId, response.result); pending.resolve(response.result); } catch (error) { this.cached = { ...this.cached, connected: false, reason: "registry-result-validation-failed" }; pending.reject(error); this.socket?.destroy(); } }
+    if (response.ok) { try { validateLiveOperationResult(pending.operationId, response.result); if (pending.operationId === "reconnect" && validStatus(response.result)) { this.epoch = response.result.epoch; this.lastEventEpoch = this.epoch; this.lastEventSequence = 0; } pending.resolve(response.result); } catch (error) { this.cached = { ...this.cached, connected: false, reason: "registry-result-validation-failed" }; pending.reject(error); this.socket?.destroy(); } }
     else pending.reject(new Error(response.error ?? "remote request failed"));
   }
 
