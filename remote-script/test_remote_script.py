@@ -707,6 +707,11 @@ class ControlSurfaceTests(unittest.TestCase):
         locator_request = {"operation": "locator.add", "args": {"name": "Prepared", "position": 8.0}}
         locator_preflight = bridge._dispatch_with_holder("preflight", locator_request, holder); bridge.mapper.song.cue_points.append(FakeLocator(4.0, "External"))
         with self.assertRaises(ValueError): bridge._dispatch_with_holder("prepare", {**locator_request, "preflightToken": locator_preflight["preflightToken"], "confirmation": locator_preflight["confirmation"], "idempotencyKey": "locator-external-edit"}, holder)
+        bridge._realtime_op = lambda operation, args: {"armed": operation == "realtime.arm"}
+        realtime_request = {"operation": "realtime.arm", "args": {"ttlMs": 5000, "channels": ["udp-json"], "parameterRefs": [], "outputSafety": {"safe": True, "provenance": "unit-test"}}}
+        realtime_preflight = bridge._dispatch_with_holder("preflight", realtime_request, holder); realtime_prepared = bridge._dispatch_with_holder("prepare", {**realtime_request, "preflightToken": realtime_preflight["preflightToken"], "confirmation": realtime_preflight["confirmation"], "idempotencyKey": "realtime-state-fence"}, holder)
+        bridge.mapper.song.tempo = 130.0
+        with self.assertRaises(ValueError): bridge._dispatch_with_holder("invoke", {**realtime_request, "authorityToken": realtime_prepared["authorityToken"]}, holder)
 
     def test_mutation_authority_excludes_only_drifting_transport_position(self):
         song = FakeSong(); song.is_playing = True; song.current_song_time = 1.0
@@ -1431,7 +1436,7 @@ class RealtimePlaneTests(unittest.TestCase):
 
         class _Mapper:
             def __init__(self):
-                self.parameters = {}
+                self.parameters = {}; self.authority_generation = 1
             def _playback(self):
                 return {"firedTargets": [], "playingTargets": []}
             def _active_targets(self, playback):
@@ -1442,6 +1447,9 @@ class RealtimePlaneTests(unittest.TestCase):
                 return {"stopped": True, "stoppedTargets": []}
             def _resolve_parameter(self, ref):
                 return self.parameters.setdefault(ref, _Parameter())
+            def _realtime_parameter_authority(self, ref):
+                parameter = self._resolve_parameter(ref)
+                return {"ref": ref, "parameterIdentity": f"parameter:{id(parameter)}", "ownerRef": "owner", "ownerIdentity": f"owner:{self.authority_generation}", "trackRef": "track", "trackIdentity": "track:1", "siblings": [{"ref": ref, "objectIdentity": f"parameter:{id(parameter)}"}]}
             @staticmethod
             def _read_attr(obj, *names):
                 for name in names:
@@ -1526,11 +1534,10 @@ class RealtimePlaneTests(unittest.TestCase):
             snapshot = bridge.mapper.snapshot()
             parameter_ref = snapshot["tracks"][0]["devices"][0]["parameters"][0]["ref"]
             parameter = bridge.mapper._resolve_parameter(parameter_ref)
-            holder = {}
             def authorized(request):
-                token = secrets.token_urlsafe(24); args = request["args"]
-                holder.setdefault("authorities", {})[token] = {"operation": request["operation"], "argsDigest": hashlib.sha256(AuthenticatedRemoteScript._bounded_canonical(args).encode()).hexdigest(), "stateDigest": _authority_state_digest(bridge.mapper, args, request["operation"]), "expiresAt": int(time.time() * 1000) + 10000, "idempotencyKey": f"test-{request['operation']}-{secrets.token_hex(4)}"}
-                return bridge._dispatch_with_holder("invoke", {**request, "authorityToken": token}, holder)
+                # This test runs on its synthetic main thread; bridge authority
+                # preflight/prepare/invoke sequencing is covered separately.
+                return bridge._realtime_op(request["operation"], request["args"])
             arm_request = {"operation": "realtime.arm", "args": {"ttlMs": 30000, "channels": ["udp-json"], "parameterRefs": [parameter_ref], "outputSafety": {"safe": True, "provenance": "unit-test-operator"}}}
             with self.assertRaises(ValueError): bridge._realtime_op("realtime.arm", {"ttlMs": 30000, "channels": ["udp-json"], "parameterRefs": [parameter_ref]})
             armed = authorized(arm_request)
@@ -1551,6 +1558,20 @@ class RealtimePlaneTests(unittest.TestCase):
             self.assertEqual(stats["revokedBeforeApply"], 4)
             self.assertEqual(stats["applyFailures"], 4)
             self.assertEqual(stats["pending"], 0)
+        finally:
+            bridge.disconnect()
+
+    def test_real_mapper_track_reorder_revokes_parameter_authority(self):
+        import socket as _socket
+        tcp_probe = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM); tcp_probe.bind(("127.0.0.1", 0)); tcp_port = tcp_probe.getsockname()[1]; tcp_probe.close()
+        udp_probe = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM); udp_probe.bind(("127.0.0.1", 0)); realtime_port = udp_probe.getsockname()[1]; udp_probe.close()
+        bridge = AbletonMcpBridge(FakeInstance(), {"host": "127.0.0.1", "port": tcp_port, "realtimePort": realtime_port, "secret": "x" * 40})
+        try:
+            snapshot = bridge.mapper.snapshot(); parameter_ref = snapshot["tracks"][0]["devices"][0]["parameters"][0]["ref"]; parameter = bridge.mapper._resolve_parameter(parameter_ref); prior = parameter.value
+            armed = bridge._realtime_op("realtime.arm", {"ttlMs": 30000, "channels": ["udp-json"], "parameterRefs": [parameter_ref], "outputSafety": {"safe": True, "provenance": "unit-test-operator"}})
+            bridge._realtime._handle(self._json(token=armed["token"], seq=1, channel="udp-json", op="parameter.set", ref=parameter_ref, value=0.25))
+            bridge.mapper.song.tracks.insert(0, FakeTrack()); bridge.queue.drain()
+            stats = bridge._realtime.stats(); self.assertFalse(stats["armed"]); self.assertEqual(stats["applyFailures"], 1); self.assertEqual(parameter.value, prior)
         finally:
             bridge.disconnect()
 
@@ -1611,6 +1632,19 @@ class RealtimePlaneTests(unittest.TestCase):
         finally:
             plane.close()
 
+    def test_parameter_topology_change_revokes_armed_generation_before_apply(self):
+        plane = self._plane()
+        try:
+            queue = plane._bridge.queue; queue.defer = True
+            armed = plane.arm(30000, ["udp-json"], ["p"])
+            plane._handle(self._json(token=armed["token"], seq=1, channel="udp-json", op="parameter.set", ref="p", value=0.75))
+            plane._bridge.mapper.authority_generation += 1
+            with self.assertRaises(ValueError): queue.calls.pop(0)()
+            stats = plane.stats(); self.assertFalse(stats["armed"]); self.assertEqual(stats["applied"], 0); self.assertEqual(stats["applyFailures"], 1); self.assertEqual(stats["revokedBeforeApply"], 1)
+            self.assertEqual(plane._bridge.mapper.parameters["p"].value, 0.0)
+        finally:
+            plane.close()
+
     def test_disarm_expiry_and_rearm_fence_accepted_callbacks(self):
         plane = self._plane()
         try:
@@ -1623,7 +1657,7 @@ class RealtimePlaneTests(unittest.TestCase):
             plane.disarm()
             with self.assertRaises(ValueError):
                 queue.calls.pop(0)()
-            self.assertNotIn("p", plane._bridge.mapper.parameters)
+            self.assertEqual(plane._bridge.mapper.parameters["p"].value, 0.0)
 
             expired = plane.arm(30000, ["udp-json"], ["p"])
             plane._handle(self._json(token=expired["token"], seq=1, channel="udp-json", op="parameter.set", ref="p", value=0.5))

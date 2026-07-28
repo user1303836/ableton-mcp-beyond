@@ -1107,6 +1107,11 @@ test("realtime control requires real provenance and arms exact bounded channels 
   const staleApply = await call(16, "live_realtime_arm_apply", { transactionId: stale.transactionId, confirmation: "apply", idempotencyKey: "rt-stale" });
   assert.equal((staleApply as any).result.isError, true);
   assert.equal(armCalls, 2);
+  (simulator as any).state.tracks[0].mixer.volume = 0.85;
+  const topology = JSON.parse(((await call(17, "live_realtime_arm_preview", { channels: ["udp-json"], parameterRefs: ["parameter:mixer:0:volume"], outputSafety: evidence })) as any).result.content[0].text);
+  (simulator as any).state.tracks[0].objectIdentity = "simulator:track:replacement";
+  const topologyApply = await call(18, "live_realtime_arm_apply", { transactionId: topology.transactionId, confirmation: "apply", idempotencyKey: "rt-topology" });
+  assert.equal((topologyApply as any).result.isError, true); assert.equal(armCalls, 2);
 });
 
 test("recording preview gates intent, destination, and recording state", async () => {

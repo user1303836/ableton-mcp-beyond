@@ -2264,25 +2264,26 @@ export class McpHost {
     for (const track of snapshot.tracks as unknown as JsonObject[]) {
       const mixer = isObject(track.mixer) ? track.mixer : undefined;
       if (mixer) {
-        add(mixer.volumeRef, mixer.volume, { kind: "mixer-volume", trackRef: track.ref });
-        add(mixer.panRef, mixer.pan, { kind: "mixer-pan", trackRef: track.ref });
-        add(mixer.cueRef, mixer.cueVolume, { kind: "mixer-cue", trackRef: track.ref });
+        add(mixer.volumeRef, mixer.volume, { kind: "mixer-volume", parameterIdentity: mixer.volumeIdentity ?? null, trackRef: track.ref, trackIdentity: track.objectIdentity ?? null });
+        add(mixer.panRef, mixer.pan, { kind: "mixer-pan", parameterIdentity: mixer.panIdentity ?? null, trackRef: track.ref, trackIdentity: track.objectIdentity ?? null });
+        add(mixer.cueRef, mixer.cueVolume, { kind: "mixer-cue", parameterIdentity: mixer.cueIdentity ?? null, trackRef: track.ref, trackIdentity: track.objectIdentity ?? null });
         const sendRefs = Array.isArray(mixer.sendRefs) ? mixer.sendRefs : [];
         const sends = Array.isArray(mixer.sends) ? mixer.sends : [];
-        sendRefs.slice(0, 128).forEach((reference, index) => add(reference, sends[index], { kind: "mixer-send", trackRef: track.ref, sendIndex: index }));
+        const sendIdentities = Array.isArray(mixer.sendIdentities) ? mixer.sendIdentities : [];
+        sendRefs.slice(0, 128).forEach((reference, index) => add(reference, sends[index], { kind: "mixer-send", parameterIdentity: sendIdentities[index] ?? null, trackRef: track.ref, trackIdentity: track.objectIdentity ?? null, sendIndex: index }));
       }
       const queue: JsonObject[] = Array.isArray(track.devices) ? (track.devices as unknown[]).filter(isObject).slice(0, 512) : [];
       for (let cursor = 0; cursor < queue.length && cursor < 512; cursor += 1) {
         const device = queue[cursor]!;
-        for (const parameter of (Array.isArray(device.parameters) ? device.parameters : []).filter(isObject).slice(0, 512)) add(parameter.ref, parameter.value, { kind: "device-parameter", deviceRef: device.ref, min: parameter.min ?? null, max: parameter.max ?? null, enabled: parameter.enabled ?? null, automatable: parameter.automatable ?? null, revision: parameter.revision ?? null });
-        for (const macro of (Array.isArray(device.macros) ? device.macros : []).filter(isObject).slice(0, 128)) add(macro.ref, macro.value, { kind: "rack-macro", deviceRef: device.ref });
+        for (const parameter of (Array.isArray(device.parameters) ? device.parameters : []).filter(isObject).slice(0, 512)) add(parameter.ref, parameter.value, { kind: "device-parameter", parameterIdentity: parameter.objectIdentity ?? null, deviceRef: device.ref, deviceIdentity: device.objectIdentity ?? null, trackRef: track.ref, trackIdentity: track.objectIdentity ?? null, min: parameter.min ?? null, max: parameter.max ?? null, enabled: parameter.enabled ?? null, automatable: parameter.automatable ?? null, revision: parameter.revision ?? null });
+        for (const macro of (Array.isArray(device.macros) ? device.macros : []).filter(isObject).slice(0, 128)) add(macro.ref, macro.value, { kind: "rack-macro", parameterIdentity: macro.objectIdentity ?? null, deviceRef: device.ref, deviceIdentity: device.objectIdentity ?? null, trackRef: track.ref, trackIdentity: track.objectIdentity ?? null });
         const parents = [device, ...(Array.isArray(device.drumPads) ? (device.drumPads as unknown[]).filter(isObject) : [])];
         for (const parent of parents) for (const chain of (Array.isArray(parent.chains) ? parent.chains : []).filter(isObject).slice(0, 128)) for (const nested of (Array.isArray(chain.devices) ? chain.devices : []).filter(isObject).slice(0, 128)) if (queue.length < 512) queue.push(nested);
       }
     }
     return references.map((reference) => {
       const target = available.get(reference);
-      if (!target) throw new Error(`realtime parameter ref is not an authoritative published target: ${reference}`);
+      if (!target || typeof target.parameterIdentity !== "string" || typeof target.trackIdentity !== "string" || (target.kind !== "mixer-volume" && target.kind !== "mixer-pan" && target.kind !== "mixer-cue" && target.kind !== "mixer-send" && typeof target.deviceIdentity !== "string")) throw new Error(`realtime parameter ref lacks exact authoritative identity: ${reference}`);
       return target;
     });
   }

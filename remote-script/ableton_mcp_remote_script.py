@@ -785,7 +785,7 @@ class LiveObjectMapper:
                 if display is None:
                     display = value
             parameters.append({
-                "ref": parameter_ref, "parentRef": device_ref,
+                "ref": parameter_ref, "parentRef": device_ref, "objectIdentity": self._capture_object_identity(parameter),
                 "name": str(self._read_attr(parameter, "name") or f"Parameter {parameter_index + 1}"),
                 "value": float(value), "min": float(minimum), "max": float(maximum),
                 "quantization": float(self._read_attr(parameter, "quantization") or 0),
@@ -810,7 +810,7 @@ class LiveObjectMapper:
             row["chains"] = self._chain_rows(device, device_ref, track_index, path)
             row["chainSelector"] = self._read_attr(device, "chain_selector")
             macros = self._items(self._read_attr(device, "macros") or [])
-            row["macros"] = [{"ref": self.refs.put("parameter", macro, f"{device_ref}:macro:{macro_index}"), "name": str(self._read_attr(macro, "name") or f"Macro {macro_index + 1}"), "value": self._read_attr(macro, "value")} for macro_index, macro in enumerate(macros)]
+            row["macros"] = [{"ref": self.refs.put("parameter", macro, f"{device_ref}:macro:{macro_index}"), "objectIdentity": self._capture_object_identity(macro), "name": str(self._read_attr(macro, "name") or f"Macro {macro_index + 1}"), "value": self._read_attr(macro, "value")} for macro_index, macro in enumerate(macros)]
             row["variationCount"] = len(self._items(self._read_attr(device, "variations") or []))
         if row["canHaveDrumPads"] is True:
             row["drumPads"] = self._drum_pad_rows(device, device_ref, track_index, path)
@@ -2060,9 +2060,13 @@ class LiveObjectMapper:
             "solo": flag("solo"),
             "sends": [param_value(send) for send in send_params],
             "volumeRef": self.refs.put("parameter", volume_param, f"mixer:{track_index}:volume") if volume_param is not None else None,
+            "volumeIdentity": self._capture_object_identity(volume_param) if volume_param is not None else None,
             "panRef": self.refs.put("parameter", pan_param, f"mixer:{track_index}:panning") if pan_param is not None else None,
+            "panIdentity": self._capture_object_identity(pan_param) if pan_param is not None else None,
             "cueRef": self.refs.put("parameter", cue_param, f"mixer:{track_index}:cue_volume") if cue_param is not None else None,
+            "cueIdentity": self._capture_object_identity(cue_param) if cue_param is not None else None,
             "sendRefs": [self.refs.put("parameter", send, f"mixer:{track_index}:sends:{send_index}") for send_index, send in enumerate(send_params)],
+            "sendIdentities": [self._capture_object_identity(send) for send in send_params],
         }
 
     def _resolve_parameter(self, reference: str) -> Any:
@@ -2091,6 +2095,59 @@ class LiveObjectMapper:
                 raise ValueError("mixer parameter is unavailable")
             return parameter
         return self.refs.get(reference)
+
+    def _realtime_parameter_authority(self, reference: str) -> dict[str, Any]:
+        """Resolve a realtime target to its exact current parameter, owner,
+        track, traversal path, and ordered parameter siblings. Recomputing this
+        descriptor on every Live-thread packet invalidates stale topology."""
+        target = self._resolve_parameter(reference); target_identity = self._capture_object_identity(target)
+        tracks = self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", [])) + ([getattr(self.song, "master_track", None)] if getattr(self.song, "master_track", None) is not None else [])
+        budget = [0]
+        def consume(amount: int = 1) -> None:
+            budget[0] += amount
+            if budget[0] > 1024: raise ValueError("realtime parameter identity traversal exceeded its bound")
+        def descriptor(current_ref: str, parameter: Any, owner_ref: str, owner: Any, track_ref: str, track: Any, siblings: list[dict[str, str]]) -> dict[str, Any]:
+            return {"ref": current_ref, "parameterIdentity": self._capture_object_identity(parameter), "ownerRef": owner_ref, "ownerIdentity": self._capture_object_identity(owner), "trackRef": track_ref, "trackIdentity": self._capture_object_identity(track), "siblings": siblings}
+        for track_index, track in enumerate(tracks):
+            if track is None: continue
+            track_ref = self.refs.put("track", track, str(track_index)); mixer = self._read_attr(track, "mixer_device")
+            mixer_parameters: list[tuple[str, Any]] = []
+            if mixer is not None:
+                for key, attribute in (("volume", "volume"), ("panning", "panning"), ("cue_volume", "cue_volume")):
+                    parameter = self._read_attr(mixer, attribute)
+                    if parameter is not None: mixer_parameters.append((f"mixer:{track_index}:{key}", parameter))
+                for send_index, parameter in enumerate(self._items(self._read_attr(mixer, "sends") or [])):
+                    mixer_parameters.append((f"mixer:{track_index}:sends:{send_index}", parameter))
+            if len(mixer_parameters) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("realtime mixer parameter collection exceeds its bound")
+            mixer_siblings = [{"ref": self.refs.put("parameter", parameter, key), "objectIdentity": self._capture_object_identity(parameter)} for key, parameter in mixer_parameters]
+            consume(len(mixer_siblings))
+            for sibling, (_, parameter) in zip(mixer_siblings, mixer_parameters):
+                if self._capture_same_object(parameter, target, target_identity): return descriptor(sibling["ref"], parameter, track_ref, track, track_ref, track, mixer_siblings)
+            seen: set[int] = set()
+            def visit(owner: Any, path: str) -> dict[str, Any] | None:
+                if id(owner) in seen: return None
+                seen.add(id(owner)); devices = self._items(self._read_attr(owner, "devices") or [])
+                if len(devices) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("realtime device collection exceeds its bound")
+                for device_index, device in enumerate(devices):
+                    consume(); device_path = f"{path}:{device_index}"; device_ref = self.refs.put("device", device, device_path)
+                    parameters = self._items(self._read_attr(device, "parameters") or []); macros = self._items(self._read_attr(device, "macros") or [])
+                    if len(parameters) + len(macros) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("realtime device parameter collection exceeds its bound")
+                    parameter_rows = [(self.refs.put("parameter", parameter, f"{device_ref}:{parameter_index}"), parameter) for parameter_index, parameter in enumerate(parameters)]
+                    parameter_rows.extend((self.refs.put("parameter", macro, f"{device_ref}:macro:{macro_index}"), macro) for macro_index, macro in enumerate(macros))
+                    siblings = [{"ref": current_ref, "objectIdentity": self._capture_object_identity(parameter)} for current_ref, parameter in parameter_rows]; consume(len(siblings))
+                    for sibling, (_, parameter) in zip(siblings, parameter_rows):
+                        if self._capture_same_object(parameter, target, target_identity): return descriptor(sibling["ref"], parameter, device_ref, device, track_ref, track, siblings)
+                    for chain_index, chain in enumerate(self._items(self._read_attr(device, "chains") or [])):
+                        found = visit(chain, f"{device_path}:{chain_index}")
+                        if found is not None: return found
+                    for pad_index, pad in enumerate(self._items(self._read_attr(device, "visible_drum_pads") or self._read_attr(device, "drum_pads") or [])):
+                        for chain_index, chain in enumerate(self._items(self._read_attr(pad, "chains") or [])):
+                            found = visit(chain, f"{device_path}:{pad_index}:{chain_index}")
+                            if found is not None: return found
+                return None
+            found = visit(track, str(track_index))
+            if found is not None: return found
+        raise ValueError("realtime parameter target is no longer in the authoritative hierarchy")
 
     def _mixer_set(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")
@@ -3389,6 +3446,10 @@ def _decode_osc(data: bytes) -> dict[str, Any]:
     raise ValueError("OSC address or arguments are unavailable")
 
 
+class _RealtimeAuthorityChanged(ValueError):
+    pass
+
+
 class _RealtimePlane:
     """Short-lived loopback realtime ingress shared by JSON UDP, OSC, XY,
     and Max clients. Authentication, endpoint/channel allowlists, sequence and
@@ -3402,7 +3463,7 @@ class _RealtimePlane:
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._lock = threading.Lock()
-        self._armed: tuple[str, float, tuple[str, ...], frozenset[int], frozenset[str]] | None = None
+        self._armed: tuple[str, float, tuple[str, ...], frozenset[int], dict[str, str]] | None = None
         self._generation = 0
         self._last_sequence = 0
         self._tokens = float(REALTIME_RATE_BURST)
@@ -3438,7 +3499,7 @@ class _RealtimePlane:
                 self._socket = None
                 raise
 
-    def _armed_now_locked(self) -> tuple[str, float, tuple[str, ...], frozenset[int], frozenset[str]] | None:
+    def _armed_now_locked(self) -> tuple[str, float, tuple[str, ...], frozenset[int], dict[str, str]] | None:
         if self._armed is not None and time.time() >= self._armed[1]:
             self._armed = None
             self._generation += 1
@@ -3456,11 +3517,16 @@ class _RealtimePlane:
         source_ports = [] if source_ports is None else source_ports
         if not isinstance(source_ports, list) or len(source_ports) > 16 or len(set(source_ports)) != len(source_ports) or any(not isinstance(item, int) or isinstance(item, bool) or not 1 <= item <= 65535 for item in source_ports):
             raise ValueError("realtime source ports are invalid")
+        parameter_authorities: dict[str, str] = {}
+        for reference in parameter_refs:
+            authority = self._bridge.mapper._realtime_parameter_authority(reference)
+            if authority.get("ref") != reference: raise ValueError("realtime parameter reference changed before arming")
+            parameter_authorities[reference] = AuthenticatedRemoteScript._bounded_canonical(authority)
         token = secrets.token_urlsafe(24)
         expires = time.time() + ttl_ms / 1000.0
         with self._lock:
             self._generation += 1
-            self._armed = (token, expires, tuple(channels), frozenset(source_ports), frozenset(parameter_refs))
+            self._armed = (token, expires, tuple(channels), frozenset(source_ports), parameter_authorities)
             self._last_sequence = 0
             self._tokens = float(REALTIME_RATE_BURST)
             self._refill_at = time.monotonic()
@@ -3623,7 +3689,7 @@ class _RealtimePlane:
             if armed is None:
                 self.dropped_unarmed += 1
                 return
-            expected_token, _, channels, source_ports, parameter_refs = armed
+            expected_token, _, channels, source_ports, parameter_authorities = armed
             source_host = str(address[0]) if address else ""
             source_port = address[1] if len(address) > 1 else 0
             if source_host != self.host or (source_ports and source_port not in source_ports):
@@ -3633,7 +3699,7 @@ class _RealtimePlane:
                 self.dropped_unarmed += 1
                 return
             targets = {str(message["ref"])} if operation == "parameter.set" else ({str(message["xRef"]), str(message["yRef"])} if operation == "xy.set" else set())
-            if not targets <= parameter_refs:
+            if not targets <= set(parameter_authorities):
                 self.dropped_target += 1
                 return
             if sequence <= self._last_sequence:
@@ -3650,9 +3716,12 @@ class _RealtimePlane:
         if operation == "emergency-stop":
             callback = self._realtime_emergency_stop
         elif operation == "parameter.set":
-            callback = lambda: self._realtime_parameter_set(str(message["ref"]), float(message["value"]))
+            reference = str(message["ref"]); expected_authority = parameter_authorities[reference]
+            callback = lambda: self._realtime_parameter_set(reference, float(message["value"]), expected_authority)
         else:
-            callback = lambda: self._realtime_xy_set(str(message["xRef"]), float(message["x"]), str(message["yRef"]), float(message["y"]))
+            x_reference, y_reference = str(message["xRef"]), str(message["yRef"])
+            x_authority, y_authority = parameter_authorities[x_reference], parameter_authorities[y_reference]
+            callback = lambda: self._realtime_xy_set(x_reference, float(message["x"]), y_reference, float(message["y"]), x_authority, y_authority)
         try:
             queued = self._bridge.queue.submit_nowait(self._tracked_callback(callback, generation), deadline_ms=int(time.time() * 1000) + 1000, on_cancel=lambda _: self._increment("dropped_before_dispatch"))
         except BaseException:
@@ -3674,6 +3743,9 @@ class _RealtimePlane:
                     raise ValueError("realtime authority expired or was revoked before apply")
                 try:
                     result = callback()
+                except _RealtimeAuthorityChanged:
+                    self._armed = None; self._generation += 1; self.revoked_before_apply += 1; self.apply_failures += 1
+                    raise
                 except BaseException:
                     self.apply_failures += 1
                     raise
@@ -3688,8 +3760,11 @@ class _RealtimePlane:
         expected_recording = "both" if session_record and arrangement_record else "session" if session_record else "arrangement" if arrangement_record else "stopped"
         return mapper._guarded_emergency_stop({"expectedTargets": expected, "expectedRecording": expected_recording})
 
-    def _parameter_target(self, reference: str, value: float) -> tuple[Any, float]:
+    def _parameter_target(self, reference: str, value: float, expected_authority: str) -> tuple[Any, float]:
         mapper = self._bridge.mapper
+        try: current_authority = AuthenticatedRemoteScript._bounded_canonical(mapper._realtime_parameter_authority(reference))
+        except (KeyError, ValueError) as error: raise _RealtimeAuthorityChanged("realtime parameter hierarchy changed after arming") from error
+        if not hmac.compare_digest(current_authority, expected_authority): raise _RealtimeAuthorityChanged("realtime parameter hierarchy changed after arming")
         parameter = mapper._resolve_parameter(reference)
         current = mapper._read_attr(parameter, "value")
         minimum = mapper._read_attr(parameter, "min", "min_value")
@@ -3712,8 +3787,8 @@ class _RealtimePlane:
         if not isinstance(observed, (int, float)) or isinstance(observed, bool) or not math.isfinite(float(observed)) or abs(float(observed) - expected) > 1e-6:
             raise ValueError("realtime parameter write was not confirmed")
 
-    def _realtime_parameter_set(self, reference: str, value: float) -> None:
-        parameter, prior = self._parameter_target(reference, value)
+    def _realtime_parameter_set(self, reference: str, value: float, expected_authority: str) -> None:
+        parameter, prior = self._parameter_target(reference, value, expected_authority)
         try:
             parameter.value = value
             self._verify_parameter(parameter, value)
@@ -3722,9 +3797,9 @@ class _RealtimePlane:
             except BaseException: pass
             raise
 
-    def _realtime_xy_set(self, x_reference: str, x: float, y_reference: str, y: float) -> None:
-        x_parameter, x_prior = self._parameter_target(x_reference, x)
-        y_parameter, y_prior = self._parameter_target(y_reference, y)
+    def _realtime_xy_set(self, x_reference: str, x: float, y_reference: str, y: float, x_authority: str, y_authority: str) -> None:
+        x_parameter, x_prior = self._parameter_target(x_reference, x, x_authority)
+        y_parameter, y_prior = self._parameter_target(y_reference, y, y_authority)
         try:
             x_parameter.value = x
             y_parameter.value = y
@@ -3954,8 +4029,10 @@ class AbletonMcpBridge:
         self._thread.start()
 
     def _dispatch(self, method: str, request: dict[str, Any]) -> Any:
-        if method == "invoke" and request.get("operation") in {"realtime.arm", "realtime.disarm", "realtime.stats"}:
+        if method == "invoke" and request.get("operation") == "realtime.stats":
             return self._realtime_op(str(request["operation"]), dict(request.get("args", {})))
+        if method == "invoke" and request.get("operation") in {"realtime.arm", "realtime.disarm"}:
+            return self.queue.submit(lambda: self._realtime_op(str(request["operation"]), dict(request.get("args", {}))), deadline_ms=request.get("deadlineMs"))
         return self.queue.submit(lambda: self._dispatch_main(method, request), deadline_ms=request.get("deadlineMs"))
 
     def _dispatch_main(self, method: str, request: dict[str, Any]) -> Any:
@@ -4050,11 +4127,11 @@ class AbletonMcpBridge:
                         return prior["result"]
                     if len(self._executed_mutations) >= 256: raise ValueError("executed mutation ledger is full; reconnect after authoritative recovery")
                     result = apply(); self._executed_mutations[idempotency_key] = {"operation": request["operation"], "argsDigest": digest, "result": result}; return result
-            if request.get("operation") in {"realtime.arm", "realtime.disarm"}:
-                return replay_or_apply(lambda: self._realtime_op(request["operation"], args))
             def invoke_authorized() -> Any:
-                if _authority_state_digest(self.mapper, args, str(request["operation"])) != authority["stateDigest"]: raise ValueError("Live state changed after mutation authority preparation")
-                return replay_or_apply(lambda: self.mapper.invoke(str(request["operation"]), args))
+                operation = str(request["operation"])
+                if _authority_state_digest(self.mapper, args, operation) != authority["stateDigest"]: raise ValueError("Live state changed after mutation authority preparation")
+                if operation in {"realtime.arm", "realtime.disarm"}: return replay_or_apply(lambda: self._realtime_op(operation, args))
+                return replay_or_apply(lambda: self.mapper.invoke(operation, args))
             return self.queue.submit(invoke_authorized, deadline_ms=request.get("deadlineMs"))
         if method == "invoke" and request.get("operation") == "realtime.stats":
             return self._realtime_op(request["operation"], request.get("args", {}))
