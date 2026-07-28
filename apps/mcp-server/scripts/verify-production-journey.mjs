@@ -1333,13 +1333,20 @@ class EnvelopeEvent:
     const volumeRef = freshTracks[0]?.mixer?.volumeRef;
     const panRef = freshTracks[0]?.mixer?.panRef;
     assert(typeof volumeRef === "string" && typeof panRef === "string", "published mixer parameters are unavailable for realtime proof");
+    const mixer = freshTracks[0].mixer; const mixerRows = [
+      [mixer.volumeRef, mixer.volumeIdentity], [mixer.panRef, mixer.panIdentity], [mixer.cueRef, mixer.cueIdentity],
+      ...(mixer.sendRefs ?? []).map((ref, index) => [ref, mixer.sendIdentities?.[index]]),
+    ].filter(([ref, identity]) => typeof ref === "string" && typeof identity === "string");
+    const siblings = mixerRows.map(([ref, objectIdentity]) => ({ ref, objectIdentity }));
+    const authorityFor = (ref) => { const row = mixerRows.find(([candidate]) => candidate === ref); assert(row, `missing realtime identity for ${ref}`); return { ref, parameterIdentity: row[1], ownerRef: freshTracks[0].ref, ownerIdentity: freshTracks[0].objectIdentity, trackRef: freshTracks[0].ref, trackIdentity: freshTracks[0].objectIdentity, siblings }; };
+    const targetAuthorities = [authorityFor(volumeRef), authorityFor(panRef)];
     const refused = await textOf(client, "live_realtime_arm_preview", { ttlMs: 5000, channels: ["udp-json"], parameterRefs: [volumeRef], outputSafety: { safe: true, provenance: "journey-operator-confirmed-loopback" } });
     assert(refused.isError === true, "fake-Live provenance was promoted to realtime host authority");
     const sender = await bindUdp();
     const rogue = await bindUdp();
     try {
       const sourcePort = sender.address().port;
-      const armed = await adapter_call(client, "realtime.arm", { ttlMs: 30000, channels: ["udp-json", "osc", "xy", "max"], parameterRefs: [volumeRef, panRef], sourcePorts: [sourcePort], outputSafety: { safe: true, provenance: "journey-operator-confirmed-headphones" } });
+      const armed = await adapter_call(client, "realtime.arm", { ttlMs: 30000, channels: ["udp-json", "osc", "xy", "max"], parameterRefs: [volumeRef, panRef], targetAuthorities, sourcePorts: [sourcePort], outputSafety: { safe: true, provenance: "journey-operator-confirmed-headphones" } });
       assert(armed.host === "127.0.0.1" && armed.port === harnessRealtimePort && JSON.stringify(armed.parameterRefs) === JSON.stringify([volumeRef, panRef]) && armed.packetLimitBytes === 512 && armed.ratePerSecond === 64 && armed.burst === 16, `realtime arm contract mismatch: ${JSON.stringify(armed)}`);
       // The token lives in the bridge rather than the MCP process and remains
       // usable across a host restart for only the arm's bounded lifetime.
@@ -1387,7 +1394,7 @@ class EnvelopeEvent:
       const afterDisarm = await adapter_call(client, "realtime.stats", {});
       assert(afterDisarm.armed === false && afterDisarm.droppedUnarmed > beforeDisarm.droppedUnarmed, "disarm did not revoke subsequent packets");
 
-      const expiring = await adapter_call(client, "realtime.arm", { ttlMs: 1000, channels: ["udp-json"], parameterRefs: [volumeRef], sourcePorts: [sourcePort], outputSafety: { safe: true, provenance: "journey-operator-confirmed-headphones" } });
+      const expiring = await adapter_call(client, "realtime.arm", { ttlMs: 1000, channels: ["udp-json"], parameterRefs: [volumeRef], targetAuthorities: [authorityFor(volumeRef)], sourcePorts: [sourcePort], outputSafety: { safe: true, provenance: "journey-operator-confirmed-headphones" } });
       await waitMs(1100);
       await sendUdp(sender, JSON.stringify({ token: expiring.token, seq: 1, channel: "udp-json", op: "parameter.set", ref: volumeRef, value: 0.2 }), harnessRealtimePort);
       await waitMs(100);

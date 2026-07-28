@@ -2258,32 +2258,81 @@ export class McpHost {
 
   private realtimeParameterTargets(snapshot: LiveSnapshot, references: string[]): JsonObject[] {
     const available = new Map<string, JsonObject>();
-    const add = (reference: unknown, value: unknown, details: JsonObject): void => {
-      if (typeof reference === "string") available.set(reference, { ref: reference, value: typeof value === "number" && Number.isFinite(value) ? value : null, ...details });
+    const add = (reference: string, value: unknown, details: JsonObject, authority: JsonObject): void => {
+      available.set(reference, { ref: reference, value: typeof value === "number" && Number.isFinite(value) ? value : null, ...details, authority });
+    };
+    let authorityBudget = 0;
+    let exhausted = false;
+    const consumeAuthority = (amount: number): boolean => {
+      if (authorityBudget + amount > 1024) { exhausted = true; return false; }
+      authorityBudget += amount;
+      return true;
     };
     for (const track of snapshot.tracks as unknown as JsonObject[]) {
+      if (exhausted) break;
+      const trackRef = typeof track.ref === "string" ? track.ref : undefined;
+      const trackIdentity = typeof track.objectIdentity === "string" ? track.objectIdentity : undefined;
       const mixer = isObject(track.mixer) ? track.mixer : undefined;
-      if (mixer) {
-        add(mixer.volumeRef, mixer.volume, { kind: "mixer-volume", parameterIdentity: mixer.volumeIdentity ?? null, trackRef: track.ref, trackIdentity: track.objectIdentity ?? null });
-        add(mixer.panRef, mixer.pan, { kind: "mixer-pan", parameterIdentity: mixer.panIdentity ?? null, trackRef: track.ref, trackIdentity: track.objectIdentity ?? null });
-        add(mixer.cueRef, mixer.cueVolume, { kind: "mixer-cue", parameterIdentity: mixer.cueIdentity ?? null, trackRef: track.ref, trackIdentity: track.objectIdentity ?? null });
+      if (mixer && trackRef && trackIdentity) {
+        const mixerRows: Array<{ ref: string; objectIdentity: string; value: unknown; kind: string; sendIndex?: number }> = [];
+        let complete = true;
+        for (const [ref, objectIdentity, value, kind] of [[mixer.volumeRef, mixer.volumeIdentity, mixer.volume, "mixer-volume"], [mixer.panRef, mixer.panIdentity, mixer.pan, "mixer-pan"], [mixer.cueRef, mixer.cueIdentity, mixer.cueVolume, "mixer-cue"]]) {
+          if (ref === null || ref === undefined) { if (objectIdentity !== null && objectIdentity !== undefined) complete = false; continue; }
+          if (typeof ref !== "string" || typeof objectIdentity !== "string") { complete = false; continue; }
+          mixerRows.push({ ref, objectIdentity, value, kind: String(kind) });
+        }
         const sendRefs = Array.isArray(mixer.sendRefs) ? mixer.sendRefs : [];
         const sends = Array.isArray(mixer.sends) ? mixer.sends : [];
         const sendIdentities = Array.isArray(mixer.sendIdentities) ? mixer.sendIdentities : [];
-        sendRefs.slice(0, 128).forEach((reference, index) => add(reference, sends[index], { kind: "mixer-send", parameterIdentity: sendIdentities[index] ?? null, trackRef: track.ref, trackIdentity: track.objectIdentity ?? null, sendIndex: index }));
+        if (sendRefs.length !== sendIdentities.length) complete = false;
+        sendRefs.forEach((ref, index) => {
+          if (typeof ref !== "string" || typeof sendIdentities[index] !== "string") { complete = false; return; }
+          mixerRows.push({ ref, objectIdentity: sendIdentities[index], value: sends[index], kind: "mixer-send", sendIndex: index });
+        });
+        if (!complete || mixerRows.length > 256 || !consumeAuthority(mixerRows.length)) { exhausted = true; break; }
+        const siblings = mixerRows.map(({ ref, objectIdentity }) => ({ ref, objectIdentity }));
+        for (const row of mixerRows) add(row.ref, row.value, { kind: row.kind, parameterIdentity: row.objectIdentity, trackRef, trackIdentity, ...(row.sendIndex === undefined ? {} : { sendIndex: row.sendIndex }) }, { ref: row.ref, parameterIdentity: row.objectIdentity, ownerRef: trackRef, ownerIdentity: trackIdentity, trackRef, trackIdentity, siblings });
       }
-      const queue: JsonObject[] = Array.isArray(track.devices) ? (track.devices as unknown[]).filter(isObject).slice(0, 512) : [];
-      for (let cursor = 0; cursor < queue.length && cursor < 512; cursor += 1) {
-        const device = queue[cursor]!;
-        for (const parameter of (Array.isArray(device.parameters) ? device.parameters : []).filter(isObject).slice(0, 512)) add(parameter.ref, parameter.value, { kind: "device-parameter", parameterIdentity: parameter.objectIdentity ?? null, deviceRef: device.ref, deviceIdentity: device.objectIdentity ?? null, trackRef: track.ref, trackIdentity: track.objectIdentity ?? null, min: parameter.min ?? null, max: parameter.max ?? null, enabled: parameter.enabled ?? null, automatable: parameter.automatable ?? null, revision: parameter.revision ?? null });
-        for (const macro of (Array.isArray(device.macros) ? device.macros : []).filter(isObject).slice(0, 128)) add(macro.ref, macro.value, { kind: "rack-macro", parameterIdentity: macro.objectIdentity ?? null, deviceRef: device.ref, deviceIdentity: device.objectIdentity ?? null, trackRef: track.ref, trackIdentity: track.objectIdentity ?? null });
-        const parents = [device, ...(Array.isArray(device.drumPads) ? (device.drumPads as unknown[]).filter(isObject) : [])];
-        for (const parent of parents) for (const chain of (Array.isArray(parent.chains) ? parent.chains : []).filter(isObject).slice(0, 128)) for (const nested of (Array.isArray(chain.devices) ? chain.devices : []).filter(isObject).slice(0, 128)) if (queue.length < 512) queue.push(nested);
-      }
+      const visitDevices = (candidate: unknown): void => {
+        if (exhausted) return;
+        if (!Array.isArray(candidate) || candidate.length > 256 || !candidate.every(isObject)) { exhausted = true; return; }
+        for (const device of candidate) {
+          if (!consumeAuthority(1)) return;
+          const deviceRef = typeof device.ref === "string" ? device.ref : undefined;
+          const deviceIdentity = typeof device.objectIdentity === "string" ? device.objectIdentity : undefined;
+          const rawParameters = Array.isArray(device.parameters) ? device.parameters : [];
+          const rawMacros = Array.isArray(device.macros) ? device.macros : [];
+          const rowsComplete = rawParameters.every(isObject) && rawMacros.every(isObject) && rawParameters.length + rawMacros.length <= 256;
+          if (!rowsComplete) { exhausted = true; return; }
+          const parameters = rawParameters as JsonObject[];
+          const rows = [...parameters, ...rawMacros as JsonObject[]];
+          if (!consumeAuthority(rows.length)) return;
+          const siblingRows = rows.map((row) => typeof row.ref === "string" && typeof row.objectIdentity === "string" ? { ref: row.ref, objectIdentity: row.objectIdentity } : undefined);
+          const siblings = siblingRows.every((row) => row !== undefined) ? siblingRows as Array<{ ref: string; objectIdentity: string }> : undefined;
+          if (trackRef && trackIdentity && deviceRef && deviceIdentity && siblings) for (const [index, parameter] of rows.entries()) {
+            const parameterRef = parameter.ref as string;
+            const parameterIdentity = parameter.objectIdentity as string;
+            const kind = index < parameters.length ? "device-parameter" : "rack-macro";
+            add(parameterRef, parameter.value, { kind, parameterIdentity, deviceRef, deviceIdentity, trackRef, trackIdentity, ...(kind === "device-parameter" ? { min: parameter.min ?? null, max: parameter.max ?? null, enabled: parameter.enabled ?? null, automatable: parameter.automatable ?? null, revision: parameter.revision ?? null } : {}) }, { ref: parameterRef, parameterIdentity, ownerRef: deviceRef, ownerIdentity: deviceIdentity, trackRef, trackIdentity, siblings });
+          }
+          const chains = Array.isArray(device.chains) ? device.chains : [];
+          if (chains.length > 256 || !chains.every(isObject)) { exhausted = true; return; }
+          for (const chain of chains) { if (!consumeAuthority(1)) return; visitDevices(chain.devices); if (exhausted) return; }
+          const drumPads = Array.isArray(device.drumPads) ? device.drumPads : [];
+          if (drumPads.length > 256 || !drumPads.every(isObject)) { exhausted = true; return; }
+          for (const pad of drumPads) {
+            if (!consumeAuthority(1)) return;
+            const padChains = Array.isArray(pad.chains) ? pad.chains : [];
+            if (padChains.length > 256 || !padChains.every(isObject)) { exhausted = true; return; }
+            for (const chain of padChains) { if (!consumeAuthority(1)) return; visitDevices(chain.devices); if (exhausted) return; }
+          }
+        }
+      };
+      visitDevices(track.devices ?? []);
     }
     return references.map((reference) => {
       const target = available.get(reference);
-      if (!target || typeof target.parameterIdentity !== "string" || typeof target.trackIdentity !== "string" || (target.kind !== "mixer-volume" && target.kind !== "mixer-pan" && target.kind !== "mixer-cue" && target.kind !== "mixer-send" && typeof target.deviceIdentity !== "string")) throw new Error(`realtime parameter ref lacks exact authoritative identity: ${reference}`);
+      if (!target || !isObject(target.authority)) throw new Error(`realtime parameter ref lacks exact authoritative identity: ${reference}`);
       return target;
     });
   }
@@ -2302,7 +2351,8 @@ export class McpHost {
       const ttlMs = (params.ttlMs as number | undefined) ?? 10_000;
       const parameterRefs = [...(params.parameterRefs as string[])];
       const targets = parameterRefs.length > 0 ? this.realtimeParameterTargets(await this.asyncAdapter().snapshotAsync({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS }), parameterRefs) : [];
-      const payload: Record<string, unknown> = { ttlMs, channels: structuredClone(params.channels), parameterRefs, outputSafety: structuredClone(params.outputSafety as JsonObject) };
+      const targetAuthorities = targets.map((target) => structuredClone(target.authority));
+      const payload: Record<string, unknown> = { ttlMs, channels: structuredClone(params.channels), parameterRefs, targetAuthorities, outputSafety: structuredClone(params.outputSafety as JsonObject) };
       if (params.sourcePorts !== undefined) payload.sourcePorts = structuredClone(params.sourcePorts);
       const fence = JSON.stringify({ epoch: status.epoch, registryHash: status.registryHash, operations: ["realtime.arm", "realtime.disarm", "realtime.stats"], targets });
       const transaction: ClipLifecycleTransaction = { id: `realtime_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "realtime-arm", fence, payload, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
@@ -2345,7 +2395,7 @@ export class McpHost {
       const targets = parameterRefs.length > 0 ? this.realtimeParameterTargets(await this.asyncAdapter().snapshotAsync({ signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: transaction.applyKey, transactionId: transaction.id }), parameterRefs) : [];
       if (JSON.stringify({ epoch: status.epoch, registryHash: status.registryHash, operations: ["realtime.arm", "realtime.disarm", "realtime.stats"], targets }) !== transaction.fence) throw new Error("realtime control contract or parameter targets changed; preview again");
       if (signal?.aborted) throw new Error("realtime arm cancelled before dispatch");
-      const args: Record<string, unknown> = { ttlMs: transaction.payload.ttlMs, channels: transaction.payload.channels, parameterRefs, outputSafety: transaction.payload.outputSafety };
+      const args: Record<string, unknown> = { ttlMs: transaction.payload.ttlMs, channels: transaction.payload.channels, parameterRefs, targetAuthorities: targets.map((target) => target.authority), outputSafety: transaction.payload.outputSafety };
       if (transaction.payload.sourcePorts !== undefined) args.sourcePorts = transaction.payload.sourcePorts;
       const result = await this.asyncAdapter().invokeAsync({ operation: "realtime.arm", args }, { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: transaction.applyKey, transactionId: transaction.id }) as Record<string, unknown>;
       if (!isIntegerInRange(result.port, 1, 65535) || !isNonEmptyString(result.host, 64) || !isNonEmptyString(result.token, 128) || !Number.isInteger(result.expiresAt) || (result.expiresAt as number) <= Date.now() || !Array.isArray(result.channels) || JSON.stringify(result.channels) !== JSON.stringify(transaction.payload.channels) || !Array.isArray(result.parameterRefs) || JSON.stringify(result.parameterRefs) !== JSON.stringify(parameterRefs)) throw new Error("realtime arming was not confirmed with the requested bounded endpoint and exact targets");

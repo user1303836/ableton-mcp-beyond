@@ -72,8 +72,12 @@ the same fenced operation; independent emergency stop clears both modes.
 
 A configured UDP port grants no standing authority. `realtime.arm` selects an
 endpoint, token, one-to-thirty-second TTL, channel set, optional sender ports,
-and exact published parameter refs. Empty parameter scope permits emergency
-stop only. Packets are bounded to 512 bytes and 64/s with burst 16. Endpoint,
+and exact published parameter refs. The host's final preview carries exact
+parameter, owner, track, and ordered-sibling identities into the arm request;
+Live compares them atomically before granting a token and again before every
+queued write, so traversal-index replacement or reparenting revokes authority.
+Empty parameter scope permits emergency stop only. Packets are bounded to 512
+bytes and 64/s with burst 16. Endpoint,
 target, replay, expiry, rate, queue, generation, and validation failures are
 counted. Accepted does not mean applied. Disarm bypasses the Live callback FIFO
 and generation-fences queued work. See `REALTIME_CONTROL.md`.

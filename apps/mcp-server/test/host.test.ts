@@ -1044,6 +1044,7 @@ test("realtime control requires real provenance and arms exact bounded channels 
   let provenance: "fake-live" | "real-live" = "fake-live";
   let armed = false;
   let armCalls = 0;
+  let lastArmArgs: any;
   const operations = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "realtime.arm", "realtime.disarm", "realtime.stats"];
   const adapter = {
     status: () => ({ ...simulator.status(), adapter: "remote-script", epoch: 7, provenance, registryHash: "a".repeat(64), operations }),
@@ -1051,7 +1052,7 @@ test("realtime control requires real provenance and arms exact bounded channels 
     snapshotAsync: async () => simulator.snapshot(), discoverAsync: async () => ({ epoch: 7, items: [], truncated: false, revision: "7:empty", kind: "track" }), getAsync: async (ref: LiveRef) => simulator.get(ref), reconnectAsync: async () => simulator.status(), close: async () => undefined,
     invokeAsync: async (invocation: any) => {
       if (invocation.operation === "realtime.arm") {
-        armCalls += 1; armed = true;
+        armCalls += 1; armed = true; lastArmArgs = structuredClone(invocation.args);
         await new Promise((resolve) => setTimeout(resolve, 10));
         return { host: "127.0.0.1", port: 9766, token: String(armCalls).padEnd(32, "t"), expiresAt: Date.now() + invocation.args.ttlMs, channels: invocation.args.channels, parameterRefs: invocation.args.parameterRefs, packetLimitBytes: 512, ratePerSecond: 64, burst: 16 };
       }
@@ -1083,6 +1084,9 @@ test("realtime control requires real provenance and arms exact bounded channels 
   assert.equal(concurrent[0].state, "applied");
   assert.equal(concurrent[0].endpoint.port, 9766);
   assert.equal(armCalls, 1);
+  assert.deepEqual(lastArmArgs.targetAuthorities, [preview.parameterTargets[0].authority]);
+  assert.equal(lastArmArgs.targetAuthorities[0].parameterIdentity, "simulator:parameter:mixer:0:volume");
+  assert.deepEqual(lastArmArgs.targetAuthorities[0].siblings.map((row: any) => row.ref), ["parameter:mixer:0:volume", "parameter:mixer:0:panning", "parameter:mixer:0:cue_volume", "parameter:mixer:0:sends:0", "parameter:mixer:0:sends:1"]);
   const replay = JSON.parse(((await call(7, "live_realtime_arm_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "rt-arm-1" })) as any).result.content[0].text);
   assert.equal(replay.idempotent, true);
   assert.equal(armCalls, 1);
@@ -1112,6 +1116,36 @@ test("realtime control requires real provenance and arms exact bounded channels 
   (simulator as any).state.tracks[0].objectIdentity = "simulator:track:replacement";
   const topologyApply = await call(18, "live_realtime_arm_apply", { transactionId: topology.transactionId, confirmation: "apply", idempotencyKey: "rt-topology" });
   assert.equal((topologyApply as any).result.isError, true); assert.equal(armCalls, 2);
+  (simulator as any).state.tracks[0].objectIdentity = "simulator:track:track-1";
+  const mixer = (simulator as any).state.tracks[0].mixer;
+  mixer.sendRefs = Array.from({ length: 254 }, (_, index) => `parameter:mixer:0:sends:${index}`);
+  mixer.sendIdentities = Array.from({ length: 254 }, (_, index) => `simulator:parameter:mixer:0:sends:${index}`);
+  mixer.sends = Array.from({ length: 254 }, () => 0);
+  const oversizedAuthority = await call(19, "live_realtime_arm_preview", { channels: ["udp-json"], parameterRefs: ["parameter:mixer:0:volume"], outputSafety: evidence });
+  assert.equal((oversizedAuthority as any).result.isError, true);
+  mixer.sendRefs = ["parameter:mixer:0:sends:0", "parameter:mixer:0:sends:1"];
+  mixer.sendIdentities = ["simulator:parameter:mixer:0:sends:0", "simulator:parameter:mixer:0:sends:1"];
+  mixer.sends = [0.5, 0.25];
+  (simulator as any).state.tracks[0].devices = Array.from({ length: 5 }, (_, deviceIndex) => ({
+    ref: `device:budget:${deviceIndex}`, objectIdentity: `simulator:device:budget:${deviceIndex}`, macros: [], chains: [], drumPads: [],
+    parameters: Array.from({ length: 256 }, (_, parameterIndex) => ({ ref: `parameter:budget:${deviceIndex}:${parameterIndex}`, objectIdentity: `simulator:parameter:budget:${deviceIndex}:${parameterIndex}`, value: 0.5 })),
+  }));
+  const withinCumulativeBudget = await call(20, "live_realtime_arm_preview", { channels: ["udp-json"], parameterRefs: ["parameter:budget:2:0"], outputSafety: evidence });
+  assert.equal((withinCumulativeBudget as any).result.isError, false);
+  const cumulativeOversize = await call(21, "live_realtime_arm_preview", { channels: ["udp-json"], parameterRefs: ["parameter:budget:4:0"], outputSafety: evidence });
+  assert.equal((cumulativeOversize as any).result.isError, true);
+  const aliasedIdentity = "simulator:parameter:rack:macro-0";
+  (simulator as any).state.tracks[0].devices = [{ ref: "device:rack", objectIdentity: "simulator:device:rack", chains: [], drumPads: [], parameters: [{ ref: "parameter:rack:0", objectIdentity: aliasedIdentity, value: 0.5 }], macros: [{ ref: "parameter:rack:macro:0", objectIdentity: aliasedIdentity, value: 0.5 }] }];
+  const aliasPreview = JSON.parse(((await call(22, "live_realtime_arm_preview", { channels: ["udp-json"], parameterRefs: ["parameter:rack:macro:0"], outputSafety: evidence })) as any).result.content[0].text);
+  assert.equal(aliasPreview.parameterTargets[0].authority.ref, "parameter:rack:macro:0");
+  assert.deepEqual(aliasPreview.parameterTargets[0].authority.siblings.map((row: any) => row.ref), ["parameter:rack:0", "parameter:rack:macro:0"]);
+  (simulator as any).state.tracks[0].devices = [
+    { ref: "device:oversized-rack", objectIdentity: "simulator:device:oversized-rack", parameters: [], macros: [], drumPads: [], chains: Array.from({ length: 257 }, () => ({ devices: [] })) },
+    { ref: "device:after-oversized-rack", objectIdentity: "simulator:device:after-oversized-rack", parameters: [{ ref: "parameter:after-oversized-rack:0", objectIdentity: "simulator:parameter:after-oversized-rack:0", value: 0.5 }], macros: [], drumPads: [], chains: [] },
+  ];
+  const structuralOversize = await call(23, "live_realtime_arm_preview", { channels: ["udp-json"], parameterRefs: ["parameter:after-oversized-rack:0"], outputSafety: evidence });
+  assert.equal((structuralOversize as any).result.isError, true);
+  assert.equal(armCalls, 2);
 });
 
 test("recording preview gates intent, destination, and recording state", async () => {

@@ -54,9 +54,10 @@ test("runtime registry validation rejects noncanonical discovery requests and re
 });
 
 test("realtime registry enforces explicit unique channels and measured bounded results", () => {
-  validateLiveOperationRequest("realtime.arm", { ttlMs: 5000, channels: ["udp-json", "osc", "xy", "max"], parameterRefs: ["1:parameter:device:0"], sourcePorts: [41000], outputSafety });
-  assert.throws(() => validateLiveOperationRequest("realtime.arm", { channels: [], parameterRefs: [], outputSafety }), /below registry item bound/);
-  assert.throws(() => validateLiveOperationRequest("realtime.arm", { channels: ["xy", "xy"], parameterRefs: [], outputSafety }), /duplicate registry items/);
+  const targetAuthorities = [{ ref: "1:parameter:device:0", parameterIdentity: "live:parameter:0", ownerRef: "1:device:0", ownerIdentity: "live:device:0", trackRef: "1:track:0", trackIdentity: "live:track:0", siblings: [{ ref: "1:parameter:device:0", objectIdentity: "live:parameter:0" }] }];
+  validateLiveOperationRequest("realtime.arm", { ttlMs: 5000, channels: ["udp-json", "osc", "xy", "max"], parameterRefs: ["1:parameter:device:0"], targetAuthorities, sourcePorts: [41000], outputSafety });
+  assert.throws(() => validateLiveOperationRequest("realtime.arm", { channels: [], parameterRefs: [], targetAuthorities: [], outputSafety }), /below registry item bound/);
+  assert.throws(() => validateLiveOperationRequest("realtime.arm", { channels: ["xy", "xy"], parameterRefs: [], targetAuthorities: [], outputSafety }), /duplicate registry items/);
   validateLiveOperationResult("realtime.arm", { host: "127.0.0.1", port: 9766, token: "t".repeat(32), expiresAt: Date.now() + 5000, channels: ["xy"], parameterRefs: ["1:parameter:device:0"], packetLimitBytes: 512, ratePerSecond: 64, burst: 16 });
   validateLiveOperationResult("realtime.stats", { armed: true, accepted: 2, applied: 2, applyFailures: 0, pending: 0, droppedUnarmed: 0, droppedEndpoint: 0, droppedTarget: 0, droppedInvalid: 0, droppedReplay: 0, droppedRateLimited: 0, droppedQueueFull: 0, droppedBeforeDispatch: 0, revokedBeforeApply: 0, sequenceGaps: 0, lastSequence: 2, jitterMs: 0.2, maxJitterMs: 0.4 });
 });

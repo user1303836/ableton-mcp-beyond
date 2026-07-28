@@ -421,7 +421,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "7afb7f48c3a6a988e11039da8611fd3432dc94273f25197edb51f5734d84fbdc")
+        self.assertEqual(digest, "6c68fb78e475e1eb612b237c628c868b71fdb7fc892635abff22f9fc725a1600")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -708,7 +708,7 @@ class ControlSurfaceTests(unittest.TestCase):
         locator_preflight = bridge._dispatch_with_holder("preflight", locator_request, holder); bridge.mapper.song.cue_points.append(FakeLocator(4.0, "External"))
         with self.assertRaises(ValueError): bridge._dispatch_with_holder("prepare", {**locator_request, "preflightToken": locator_preflight["preflightToken"], "confirmation": locator_preflight["confirmation"], "idempotencyKey": "locator-external-edit"}, holder)
         bridge._realtime_op = lambda operation, args: {"armed": operation == "realtime.arm"}
-        realtime_request = {"operation": "realtime.arm", "args": {"ttlMs": 5000, "channels": ["udp-json"], "parameterRefs": [], "outputSafety": {"safe": True, "provenance": "unit-test"}}}
+        realtime_request = {"operation": "realtime.arm", "args": {"ttlMs": 5000, "channels": ["udp-json"], "parameterRefs": [], "targetAuthorities": [], "outputSafety": {"safe": True, "provenance": "unit-test"}}}
         realtime_preflight = bridge._dispatch_with_holder("preflight", realtime_request, holder); realtime_prepared = bridge._dispatch_with_holder("prepare", {**realtime_request, "preflightToken": realtime_preflight["preflightToken"], "confirmation": realtime_preflight["confirmation"], "idempotencyKey": "realtime-state-fence"}, holder)
         bridge.mapper.song.tempo = 130.0
         with self.assertRaises(ValueError): bridge._dispatch_with_holder("invoke", {**realtime_request, "authorityToken": realtime_prepared["authorityToken"]}, holder)
@@ -1469,6 +1469,10 @@ class RealtimePlaneTests(unittest.TestCase):
         probe.close()
         return _RealtimePlane(_Bridge(), "127.0.0.1", port)
 
+    def _arm(self, plane, ttl_ms, channels, references, source_ports=None):
+        authorities = [plane._bridge.mapper._realtime_parameter_authority(reference) for reference in references]
+        return plane.arm(ttl_ms, channels, references, source_ports, authorities)
+
     @staticmethod
     def _json(**values):
         return json.dumps(values, separators=(",", ":")).encode()
@@ -1533,12 +1537,12 @@ class RealtimePlaneTests(unittest.TestCase):
         try:
             snapshot = bridge.mapper.snapshot()
             parameter_ref = snapshot["tracks"][0]["devices"][0]["parameters"][0]["ref"]
-            parameter = bridge.mapper._resolve_parameter(parameter_ref)
+            parameter = bridge.mapper._resolve_parameter(parameter_ref); target_authority = bridge.mapper._realtime_parameter_authority(parameter_ref)
             def authorized(request):
                 # This test runs on its synthetic main thread; bridge authority
                 # preflight/prepare/invoke sequencing is covered separately.
                 return bridge._realtime_op(request["operation"], request["args"])
-            arm_request = {"operation": "realtime.arm", "args": {"ttlMs": 30000, "channels": ["udp-json"], "parameterRefs": [parameter_ref], "outputSafety": {"safe": True, "provenance": "unit-test-operator"}}}
+            arm_request = {"operation": "realtime.arm", "args": {"ttlMs": 30000, "channels": ["udp-json"], "parameterRefs": [parameter_ref], "targetAuthorities": [target_authority], "outputSafety": {"safe": True, "provenance": "unit-test-operator"}}}
             with self.assertRaises(ValueError): bridge._realtime_op("realtime.arm", {"ttlMs": 30000, "channels": ["udp-json"], "parameterRefs": [parameter_ref]})
             armed = authorized(arm_request)
             for sequence in (1, 2):
@@ -1561,14 +1565,57 @@ class RealtimePlaneTests(unittest.TestCase):
         finally:
             bridge.disconnect()
 
+    def test_real_mapper_authority_matches_filtered_bounded_snapshot_siblings(self):
+        import socket as _socket
+        tcp_probe = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM); tcp_probe.bind(("127.0.0.1", 0)); tcp_port = tcp_probe.getsockname()[1]; tcp_probe.close()
+        udp_probe = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM); udp_probe.bind(("127.0.0.1", 0)); realtime_port = udp_probe.getsockname()[1]; udp_probe.close()
+        bridge = AbletonMcpBridge(FakeInstance(), {"host": "127.0.0.1", "port": tcp_port, "realtimePort": realtime_port, "secret": "x" * 40})
+        try:
+            hidden = FakeParameter(); hidden.min = None
+            bridge.mapper.song.tracks[0].devices[0].parameters = [hidden] + [FakeParameter() for _ in range(256)]
+            rows = bridge.mapper.snapshot()["tracks"][0]["devices"][0]["parameters"]
+            self.assertEqual(len(rows), 255)
+            target_ref = rows[0]["ref"]; authority = bridge.mapper._realtime_parameter_authority(target_ref)
+            self.assertEqual(authority["siblings"], [{"ref": row["ref"], "objectIdentity": row["objectIdentity"]} for row in rows])
+            armed = bridge._realtime_op("realtime.arm", {"ttlMs": 30000, "channels": ["udp-json"], "parameterRefs": [target_ref], "targetAuthorities": [authority], "outputSafety": {"safe": True, "provenance": "unit-test-operator"}})
+            self.assertTrue(bridge._realtime.stats()["armed"]); self.assertEqual(armed["parameterRefs"], [target_ref]); bridge._realtime.disarm()
+            bridge.mapper.song.tracks[0].devices = [FakeDevice() for _ in range(5)]
+            for device in bridge.mapper.song.tracks[0].devices: device.parameters = [FakeParameter() for _ in range(256)]
+            device_rows = bridge.mapper.snapshot()["tracks"][0]["devices"]
+            self.assertEqual(bridge.mapper._realtime_parameter_authority(device_rows[2]["parameters"][0]["ref"])["parameterIdentity"], device_rows[2]["parameters"][0]["objectIdentity"])
+            with self.assertRaises(ValueError): bridge.mapper._realtime_parameter_authority(device_rows[4]["parameters"][0]["ref"])
+            rack = FakeDevice(); rack.can_have_chains = True; rack.chains = []; rack.macros = [rack.parameters[0]]; bridge.mapper.song.tracks[0].devices = [rack]
+            rack_row = bridge.mapper.snapshot()["tracks"][0]["devices"][0]; macro_ref = rack_row["macros"][0]["ref"]; macro_authority = bridge.mapper._realtime_parameter_authority(macro_ref)
+            self.assertEqual(macro_authority["ref"], macro_ref); self.assertEqual([row["ref"] for row in macro_authority["siblings"]], [rack_row["parameters"][0]["ref"], macro_ref])
+            macro_arm = bridge._realtime_op("realtime.arm", {"ttlMs": 30000, "channels": ["udp-json"], "parameterRefs": [macro_ref], "targetAuthorities": [macro_authority], "outputSafety": {"safe": True, "provenance": "unit-test-operator"}})
+            self.assertEqual(macro_arm["parameterRefs"], [macro_ref]); bridge._realtime.disarm()
+            oversized_rack = FakeDevice(); oversized_rack.can_have_chains = True; oversized_rack.macros = []; oversized_rack.chains = [type("Chain", (), {"devices": []})() for _ in range(257)]
+            bridge.mapper.song.tracks[0].devices = [oversized_rack, FakeDevice()]; later_ref = bridge.mapper.snapshot()["tracks"][0]["devices"][1]["parameters"][0]["ref"]
+            with self.assertRaises(ValueError): bridge.mapper._realtime_parameter_authority(later_ref)
+        finally:
+            bridge.disconnect()
+
+    def test_real_mapper_track_reorder_before_arm_refuses_stale_host_authority(self):
+        import socket as _socket
+        tcp_probe = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM); tcp_probe.bind(("127.0.0.1", 0)); tcp_port = tcp_probe.getsockname()[1]; tcp_probe.close()
+        udp_probe = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM); udp_probe.bind(("127.0.0.1", 0)); realtime_port = udp_probe.getsockname()[1]; udp_probe.close()
+        bridge = AbletonMcpBridge(FakeInstance(), {"host": "127.0.0.1", "port": tcp_port, "realtimePort": realtime_port, "secret": "x" * 40})
+        try:
+            snapshot = bridge.mapper.snapshot(); parameter_ref = snapshot["tracks"][0]["devices"][0]["parameters"][0]["ref"]; stale_authority = bridge.mapper._realtime_parameter_authority(parameter_ref)
+            bridge.mapper.song.tracks.insert(0, FakeTrack())
+            with self.assertRaises(ValueError): bridge._realtime_op("realtime.arm", {"ttlMs": 30000, "channels": ["udp-json"], "parameterRefs": [parameter_ref], "targetAuthorities": [stale_authority], "outputSafety": {"safe": True, "provenance": "unit-test-operator"}})
+            self.assertFalse(bridge._realtime.stats()["armed"])
+        finally:
+            bridge.disconnect()
+
     def test_real_mapper_track_reorder_revokes_parameter_authority(self):
         import socket as _socket
         tcp_probe = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM); tcp_probe.bind(("127.0.0.1", 0)); tcp_port = tcp_probe.getsockname()[1]; tcp_probe.close()
         udp_probe = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM); udp_probe.bind(("127.0.0.1", 0)); realtime_port = udp_probe.getsockname()[1]; udp_probe.close()
         bridge = AbletonMcpBridge(FakeInstance(), {"host": "127.0.0.1", "port": tcp_port, "realtimePort": realtime_port, "secret": "x" * 40})
         try:
-            snapshot = bridge.mapper.snapshot(); parameter_ref = snapshot["tracks"][0]["devices"][0]["parameters"][0]["ref"]; parameter = bridge.mapper._resolve_parameter(parameter_ref); prior = parameter.value
-            armed = bridge._realtime_op("realtime.arm", {"ttlMs": 30000, "channels": ["udp-json"], "parameterRefs": [parameter_ref], "outputSafety": {"safe": True, "provenance": "unit-test-operator"}})
+            snapshot = bridge.mapper.snapshot(); parameter_ref = snapshot["tracks"][0]["devices"][0]["parameters"][0]["ref"]; parameter = bridge.mapper._resolve_parameter(parameter_ref); prior = parameter.value; target_authority = bridge.mapper._realtime_parameter_authority(parameter_ref)
+            armed = bridge._realtime_op("realtime.arm", {"ttlMs": 30000, "channels": ["udp-json"], "parameterRefs": [parameter_ref], "targetAuthorities": [target_authority], "outputSafety": {"safe": True, "provenance": "unit-test-operator"}})
             bridge._realtime._handle(self._json(token=armed["token"], seq=1, channel="udp-json", op="parameter.set", ref=parameter_ref, value=0.25))
             bridge.mapper.song.tracks.insert(0, FakeTrack()); bridge.queue.drain()
             stats = bridge._realtime.stats(); self.assertFalse(stats["armed"]); self.assertEqual(stats["applyFailures"], 1); self.assertEqual(parameter.value, prior)
@@ -1579,10 +1626,13 @@ class RealtimePlaneTests(unittest.TestCase):
         plane = self._plane()
         try:
             with self.assertRaises(ValueError):
-                plane.arm(500, ["udp-json"], ["p"])
+                self._arm(plane, 500, ["udp-json"], ["p"])
             with self.assertRaises(ValueError):
-                plane.arm(30000, ["udp-json", "udp-json"], ["p"])
-            armed = plane.arm(30000, ["udp-json", "xy"], ["p", "x", "y"], [41000])
+                self._arm(plane, 30000, ["udp-json", "udp-json"], ["p"])
+            stale_authority = plane._bridge.mapper._realtime_parameter_authority("p"); plane._bridge.mapper.authority_generation += 1
+            with self.assertRaises(ValueError): plane.arm(30000, ["udp-json"], ["p"], None, [stale_authority])
+            plane._bridge.mapper.authority_generation -= 1
+            armed = self._arm(plane, 30000, ["udp-json", "xy"], ["p", "x", "y"], [41000])
             self.assertEqual(armed["host"], "127.0.0.1")
             self.assertEqual(armed["packetLimitBytes"], 512)
             plane._handle(b"not-json", ("127.0.0.1", 41000))
@@ -1613,7 +1663,7 @@ class RealtimePlaneTests(unittest.TestCase):
     def test_osc_max_xy_queue_and_parameter_bounds(self):
         plane = self._plane()
         try:
-            armed = plane.arm(30000, ["osc", "max", "xy"], ["p", "x", "y"])
+            armed = self._arm(plane, 30000, ["osc", "max", "xy"], ["p", "x", "y"])
             plane._handle(self._osc_parameter(armed["token"], 1, "p", 0.25))
             plane._handle(self._json(token=armed["token"], seq=2, channel="max", op="parameter.set", ref="p", value=2.0))
             plane._handle(self._json(token=armed["token"], seq=3, channel="xy", op="xy.set", xRef="x", x=0.3, yRef="y", y=0.7))
@@ -1636,7 +1686,7 @@ class RealtimePlaneTests(unittest.TestCase):
         plane = self._plane()
         try:
             queue = plane._bridge.queue; queue.defer = True
-            armed = plane.arm(30000, ["udp-json"], ["p"])
+            armed = self._arm(plane, 30000, ["udp-json"], ["p"])
             plane._handle(self._json(token=armed["token"], seq=1, channel="udp-json", op="parameter.set", ref="p", value=0.75))
             plane._bridge.mapper.authority_generation += 1
             with self.assertRaises(ValueError): queue.calls.pop(0)()
@@ -1650,7 +1700,7 @@ class RealtimePlaneTests(unittest.TestCase):
         try:
             queue = plane._bridge.queue
             queue.defer = True
-            armed = plane.arm(30000, ["udp-json"], ["p"])
+            armed = self._arm(plane, 30000, ["udp-json"], ["p"])
             plane._handle(self._json(token=armed["token"], seq=1, channel="udp-json", op="parameter.set", ref="p", value=0.75))
             self.assertEqual(plane.stats()["accepted"], 1)
             self.assertEqual(plane.stats()["pending"], 1)
@@ -1659,7 +1709,7 @@ class RealtimePlaneTests(unittest.TestCase):
                 queue.calls.pop(0)()
             self.assertEqual(plane._bridge.mapper.parameters["p"].value, 0.0)
 
-            expired = plane.arm(30000, ["udp-json"], ["p"])
+            expired = self._arm(plane, 30000, ["udp-json"], ["p"])
             plane._handle(self._json(token=expired["token"], seq=1, channel="udp-json", op="parameter.set", ref="p", value=0.5))
             with plane._lock:
                 token, _, channels, ports, parameters = plane._armed
@@ -1667,9 +1717,9 @@ class RealtimePlaneTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 queue.calls.pop(0)()
 
-            old = plane.arm(30000, ["udp-json"], ["p"])
+            old = self._arm(plane, 30000, ["udp-json"], ["p"])
             plane._handle(self._json(token=old["token"], seq=1, channel="udp-json", op="parameter.set", ref="p", value=0.4))
-            plane.arm(30000, ["udp-json"], ["p"])
+            self._arm(plane, 30000, ["udp-json"], ["p"])
             with self.assertRaises(ValueError):
                 queue.calls.pop(0)()
             stats = plane.stats()
@@ -1687,7 +1737,7 @@ class RealtimePlaneTests(unittest.TestCase):
         sender = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
         sender.bind(("127.0.0.1", 0))
         try:
-            armed = plane.arm(30000, ["udp-json"], ["p"], [sender.getsockname()[1]])
+            armed = self._arm(plane, 30000, ["udp-json"], ["p"], [sender.getsockname()[1]])
             sender.sendto(b"x" * 513, ("127.0.0.1", plane.port))
             plane._bridge.queue.raise_once = True
             sender.sendto(self._json(token=armed["token"], seq=1, channel="udp-json", op="parameter.set", ref="p", value=0.2), ("127.0.0.1", plane.port))
@@ -1709,7 +1759,7 @@ class RealtimePlaneTests(unittest.TestCase):
     def test_rate_limit_drops_bursts_without_replay_gap_double_counting(self):
         plane = self._plane()
         try:
-            armed = plane.arm(30000, ["udp-json"], ["p"])
+            armed = self._arm(plane, 30000, ["udp-json"], ["p"])
             for seq in range(1, 41):
                 plane._handle(self._json(token=armed["token"], seq=seq, channel="udp-json", op="parameter.set", ref="p", value=0.5))
             stats = plane.stats()

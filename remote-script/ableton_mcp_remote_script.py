@@ -2122,27 +2122,37 @@ class LiveObjectMapper:
             mixer_siblings = [{"ref": self.refs.put("parameter", parameter, key), "objectIdentity": self._capture_object_identity(parameter)} for key, parameter in mixer_parameters]
             consume(len(mixer_siblings))
             for sibling, (_, parameter) in zip(mixer_siblings, mixer_parameters):
-                if self._capture_same_object(parameter, target, target_identity): return descriptor(sibling["ref"], parameter, track_ref, track, track_ref, track, mixer_siblings)
+                if sibling["ref"] == reference and self._capture_same_object(parameter, target, target_identity): return descriptor(sibling["ref"], parameter, track_ref, track, track_ref, track, mixer_siblings)
             seen: set[int] = set()
             def visit(owner: Any, path: str) -> dict[str, Any] | None:
                 if id(owner) in seen: return None
-                seen.add(id(owner)); devices = self._items(self._read_attr(owner, "devices") or [])
+                seen.add(id(owner)); devices = self._items(self._read_attr(owner, "devices", "device_chain") or [])
                 if len(devices) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("realtime device collection exceeds its bound")
                 for device_index, device in enumerate(devices):
                     consume(); device_path = f"{path}:{device_index}"; device_ref = self.refs.put("device", device, device_path)
-                    parameters = self._items(self._read_attr(device, "parameters") or []); macros = self._items(self._read_attr(device, "macros") or [])
+                    parameters: list[tuple[int, Any]] = []
+                    for parameter_index, parameter in enumerate(self._items(self._read_attr(device, "parameters") or [])[:MAX_DISCOVERY_COLLECTION_LENGTH]):
+                        numeric = (self._read_attr(parameter, "min", "min_value"), self._read_attr(parameter, "max", "max_value"), self._read_attr(parameter, "value"))
+                        if all(isinstance(item, (int, float)) and not isinstance(item, bool) and math.isfinite(float(item)) for item in numeric): parameters.append((parameter_index, parameter))
+                    macros = self._items(self._read_attr(device, "macros") or []) if self._read_attr(device, "can_have_chains") is True else []
                     if len(parameters) + len(macros) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("realtime device parameter collection exceeds its bound")
-                    parameter_rows = [(self.refs.put("parameter", parameter, f"{device_ref}:{parameter_index}"), parameter) for parameter_index, parameter in enumerate(parameters)]
+                    parameter_rows = [(self.refs.put("parameter", parameter, f"{device_ref}:{parameter_index}"), parameter) for parameter_index, parameter in parameters]
                     parameter_rows.extend((self.refs.put("parameter", macro, f"{device_ref}:macro:{macro_index}"), macro) for macro_index, macro in enumerate(macros))
                     siblings = [{"ref": current_ref, "objectIdentity": self._capture_object_identity(parameter)} for current_ref, parameter in parameter_rows]; consume(len(siblings))
                     for sibling, (_, parameter) in zip(siblings, parameter_rows):
-                        if self._capture_same_object(parameter, target, target_identity): return descriptor(sibling["ref"], parameter, device_ref, device, track_ref, track, siblings)
-                    for chain_index, chain in enumerate(self._items(self._read_attr(device, "chains") or [])):
-                        found = visit(chain, f"{device_path}:{chain_index}")
+                        if sibling["ref"] == reference and self._capture_same_object(parameter, target, target_identity): return descriptor(sibling["ref"], parameter, device_ref, device, track_ref, track, siblings)
+                    chains = self._items(self._read_attr(device, "chains") or []) if self._read_attr(device, "can_have_chains") is True else []
+                    if len(chains) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("realtime device chain collection exceeds its bound")
+                    for chain_index, chain in enumerate(chains):
+                        consume(); found = visit(chain, f"{device_path}:{chain_index}")
                         if found is not None: return found
-                    for pad_index, pad in enumerate(self._items(self._read_attr(device, "visible_drum_pads") or self._read_attr(device, "drum_pads") or [])):
-                        for chain_index, chain in enumerate(self._items(self._read_attr(pad, "chains") or [])):
-                            found = visit(chain, f"{device_path}:{pad_index}:{chain_index}")
+                    pads = self._items(self._read_attr(device, "visible_drum_pads") or self._read_attr(device, "drum_pads") or []) if self._read_attr(device, "can_have_drum_pads") is True else []
+                    if len(pads) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("realtime drum-pad collection exceeds its bound")
+                    for pad_index, pad in enumerate(pads):
+                        consume(); pad_chains = self._items(self._read_attr(pad, "chains") or [])
+                        if len(pad_chains) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("realtime drum-pad chain collection exceeds its bound")
+                        for chain_index, chain in enumerate(pad_chains):
+                            consume(); found = visit(chain, f"{device_path}:{pad_index}:{chain_index}")
                             if found is not None: return found
                 return None
             found = visit(track, str(track_index))
@@ -3505,7 +3515,7 @@ class _RealtimePlane:
             self._generation += 1
         return self._armed
 
-    def arm(self, ttl_ms: int, channels: Any, parameter_refs: Any, source_ports: Any = None) -> dict[str, Any]:
+    def arm(self, ttl_ms: int, channels: Any, parameter_refs: Any, source_ports: Any = None, target_authorities: Any = None) -> dict[str, Any]:
         if self._socket is None:
             raise ValueError("realtime control plane is disabled by configuration")
         if not isinstance(ttl_ms, int) or isinstance(ttl_ms, bool) or not 1000 <= ttl_ms <= 30000:
@@ -3517,11 +3527,16 @@ class _RealtimePlane:
         source_ports = [] if source_ports is None else source_ports
         if not isinstance(source_ports, list) or len(source_ports) > 16 or len(set(source_ports)) != len(source_ports) or any(not isinstance(item, int) or isinstance(item, bool) or not 1 <= item <= 65535 for item in source_ports):
             raise ValueError("realtime source ports are invalid")
+        authority_keys = {"ref", "parameterIdentity", "ownerRef", "ownerIdentity", "trackRef", "trackIdentity", "siblings"}
+        if not isinstance(target_authorities, list) or len(target_authorities) != len(parameter_refs) or len(target_authorities) > 32 or any(not isinstance(item, dict) or set(item) != authority_keys or not all(isinstance(item.get(key), str) for key in authority_keys - {"siblings"}) or not isinstance(item.get("siblings"), list) or len(item["siblings"]) > MAX_DISCOVERY_COLLECTION_LENGTH or any(not isinstance(sibling, dict) or set(sibling) != {"ref", "objectIdentity"} or not isinstance(sibling["ref"], str) or not isinstance(sibling["objectIdentity"], str) for sibling in item["siblings"]) for item in target_authorities):
+            raise ValueError("realtime target identity authorities are invalid")
         parameter_authorities: dict[str, str] = {}
-        for reference in parameter_refs:
-            authority = self._bridge.mapper._realtime_parameter_authority(reference)
-            if authority.get("ref") != reference: raise ValueError("realtime parameter reference changed before arming")
-            parameter_authorities[reference] = AuthenticatedRemoteScript._bounded_canonical(authority)
+        for reference, expected_authority in zip(parameter_refs, target_authorities):
+            if expected_authority.get("ref") != reference: raise ValueError("realtime target identity order is invalid")
+            current_authority = self._bridge.mapper._realtime_parameter_authority(reference)
+            expected_canonical = AuthenticatedRemoteScript._bounded_canonical(expected_authority)
+            if not hmac.compare_digest(AuthenticatedRemoteScript._bounded_canonical(current_authority), expected_canonical): raise ValueError("realtime parameter identity changed before arming")
+            parameter_authorities[reference] = expected_canonical
         token = secrets.token_urlsafe(24)
         expires = time.time() + ttl_ms / 1000.0
         with self._lock:
@@ -4146,7 +4161,7 @@ class AbletonMcpBridge:
     def _realtime_op(self, operation: str, args: dict[str, Any]) -> Any:
         if operation == "realtime.arm":
             _require_output_safety(args)
-            return self._realtime.arm(args.get("ttlMs", 30000), args.get("channels"), args.get("parameterRefs"), args.get("sourcePorts"))
+            return self._realtime.arm(args.get("ttlMs", 30000), args.get("channels"), args.get("parameterRefs"), args.get("sourcePorts"), args.get("targetAuthorities"))
         if operation == "realtime.disarm":
             return self._realtime.disarm()
         return self._realtime.stats()
