@@ -35,6 +35,8 @@ test("canonical registry includes strict snapshot and playback contracts", () =>
   validateLiveOperationResult("note.add-batch", { added: 2, noteIds: [1, null] });
   assert.throws(() => validateLiveOperationRequest("note.add-batch", { ref: "1:clip:0:0", notes: [] }), /below registry item bound/);
   assert.throws(() => validateLiveOperationRequest("browser.load", { itemId: "instruments/Synth", expectedName: "Synth" }), /required/);
+  validateLiveOperationRequest("device.delete", { ref: "1:device:0:0", expectedObjectIdentity: "live:device-1", expectedOwnerRef: "1:track:0", expectedOwnerIdentity: "live:track-1", expectedSiblings: [{ ref: "1:device:0:0", objectIdentity: "live:device-1" }] });
+  assert.throws(() => validateLiveOperationRequest("device.delete", { ref: "1:device:0:0" }), /required/);
 });
 
 test("runtime registry validation rejects missing, unknown, and weak playback fields", () => {

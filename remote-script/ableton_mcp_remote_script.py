@@ -797,6 +797,7 @@ class LiveObjectMapper:
         enabled = self._read_attr(device, "is_active", "is_enabled", "enabled")
         row: dict[str, Any] = {
             "ref": device_ref, "parentRef": track_ref, "chainPosition": index,
+            "objectIdentity": self._capture_object_identity(device),
             "className": str(self._read_attr(device, "class_name") or device.__class__.__name__),
             "name": str(self._read_attr(device, "name") or "Device"),
             "kind": "rack" if self._read_attr(device, "can_have_chains") is True else "device",
@@ -826,7 +827,7 @@ class LiveObjectMapper:
             mute = self._read_attr(chain, "mute")
             solo = self._read_attr(chain, "solo")
             rows.append({
-                "ref": chain_ref, "parentRef": parent_ref, "index": chain_index,
+                "ref": chain_ref, "parentRef": parent_ref, "index": chain_index, "objectIdentity": self._capture_object_identity(chain),
                 "name": str(self._read_attr(chain, "name") or f"Chain {chain_index + 1}"),
                 "mute": bool(mute) if isinstance(mute, bool) else None,
                 "solo": bool(solo) if isinstance(solo, bool) else None,
@@ -926,7 +927,7 @@ class LiveObjectMapper:
                 slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "sceneIndex": slot_index, "clipRef": clip_ref, "empty": False})
             armed_value = self._read_attr(track, "arm", "armed")
             track_rows.append({
-                "ref": track_ref, "parentRef": self.refs.put("set", self.song, "song"),
+                "ref": track_ref, "parentRef": self.refs.put("set", self.song, "song"), "objectIdentity": self._capture_object_identity(track),
                 "name": str(getattr(track, "name", f"Track {index + 1}")), "kind": track_kind,
                 "mediaKind": "midi" if bool(self._read_attr(track, "has_midi_input")) else "audio",
                 "armed": armed_value if isinstance(armed_value, bool) else None,
@@ -2262,28 +2263,44 @@ class LiveObjectMapper:
         after = len(self._envelope_points(envelope, 1024))
         return {"deleted": before - after}
 
-    def _device_location(self, reference: str) -> tuple[Any, Any, int, int]:
+    def _device_location(self, reference: str, expected_identity: str | None = None, expected_owner_ref: str | None = None, expected_owner_identity: str | None = None, expected_siblings: Any = None) -> tuple[Any, Any, int, int, str]:
         """Resolve a discovered device to its exact track/chain owner without
-        trusting a parseable traversal key."""
+        trusting a parseable traversal key or Live proxy object identity."""
         if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:"):
             raise ValueError("device reference is stale or invalid")
         target = self.refs.get(reference)
+        target_identity = self._capture_object_identity(target)
+        if not isinstance(expected_identity, str) or not hmac.compare_digest(target_identity, expected_identity) or not isinstance(expected_owner_ref, str) or not isinstance(expected_owner_identity, str):
+            raise ValueError("device object or owner identity is stale or missing")
+        if not isinstance(expected_siblings, list) or len(expected_siblings) > MAX_DISCOVERY_COLLECTION_LENGTH or any(not isinstance(item, dict) or set(item) != {"ref", "objectIdentity"} or not isinstance(item["ref"], str) or not isinstance(item["objectIdentity"], str) for item in expected_siblings):
+            raise ValueError("device sibling identity fence is invalid")
+        expected_siblings_canonical = AuthenticatedRemoteScript._bounded_canonical(expected_siblings)
         tracks = self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", []))
-        def locate(owner: Any, track_index: int, seen: set[int]) -> tuple[Any, Any, int, int] | None:
+        def locate(owner: Any, owner_ref: str, path: str, track_index: int, seen: set[int]) -> tuple[Any, Any, int, int, str] | None:
             if id(owner) in seen: return None
             seen.add(id(owner)); devices = self._items(self._read_attr(owner, "devices") or [])
+            if len(devices) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("device sibling collection exceeds the authoritative bound")
+            current_siblings = [{"ref": self.refs.put("device", candidate, f"{path}:{candidate_index}"), "objectIdentity": self._capture_object_identity(candidate)} for candidate_index, candidate in enumerate(devices)]
             for device_index, device in enumerate(devices):
-                if device is target: return owner, device, track_index, device_index
-                for chain in self._items(self._read_attr(device, "chains") or []):
-                    found = locate(chain, track_index, seen)
+                device_path = f"{path}:{device_index}"
+                if self._capture_same_object(device, target, target_identity):
+                    owner_identity = self._capture_object_identity(owner)
+                    if not hmac.compare_digest(owner_ref, expected_owner_ref) or not hmac.compare_digest(owner_identity, expected_owner_identity) or not hmac.compare_digest(AuthenticatedRemoteScript._bounded_canonical(current_siblings), expected_siblings_canonical): raise ValueError("device owner or siblings changed since preview")
+                    return owner, device, track_index, device_index, owner_ref
+                for chain_index, chain in enumerate(self._items(self._read_attr(device, "chains") or [])):
+                    chain_path = f"{device_path}:{chain_index}"; chain_ref = self.refs.put("chain", chain, chain_path)
+                    found = locate(chain, chain_ref, chain_path, track_index, seen)
                     if found is not None: return found
-                for pad in self._items(self._read_attr(device, "visible_drum_pads") or self._read_attr(device, "drum_pads") or []):
-                    for chain in self._items(self._read_attr(pad, "chains") or []):
-                        found = locate(chain, track_index, seen)
+                for pad_index, pad in enumerate(self._items(self._read_attr(device, "visible_drum_pads") or self._read_attr(device, "drum_pads") or [])):
+                    pad_path = f"{device_path}:{pad_index}"; pad_ref = self.refs.put("drum_pad", pad, pad_path)
+                    for chain_index, chain in enumerate(self._items(self._read_attr(pad, "chains") or [])):
+                        chain_path = f"{pad_path}:{chain_index}"; chain_ref = self.refs.put("chain", chain, chain_path)
+                        found = locate(chain, chain_ref, chain_path, track_index, seen)
                         if found is not None: return found
             return None
         for track_index, track in enumerate(tracks):
-            found = locate(track, track_index, set())
+            track_ref = self.refs.put("track", track, str(track_index))
+            found = locate(track, track_ref, str(track_index), track_index, set())
             if found is not None: return found
         raise ValueError("device owner is stale or unavailable")
 
@@ -2315,7 +2332,7 @@ class LiveObjectMapper:
 
     def _device_delete(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")
-        owner, device, _, _ = self._device_location(str(reference))
+        owner, device, _, _, _ = self._device_location(str(reference), args.get("expectedObjectIdentity"), args.get("expectedOwnerRef"), args.get("expectedOwnerIdentity"), args.get("expectedSiblings"))
         deleter = getattr(owner, "delete_device", None)
         if not callable(deleter):
             raise ValueError("device deletion is unavailable")
@@ -2331,7 +2348,7 @@ class LiveObjectMapper:
         enabled = args.get("enabled")
         if not isinstance(enabled, bool):
             raise ValueError("enabled must be boolean")
-        _, device, _, _ = self._device_location(str(reference))
+        _, device, _, _, _ = self._device_location(str(reference), args.get("expectedObjectIdentity"), args.get("expectedOwnerRef"), args.get("expectedOwnerIdentity"), args.get("expectedSiblings"))
         for attribute in ("is_active", "is_enabled", "enabled"):
             current = self._read_attr(device, attribute)
             if not isinstance(current, bool): continue
@@ -2362,15 +2379,15 @@ class LiveObjectMapper:
         index = args.get("index")
         if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index <= 256:
             raise ValueError("device index is invalid")
-        owner, device, _, current = self._device_location(str(reference))
+        owner, device, _, current, _ = self._device_location(str(reference), args.get("expectedObjectIdentity"), args.get("expectedOwnerRef"), args.get("expectedOwnerIdentity"), args.get("expectedSiblings"))
         if index == current:
             return {"ref": reference, "index": index}
         mover = getattr(owner, "move_device", None)
         if not callable(mover):
             raise ValueError("device move is unavailable")
         mover(current, index)
-        devices = self._items(getattr(owner, "devices", []))
-        if index >= len(devices) or devices[index] is not device:
+        devices = self._items(getattr(owner, "devices", [])); expected_identity = str(args.get("expectedObjectIdentity"))
+        if index >= len(devices) or not self._capture_same_object(devices[index], device, expected_identity):
             raise ValueError("device move was not confirmed")
         return {"ref": reference, "index": index}
 
@@ -3819,6 +3836,49 @@ class _MainThreadQueue:
 
 
 def _authority_state_digest(mapper: LiveObjectMapper, args: dict[str, Any], operation: str | None = None) -> str:
+    if operation in {"audio.capture.stop", "audio.capture.emergency-stop"}:
+        # Stop authority must survive the capture watchdog winning the race
+        # between prepare and invoke. Bind the exact lifecycle identity while
+        # deliberately excluding active/stopped playback state and late clip
+        # ownership discovery; the stop operation rechecks its token or exact
+        # emergency observation on the Live thread.
+        state = mapper._capture_state
+        capture = None if state is None else {
+            "captureId": state.get("captureId"), "startedAt": state.get("startedAt"),
+            "sourceSlotRef": state.get("sourceSlotRef"), "destinationSlotRef": state.get("destinationSlotRef"),
+            "destinationTrackRef": state.get("destinationTrackRef"),
+        }
+        identity = {"epoch": mapper.refs.epoch, "capture": capture}
+        return hashlib.sha256(AuthenticatedRemoteScript._bounded_canonical(identity).encode("utf-8")).hexdigest()
+    if operation == "audio.capture.cleanup":
+        # Recovery authority is bound to the exact mapper-owned capture, not
+        # unrelated Set state or native clip metadata that can finalize after
+        # recording stops. Cleanup itself repeats these identity/stopped-state
+        # checks atomically immediately before deleting the owned clip.
+        state = mapper._capture_state
+        expected_ref = args.get("expectedClipRef")
+        reference_revision = None
+        if isinstance(expected_ref, str):
+            try: reference_revision = mapper.refs.revision(expected_ref)
+            except (KeyError, ValueError): pass
+        capture = None
+        if state is not None:
+            slot = state.get("_destinationSlot")
+            clip = getattr(slot, "clip", None) if slot is not None else None
+            owned_identity = state.get("_ownedClipIdentity")
+            status = mapper._capture_status()
+            capture = {
+                "captureId": state.get("captureId"), "state": state.get("state"),
+                "sourceSlotRef": state.get("sourceSlotRef"), "destinationSlotRef": state.get("destinationSlotRef"),
+                "clipRef": state.get("clipRef"), "expectedClipRef": expected_ref,
+                "referenceRevision": reference_revision,
+                "ownedIdentityDigest": hashlib.sha256(str(owned_identity).encode("utf-8")).hexdigest() if isinstance(owned_identity, str) else None,
+                "ownedClipMatches": clip is not None and isinstance(owned_identity, str) and mapper._capture_same_object(clip, state.get("_ownedClip"), owned_identity),
+                "playbackStopped": status.get("playbackStopped"), "active": status.get("active"),
+                "residual": status.get("residual", []),
+            }
+        identity = {"epoch": mapper.refs.epoch, "capture": capture}
+        return hashlib.sha256(AuthenticatedRemoteScript._bounded_canonical(identity).encode("utf-8")).hexdigest()
     references: list[str] = []
     def collect(value: Any, key: str = "") -> None:
         if isinstance(value, dict):
@@ -3833,20 +3893,15 @@ def _authority_state_digest(mapper: LiveObjectMapper, args: dict[str, Any], oper
     for reference in sorted(set(references)):
         try:
             revision = mapper.refs.revision(reference); row = mapper.get(reference)
-            # A stopped capture clip can finish updating its native length/name
-            # while the cleanup preflight crosses adjacent Live display ticks.
-            # Cleanup is already fenced by capture id, one-use token, expected
-            # ref, exact owned-object identity, stopped playback, and deletion
-            # postcondition. Bind existence/revision here rather than volatile
-            # media-finalization fields so safe cleanup authority remains usable.
-            if operation == "audio.capture.cleanup": row = {"present": row is not None}
             if row is None:
                 obj = mapper.refs.get(reference)
                 if isinstance(obj, dict): row = {key: value for key, value in obj.items() if isinstance(value, (str, int, float, bool, type(None)))}
                 else: row = {attribute: mapper._read_attr(obj, attribute) for attribute in attributes if isinstance(mapper._read_attr(obj, attribute), (str, int, float, bool, type(None)))}
             observed.append([reference, revision, row])
         except (KeyError, ValueError, StopIteration): observed.append([reference, None, None])
-    playback = mapper._playback(); playback.pop("position", None)
+    playback = mapper._playback()
+    playback_transport = dict(playback.get("transport", {})); playback_transport.pop("position", None)
+    playback = {**playback, "transport": playback_transport}
     song_state = {key: mapper._read_attr(mapper.song, key) for key in ("tempo", "loop", "loop_start", "loop_length", "is_playing", "record_mode", "session_record")}
     locators = [{key: row.get(key) for key in ("ref", "name", "position")} for row in mapper._locator_items()[:256]]
     arrangement = [{key: row.get(key) for key in ("ref", "trackRef", "name", "start", "length")} for row in mapper._arrangement_clip_items()[:256]]

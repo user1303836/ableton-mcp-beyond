@@ -991,10 +991,35 @@ test("device insert, enable, move, and delete with exact fencing", async () => {
   const moved = JSON.parse(((await call(7, "live_device_apply", { transactionId: move.transactionId, confirmation: "apply", idempotencyKey: "dev-move" })) as any).result.content[0].text);
   assert.equal(moved.state, "applied");
   assert.equal((simulator as any).state.tracks[0].devices[0].name, "Echo");
+  const staleDelete = JSON.parse(((await call(80, "live_device_preview", { action: "delete", deviceRef })) as any).result.content[0].text);
+  (simulator as any).state.tracks[0].devices[0].objectIdentity = "simulator:replacement-device";
+  const refused = await call(81, "live_device_apply", { transactionId: staleDelete.transactionId, confirmation: "apply", idempotencyKey: "dev-replaced" });
+  assert.equal((refused as any).result.isError, true); assert.equal((simulator as any).state.tracks[0].devices.length, 2);
   const del = JSON.parse(((await call(8, "live_device_preview", { action: "delete", deviceRef })) as any).result.content[0].text);
   const deleted = JSON.parse(((await call(9, "live_device_apply", { transactionId: del.transactionId, confirmation: "apply", idempotencyKey: "dev-del" })) as any).result.content[0].text);
   assert.equal(deleted.state, "applied");
   assert.equal((simulator as any).state.tracks[0].devices.some((d: any) => d.name === "Echo"), false);
+});
+
+test("nested device mutations refuse reparenting after preview", async () => {
+  const simulator = new DeterministicLiveSimulator(); const state = (simulator as any).state; const track = state.tracks[0]; const nested = track.devices[0];
+  const sibling = { ref: "device:sibling", parentRef: "chain:rack:0", objectIdentity: "simulator:device:sibling", name: "Sibling", kind: "device", parameters: [] };
+  const chainA = { ref: "chain:rack:0", parentRef: "device:rack", objectIdentity: "simulator:chain:a", index: 0, name: "A", mute: false, solo: false, devices: [nested, sibling] };
+  const chainB = { ref: "chain:rack:1", parentRef: "device:rack", objectIdentity: "simulator:chain:b", index: 1, name: "B", mute: false, solo: false, devices: [] as any[] };
+  const rack = { ref: "device:rack", parentRef: track.ref, objectIdentity: "simulator:rack", name: "Rack", kind: "rack", parameters: [], chains: [chainA, chainB] }; nested.parentRef = chainA.ref; track.devices = [rack];
+  const host = new McpHost(simulator); ready(host); const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const siblingPreview = JSON.parse(((await call(88, "live_device_preview", { action: "move", deviceRef: nested.ref, index: 1 })) as any).result.content[0].text);
+  chainA.devices[1] = { ...sibling, objectIdentity: "simulator:device:sibling-replacement" };
+  const siblingRefused = await call(89, "live_device_apply", { transactionId: siblingPreview.transactionId, confirmation: "apply", idempotencyKey: "nested-sibling-replacement" });
+  assert.equal((siblingRefused as any).result.isError, true); chainA.devices[1] = sibling;
+  const replacementPreview = JSON.parse(((await call(90, "live_device_preview", { action: "delete", deviceRef: nested.ref })) as any).result.content[0].text);
+  const replacement = { ...chainA, objectIdentity: "simulator:chain:replacement", devices: [nested] }; rack.chains[0] = replacement;
+  const replacementRefused = await call(91, "live_device_apply", { transactionId: replacementPreview.transactionId, confirmation: "apply", idempotencyKey: "nested-owner-replacement" });
+  assert.equal((replacementRefused as any).result.isError, true); assert.equal(replacement.devices[0], nested);
+  const reparentPreview = JSON.parse(((await call(92, "live_device_preview", { action: "delete", deviceRef: nested.ref })) as any).result.content[0].text);
+  replacement.devices = []; chainB.devices = [nested]; nested.parentRef = chainB.ref;
+  const reparentRefused = await call(93, "live_device_apply", { transactionId: reparentPreview.transactionId, confirmation: "apply", idempotencyKey: "nested-reparent" });
+  assert.equal((reparentRefused as any).result.isError, true); assert.equal(chainB.devices[0], nested);
 });
 
 test("routing edits guard feedback and fence on routing state", async () => {

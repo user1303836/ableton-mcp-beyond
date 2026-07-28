@@ -421,7 +421,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "6cff8686779afc92a0e9c70477573a207c13a634ba2b27c3f643e036cd8b61c8")
+        self.assertEqual(digest, "7afb7f48c3a6a988e11039da8611fd3432dc94273f25197edb51f5734d84fbdc")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -708,18 +708,50 @@ class ControlSurfaceTests(unittest.TestCase):
         locator_preflight = bridge._dispatch_with_holder("preflight", locator_request, holder); bridge.mapper.song.cue_points.append(FakeLocator(4.0, "External"))
         with self.assertRaises(ValueError): bridge._dispatch_with_holder("prepare", {**locator_request, "preflightToken": locator_preflight["preflightToken"], "confirmation": locator_preflight["confirmation"], "idempotencyKey": "locator-external-edit"}, holder)
 
+    def test_mutation_authority_excludes_only_drifting_transport_position(self):
+        song = FakeSong(); song.is_playing = True; song.current_song_time = 1.0
+        bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(song)
+        class ImmediateQueue:
+            def submit(self, action, deadline_ms=None): return action()
+        bridge.queue = ImmediateQueue(); bridge._executed_mutations = {}; bridge._executed_lock = threading.Lock(); holder = {}
+        request = {"operation": "locator.add", "args": {"name": "Position Fence", "position": 8.0}}
+        preflight = bridge._dispatch_with_holder("preflight", request, holder); song.current_song_time = 3.5
+        prepared = bridge._dispatch_with_holder("prepare", {**request, "preflightToken": preflight["preflightToken"], "confirmation": preflight["confirmation"], "idempotencyKey": "locator-position-drift"}, holder)
+        self.assertEqual(prepared["operation"], "locator.add")
+        changed = bridge._dispatch_with_holder("preflight", request, holder); song.is_playing = False
+        with self.assertRaises(ValueError): bridge._dispatch_with_holder("prepare", {**request, "preflightToken": changed["preflightToken"], "confirmation": changed["confirmation"], "idempotencyKey": "locator-playback-change"}, holder)
+
+    def test_capture_stop_authority_survives_watchdog_stop_but_not_identity_change(self):
+        song = FakeSong(); song.is_playing = True
+        bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(song)
+        class ImmediateQueue:
+            def submit(self, action, deadline_ms=None): return action()
+        bridge.queue = ImmediateQueue(); bridge._executed_mutations = {}; bridge._executed_lock = threading.Lock(); holder = {}
+        bridge.mapper._capture_state = {"captureId": "capture-test", "startedAt": 1000, "state": "active", "sourceSlotRef": "source-slot", "destinationSlotRef": "destination-slot", "destinationTrackRef": "destination-track"}
+        request = {"operation": "audio.capture.stop", "args": {"captureId": "capture-test", "token": "t" * 24}}
+        preflight = bridge._dispatch_with_holder("preflight", request, holder)
+        bridge.mapper._capture_state["state"] = "stopped"; song.is_playing = False
+        prepared = bridge._dispatch_with_holder("prepare", {**request, "preflightToken": preflight["preflightToken"], "confirmation": preflight["confirmation"], "idempotencyKey": "capture-watchdog-stop"}, holder)
+        self.assertEqual(prepared["operation"], "audio.capture.stop")
+        changed = bridge._dispatch_with_holder("preflight", request, holder); bridge.mapper._capture_state["captureId"] = "replacement-capture"
+        with self.assertRaises(ValueError): bridge._dispatch_with_holder("prepare", {**request, "preflightToken": changed["preflightToken"], "confirmation": changed["confirmation"], "idempotencyKey": "capture-identity-change"}, holder)
+
     def test_capture_cleanup_authority_ignores_native_media_finalization_drift(self):
         song = FakeSong(); song.tracks[0].clip_slots[0].clip = FakeClip(4.0)
         bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(song)
         class ImmediateQueue:
             def submit(self, action, deadline_ms=None): return action()
         bridge.queue = ImmediateQueue(); bridge._executed_mutations = {}; bridge._executed_lock = threading.Lock(); holder = {}
-        clip = bridge.mapper.snapshot()["tracks"][0]["clips"][0]
+        clip = bridge.mapper.snapshot()["tracks"][0]["clips"][0]; owned_clip = song.tracks[0].clip_slots[0].clip
+        bridge.mapper._capture_state = {"captureId": "capture-test", "state": "captured", "sourceSlotRef": "source-slot", "destinationSlotRef": "destination-slot", "clipRef": clip["ref"], "_destinationSlot": song.tracks[0].clip_slots[0], "_ownedClip": owned_clip, "_ownedClipIdentity": bridge.mapper._capture_object_identity(owned_clip), "residual": []}
         request = {"operation": "audio.capture.cleanup", "args": {"captureId": "capture-test", "token": "t" * 24, "expectedClipRef": clip["ref"]}}
         preflight = bridge._dispatch_with_holder("preflight", request, holder)
-        song.tracks[0].clip_slots[0].clip.length = 4.25
+        owned_clip.length = 4.25; song.tempo = 127.0
         prepared = bridge._dispatch_with_holder("prepare", {**request, "preflightToken": preflight["preflightToken"], "confirmation": preflight["confirmation"], "idempotencyKey": "capture-cleanup-finalization"}, holder)
         self.assertEqual(prepared["operation"], "audio.capture.cleanup")
+        replacement_preflight = bridge._dispatch_with_holder("preflight", request, holder)
+        song.tracks[0].clip_slots[0].clip = FakeClip(4.25)
+        with self.assertRaises(ValueError): bridge._dispatch_with_holder("prepare", {**request, "preflightToken": replacement_preflight["preflightToken"], "confirmation": replacement_preflight["confirmation"], "idempotencyKey": "capture-cleanup-replacement"}, holder)
 
     def test_scene_capture_claims_the_identity_distinct_scene_with_duplicate_names(self):
         song = FakeSong(); song.scenes = [FakeScene("Duplicate"), FakeScene("Duplicate")]; created = FakeScene("Duplicate")
@@ -771,15 +803,24 @@ class ControlSurfaceTests(unittest.TestCase):
         with self.assertRaises(ValueError): mapper.invoke("audio.clip.set", {"ref": row["ref"], "fadeInLength": 0.1})
 
     def test_nested_chain_devices_and_parameters_are_first_class(self):
-        song = FakeSong(); nested = FakeDevice(); nested.name = "Nested Utility"
-        rack = FakeDevice(); rack.name = "Rack"; rack.can_have_chains = True; rack.chains = [type("Chain", (), {"name": "Chain 1", "devices": [nested], "mute": False, "solo": False})()]
+        song = FakeSong(); nested = FakeDevice(); nested.name = "Nested Utility"; sibling = FakeDevice(); sibling.name = "Sibling"
+        chain_one = type("Chain", (), {"name": "Chain 1", "devices": [nested, sibling], "mute": False, "solo": False})(); chain_two = type("Chain", (), {"name": "Chain 2", "devices": [], "mute": False, "solo": False})()
+        rack = FakeDevice(); rack.name = "Rack"; rack.can_have_chains = True; rack.chains = [chain_one, chain_two]
         song.tracks[0].devices = [rack]; mapper = LiveObjectMapper(song)
         track_ref = mapper.discover("track")["items"][0]["ref"]; top = mapper.discover("device", parent=track_ref)["items"]
         self.assertEqual([item["name"] for item in top], ["Rack"])
-        nested_rows = mapper.discover("device", parent=top[0]["chains"][0]["ref"])["items"]; self.assertEqual([item["name"] for item in nested_rows], ["Nested Utility"])
+        nested_rows = mapper.discover("device", parent=top[0]["chains"][0]["ref"])["items"]; self.assertEqual([item["name"] for item in nested_rows], ["Nested Utility", "Sibling"])
         nested_row = nested_rows[0]; parameter = mapper.discover("parameter", parent=nested_row["ref"])["items"][0]
         self.assertEqual(parameter["parentRef"], nested_row["ref"]); self.assertEqual(mapper.get(nested_row["ref"])["name"], "Nested Utility")
-        changed = mapper.invoke("device.enable", {"ref": nested_row["ref"], "enabled": False}); self.assertTrue(changed["changed"]); self.assertFalse(nested.enabled)
+        owner_identity = top[0]["chains"][0]["objectIdentity"]; siblings = [{"ref": row["ref"], "objectIdentity": row["objectIdentity"]} for row in nested_rows]
+        changed = mapper.invoke("device.enable", {"ref": nested_row["ref"], "expectedObjectIdentity": nested_row["objectIdentity"], "expectedOwnerRef": nested_row["parentRef"], "expectedOwnerIdentity": owner_identity, "expectedSiblings": siblings, "enabled": False}); self.assertTrue(changed["changed"]); self.assertFalse(nested.enabled)
+        replacement_sibling = FakeDevice(); replacement_sibling.name = "Sibling"; chain_one.devices[1] = replacement_sibling
+        with self.assertRaises(ValueError): mapper.invoke("device.enable", {"ref": nested_row["ref"], "expectedObjectIdentity": nested_row["objectIdentity"], "expectedOwnerRef": nested_row["parentRef"], "expectedOwnerIdentity": owner_identity, "expectedSiblings": siblings, "enabled": True})
+        chain_one.devices[1] = sibling
+        replacement_chain = type("Chain", (), {"name": "Replacement", "devices": [nested], "mute": False, "solo": False})(); rack.chains[0] = replacement_chain
+        with self.assertRaises(ValueError): mapper.invoke("device.enable", {"ref": nested_row["ref"], "expectedObjectIdentity": nested_row["objectIdentity"], "expectedOwnerRef": nested_row["parentRef"], "expectedOwnerIdentity": owner_identity, "expectedSiblings": siblings, "enabled": True})
+        rack.chains[0] = chain_one; chain_one.devices = []; chain_two.devices = [nested]
+        with self.assertRaises(ValueError): mapper.invoke("device.enable", {"ref": nested_row["ref"], "expectedObjectIdentity": nested_row["objectIdentity"], "expectedOwnerRef": nested_row["parentRef"], "expectedOwnerIdentity": owner_identity, "expectedSiblings": siblings, "enabled": True})
 
     def test_device_parameter_discovery_and_guarded_mutation(self):
         mapper = LiveObjectMapper(FakeSong())

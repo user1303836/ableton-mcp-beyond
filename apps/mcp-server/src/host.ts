@@ -2391,12 +2391,31 @@ export class McpHost {
     return flattened;
   }
 
-  private deviceRow(snapshot: LiveSnapshot, deviceRef: LiveRef): { track: JsonObject; device: JsonObject } {
+  private deviceRow(snapshot: LiveSnapshot, deviceRef: LiveRef): { track: JsonObject; device: JsonObject; ownerRef: string; ownerIdentity: string; siblings: Array<{ ref: string; objectIdentity: string }> } {
+    const visit = (values: unknown, ownerRef: string, ownerIdentity: string): { device: JsonObject; ownerRef: string; ownerIdentity: string; siblings: Array<{ ref: string; objectIdentity: string }> } | undefined => {
+      if (!Array.isArray(values)) return undefined;
+      const siblings = values.map((item) => {
+        if (!isObject(item) || typeof item.ref !== "string" || typeof item.objectIdentity !== "string") throw new Error("device sibling identity is unavailable");
+        return { ref: item.ref, objectIdentity: item.objectIdentity };
+      });
+      for (const value of values) {
+        if (!isObject(value)) continue;
+        if (value.ref === deviceRef) return { device: value, ownerRef, ownerIdentity, siblings };
+        if (Array.isArray(value.chains)) for (const chain of value.chains) if (isObject(chain) && typeof chain.ref === "string" && typeof chain.objectIdentity === "string") { const found = visit(chain.devices, chain.ref, chain.objectIdentity); if (found) return found; }
+        if (Array.isArray(value.drumPads)) for (const pad of value.drumPads) if (isObject(pad) && Array.isArray(pad.chains)) for (const chain of pad.chains) if (isObject(chain) && typeof chain.ref === "string" && typeof chain.objectIdentity === "string") { const found = visit(chain.devices, chain.ref, chain.objectIdentity); if (found) return found; }
+      }
+      return undefined;
+    };
     for (const track of snapshot.tracks as unknown as JsonObject[]) {
-      const device = this.flattenDeviceRows(track.devices).find((item) => item.ref === deviceRef);
-      if (device) return { track, device };
+      if (typeof track.ref !== "string" || typeof track.objectIdentity !== "string") continue;
+      const found = visit(track.devices, track.ref, track.objectIdentity);
+      if (found) return { track, ...found };
     }
     throw new Error("device reference is not authoritative");
+  }
+
+  private deviceFence(row: { track: JsonObject; device: JsonObject; ownerRef: string; ownerIdentity: string; siblings: Array<{ ref: string; objectIdentity: string }> }): string {
+    return JSON.stringify({ ref: row.device.ref, objectIdentity: row.device.objectIdentity, track: row.track.ref, ownerRef: row.ownerRef, ownerIdentity: row.ownerIdentity, siblings: row.siblings, enabled: row.device.enabled ?? null });
   }
 
   private async liveBrowserSearchAsync(id: RequestId, params: unknown): Promise<JsonObject> {
@@ -2482,13 +2501,14 @@ export class McpHost {
         if (!isNonEmptyString(params.deviceRef, 256)) return error(id, -32602, "deviceRef is required");
         const operation = params.action === "delete" ? "device.delete" : params.action === "enable" ? "device.enable" : "device.move";
         if (!(status.operations ?? []).includes(operation)) throw new Error(`${operation} is unavailable`);
-        const { track, device } = this.deviceRow(snapshot, params.deviceRef as LiveRef);
+        const located = this.deviceRow(snapshot, params.deviceRef as LiveRef); const { device } = located;
+        if (!isNonEmptyString(device.objectIdentity, 256)) throw new Error("device object identity is unavailable");
         if (params.action === "enable" && typeof params.enabled !== "boolean") return error(id, -32602, "enabled must be boolean");
         if (params.action === "move" && (!Number.isInteger(params.index) || (params.index as number) < 0 || (params.index as number) > 256)) return error(id, -32602, "index is invalid");
-        payload.ref = params.deviceRef;
+        payload.ref = params.deviceRef; payload.expectedObjectIdentity = device.objectIdentity; payload.expectedOwnerRef = located.ownerRef; payload.expectedOwnerIdentity = located.ownerIdentity; payload.expectedSiblings = located.siblings;
         if (params.action === "enable") payload.enabled = params.enabled;
         if (params.action === "move") payload.index = params.index;
-        fence = JSON.stringify({ ref: params.deviceRef, track: track.ref, devices: (track.devices as unknown[]).filter(isObject).map((item) => item.ref), enabled: device.enabled ?? null });
+        fence = this.deviceFence(located);
       }
       const transaction: ClipLifecycleTransaction = { id: `device_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "device", fence, clipRef: (params.deviceRef ?? params.trackRef) as LiveRef, payload, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
       this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "device");
@@ -2514,8 +2534,8 @@ export class McpHost {
         const track = (snapshot.tracks as unknown as JsonObject[]).find((item) => item.ref === transaction.payload.trackRef);
         if (!track || JSON.stringify({ track: transaction.payload.trackRef, devices: (track.devices as unknown[]).filter(isObject).map((device) => device.ref) }) !== transaction.fence) return this.transactionError(id, "track devices changed since preview; preview again");
       } else {
-        const { track, device } = this.deviceRow(snapshot, transaction.payload.ref as LiveRef);
-        if (JSON.stringify({ ref: transaction.payload.ref, track: track.ref, devices: (track.devices as unknown[]).filter(isObject).map((item) => item.ref), enabled: device.enabled ?? null }) !== transaction.fence) return this.transactionError(id, "device state changed since preview; preview again");
+        const located = this.deviceRow(snapshot, transaction.payload.ref as LiveRef);
+        if (this.deviceFence(located) !== transaction.fence) return this.transactionError(id, "device state changed since preview; preview again");
       }
       const operation = action === "insert" ? "device.insert" : action === "delete" ? "device.delete" : action === "enable" ? "device.enable" : "device.move";
       const args: Record<string, unknown> = { ...transaction.payload };
