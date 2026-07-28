@@ -18,7 +18,7 @@ export const LIVE_REGISTRY_OPERATIONS = liveRegistryOperations();
 export const LIVE_CAPABILITIES = [
   "session.read", "session.write", "tracks", "scenes", "clips", "notes",
   "session.discovery", "session.structure", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write",
-  "arrangement.read", "arrangement.write", "audio", "warp", "takes",
+  "arrangement.read", "arrangement.write", "audio", "audio.capture.resampling", "warp", "takes",
   "automation", "devices", "racks", "chains", "parameters", "browser",
   "device.parameter.write",
   "routing", "recording", "projects", "mixing", "transport", "max", "osc",
@@ -26,7 +26,7 @@ export const LIVE_CAPABILITIES = [
 ] as const;
 
 export const LIVE_UNAVAILABLE_CAPABILITIES = [
-  "arrangement.read", "arrangement.write", "audio", "warp", "takes",
+  "arrangement.read", "arrangement.write", "audio", "audio.capture.resampling", "warp", "takes",
   "automation", "devices", "racks", "chains", "parameters", "browser",
   "routing", "recording", "projects", "mixing", "max", "osc", "realtime.events",
   "plugins",
@@ -106,6 +106,7 @@ export type LiveOperation =
   | "transport.set" | "session.audition-launch" | "session.audition-stop" | "session.emergency-stop" | "clip.create" | "clip.delete"
   | "clip.launch" | "track.stop" | "playback.stop-all-clips" | "session.capture-midi" | "scene.capture"
   | "note.update" | "note.delete" | "clip.duplicate" | "arrangement.clip.create" | "arrangement.clip.delete" | "arrangement.clip.move" | "audio.clip.set"
+  | "audio.capture.inspect" | "audio.capture.start" | "audio.capture.stop" | "audio.capture.status" | "audio.capture.emergency-stop" | "audio.capture.cleanup"
   | "mixer.set" | "automation.envelope.read" | "automation.envelope.create" | "automation.envelope.delete" | "automation.point.insert" | "automation.point.delete"
   | "device.insert" | "device.delete" | "device.enable" | "device.move" | "browser.search" | "browser.load"
   | "routing.set" | "recording.session" | "recording.arrangement" | "subscribe" | "realtime.arm" | "realtime.disarm" | "realtime.stats"

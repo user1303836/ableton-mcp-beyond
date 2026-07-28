@@ -87,7 +87,7 @@ try {
   const initialize = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "package-smoke", version: "1" } } });
   const initialized = JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" });
   const ping = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "ping" });
-  const output = execFileSync(process.execPath, [executable], { input: `${initialize}\n${initialized}\n${ping}\n`, encoding: "utf8" });
+  const output = execFileSync(process.execPath, [executable], { cwd: installDirectory, input: `${initialize}\n${initialized}\n${ping}\n`, encoding: "utf8" });
   const responses = output.trim().split("\n").map((line) => JSON.parse(line));
   if (responses.length !== 2 || responses[0]?.id !== 1 || responses[1]?.id !== 2) throw new Error("installed executable failed the protocol smoke test");
   const configPath = join(temporaryDirectory, "client-config.json");
@@ -177,7 +177,7 @@ finally: bridge.disconnect()
     const initializedBridge = JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" });
     const liveStatus = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "live_status", arguments: {} } });
     const liveScenes = JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "live_discover", arguments: { kind: "scene", limit: 4 } } });
-    const authenticatedOutput = execFileSync(process.execPath, [executable, "--config", bridgeConfigPath], { input: `${initializeBridge}\n${initializedBridge}\n${liveStatus}\n${liveScenes}\n`, encoding: "utf8", timeout: 10_000 });
+    const authenticatedOutput = execFileSync(process.execPath, [executable, "--config", bridgeConfigPath], { cwd: installDirectory, input: `${initializeBridge}\n${initializedBridge}\n${liveStatus}\n${liveScenes}\n`, encoding: "utf8", timeout: 10_000 });
     const authenticatedResponses = authenticatedOutput.trim().split("\n").map((line) => JSON.parse(line));
     if (authenticatedResponses.length !== 3 || authenticatedResponses[0]?.id !== 1 || authenticatedResponses[1]?.id !== 2 || authenticatedResponses[2]?.id !== 3) throw new Error("authenticated package discovery did not return ordered MCP responses");
     const statusText = authenticatedResponses[1]?.result?.content?.[0]?.text ?? "";

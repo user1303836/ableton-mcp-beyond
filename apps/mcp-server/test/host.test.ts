@@ -19,7 +19,7 @@ test("requires initialization and exposes only read-only tools", () => {
   assert.equal((host.handle({ ...initialize, id: 2 }) as any).result.protocolVersion, PROTOCOL_VERSION);
   assert.equal(host.handle(initialized), null);
   const tools = (host.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
-  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
   const auditionPreview = tools.find((tool: { name: string }) => tool.name === "live_session_audition_preview");
   assert.deepEqual(auditionPreview.inputSchema.properties.outputSafety.required, ["safe", "provenance"]);
   const auditionStop = tools.find((tool: { name: string }) => tool.name === "live_session_audition_stop");
@@ -310,23 +310,49 @@ test("reports Live unavailable and ignores caller authority", () => {
   assert.doesNotMatch(text, /admin/);
 });
 
-test("analyzes supplied PCM through the MCP tool without Live side effects", () => {
+test("analyzes supplied PCM through the cancellable MCP worker without Live side effects", async () => {
   const bytes = Buffer.alloc(4 * 4);
   for (const [index, value] of [0, 0.5, -0.5, 0].entries()) bytes.writeFloatLE(value, index * 4);
   const host = new McpHost();
   ready(host);
-  const result = host.handle({ jsonrpc: "2.0", id: 20, method: "tools/call", params: { name: "audio_analyze", arguments: { pcmBase64: bytes.toString("base64"), sampleRate: 44100 } } });
+  const result = await host.handleAsync({ jsonrpc: "2.0", id: 20, method: "tools/call", params: { name: "audio_analyze", arguments: { pcmBase64: bytes.toString("base64"), sampleRate: 44100 } } });
   const text = (result as any).result.content[0].text;
-  const analysis = JSON.parse(text) as { sampleCount: number; privacy: { rawAudioReturned: boolean }; safety: { projectMutated: boolean } };
+  const analysis = JSON.parse(text) as { version: string; sampleCount: number; privacy: { rawAudioReturned: boolean }; safety: { projectMutated: boolean } };
+  assert.equal(analysis.version, "pcm-analysis/v2");
   assert.equal(analysis.sampleCount, 4);
   assert.equal(analysis.privacy.rawAudioReturned, false);
   assert.equal(analysis.safety.projectMutated, false);
+  const synchronous = host.handle({ jsonrpc: "2.0", id: 21, method: "tools/call", params: { name: "audio_analyze", arguments: { pcmBase64: bytes.toString("base64"), sampleRate: 44_100 } } });
+  assert.equal((synchronous as any).error.code, -32001);
+});
+
+test("compares caller-supplied references without exposing raw PCM", async () => {
+  const samples = Float32Array.from({ length: 48_000 }, (_, frame) => 0.1 * Math.sin(2 * Math.PI * 997 * frame / 48_000));
+  const bytes = Buffer.alloc(samples.length * 4);
+  samples.forEach((value, index) => bytes.writeFloatLE(value, index * 4));
+  const source = { pcmBase64: bytes.toString("base64"), sampleRate: 48_000, channels: 1, channelLayout: ["M"] };
+  const host = new McpHost(); ready(host);
+  const result = await host.handleAsync({ jsonrpc: "2.0", id: 22, method: "tools/call", params: { name: "audio_compare_reference", arguments: { project: source, reference: source, alignment: { mode: "disabled" } } } });
+  assert.equal((result as any).result.isError, false);
+  const comparison = JSON.parse((result as any).result.content[0].text);
+  assert.equal(comparison.version, "reference-analysis/v1");
+  assert.equal(comparison.privacy.rawAudioReturned, false);
+  assert.ok(Math.abs(comparison.deltas.projectMinusReference.integratedLoudnessLu) < 1e-9);
+});
+
+test("cancels an in-flight audio worker without a response", async () => {
+  const bytes = Buffer.alloc(500_000 * 4);
+  const host = new McpHost(); ready(host);
+  const controller = new AbortController();
+  const pending = host.handleAsync({ jsonrpc: "2.0", id: 23, method: "tools/call", params: { name: "audio_analyze", arguments: { pcmBase64: bytes.toString("base64"), sampleRate: 48_000 } } }, controller.signal);
+  controller.abort();
+  assert.equal(await pending, null);
 });
 
 test("rejects duplicates, unsupported methods, and unknown fields", () => {
   const host = new McpHost();
   ready(host);
-  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 64);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 70);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).error.message, "Duplicate request identifier");
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set", arguments: {} } }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 4, method: "tools/list", debug: true }) as any).error.code, -32600);
@@ -547,29 +573,30 @@ test("CLI rejects a permissive bridge secret before opening the adapter", { skip
   assert.equal(child.status, 1); assert.match(child.stderr, /permissions.*owner-only/); assert.equal(child.stdout, "");
 });
 
-test("accepts MCP metadata and reports value errors as tool errors", () => {
+test("accepts MCP metadata and reports value errors as tool errors", async () => {
   const host = new McpHost();
   const init = host.handle({ ...initialize, _meta: { trace: "test" }, params: { ...initialize.params, _meta: {} } });
   assert.equal((init as any).result.protocolVersion, PROTOCOL_VERSION);
   host.handle(initialized);
-  const result = host.handle({ jsonrpc: "2.0", id: 2, method: "tools/call", _meta: {}, params: { name: "audio_analyze", _meta: {}, arguments: { pcmBase64: "AAAA", sampleRate: 44100 } } });
+  const invalidValue = Buffer.alloc(4); invalidValue.writeFloatLE(1.1);
+  const result = await host.handleAsync({ jsonrpc: "2.0", id: 2, method: "tools/call", _meta: {}, params: { name: "audio_analyze", _meta: {}, arguments: { pcmBase64: invalidValue.toString("base64"), sampleRate: 44100 } } });
   assert.equal((result as any).result.isError, true);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "ping" }) as any).result instanceof Object, true);
 });
 
-test("does not let invalid audio requests consume the rate limit", () => {
+test("does not let invalid audio requests consume the rate limit", async () => {
   const host = new McpHost();
   ready(host);
   for (let id = 2; id <= 121; id += 1) {
-    const result = host.handle({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "audio_analyze", arguments: {} } });
+    const result = await host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "audio_analyze", arguments: {} } });
     assert.equal((result as any).error.code, -32602);
   }
   const bytes = Buffer.alloc(4);
-  const result = host.handle({ jsonrpc: "2.0", id: 122, method: "tools/call", params: { name: "audio_analyze", arguments: { pcmBase64: bytes.toString("base64"), sampleRate: 44100 } } });
+  const result = await host.handleAsync({ jsonrpc: "2.0", id: 122, method: "tools/call", params: { name: "audio_analyze", arguments: { pcmBase64: bytes.toString("base64"), sampleRate: 44100 } } });
   assert.equal((result as any).result.isError, false);
 });
 
-test("rejects audio schema values before decoding or consuming the rate limit", () => {
+test("rejects audio schema values before decoding or consuming the rate limit", async () => {
   const host = new McpHost();
   ready(host);
   const base = { pcmBase64: Buffer.alloc(4).toString("base64"), sampleRate: 44100 };
@@ -579,10 +606,10 @@ test("rejects audio schema values before decoding or consuming the rate limit", 
     [4, { ...base, channels: 0 }],
     [5, { ...base, frameSize: 4097 }],
   ] as const) {
-    const result = host.handle({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "audio_analyze", arguments: args } });
+    const result = await host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "audio_analyze", arguments: args } });
     assert.equal((result as any).error.code, -32602);
   }
-  const result = host.handle({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "audio_analyze", arguments: base } });
+  const result = await host.handleAsync({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "audio_analyze", arguments: base } });
   assert.equal((result as any).result.isError, false);
 });
 

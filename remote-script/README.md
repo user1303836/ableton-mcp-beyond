@@ -63,6 +63,23 @@ published-parameter and compensated XY writes, jitter/loss/drop counters, and
 an emergency stop. See `docs/REALTIME_CONTROL.md` in the repository; no `.amxd`
 device is claimed or bundled.
 
+The mapper also conditionally advertises `audio.capture.resampling` and six
+purpose-specific `audio.capture.*` operations when the Live shape exposes the
+required Session clip-slot, Resampling routing, arm/monitoring, transport,
+recording, file-path, and clip deletion APIs. Start atomically rechecks one
+exact source and different empty audio destination, snapshots restorable state,
+sets Resampling, briefly uses immediate launch quantization, and starts both
+slots. A hard ten-second watchdog, explicit stop, emergency stop, and bridge
+disconnect independently stop playback/recording and restore owned state.
+The authenticated mapper status includes recovery authority and the raw media
+path for the host; the public MCP status tool redacts those two sensitive
+fields while retaining bounded clip reference/name/length availability
+metadata. Acquire returns
+path and identity only across that authenticated host boundary. Host-side code separately validates and analyzes WAV/ASD media, then performs
+descriptor-fenced quarantine/unlink before cleanup deletes only the exact owned
+clip and moves mapper state to `cleaned`. Unsupported or externally changed state is
+reported as residual rather than overwritten. See `docs/AUDIO_INTELLIGENCE.md`.
+
 Run contract tests from the repository root:
 
 ```sh

@@ -362,6 +362,7 @@ class LiveObjectMapper:
         self.song = song
         self.refs = registry or ReferenceRegistry()
         self.provenance = provenance
+        self._capture_state: dict[str, Any] | None = None
 
     def status(self) -> dict[str, Any]:
         registry, registry_hash = operation_registry()
@@ -411,6 +412,13 @@ class LiveObjectMapper:
             return bool(self._arrangement_clip_items())
         if operation == "audio.clip.set":
             return any(self._read_attr(getattr(slot, "clip", None), "is_audio_clip") is True for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation in {"audio.capture.inspect", "audio.capture.start", "audio.capture.stop", "audio.capture.status", "audio.capture.emergency-stop", "audio.capture.cleanup"} and self._capture_state is not None and self._capture_state.get("state") != "cleaned":
+            # Recovery authority and the negotiated provider identity must
+            # remain advertised while the one destination is occupied or a
+            # stop/cleanup is unresolved. Target checks still refuse new work.
+            return True
+        if operation in {"audio.capture.inspect", "audio.capture.start", "audio.capture.stop", "audio.capture.status", "audio.capture.emergency-stop", "audio.capture.cleanup"}:
+            return self._capture_shape_supported()
         if operation == "mixer.set":
             return any(self._read_attr(track, "mixer_device") is not None for track in self._items(getattr(self.song, "tracks", [])))
         if operation in {"automation.envelope.read", "automation.envelope.create", "automation.point.insert", "automation.point.delete"}:
@@ -502,6 +510,7 @@ class LiveObjectMapper:
             class_names = [str(self._read_attr(item, "class_name") or item.__class__.__name__).lower() for item in device_objects]
             if any(any(marker in name for marker in ("plugin", "vst", "audio_unit")) for name in class_names): capabilities.append("plugins")
         if supports("audio.clip.set"): capabilities.append("audio")
+        if supports("audio.capture.inspect") and supports("audio.capture.start") and supports("audio.capture.stop") and supports("audio.capture.cleanup"): capabilities.append("audio.capture.resampling")
         if supports("automation.envelope.read"): capabilities.append("automation")
         if supports("browser.search"): capabilities.append("browser")
         if supports("routing.set"): capabilities.append("routing")
@@ -719,7 +728,7 @@ class LiveObjectMapper:
 
     def _device_row(self, device: Any, device_ref: str, track_ref: str, track_index: int, path: str, index: int) -> dict[str, Any]:
         parameters: list[dict[str, Any]] = []
-        for parameter_index, parameter in enumerate(self._items(getattr(device, "parameters", []))):
+        for parameter_index, parameter in enumerate(self._items(getattr(device, "parameters", []))[:MAX_WIRE_COLLECTION_LENGTH]):
             minimum = self._read_attr(parameter, "min", "min_value")
             maximum = self._read_attr(parameter, "max", "max_value")
             value = self._read_attr(parameter, "value")
@@ -895,11 +904,18 @@ class LiveObjectMapper:
         return {"set": set_row, "tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators, "clips": self._arrangement_clip_items()}, "playback": self._playback(track_rows, scene_rows), "epoch": self.refs.epoch}
 
     def _read_notes(self, clip: Any) -> list[dict[str, Any]]:
-        if hasattr(clip, "get_all_notes_extended"):
-            raw = list(clip.get_all_notes_extended())
-        elif hasattr(clip, "get_notes"):
-            raw = clip.get_notes(0, 0, 4096, 128)
-        else:
+        if self._read_attr(clip, "is_audio_clip") is True:
+            return []
+        try:
+            if hasattr(clip, "get_all_notes_extended"):
+                raw = list(clip.get_all_notes_extended())
+            elif hasattr(clip, "get_notes"):
+                raw = clip.get_notes(0, 0, 4096, 128)
+            else:
+                raw = []
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            # Several Live shapes publish MIDI-note methods on audio clips but
+            # raise when called. Audio clips truthfully have no MIDI notes.
             raw = []
         rows: list[dict[str, Any]] = []
         for item in self._items(raw):
@@ -1021,15 +1037,33 @@ class LiveObjectMapper:
         elif kind == "session_playback": items = [snapshot["playback"]]
         elif kind == "selection": items = [{"ref": f"{self.refs.epoch}:selection:current", "parentRef": set_row["ref"], "selectedRef": getattr(self.song, "view", None) and getattr(getattr(self.song, "view", None), "selected_track", None) and self.refs.put("track", getattr(self.song.view, "selected_track"), "selected")}]
         else:
+            # Routing choices are track-scoped Live objects. Enumerating a
+            # non-existent Song.routing_choices collection made parent-scoped
+            # discovery silently return no rows even when routing was usable.
+            if parent is None or not parent.startswith(f"{self.refs.epoch}:track:"):
+                raise ValueError("routing-choice parent must be an authoritative track")
+            try:
+                track = self.refs.get(parent)
+            except KeyError as error:
+                raise ValueError("routing-choice parent is stale") from error
+            tracks = self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", []))
+            main_track = getattr(self.song, "master_track", getattr(self.song, "main_track", None))
+            if main_track is not None: tracks.append(main_track)
+            track_index = tracks.index(track) if track in tracks else 0
             items = []
-            for index, choice in enumerate(self._items(getattr(self.song, "routing_choices", []))):
-                if isinstance(choice, dict):
-                    row = dict(choice)
-                else:
-                    row = {"name": str(getattr(choice, "name", "")), "type": str(getattr(choice, "type", ""))}
-                row["ref"] = self.refs.put("routing_choice", choice, str(index))
-                row["parentRef"] = set_row["ref"]
-                items.append(row)
+            groups = (
+                ("input-type", "available_input_routing_types"),
+                ("input-channel", "available_input_routing_channels"),
+                ("output-type", "available_output_routing_types"),
+                ("output-channel", "available_output_routing_channels"),
+            )
+            for direction, attribute in groups:
+                for index, choice in enumerate(self._items(self._read_attr(track, attribute) or [])):
+                    row = dict(choice) if isinstance(choice, dict) else {"name": str(getattr(choice, "name", getattr(choice, "display_name", ""))), "type": str(getattr(choice, "type", ""))}
+                    row["direction"] = direction
+                    row["ref"] = self.refs.put("routing_choice", choice, f"{track_index}:{direction}:{index}")
+                    row["parentRef"] = parent
+                    items.append(row)
         if parent is not None:
             if not parent.startswith(f"{self.refs.epoch}:"):
                 raise ValueError("stale parent reference")
@@ -1446,6 +1480,18 @@ class LiveObjectMapper:
             return self._arrangement_clip_move(args)
         if operation == "audio.clip.set":
             return self._audio_clip_set(args)
+        if operation == "audio.capture.inspect":
+            return self._capture_inspect(args)
+        if operation == "audio.capture.start":
+            return self._capture_start(args)
+        if operation == "audio.capture.stop":
+            return self._capture_stop(args)
+        if operation == "audio.capture.status":
+            return self._capture_status()
+        if operation == "audio.capture.emergency-stop":
+            return self._capture_emergency_stop(args)
+        if operation == "audio.capture.cleanup":
+            return self._capture_cleanup(args)
         if operation == "mixer.set":
             return self._mixer_set(args)
         if operation == "automation.envelope.read":
@@ -2290,15 +2336,548 @@ class LiveObjectMapper:
         loader(item)
         return {"loaded": True, "deviceRef": None}
 
-    def _routing_row(self, track: Any) -> dict[str, Any]:
-        def choice(name: str) -> Any:
-            value = self._read_attr(track, name)
-            return str(getattr(value, "name", value)) if value is not None else None
+    @staticmethod
+    def _capture_object_identity(value: Any) -> str:
+        """Bind capture authority to the clip object, not its traversal slot."""
+        if value is None:
+            raise ValueError("capture object identity is unavailable")
+        for candidate in (value, getattr(value, "_live_ptr", None), getattr(value, "live_ptr", None)):
+            if candidate is None:
+                continue
+            if isinstance(candidate, (str, int)) and not isinstance(candidate, bool):
+                return f"live:{candidate}"
+            for name in ("_object_id", "object_id"):
+                identity = getattr(candidate, name, None)
+                if isinstance(identity, (str, int)) and not isinstance(identity, bool):
+                    return f"live:{identity}"
+        # The mapper holds the expected proxy strongly for this bridge epoch;
+        # if Live regenerates proxies without a stable pointer, matching fails
+        # closed rather than deleting a traversal-slot replacement.
+        return f"proxy:{id(value)}"
+
+    @classmethod
+    def _capture_same_object(cls, current: Any, expected: Any, identity: str) -> bool:
+        return current is expected or (current is not None and cls._capture_object_identity(current) == identity)
+
+    @staticmethod
+    def _capture_route_label(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            label = value.get("display_name") or value.get("name")
+            return str(label) if isinstance(label, str) and label else None
+        for name in ("display_name", "name"):
+            label = getattr(value, name, None)
+            if isinstance(label, str) and label:
+                return label
+        if isinstance(value, (str, int, float)) and not isinstance(value, bool):
+            text = str(value)
+            return text if text else None
+        # Opaque routing proxy reprs contain process addresses and are neither
+        # selectable labels nor stable revision evidence.
+        return None
+
+    def _capture_current_route(self, track: Any) -> Any:
+        value = self._read_attr(track, "input_routing_type")
+        return value if value is not None else self._read_attr(track, "current_input_routing")
+
+    def _capture_resampling_choice(self, track: Any) -> Any:
+        for candidate in self._items(self._read_attr(track, "available_input_routing_types") or []):
+            labels = [self._capture_route_label(candidate), str(getattr(candidate, "name", "")), str(getattr(candidate, "display_name", ""))]
+            if any(isinstance(label, str) and label.casefold() == "resampling" for label in labels):
+                return candidate
+        raise ValueError("the destination track does not expose an exact Resampling input")
+
+    def _capture_shape_supported(self) -> bool:
+        if not callable(getattr(self.song, "stop_playing", None)):
+            return False
+        tracks = self._items(getattr(self.song, "tracks", []))
+        has_source = any(getattr(slot, "clip", None) is not None and callable(getattr(slot, "fire", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+        if not has_source:
+            return False
+        for track in tracks:
+            # Status advertises the provider from stable, non-mutating shape:
+            # one exact Resampling choice and one fireable empty slot. Target-
+            # specific arm/monitor/audio-input requirements are rechecked by
+            # inspect and again atomically by start, where useful refusal detail
+            # can be returned instead of silently hiding the whole provider.
+            if not any(getattr(slot, "clip", None) is None and callable(getattr(slot, "fire", None)) for slot in self._items(getattr(track, "clip_slots", []))):
+                continue
+            try:
+                self._capture_resampling_choice(track)
+                return True
+            except ValueError:
+                continue
+        return False
+
+    def _capture_plan(self, args: dict[str, Any]) -> dict[str, Any]:
+        set_name = args.get("setName")
+        source_ref = args.get("sourceSlotRef")
+        destination_ref = args.get("destinationSlotRef")
+        if not isinstance(set_name, str) or not 1 <= len(set_name) <= 256 or not isinstance(source_ref, str) or not isinstance(destination_ref, str):
+            raise ValueError("capture Set and slot identities are invalid")
+        if str(self._read_attr(self.song, "name") or "") != set_name:
+            raise ValueError("capture is limited to the exact named disposable Set")
+        source_track, source_slot, source_track_index, source_slot_index = self._clip_location(source_ref)
+        destination_track, destination_slot, destination_track_index, destination_slot_index = self._clip_location(destination_ref)
+        if source_ref == destination_ref or source_track_index == destination_track_index:
+            raise ValueError("capture source and destination must be distinct tracks and slots")
+        if getattr(source_slot, "clip", None) is None or not callable(getattr(source_slot, "fire", None)):
+            raise ValueError("capture source must be an authoritative playable Session clip")
+        if getattr(destination_slot, "clip", None) is not None or not callable(getattr(destination_slot, "fire", None)) or not callable(getattr(destination_slot, "delete_clip", None)):
+            raise ValueError("capture destination must be an exact empty deletable Session slot")
+        if self._read_attr(destination_track, "has_audio_input") is not True or self._read_attr(destination_track, "has_midi_input") is True:
+            raise ValueError("capture destination must be an audio-input track")
+        if not isinstance(self._read_attr(destination_track, "arm"), bool) or not isinstance(self._read_attr(destination_track, "current_monitoring_state"), int):
+            raise ValueError("capture destination does not expose guarded arm and monitoring state")
+        resampling = self._capture_resampling_choice(destination_track)
+        playback = self._playback()
+        transport = playback["transport"]
+        if transport.get("playing") is not False or transport.get("arrangementRecord") is not False or transport.get("sessionRecord") is not False or playback.get("firedTargets") or playback.get("playingTargets"):
+            raise ValueError("capture requires stopped, non-recording, empty playback state")
+        baseline_tracks = []
+        for index, track in enumerate(self._items(getattr(self.song, "tracks", []))):
+            armed = self._read_attr(track, "arm")
+            monitoring = self._monitoring_state(self._read_attr(track, "current_monitoring_state"))
+            if armed is not False:
+                raise ValueError("capture requires every track to be authoritatively unarmed")
+            if monitoring not in {"off", "auto"}:
+                raise ValueError("capture refuses input-monitored or unknown-monitoring tracks")
+            baseline_tracks.append({"index": index, "armed": armed, "monitoring": monitoring})
+        destination_track_ref = self.refs.put("track", destination_track, str(destination_track_index))
+        prior_route = self._capture_current_route(destination_track)
+        prior_route_label = self._capture_route_label(prior_route)
+        if not isinstance(prior_route_label, str):
+            raise ValueError("capture destination input route is not authoritatively named")
+        try:
+            self._routing_choice(destination_track, "available_input_routing_types", prior_route_label)
+        except ValueError as error:
+            raise ValueError("capture destination input route cannot be restored; select an available safe input before preview") from error
+        source_clip = getattr(source_slot, "clip")
+        source_clip_identity = self._capture_object_identity(source_clip)
+        source_track_identity = self._capture_object_identity(source_track)
+        source_slot_identity = self._capture_object_identity(source_slot)
+        destination_track_identity = self._capture_object_identity(destination_track)
+        destination_slot_identity = self._capture_object_identity(destination_slot)
+        identity_digest = lambda value: hashlib.sha256(value.encode("utf-8")).hexdigest()
+        baseline = {
+            "setName": set_name,
+            "playbackRevision": playback["revision"],
+            "sourceSlotRef": source_ref,
+            "sourceTrackIdentity": identity_digest(source_track_identity),
+            "sourceSlotIdentity": identity_digest(source_slot_identity),
+            "sourceClipRef": self.refs.put("clip", source_clip, f"{source_track_index}:{source_slot_index}"),
+            "sourceClipIdentity": identity_digest(source_clip_identity),
+            "destinationSlotRef": destination_ref,
+            "destinationTrackRef": destination_track_ref,
+            "destinationTrackIdentity": identity_digest(destination_track_identity),
+            "destinationSlotIdentity": identity_digest(destination_slot_identity),
+            "destinationRoute": prior_route_label,
+            "destinationName": str(self._read_attr(destination_track, "name") or ""),
+            "destinationArm": self._read_attr(destination_track, "arm"),
+            "destinationMonitoring": self._monitoring_state(self._read_attr(destination_track, "current_monitoring_state")),
+            "position": float(self._read_attr(self.song, "current_song_time") or 0.0),
+            "tracks": baseline_tracks,
+        }
+        fence = hashlib.sha256(json.dumps(baseline, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
         return {
-            "inputType": choice("current_input_routing"),
-            "inputSubRouting": choice("current_input_sub_routing"),
-            "outputType": choice("current_output_routing"),
-            "outputSubRouting": choice("current_output_sub_routing"),
+            "supported": True,
+            "fence": fence,
+            "sourceSlotRef": source_ref,
+            "destinationSlotRef": destination_ref,
+            "destinationTrackRef": destination_track_ref,
+            "captureMode": "session-slot-resampling",
+            "rawRetention": "ephemeral",
+            "prior": {"route": baseline["destinationRoute"], "arm": baseline["destinationArm"], "monitoring": baseline["destinationMonitoring"], "position": baseline["position"]},
+            "_sourceTrack": source_track,
+            "_sourceSlot": source_slot,
+            "_sourceClip": source_clip,
+            "_sourceClipIdentity": source_clip_identity,
+            "_sourceTrackIdentity": source_track_identity,
+            "_sourceSlotIdentity": source_slot_identity,
+            "_destinationTrack": destination_track,
+            "_destinationTrackIdentity": destination_track_identity,
+            "_destinationSlotIdentity": destination_slot_identity,
+            "_destinationSlot": destination_slot,
+            "_priorRouteLabel": prior_route_label,
+            "_priorDestinationName": str(self._read_attr(destination_track, "name") or ""),
+            "_priorMonitoringRaw": self._read_attr(destination_track, "current_monitoring_state"),
+            "_resampling": resampling,
+            "_sourceTrackIndex": source_track_index,
+            "_sourceSlotIndex": source_slot_index,
+            "_destinationTrackIndex": destination_track_index,
+            "_destinationSlotIndex": destination_slot_index,
+            "_priorLaunchQuantization": self._read_attr(self.song, "clip_trigger_quantization"),
+        }
+
+    @staticmethod
+    def _capture_public_plan(plan: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in plan.items() if not key.startswith("_")}
+
+    def _capture_inspect(self, args: dict[str, Any]) -> dict[str, Any]:
+        if self._capture_state is not None and self._capture_state.get("state") not in {"cleaned"}:
+            raise ValueError("a prior capture must be stopped and cleaned before another preview")
+        return self._capture_public_plan(self._capture_plan(args))
+
+    @staticmethod
+    def _capture_stop_track(track: Any) -> None:
+        stop = getattr(track, "stop_all_clips", None)
+        if not callable(stop):
+            raise ValueError("capture track stop is unavailable")
+        try:
+            stop(False)
+        except TypeError:
+            stop()
+
+    def _capture_start(self, args: dict[str, Any]) -> dict[str, Any]:
+        capture_id = args.get("captureId")
+        max_duration = args.get("maxDurationMs")
+        fence = args.get("fence")
+        if not isinstance(capture_id, str) or not 16 <= len(capture_id) <= 128 or not isinstance(max_duration, int) or isinstance(max_duration, bool) or not 1000 <= max_duration <= 10000 or not isinstance(fence, str):
+            raise ValueError("capture authority is invalid")
+        self._capture_refresh()
+        if self._capture_state is not None and self._capture_state.get("state") not in {"cleaned"}:
+            raise ValueError("another capture lifecycle is active or awaiting cleanup")
+        plan = self._capture_plan(args)
+        if plan["fence"] != fence:
+            raise ValueError("capture state changed since preview")
+        token = secrets.token_urlsafe(32)
+        expires_at = int(time.time() * 1000) + max_duration
+        state = {
+            **plan,
+            "captureId": capture_id,
+            "token": token,
+            "state": "starting",
+            "startedAt": int(time.time() * 1000),
+            "expiresAt": expires_at,
+            "deadlineMonotonic": time.monotonic() + max_duration / 1000.0,
+            "ownershipTag": f"MCP Capture {hashlib.sha256(token.encode('utf-8')).hexdigest()[:16]}",
+            "preserveOwnershipTag": False,
+            "fireDispatched": False,
+            "residual": [],
+        }
+        self._capture_state = state
+        destination_track = plan["_destinationTrack"]
+        destination_slot = plan["_destinationSlot"]
+        source_slot = plan["_sourceSlot"]
+        try:
+            destination_track.name = state["ownershipTag"]
+            if str(self._read_attr(destination_track, "name") or "") != state["ownershipTag"]:
+                raise ValueError("capture destination ownership tag was not confirmed")
+            setattr(destination_track, "input_routing_type", plan["_resampling"])
+            destination_track.current_monitoring_state = 2
+            destination_track.arm = True
+            if self._capture_route_label(self._capture_current_route(destination_track)) != self._capture_route_label(plan["_resampling"]) or self._monitoring_state(self._read_attr(destination_track, "current_monitoring_state")) != "off" or self._read_attr(destination_track, "arm") is not True:
+                raise ValueError("capture setup was not confirmed by fresh state")
+            prior_quantization = plan["_priorLaunchQuantization"]
+            if not isinstance(prior_quantization, int) or isinstance(prior_quantization, bool):
+                raise ValueError("capture launch quantization is not authoritatively controllable")
+            try:
+                self.song.clip_trigger_quantization = 0
+                # Mark potential authority before the side-effecting call: Live
+                # can schedule recording and still raise before returning.
+                state["fireDispatched"] = True
+                destination_slot.fire()
+                source_slot.fire()
+                current_source = getattr(source_slot, "clip", None)
+                if not self._capture_same_object(current_source, plan["_sourceClip"], plan["_sourceClipIdentity"]):
+                    raise ValueError("capture source clip identity changed during dispatch")
+                owned_clip = getattr(destination_slot, "clip", None)
+                if owned_clip is not None:
+                    owned_name = self._read_attr(owned_clip, "name")
+                    if self._read_attr(owned_clip, "is_recording") is not True or not isinstance(owned_name, str) or not owned_name.startswith(state["ownershipTag"]):
+                        raise ValueError("capture destination was occupied by a clip without the private recording ownership tag")
+                    state["_ownedClip"] = owned_clip
+                    state["_ownedClipIdentity"] = self._capture_object_identity(owned_clip)
+            finally:
+                self.song.clip_trigger_quantization = prior_quantization
+            if self._read_attr(self.song, "clip_trigger_quantization") != prior_quantization:
+                raise ValueError("capture launch quantization was not restored")
+            state["state"] = "active"
+            if state.get("_ownedClipIdentity"):
+                state["residual"] = list(dict.fromkeys(state.get("residual", []) + self._capture_restore_name(state)))
+            else:
+                state["preserveOwnershipTag"] = True
+            return {"captureId": capture_id, "token": token, "expiresAt": expires_at, "state": "active", "sourceSlotRef": plan["sourceSlotRef"], "destinationSlotRef": plan["destinationSlotRef"], "destinationTrackRef": plan["destinationTrackRef"]}
+        except BaseException:
+            state["preserveOwnershipTag"] = bool(state.get("fireDispatched") and not state.get("_ownedClipIdentity"))
+            self._capture_stop_state(state, failed=True)
+            clip = getattr(destination_slot, "clip", None)
+            if not state.get("fireDispatched") and clip is None and self._capture_status().get("playbackStopped") is True:
+                state["state"] = "cleaned"
+                state["token"] = None
+            else:
+                # Once fire may have created media, retain the clip/path and
+                # mapper token for host-side raw cleanup. Remote Script never
+                # deletes a potentially recorded clip on partial-start failure.
+                state["state"] = "failed"
+                if clip is not None and (not state.get("_ownedClipIdentity") or not self._capture_same_object(clip, state.get("_ownedClip"), state["_ownedClipIdentity"])):
+                    state["residual"] = list(dict.fromkeys(state.get("residual", []) + ["destination-clip-identity-unresolved"]))
+            raise
+
+    def _capture_restore_name(self, state: dict[str, Any]) -> list[str]:
+        if state.get("preserveOwnershipTag"):
+            return []
+        track = state["_destinationTrack"]
+        current_name = str(self._read_attr(track, "name") or "")
+        if current_name == state.get("ownershipTag"):
+            try:
+                track.name = state["_priorDestinationName"]
+                return [] if str(self._read_attr(track, "name") or "") == state["_priorDestinationName"] else ["destination-name-not-restored"]
+            except (AttributeError, RuntimeError, TypeError, ValueError):
+                return ["destination-name-not-restored"]
+        return [] if current_name == state["_priorDestinationName"] else ["destination-name-changed-externally"]
+
+    def _capture_restore(self, state: dict[str, Any]) -> list[str]:
+        residual: list[str] = []
+        track = state["_destinationTrack"]
+        owned_route = self._capture_route_label(state["_resampling"])
+        current_route = self._capture_route_label(self._capture_current_route(track))
+        prior_route_label = state["_priorRouteLabel"]
+        residual.extend(self._capture_restore_name(state))
+        # Disarm before selecting a no-input baseline; Live can mark a track as
+        # non-armable once that route is selected.
+        current_arm = self._read_attr(track, "arm")
+        if current_arm is True:
+            try: track.arm = state["prior"]["arm"]
+            except (AttributeError, RuntimeError, TypeError, ValueError): residual.append("destination-arm-not-restored")
+        elif current_arm != state["prior"]["arm"]:
+            residual.append("destination-arm-changed-externally")
+        current_monitoring = self._monitoring_state(self._read_attr(track, "current_monitoring_state"))
+        if current_monitoring == "off":
+            try: track.current_monitoring_state = state["_priorMonitoringRaw"]
+            except (AttributeError, RuntimeError, TypeError, ValueError): residual.append("destination-monitoring-not-restored")
+        elif current_monitoring != state["prior"]["monitoring"]:
+            residual.append("destination-monitoring-changed-externally")
+        if current_route == owned_route:
+            try:
+                prior_choice = self._routing_choice(track, "available_input_routing_types", prior_route_label)
+                setattr(track, "input_routing_type", prior_choice)
+                if self._capture_route_label(self._capture_current_route(track)) != prior_route_label:
+                    residual.append("destination-route-not-restored")
+            except (AttributeError, RuntimeError, TypeError, ValueError):
+                residual.append("destination-route-not-restored")
+        elif current_route != prior_route_label:
+            residual.append("destination-route-changed-externally")
+        try:
+            self.song.current_song_time = state["prior"]["position"]
+        except (AttributeError, TypeError, ValueError):
+            residual.append("transport-position-not-restored")
+        return residual
+
+    def _capture_stop_state(self, state: dict[str, Any], failed: bool = False) -> None:
+        errors: list[str] = []
+        for slot in (state["_sourceSlot"], state["_destinationSlot"]):
+            stop_slot = getattr(slot, "stop", None)
+            if callable(stop_slot):
+                try: stop_slot()
+                except (RuntimeError, TypeError, ValueError): errors.append("slot-stop-failed")
+        for track in (state["_sourceTrack"], state["_destinationTrack"]):
+            try:
+                self._capture_stop_track(track)
+            except (AttributeError, RuntimeError, TypeError, ValueError):
+                errors.append("track-stop-failed")
+        stop_playing = getattr(self.song, "stop_playing", None)
+        if callable(stop_playing):
+            try:
+                stop_playing()
+            except (RuntimeError, TypeError, ValueError):
+                errors.append("transport-stop-failed")
+        else:
+            errors.append("transport-stop-unavailable")
+        if self._read_attr(self.song, "record_mode") is True:
+            try: self.song.record_mode = False
+            except (AttributeError, RuntimeError, TypeError, ValueError): errors.append("arrangement-record-stop-failed")
+        if self._read_attr(self.song, "session_record") is True:
+            try: self.song.session_record = False
+            except (AttributeError, RuntimeError, TypeError, ValueError): errors.append("session-record-stop-failed")
+        errors.extend(self._capture_restore(state))
+        state["residual"] = list(dict.fromkeys(state.get("residual", []) + errors))
+        state["state"] = "failed" if failed or any(item.endswith("failed") or item.endswith("unavailable") for item in errors) else "stopped"
+        state["stoppedAt"] = int(time.time() * 1000)
+
+    @staticmethod
+    def _capture_playback_stopped(playback: dict[str, Any]) -> bool:
+        transport = playback["transport"]
+        return transport.get("playing") is False and transport.get("arrangementRecord") is False and transport.get("sessionRecord") is False and not playback.get("firedTargets") and not playback.get("playingTargets")
+
+    def _capture_refresh(self) -> None:
+        state = self._capture_state
+        if state is None or state.get("state") == "cleaned":
+            return
+        playback = self._playback()
+        playback_stopped = self._capture_playback_stopped(playback)
+        if state.get("state") == "active" and time.monotonic() >= state.get("deadlineMonotonic", 0):
+            self._capture_stop_state(state)
+            state["watchdogStopped"] = True
+            playback = self._playback()
+            playback_stopped = self._capture_playback_stopped(playback)
+        destination_slot = state["_destinationSlot"]
+        clip = getattr(destination_slot, "clip", None)
+        owned_recording = clip is not None and state.get("_ownedClipIdentity") and self._capture_same_object(clip, state.get("_ownedClip"), state["_ownedClipIdentity"]) and self._read_attr(clip, "is_recording") is True
+        # Failed/unverified stop is not terminal authority. Retry when either
+        # playback or the exact owned recording remains active.
+        if state.get("state") in {"stopped", "captured", "failed"} and (not playback_stopped or owned_recording):
+            self._capture_stop_state(state)
+            clip = getattr(destination_slot, "clip", None)
+        if state.get("state") == "active":
+            if clip is not None and not state.get("_ownedClipIdentity"):
+                clip_name = self._read_attr(clip, "name")
+                if self._read_attr(clip, "is_recording") is not True or not isinstance(clip_name, str) or not clip_name.startswith(state["ownershipTag"]):
+                    state["residual"] = list(dict.fromkeys(state.get("residual", []) + ["destination-clip-lacks-private-ownership-tag"]))
+                    state["state"] = "failed"
+                    self._capture_stop_state(state, failed=True)
+                    return
+                state["_ownedClip"] = clip
+                state["_ownedClipIdentity"] = self._capture_object_identity(clip)
+                state["preserveOwnershipTag"] = False
+                state["residual"] = list(dict.fromkeys(state.get("residual", []) + self._capture_restore_name(state)))
+            elif clip is not None and not self._capture_same_object(clip, state.get("_ownedClip"), state["_ownedClipIdentity"]):
+                state["residual"] = list(dict.fromkeys(state.get("residual", []) + ["destination-clip-changed-externally"]))
+                state["state"] = "failed"
+                self._capture_stop_state(state, failed=True)
+            return
+        if state.get("state") not in {"stopped", "captured", "failed"}:
+            return
+        if clip is None:
+            return
+        if not state.get("_ownedClipIdentity"):
+            clip_name = self._read_attr(clip, "name")
+            if not isinstance(clip_name, str) or not clip_name.startswith(state["ownershipTag"]):
+                state["residual"] = list(dict.fromkeys(state.get("residual", []) + ["destination-clip-lacks-private-ownership-tag"]))
+                state["state"] = "failed"
+                return
+            state["_ownedClip"] = clip
+            state["_ownedClipIdentity"] = self._capture_object_identity(clip)
+            state["preserveOwnershipTag"] = False
+            state["residual"] = list(dict.fromkeys(state.get("residual", []) + self._capture_restore_name(state)))
+        elif not self._capture_same_object(clip, state.get("_ownedClip"), state["_ownedClipIdentity"]):
+            state["residual"] = list(dict.fromkeys(state.get("residual", []) + ["destination-clip-changed-externally"]))
+            state["state"] = "failed"
+            return
+        # Live can expose the newly recorded clip proxy before its properties
+        # are readable and before file_path is assigned. Treat that as pending
+        # finalization, not capture failure; the host polls this bounded state.
+        if self._read_attr(clip, "is_recording") is True:
+            return
+        name = self._read_attr(clip, "name")
+        length = self._read_attr(clip, "length")
+        if name is None or not isinstance(length, (int, float)) or isinstance(length, bool) or not math.isfinite(float(length)):
+            return
+        clip_ref = self.refs.put("clip", clip, f"{state['_destinationTrackIndex']}:{state['_destinationSlotIndex']}")
+        state["clipRef"] = clip_ref
+        fields = self._audio_fields(clip)
+        state["clip"] = {"ref": clip_ref, "name": str(name), "length": float(length), **fields}
+        if fields.get("filePath"):
+            state["state"] = "captured" if self._capture_playback_stopped(self._playback()) else "failed"
+
+    def _capture_status(self) -> dict[str, Any]:
+        state = self._capture_state
+        if state is None:
+            return {"active": False, "playbackStopped": True, "state": "idle", "residual": []}
+        playback = self._playback()
+        playback_stopped = self._capture_playback_stopped(playback)
+        owned_clip = getattr(state.get("_destinationSlot"), "clip", None)
+        recording = self._read_attr(owned_clip, "is_recording") is True if owned_clip is not None else False
+        output = {
+            "active": state.get("state") in {"starting", "active"} or not playback_stopped or recording,
+            "unsafe": not playback_stopped or recording or state.get("state") == "failed",
+            "playbackStopped": playback_stopped,
+            "state": state.get("state"),
+            "captureId": state.get("captureId"),
+            "sourceSlotRef": state.get("sourceSlotRef"),
+            "destinationSlotRef": state.get("destinationSlotRef"),
+            "destinationTrackRef": state.get("destinationTrackRef"),
+            "startedAt": state.get("startedAt"),
+            "expiresAt": state.get("expiresAt"),
+            "recoveryToken": state.get("token"),
+            "residual": state.get("residual", []),
+            "watchdogStopped": bool(state.get("watchdogStopped", False)),
+        }
+        if state.get("clip") is not None:
+            output["clip"] = state["clip"]
+        return output
+
+    def _capture_stop(self, args: dict[str, Any]) -> dict[str, Any]:
+        state = self._capture_state
+        if state is None or args.get("captureId") != state.get("captureId") or not secrets.compare_digest(str(args.get("token") or ""), str(state.get("token") or "")):
+            raise ValueError("capture stop authority is invalid")
+        if state.get("state") != "cleaned":
+            self._capture_stop_state(state)
+        self._capture_refresh()
+        status = self._capture_status()
+        # Live can apply slot stop asynchronously across one display tick. The
+        # truthful active/playbackStopped fields keep cleanup fenced while the
+        # watchdog reasserts the exact stop; the host polls for verification.
+        return {"stopped": True, **status}
+
+    def _capture_emergency_stop(self, args: dict[str, Any]) -> dict[str, Any]:
+        state = self._capture_state
+        if state is None or args.get("captureId") != state.get("captureId") or args.get("sourceSlotRef") != state.get("sourceSlotRef") or args.get("destinationSlotRef") != state.get("destinationSlotRef"):
+            raise ValueError("capture emergency-stop observation is stale or inexact")
+        if state.get("state") != "cleaned":
+            self._capture_stop_state(state)
+        self._capture_refresh()
+        status = self._capture_status()
+        return {"stopped": True, **status}
+
+    def _capture_cleanup(self, args: dict[str, Any]) -> dict[str, Any]:
+        state = self._capture_state
+        if state is None or args.get("captureId") != state.get("captureId") or not secrets.compare_digest(str(args.get("token") or ""), str(state.get("token") or "")):
+            raise ValueError("capture cleanup authority is invalid")
+        if state.get("state") == "active":
+            raise ValueError("active capture must be stopped before cleanup")
+        self._capture_refresh()
+        if self._capture_status().get("playbackStopped") is not True:
+            raise ValueError("capture playback must be authoritatively stopped before cleanup")
+        if args.get("expectedClipRef") != state.get("clipRef"):
+            raise ValueError("capture cleanup clip identity is stale or inexact")
+        slot = state["_destinationSlot"]
+        clip = getattr(slot, "clip", None)
+        if clip is None or not state.get("_ownedClipIdentity") or not self._capture_same_object(clip, state.get("_ownedClip"), state["_ownedClipIdentity"]) or not callable(getattr(slot, "delete_clip", None)):
+            raise ValueError("transaction-owned capture clip identity is unavailable for cleanup")
+        file_path = (state.get("clip") or {}).get("filePath")
+        slot.delete_clip()
+        if getattr(slot, "clip", None) is not None:
+            raise ValueError("capture clip cleanup was not confirmed")
+        state["state"] = "cleaned"
+        state["token"] = None
+        state.pop("clip", None)
+        state.pop("clipRef", None)
+        return {"cleaned": True, "filePath": file_path, "captureId": state.get("captureId"), "residual": state.get("residual", [])}
+
+    def capture_tick(self) -> None:
+        try:
+            self._capture_refresh()
+        except BaseException:
+            _debug_trace("capture tick")
+            if self._capture_state is not None:
+                try: self._capture_stop_state(self._capture_state, failed=True)
+                except BaseException: self._capture_state["state"] = "failed"
+
+    def capture_shutdown(self) -> None:
+        state = self._capture_state
+        if state is None or state.get("state") == "cleaned":
+            return
+        self._capture_stop_state(state, failed=True)
+        self._capture_refresh()
+        state["preserveOwnershipTag"] = False
+        state["residual"] = list(dict.fromkeys(state.get("residual", []) + self._capture_restore_name(state)))
+        # Remote Script cannot unlink raw media. Preserve any exact clip/path
+        # rather than destroying the host's recovery identity on Live/bridge
+        # teardown; the visible residual requires host or manual cleanup.
+        state["residual"] = list(dict.fromkeys(state.get("residual", []) + ["bridge-shutdown-requires-host-or-manual-media-cleanup"]))
+        state["state"] = "failed"
+
+    def _routing_row(self, track: Any) -> dict[str, Any]:
+        def choice(*names: str) -> Any:
+            value = self._read_attr(track, *names)
+            return self._capture_route_label(value)
+        return {
+            "inputType": choice("input_routing_type", "current_input_routing"),
+            "inputSubRouting": choice("input_routing_channel", "input_sub_routing", "current_input_sub_routing"),
+            "outputType": choice("output_routing_type", "current_output_routing"),
+            "outputSubRouting": choice("output_routing_channel", "output_sub_routing", "current_output_sub_routing"),
             "availableInputTypes": len(self._items(self._read_attr(track, "available_input_routing_types") or [])),
             "availableInputChannels": len(self._items(self._read_attr(track, "available_input_routing_channels") or [])),
             "availableOutputTypes": len(self._items(self._read_attr(track, "available_output_routing_types") or [])),
@@ -2309,7 +2888,8 @@ class LiveObjectMapper:
         if label is None:
             return None
         for candidate in self._items(self._read_attr(track, available_name) or []):
-            if str(getattr(candidate, "name", "")) == label:
+            candidate_label = candidate.get("display_name") or candidate.get("name") if isinstance(candidate, dict) else getattr(candidate, "display_name", None) or getattr(candidate, "name", "")
+            if str(candidate_label) == label:
                 return candidate
         raise ValueError(f"routing choice is unavailable: {label}")
 
@@ -3113,6 +3693,7 @@ class AbletonMcpBridge:
     def update_display(self) -> None:
         """Control Surface callback: execute queued Live work on Live's thread."""
         self.queue.drain()
+        self.mapper.capture_tick()
 
     def _accept(self) -> None:
         self._server.settimeout(0.2)
@@ -3198,6 +3779,8 @@ class AbletonMcpBridge:
             except OSError: pass
         self._clients.clear()
         self._realtime.close()
+        try: self.mapper.capture_shutdown()
+        except BaseException: pass
         self.queue.close()
         self.mapper.refs.reset()
         if self._thread is not threading.current_thread():

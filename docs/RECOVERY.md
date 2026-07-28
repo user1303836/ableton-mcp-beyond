@@ -38,6 +38,33 @@ state. The TCP `live_session_emergency_stop` is the independent recovery path
 when the realtime token is missing or the data plane is suspect. See
 `REALTIME_CONTROL.md`.
 
+## Audio-capture recovery
+
+Do not infer cleanup from MCP cancellation, host exit, or transport silence.
+Open a fresh packaged host and call `live_audio_capture_status`. The tool
+redacts the recovery token and raw path but reports exact capture/source/
+destination identities, active/state, watchdog stop, file availability, and
+playback stop.
+
+If state is not `cleaned`, call `live_audio_capture_emergency_stop` with
+`confirmation=emergency-stop-and-clean` and the exact freshly observed
+identities. This independently:
+
+1. stops the exact source/destination slots and tracks, transport, and recording;
+2. reasserts stop across any quantized-fire race;
+3. restores owned route/arm/monitor/position state unless an external edit is
+   detected;
+4. validates, privately quarantines, truncates, and unlinks the exact fresh
+   regular WAV/`.asd` inodes inside the saved project/User Library boundary;
+5. deletes only the exact mapper-owned capture clip after raw cleanup.
+
+Success requires `cleanup.safe=true`, empty residuals, final state `cleaned`,
+`playbackStopped=true`, and no WAV/ASD file. If the route changed externally,
+media is outside the boundary, the Set path is unavailable, file identity
+changed, format is unsupported, or unlink fails, stop all new capture attempts
+and resolve the named residual manually. Never delete an arbitrary path and do
+not claim forensic erasure. See `AUDIO_INTELLIGENCE.md`.
+
 ## Restart
 
 1. Stop the supervisor and preserve redacted diagnostics.

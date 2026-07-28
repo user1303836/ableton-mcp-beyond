@@ -28,7 +28,10 @@ The only accepted CLI option is one `--config PATH`. Secrets, endpoints, adapter
 - `live_status` reports protocol, adapter, epoch, registry hash, operations, and connection state.
 - `live_snapshot` returns a bounded set snapshot when `session.read` is negotiated. Treat fallback values in a fake or incomplete Live shape as unavailable evidence, not proof of Live state.
 - `live_discover` validates all negotiated kinds and requires a parent for child kinds. When the adapter exposes mapper discovery, it accepts `set`, `track`, `return-track`, `main-track`, `scene`, `clip-slot`, `session-clip`, `arrangement-clip`, `note`, `locator`, `device`, `parameter`, `selection`, `routing-choice`, and `session-playback`, with bounded parent, filters, requested fields, traversal budget, paging, and epoch/revision-bound cursors. The compatibility fallback remains limited to `track`, `scene`, `clip`, and `note`.
-- `audio_analyze` accepts caller-supplied little-endian float32 PCM and returns bounded aggregate, waveform, logarithmic-band, and transient summaries. It never captures Live audio or returns raw samples.
+- `audio_analyze` accepts caller-supplied little-endian float32 PCM and returns bounded aggregate, waveform, spectral/time-frequency, transient, dynamics, clipping, ITU-R BS.1770-5/EBU loudness, LRA, and validated 44.1/48 kHz true-peak summaries. It runs in an isolated cancellable worker, never captures Live audio, and never returns raw samples.
+- `audio_compare_reference` accepts two bounded mono/stereo PCM sources and returns deterministic band-limited resampling, bounded coarse-to-fine alignment (or explicit manual/disabled alignment), standards level-match advice, and aggregate deltas. It returns no aligned PCM.
+- `audio_diagnose_live_context` links caller PCM measurements to one fresh exact Live track snapshot. Its source relationship is explicitly caller-declared and unverified; observed devices are context, never asserted causes.
+- `live_audio_capture_status` is read-only when the real bridge negotiates the purpose-specific capture provider. It redacts mapper authority and raw file paths.
 
 ## Mutation workflow
 
@@ -40,6 +43,7 @@ All Live mutations require a connected negotiated adapter, fresh discovery, a re
 - `live_arrangement_section_preview/apply` for two named locators in a bounded non-colliding range.
 - `live_tempo_preview/apply` for a bounded tempo change.
 - `live_undo` for an applied transaction whose epoch and verified postcondition still match.
+- Purpose-specific clip launch/stop, transport, note update/delete, clip duplicate/move/delete, Arrangement clip, audio-clip, mixer, Session automation, Browser/device, routing, recording, project-backup, subscriptions, and realtime workflows when their exact operations are negotiated.
 - `live_session_audition_preview/apply/stop` for one guarded, potentially audible Session scene launch. Preview is read-only; it requires the exact Set name, authoritative stopped/non-recording playback, no armed or input-monitored track, safe launch quantization, callable launch/stop operations, and explicit output-safety evidence. Apply requires the exact preview confirmation and idempotency key, launches once, and verifies fresh fired/playing state. Stop requires the returned stop confirmation, stops only mapper-owned playback, and verifies the stopped baseline.
 
 Preview records expire after 30 seconds. A lost acknowledgement, timeout,
@@ -49,6 +53,38 @@ change invalidates old references, cursors, previews, confirmations,
 idempotency inputs, and undo inputs. Scene audition is not a general-purpose
 clip launcher or recording control; uncertainty requires fresh authoritative
 playback discovery.
+
+## Consent-bound Live audio capture
+
+Live audio is not exposed by Remote Script metadata. Capture is available only
+when `live_status` reports `real-live`, `audio.capture.resampling`, and all six
+`audio.capture.*` operations.
+
+1. Save and visibly inspect a disposable Set. Ensure all tracks are unarmed,
+   recording and playback are off, and monitoring/output level is safe.
+2. Select one exact source Session clip and a distinct empty audio slot. The
+   destination's current input route must be selectable so it can be restored;
+   use the normal routing preview/apply workflow to select a safe `No Input`
+   baseline when Live's stale `Ext. In` value is not available.
+3. Call `live_audio_capture_preview` with the exact Set/slot refs, one-to-nine
+   second duration, `consent=ephemeral-analysis-and-delete`, and fresh
+   output-safety evidence.
+4. Review the disclosed audible/recording impact, watchdog/recovery tools,
+   destination baseline, and expiry. Apply once with the exact unpredictable
+   confirmation and a new idempotency key.
+5. A successful result contains standards analysis and evidence-linked
+   diagnosis, but no PCM, path, token, confirmation, or raw digest. It must
+   report stopped transport, restored route/arm/monitoring, exact Live clip
+   deletion, WAV/ASD unlink, and no retained raw audio.
+6. On cancellation, host failure, timeout, or acknowledgement loss, call
+   `live_audio_capture_status` from a fresh process. If the exact capture is not
+   cleaned, call `live_audio_capture_emergency_stop` with
+   `confirmation=emergency-stop-and-clean` and the exact freshly observed
+   capture/source/destination identities. Never start another capture while
+   residual state remains.
+
+See `AUDIO_INTELLIGENCE.md` for DSP standards, limits, privacy, reference
+comparison, diagnosis semantics, and recovery details.
 
 ## Configuration and installation
 

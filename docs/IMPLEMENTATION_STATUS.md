@@ -1,63 +1,90 @@
 # Implementation status
 
-## Implemented
+This file describes the current branch. The historical checkpoint and phased
+finish criteria remain in `REPOSITORY_STATE_AND_FINISH_PLAN.html`; they are not
+a current capability report.
 
-- JSON-RPC stdio host with protocol `2025-11-25`, strict validation, bounded
-  framing, backpressure-aware output, redacted diagnostics, and safe default
-  adapter selection.
-- Explicit version-1 host configuration and version-2 loopback bridge
-  configuration with owner-controlled secret files, migration, setup, and
-  active authenticated diagnostics.
-- Asynchronous authenticated `RemoteScriptLiveAdapter` with deadlines,
-  bounded pending requests, response authentication/correlation, reconnect
-  epochs, and deterministic close behavior.
-- Loadable `AbletonMcpBridge/__init__.py` with one-argument `create_instance`,
-  fail-closed configuration, Control Surface scheduling, socket lifecycle,
-  main-thread queue, epoch-scoped references, registry hash negotiation,
-  parent-scoped hierarchical discovery when the observed shape exposes it,
-  shape-dependent operation advertisement, Session discovery/MIDI mapping,
-  Arrangement locator support when the Live shape exists, and published
-  numeric device-parameter mapping.
-- Bounded Session discovery, Session-structure track/scene
-  preview/apply/undo, MIDI preview/apply/undo, Arrangement locator
-  preview/apply/undo, tempo preview/apply/undo, and device-parameter
-  preview/apply/guarded-undo contracts in the host.
-- Privacy-preserving PCM aggregate, waveform envelope, logarithmic
-  time-frequency, and transient summaries.
-- Explicit-target Remote Script packaging/installation with manifest hashes,
-  symlink refusal, overwrite protection, and recoverable replacement.
-- Guarded asynchronous Session scene audition with read-only preflight,
-  exact confirmation, idempotent apply, fresh fired/playing verification, and
-  mapper-owned stop/restore checks.
+## Implemented and verified
+
+- Strict newline-delimited JSON-RPC MCP host (`2025-11-25`) with bounded
+  framing/concurrency, ordered backpressure-aware output, cancellation,
+  duplicate-ID rejection, redacted diagnostics, and fail-closed default
+  adapter.
+- Explicit host/bridge configuration, owner-only separate secrets, loopback
+  enforcement, migration, setup, diagnostics, and atomic Remote Script
+  installation with recoverable backup.
+- Authenticated `ableton-loopback/v1` bridge with connection challenge and
+  bridge epoch binding, canonical HMAC frames, replay/deadline fencing, bounded
+  Live-main-thread dispatch, epoch-scoped refs/cursors, signed subscriptions,
+  and canonical registry negotiation.
+- Real-Live discovery and guarded lifecycle evidence for Live 12.4.5b8:
+  transport; Session clip launch/stop/emergency stop; MIDI notes and clips;
+  Arrangement clips and locators; mixer; Session automation; nested devices,
+  racks/chains/pads/macros; Browser search/load; routing; Session and
+  Arrangement recording; project path/manifest/backup; subscriptions; and
+  realtime UDP JSON/OSC/XY/Max-compatible ingress.
+- Purpose-specific preview/apply/verify/undo or cleanup workflows with exact
+  targets, epochs/revisions, expiry, idempotency, fresh postconditions, bounded
+  compensation, and explicit uncertain state. Unsupported Live shapes remain
+  negotiated limitations.
+- Realtime authority limited by loopback endpoint, unpredictable token, TTL,
+  source ports, channels, exact parameter refs, packet/rate/queue bounds,
+  sequence/replay checks, generation fencing, verified writes, XY compensation,
+  telemetry, disarm, and independent TCP emergency stop.
+- `pcm-analysis/v2`: privacy-preserving waveform, spectral, time-frequency,
+  transient, channel, phase, dynamics, clipping, and deterministic aggregate
+  analysis.
+- ITU-R BS.1770-5 / EBU R128, Tech 3341, and Tech 3342 programme loudness,
+  momentary/short-term measures, loudness range, semantic channel weights, and
+  validated 44.1/48 kHz true peak. Generated independent FFmpeg-oracle
+  evidence is tracked; no third-party audio is stored.
+- Bounded 48 kHz reference comparison with band-limited resampling,
+  coarse-to-fine alignment, ambiguity refusal, standards level matching, and
+  aggregate deltas.
+- Disposable secret-stripped analysis workers with two active/four queued job
+  limits, wall/output/memory/request bounds, kill-on-cancel, and no raw PCM in
+  results.
+- Real-Live-only consent-bound Session Resampling capture with an exact source
+  and empty destination, ten-second mapper watchdog, immediate launch
+  quantization restoration, independently recoverable stop, internal WAV
+  validation, standards analysis, signal-chain-linked non-causal diagnosis,
+  transaction-owned clip deletion, WAV/ASD unlink, and zero-residual readback.
+  See `AUDIO_INTELLIGENCE.md` and the Phase 8 evidence files.
+- Packed-artifact production journey, Python mapper tests, property tests,
+  isolated resource benchmarks, compatibility/package verification, and
+  Windows permission hardening.
+
+## Evidence boundary
+
+Tracked evidence under `docs/evidence/` distinguishes deterministic fake-Live,
+packaged bridge, and real-Live observations. Phase 8 real-Live evidence was
+produced by an installed `npm pack` artifact against macOS Live 12.4.5b8 and
+includes cancellation and host-restart/watchdog recovery. It is not Windows
+Live proof and does not prove signing/notarization or release publication.
+
+The local protected `extensions-sdk-1.0.0-beta.0` remains excluded: it must not
+be opened, copied, staged, packaged, or cited as implementation evidence.
+
+## Truthful limitations
+
+- Live save/open/new/export/collect/bounce and Arrangement automation remain
+  unavailable where the observed API has no authoritative operation.
+- No Max for Live `.amxd`, plug-in UI control, streaming PCM tap, arbitrary
+  path/URL analysis, immersive/object loudness layout, automatic mastering
+  verdict, or forensic secure erase is claimed.
+- True peak is currently validated at 44.1 and 48 kHz; other rates report it
+  unavailable.
+- Live capture requires a saved Set, WAV recording, a selectable restorable
+  destination route, explicit consent/output safety, and real-Live provenance.
+- Current real-Live proof is on macOS. Windows hosted CI is externally blocked
+  when GitHub account billing prevents jobs from starting; that is not treated
+  as a passing check.
+- Accessible end-user journeys, complete installer/update/uninstall lifecycle,
+  native signing/notarization, Windows real-Live evidence, publication, and the
+  final capability/documentation/release audit remain Phase 9-11 work.
 
 ## Operating procedure
 
-Use `docs/USER_GUIDE.md` for clients, `docs/OPERATIONS.md` for supervision,
-`docs/RECOVERY.md` for uncertainty and failure handling, and
-`docs/CHECKPOINT.md` for validation.
-
-## Known limitations
-
-The production bridge has not been validated against a real Ableton Live
-runtime or disposable Set in this checkout. The asynchronous host delegates
-expanded mapper discovery when the adapter provides `discoverAsync`, but its
-compatibility fallback accepts only track, scene, clip, and note pages. The
-Python bridge mapper has bounded parent/filter/field/traversal-budget
-discovery for the observed hierarchy, including empty clip slots,
-Session/Arrangement clip distinction, selection, routing choices, and playback
-metadata; this is not the full Live object graph.
-Session structure is limited to bounded named track/scene creation and guarded
-removal. Arrangement support is limited to named locator operations. Device
-support is limited to discovery and guarded numeric parameter adjustment; it
-does not insert, delete, move, load presets, traverse racks/chains, or control
-plug-in UI. Scene audition is the only implemented playback workflow and
-requires the guarded preflight/confirmation/verification/stop sequence; broad
-clip launch, recording, audio capture, warp/takes, automation, routing,
-projects, realtime delivery, Max/OSC, performance mode, accessibility
-certification, signing, notarization, and release publication remain
-unavailable.
-
-The RMS loudness field is explicitly a proxy, not LUFS or true peak. Simulator,
-fake-Live, package, benchmark, and CI results are deterministic contract
-evidence only. The protected `extensions-sdk-1.0.0-beta.0` is ignored local
-evidence and must not be opened, copied, staged, packaged, or exposed.
+Use `USER_GUIDE.md`, `AUDIO_INTELLIGENCE.md`, and `REALTIME_CONTROL.md` for
+client contracts; `OPERATIONS.md` for supervision; `RECOVERY.md` for uncertain
+state; and `TESTING.md` for release gates.

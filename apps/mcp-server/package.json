@@ -23,6 +23,8 @@
     "test": "npm run build && node scripts/run-tests.mjs",
     "property-test": "npm run build && node --test dist/test/property.test.js",
     "benchmark": "npm run build && node dist/src/benchmark.js",
+    "audio:oracle": "npm run build && node scripts/verify-audio-oracle.mjs",
+    "audio:live-verify": "node scripts/verify-phase8-live.mjs",
     "compatibility": "node scripts/check-compatibility.mjs",
     "package": "npm pack --json",
     "package:verify": "npm run build && node scripts/verify-package.mjs",

@@ -1,6 +1,10 @@
 import type { Readable, Writable } from "node:stream";
 import { randomBytes } from "node:crypto";
-import { analyzePcm, decodeFloat32Le } from "./analysis.js";
+import { AnalysisRunner, type EncodedAnalysisSource } from "./analysis-runner.js";
+import type { PcmAnalysis } from "./analysis.js";
+import type { ConventionalChannelLabel } from "./audio-standards.js";
+import { captureMediaIsAbsent, decodeOwnedWaveFile, unlinkLateCaptureCompanions, unlinkOwnedCaptureFile, type DecodedCaptureFile } from "./audio-file.js";
+import { diagnoseAudioWithLiveContext, type AudioDiagnosis } from "./audio-diagnosis.js";
 import { LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_UNAVAILABLE_CAPABILITIES, UnavailableLiveAdapter, type LiveAdapter, type LiveCapability, type LiveEvent, type LiveRef, type LiveSnapshot, type LiveStatus } from "./live.js";
 import { serveStdio, type RecordContext } from "./stdio.js";
 import { projectBackup, projectInfo, projectLimitation } from "./project.js";
@@ -72,6 +76,32 @@ interface SessionAuditionTransaction {
   state: "previewed" | "applying" | "applied" | "stopping" | "stopped" | "uncertain";
   launched?: unknown;
   inflight?: Promise<JsonObject>;
+}
+interface AudioCaptureTransaction {
+  id: string;
+  captureId: string;
+  epoch: number;
+  setName: string;
+  sourceSlotRef: LiveRef;
+  destinationSlotRef: LiveRef;
+  destinationTrackRef: LiveRef;
+  fence: string;
+  prior: JsonObject;
+  durationMs: number;
+  outputSafety: JsonObject;
+  confirmation: string;
+  expiresAt: number;
+  state: "previewed" | "applying" | "capturing" | "analyzing" | "completed" | "cancelled" | "uncertain";
+  applyKey?: string;
+  mapperToken?: string;
+  startedAt?: number;
+  result?: JsonObject;
+  startDispatched?: boolean;
+  rawPrimaryUnlinked?: boolean;
+  projectFilePath?: string;
+  abortController?: AbortController;
+  waiters?: number;
+  inflight?: Promise<JsonObject | null>;
 }
 interface TransportTransaction {
   id: string;
@@ -171,7 +201,8 @@ const safetyResource = [
   "",
   "This host does not connect to Ableton Live unless an explicit adapter is installed.",
   "With the default adapter, Live is unavailable and no Live operations occur. If a configured adapter reports the exact protocol and negotiated operation capability, tempo apply and guarded undo are explicit project mutations and are never implied by read-only tools.",
-  "The implemented audio workflow analyzes caller-supplied PCM locally and returns aggregates only.",
+  "Local analysis accepts caller-supplied PCM and returns aggregate standards measurements only. It never attributes that PCM to Live without explicit provenance.",
+  "When and only when a real Remote Script negotiates audio.capture.resampling, a separate confirmed workflow can play one exact source clip, record one exact empty destination slot, analyze the bounded WAV in an isolated worker, then delete the owned clip and unlink the raw file. A mapper watchdog and independent emergency tool stop capture after cancellation or host failure.",
   "No read-only tool starts playback, records, writes files, or mutates a project. Mutation tools disclose their impact and require an expiring confirmation.",
 ].join("\n");
 
@@ -193,19 +224,65 @@ const implementedTools = [
   },
   {
     name: "audio_analyze",
-    description: "Analyze caller-supplied normalized float32 PCM locally; returns aggregates only and never starts playback or mutates Live.",
+    description: "Analyze caller-supplied normalized float32 PCM in a cancellable isolated worker; returns bounded aggregates including BS.1770-5/EBU R128 loudness and never starts playback or mutates Live.",
     inputSchema: {
       type: "object",
       properties: {
         pcmBase64: { type: "string", description: "Little-endian float32 PCM, normalized to [-1, 1]." },
         sampleRate: { type: "integer", minimum: 8000, maximum: 384000 },
         channels: { type: "integer", minimum: 1, maximum: 32 },
+        channelLayout: { type: "array", items: { type: "string", enum: ["M", "L", "R", "C", "Ls", "Rs", "LFE"] }, minItems: 1, maxItems: 7, uniqueItems: true },
         frameSize: { type: "integer", minimum: 256, maximum: 4096 },
       },
       required: ["pcmBase64", "sampleRate"],
       additionalProperties: false,
     },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  {
+    name: "audio_compare_reference",
+    description: "Compare two caller-supplied PCM sources in an isolated worker with bounded band-limited resampling, optional alignment, standards loudness level matching, and aggregate deltas; never returns raw audio.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "object", properties: { pcmBase64: { type: "string" }, sampleRate: { type: "integer", minimum: 32000, maximum: 96000 }, channels: { type: "integer", minimum: 1, maximum: 2 }, channelLayout: { type: "array", items: { type: "string", enum: ["M", "L", "R", "C", "Ls", "Rs", "LFE"] }, minItems: 1, maxItems: 2, uniqueItems: true } }, required: ["pcmBase64", "sampleRate"], additionalProperties: false },
+        reference: { type: "object", properties: { pcmBase64: { type: "string" }, sampleRate: { type: "integer", minimum: 32000, maximum: 96000 }, channels: { type: "integer", minimum: 1, maximum: 2 }, channelLayout: { type: "array", items: { type: "string", enum: ["M", "L", "R", "C", "Ls", "Rs", "LFE"] }, minItems: 1, maxItems: 2, uniqueItems: true } }, required: ["pcmBase64", "sampleRate"], additionalProperties: false },
+        alignment: { type: "object", properties: { mode: { type: "string", enum: ["auto", "manual", "disabled"] }, maxLagSeconds: { type: "number", minimum: 0, maximum: 10 }, manualOffsetSeconds: { type: "number", minimum: -10, maximum: 10 } }, additionalProperties: false },
+      },
+      required: ["project", "reference"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  {
+    name: "audio_diagnose_live_context",
+    description: "Analyze caller-supplied PCM in isolation and link measurements to one fresh authoritative Live track snapshot without claiming that Live supplied the audio or that observed devices caused a result.",
+    inputSchema: { type: "object", properties: { pcmBase64: { type: "string" }, sampleRate: { type: "integer", minimum: 8000, maximum: 384000 }, channels: { type: "integer", minimum: 1, maximum: 2 }, channelLayout: { type: "array", items: { type: "string", enum: ["M", "L", "R", "C", "Ls", "Rs", "LFE"] }, minItems: 1, maxItems: 2, uniqueItems: true }, trackRef: { type: "string", minLength: 1, maxLength: 256 }, provenance: { type: "object", properties: { observedAt: { type: "string", minLength: 1, maxLength: 128 }, description: { type: "string", minLength: 1, maxLength: 512 } }, required: ["observedAt", "description"], additionalProperties: false } }, required: ["pcmBase64", "sampleRate", "trackRef", "provenance"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  {
+    name: "live_audio_capture_preview",
+    description: "Read-only preflight for one consent-bound, bounded Session-slot Resampling capture in an exact disposable Set. Requires real-Live provenance, an empty audio destination slot, and output-safety evidence.",
+    inputSchema: { type: "object", properties: { setName: { type: "string", minLength: 1, maxLength: 256 }, sourceSlotRef: { type: "string", minLength: 1, maxLength: 256 }, destinationSlotRef: { type: "string", minLength: 1, maxLength: 256 }, durationSeconds: { type: "number", minimum: 1, maximum: 9 }, consent: { type: "string", const: "ephemeral-analysis-and-delete" }, outputSafety: { type: "object", properties: { safe: { type: "boolean", const: true }, provenance: { type: "string", minLength: 1, maxLength: 512 }, observedAt: { type: "string", minLength: 1, maxLength: 128 }, scope: { type: "string", minLength: 1, maxLength: 256 } }, required: ["safe", "provenance"], additionalProperties: false } }, required: ["setName", "sourceSlotRef", "destinationSlotRef", "durationSeconds", "consent", "outputSafety"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_audio_capture_apply",
+    description: "After exact confirmation, perform one bounded potentially audible Resampling capture, isolated standards analysis, evidence-linked diagnosis, and transaction-owned clip/raw-file cleanup. No raw audio or path is returned.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", minLength: 32, maxLength: 128 }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+  },
+  {
+    name: "live_audio_capture_status",
+    description: "Read the authenticated mapper-owned capture lifecycle without exposing its token or raw media path.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  {
+    name: "live_audio_capture_emergency_stop",
+    description: "Independently stop and clean the exact observed mapper-owned capture after cancellation or host restart. Requires fresh exact capture and slot identities.",
+    inputSchema: { type: "object", properties: { confirmation: { type: "string", const: "emergency-stop-and-clean" }, captureId: { type: "string", minLength: 16, maxLength: 128 }, sourceSlotRef: { type: "string", minLength: 1, maxLength: 256 }, destinationSlotRef: { type: "string", minLength: 1, maxLength: 256 } }, required: ["confirmation", "captureId", "sourceSlotRef", "destinationSlotRef"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
   },
   {
     name: "live_status",
@@ -602,10 +679,9 @@ const hostUnavailableCapabilities = [
   "network",
   "realtime",
   "delivery",
-  "live.audio.analysis",
 ] as const;
 
-const unavailableCapabilities = [...hostUnavailableCapabilities, ...LIVE_UNAVAILABLE_CAPABILITIES] as const;
+const unavailableCapabilities = [...hostUnavailableCapabilities, "live.audio.analysis", "live.audio.capture.resampling", ...LIVE_UNAVAILABLE_CAPABILITIES] as const;
 const liveResource = { uri: "ableton://live-workflow", name: "Safe tempo workflow", description: "Discover, preview, confirm, apply, verify, and undo a tempo change.", mimeType: "text/markdown" } as const;
 const liveWorkflowResource = [
   "# Safe tempo workflow",
@@ -652,6 +728,8 @@ export class McpHost {
   private readonly seenIds = new Set<string>();
   private readonly idOrder: string[] = [];
   private readonly toolCallTimes: number[] = [];
+  private readonly analysisRunner = new AnalysisRunner();
+  private readonly audioCaptureTransactions = new Map<string, AudioCaptureTransaction>();
   private readonly transactions = new Map<string, TempoTransaction>();
   private readonly arrangementTransactions = new Map<string, ArrangementTransaction>();
   private readonly sessionStructureTransactions = new Map<string, SessionStructureTransaction>();
@@ -671,7 +749,7 @@ export class McpHost {
     if (signal?.aborted) return null;
     if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handle(input);
     const name = input.params.name;
-    if (![ "live_session_structure_preview", "live_session_structure_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats"].includes(name)) return this.handle(input);
+    if (![ "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_structure_preview", "live_session_structure_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats"].includes(name)) return this.handle(input);
     // Reuse the synchronous validator and request bookkeeping, then execute the
     // adapter operation asynchronously. Invalid requests never reach Live.
     const id = this.requestId(input.id);
@@ -684,6 +762,13 @@ export class McpHost {
     if (!this.initializedNotification && name !== "live_status") return error(id, -32002, "Server has not received initialized notification");
     try {
       if (signal?.aborted) return null;
+      if (name === "audio_analyze") return await this.audioAnalyzeAsync(id, input.params.arguments, signal);
+      if (name === "audio_compare_reference") return await this.audioCompareReferenceAsync(id, input.params.arguments, signal);
+      if (name === "audio_diagnose_live_context") return await this.audioDiagnoseLiveContextAsync(id, input.params.arguments, signal);
+      if (name === "live_audio_capture_preview") return await this.liveAudioCapturePreviewAsync(id, input.params.arguments);
+      if (name === "live_audio_capture_apply") return await this.liveAudioCaptureApplyAsync(id, input.params.arguments, signal);
+      if (name === "live_audio_capture_status") return await this.liveAudioCaptureStatusAsync(id, input.params.arguments);
+      if (name === "live_audio_capture_emergency_stop") return await this.liveAudioCaptureEmergencyStopAsync(id, input.params.arguments);
       if (name === "live_session_structure_preview") return await this.liveSessionStructurePreviewAsync(id, input.params.arguments);
       if (name === "live_session_structure_apply") return await this.liveSessionStructureApplyAsync(id, input.params.arguments);
       if (name === "live_snapshot") return await this.liveSnapshotAsync(id, input.params.arguments);
@@ -746,6 +831,457 @@ export class McpHost {
       const result = await this.liveUndoAsync(id, input.params.arguments);
       return signal?.aborted ? null : result;
     } catch (cause) { return this.adapterToolError(id, cause, "The asynchronous Live operation failed; inspect authoritative state before retrying."); }
+  }
+
+  private base64FloatCount(value: unknown): number | null {
+    if (typeof value !== "string" || value.length === 0 || value.length % 4 !== 0) return null;
+    let contentLength = value.length;
+    let paddingLength = 0;
+    const paddingStart = value.indexOf("=");
+    if (paddingStart >= 0) {
+      const padding = value.slice(paddingStart);
+      if ((padding !== "=" && padding !== "==") || paddingStart < 2) return null;
+      contentLength = paddingStart;
+      paddingLength = padding.length;
+    }
+    for (let index = 0; index < contentLength; index += 1) {
+      const code = value.charCodeAt(index);
+      if (!((code >= 65 && code <= 90) || (code >= 97 && code <= 122) || (code >= 48 && code <= 57) || code === 43 || code === 47)) return null;
+    }
+    const bytes = value.length / 4 * 3 - paddingLength;
+    return Number.isSafeInteger(bytes) && bytes > 0 && bytes % 4 === 0 ? bytes / 4 : null;
+  }
+
+  private encodedAnalysisSource(value: unknown, maxChannels: number, allowFrameSize: boolean): { source: EncodedAnalysisSource; sampleCount: number } | undefined {
+    if (!isObject(value) || !hasOnly(value, allowFrameSize ? ["pcmBase64", "sampleRate", "channels", "channelLayout", "frameSize"] : ["pcmBase64", "sampleRate", "channels", "channelLayout"])) return undefined;
+    const sampleCount = this.base64FloatCount(value.pcmBase64);
+    const channels = value.channels === undefined ? 1 : value.channels;
+    if (sampleCount === null || !isIntegerInRange(value.sampleRate, 8_000, 384_000) || !isIntegerInRange(channels, 1, maxChannels) || sampleCount % channels !== 0) return undefined;
+    if (allowFrameSize && value.frameSize !== undefined && !isIntegerInRange(value.frameSize, 256, 4_096)) return undefined;
+    const allowedLabels = new Set(["M", "L", "R", "C", "Ls", "Rs", "LFE"]);
+    let channelLayout: ConventionalChannelLabel[] | undefined;
+    if (value.channelLayout !== undefined) {
+      if (!Array.isArray(value.channelLayout) || value.channelLayout.length !== channels || new Set(value.channelLayout).size !== value.channelLayout.length || value.channelLayout.some((item) => typeof item !== "string" || !allowedLabels.has(item))) return undefined;
+      channelLayout = value.channelLayout as ConventionalChannelLabel[];
+    }
+    return {
+      sampleCount,
+      source: {
+        pcmBase64: value.pcmBase64 as string,
+        sampleRate: value.sampleRate as number,
+        ...(value.channels === undefined ? {} : { channels }),
+        ...(channelLayout ? { channelLayout } : {}),
+        ...(allowFrameSize && value.frameSize !== undefined ? { frameSize: value.frameSize as number } : {}),
+      },
+    };
+  }
+
+  private consumeAnalysisRateLimit(): boolean {
+    const now = Date.now();
+    while (this.toolCallTimes.length > 0 && now - (this.toolCallTimes[0] ?? now) >= 60_000) this.toolCallTimes.shift();
+    if (this.toolCallTimes.length >= MAX_TOOL_CALLS_PER_MINUTE) return false;
+    this.toolCallTimes.push(now);
+    return true;
+  }
+
+  private async audioAnalyzeAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    const parsed = this.encodedAnalysisSource(params, 32, true);
+    if (!parsed || parsed.sampleCount > 10_000_000) return error(id, -32602, "audio_analyze requires bounded normalized float32 pcmBase64, sampleRate, and matching channel metadata");
+    if (!this.consumeAnalysisRateLimit()) return error(id, -32029, "Tool invocation rate limit exceeded");
+    try {
+      const result = await this.analysisRunner.run({ mode: "analyze", source: parsed.source }, signal);
+      if (signal?.aborted) return null;
+      return response(id, { content: [{ type: "text", text: JSON.stringify(result) }], isError: false });
+    } catch (cause) {
+      if (signal?.aborted) return null;
+      const message = cause instanceof Error ? cause.message : "analysis job failed";
+      return response(id, { content: [{ type: "text", text: JSON.stringify({ reason: message, remediation: "Provide bounded little-endian float32 PCM normalized to [-1, 1], or retry after the isolated worker queue clears." }) }], isError: true });
+    }
+  }
+
+  private async audioCompareReferenceAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!isObject(params) || !hasOnly(params, ["project", "reference", "alignment"])) return error(id, -32602, "audio_compare_reference requires project and reference PCM sources");
+    const project = this.encodedAnalysisSource(params.project, 2, false);
+    const reference = this.encodedAnalysisSource(params.reference, 2, false);
+    if (!project || !reference || project.source.sampleRate < 32_000 || project.source.sampleRate > 96_000 || reference.source.sampleRate < 32_000 || reference.source.sampleRate > 96_000 || project.sampleCount + reference.sampleCount > 4_000_000) return error(id, -32602, "audio comparison sources must use the validated 32000-96000 Hz range and fit the 4000000-sample pair limit");
+    let alignment: { mode?: "auto" | "manual" | "disabled"; maxLagSeconds?: number; manualOffsetSeconds?: number } | undefined;
+    if (params.alignment !== undefined) {
+      if (!isObject(params.alignment) || !hasOnly(params.alignment, ["mode", "maxLagSeconds", "manualOffsetSeconds"]) || (params.alignment.mode !== undefined && !["auto", "manual", "disabled"].includes(String(params.alignment.mode))) || (params.alignment.maxLagSeconds !== undefined && (typeof params.alignment.maxLagSeconds !== "number" || !Number.isFinite(params.alignment.maxLagSeconds) || params.alignment.maxLagSeconds < 0 || params.alignment.maxLagSeconds > 10)) || (params.alignment.manualOffsetSeconds !== undefined && (typeof params.alignment.manualOffsetSeconds !== "number" || !Number.isFinite(params.alignment.manualOffsetSeconds) || Math.abs(params.alignment.manualOffsetSeconds) > 10))) return error(id, -32602, "audio comparison alignment is invalid");
+      alignment = params.alignment as typeof alignment;
+    }
+    if (!this.consumeAnalysisRateLimit()) return error(id, -32029, "Tool invocation rate limit exceeded");
+    try {
+      const result = await this.analysisRunner.run({ mode: "compare", project: project.source, reference: reference.source, ...(alignment ? { alignment } : {}) }, signal);
+      if (signal?.aborted) return null;
+      return response(id, { content: [{ type: "text", text: JSON.stringify(result) }], isError: false });
+    } catch (cause) {
+      if (signal?.aborted) return null;
+      const message = cause instanceof Error ? cause.message : "reference comparison failed";
+      return response(id, { content: [{ type: "text", text: JSON.stringify({ reason: message, remediation: "Use bounded PCM sources, explicit manual alignment for ambiguous material, or retry after the isolated worker queue clears." }) }], isError: true });
+    }
+  }
+
+  private encodeFloat32Le(samples: Float32Array): string {
+    const bytes = Buffer.allocUnsafe(samples.length * 4);
+    for (let index = 0; index < samples.length; index += 1) bytes.writeFloatLE(samples[index] ?? 0, index * 4);
+    return bytes.toString("base64");
+  }
+
+  private waitFor(milliseconds: number, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return Promise.reject(new Error("operation cancelled"));
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, milliseconds);
+      const abort = (): void => { clearTimeout(timer); reject(new Error("operation cancelled")); };
+      signal?.addEventListener("abort", abort, { once: true });
+    });
+  }
+
+  private captureStatusRedacted(status: JsonObject): JsonObject {
+    const clip = isObject(status.clip) ? status.clip : undefined;
+    return {
+      ...status,
+      recoveryToken: undefined,
+      ...(clip ? { clip: { ref: clip.ref, name: clip.name, length: clip.length, isAudio: clip.isAudio, fileAvailable: typeof clip.filePath === "string" && clip.filePath.length > 0 } } : {}),
+    };
+  }
+
+  private requireCaptureCapability(status: LiveStatus, recoveryOnly = false): void {
+    const required = recoveryOnly
+      ? ["audio.capture.status", "audio.capture.emergency-stop", "audio.capture.cleanup"]
+      : ["audio.capture.inspect", "audio.capture.start", "audio.capture.stop", "audio.capture.status", "audio.capture.emergency-stop", "audio.capture.cleanup"];
+    if (!status.connected || status.epoch === null || status.provenance !== "real-live" || (!recoveryOnly && !(status.capabilities ?? []).includes("audio.capture.resampling")) || required.some((operation) => !(status.operations ?? []).includes(operation))) throw new Error("verified real-Live resampling capture capability is unavailable");
+  }
+
+  private async audioDiagnoseLiveContextAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!isObject(params) || !hasOnly(params, ["pcmBase64", "sampleRate", "channels", "channelLayout", "trackRef", "provenance"]) || !isNonEmptyString(params.trackRef, 256) || !isObject(params.provenance) || !hasOnly(params.provenance, ["observedAt", "description"]) || !isNonEmptyString(params.provenance.observedAt, 128) || !isNonEmptyString(params.provenance.description, 512)) return error(id, -32602, "bounded PCM, trackRef, and explicit source provenance are required");
+    const parsed = this.encodedAnalysisSource({ pcmBase64: params.pcmBase64, sampleRate: params.sampleRate, ...(params.channels === undefined ? {} : { channels: params.channels }), ...(params.channelLayout === undefined ? {} : { channelLayout: params.channelLayout }) }, 2, false);
+    if (!parsed || parsed.sampleCount > 4_000_000) return error(id, -32602, "diagnosis PCM metadata is invalid or exceeds the bounded source limit");
+    if (!this.consumeAnalysisRateLimit()) return error(id, -32029, "Tool invocation rate limit exceeded");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || status.epoch === null || !(status.capabilities ?? []).includes("session.read")) throw new Error("fresh Live context is unavailable");
+      const snapshot = await this.asyncAdapter().snapshotAsync({ signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      const analysis = await this.analysisRunner.run({ mode: "analyze", source: parsed.source }, signal) as PcmAnalysis;
+      if (signal?.aborted) return null;
+      const diagnosis = diagnoseAudioWithLiveContext(analysis, snapshot, status.epoch, params.trackRef as LiveRef, { kind: "caller-supplied-pcm", observedAt: params.provenance.observedAt, description: params.provenance.description });
+      return this.successText(id, { analysis, diagnosis });
+    } catch (cause) {
+      if (signal?.aborted) return null;
+      return this.adapterToolError(id, cause, "Audio was not attributed to Live; refresh the exact track context and source provenance before retrying.");
+    }
+  }
+
+  private async liveAudioCapturePreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, ["setName", "sourceSlotRef", "destinationSlotRef", "durationSeconds", "consent", "outputSafety"]) || !isNonEmptyString(params.setName, 256) || !isNonEmptyString(params.sourceSlotRef, 256) || !isNonEmptyString(params.destinationSlotRef, 256) || typeof params.durationSeconds !== "number" || !Number.isFinite(params.durationSeconds) || params.durationSeconds < 1 || params.durationSeconds > 9 || params.consent !== "ephemeral-analysis-and-delete") return error(id, -32602, "exact Set/slots, 1-9 second duration, consent, and output safety are required");
+    try {
+      this.validateOutputSafety(params.outputSafety);
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      this.requireCaptureCapability(status);
+      const adapter = this.asyncAdapter();
+      const plan = await adapter.invokeAsync({ operation: "audio.capture.inspect", args: { setName: params.setName, sourceSlotRef: params.sourceSlotRef, destinationSlotRef: params.destinationSlotRef } }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as JsonObject;
+      if (plan.supported !== true || !isNonEmptyString(plan.fence, 64) || !isNonEmptyString(plan.destinationTrackRef, 256) || !isObject(plan.prior)) throw new Error("capture mapper did not return a complete authoritative plan");
+      const transaction: AudioCaptureTransaction = {
+        id: `audio_capture_${randomBytes(18).toString("base64url")}`,
+        captureId: `capture_${randomBytes(18).toString("base64url")}`,
+        epoch: status.epoch!,
+        setName: params.setName,
+        sourceSlotRef: params.sourceSlotRef as LiveRef,
+        destinationSlotRef: params.destinationSlotRef as LiveRef,
+        destinationTrackRef: plan.destinationTrackRef as LiveRef,
+        fence: plan.fence,
+        prior: structuredClone(plan.prior),
+        durationMs: Math.round(params.durationSeconds * 1_000),
+        outputSafety: structuredClone(params.outputSafety as JsonObject),
+        confirmation: randomBytes(32).toString("base64url"),
+        expiresAt: Date.now() + 60_000,
+        state: "previewed",
+      };
+      this.retainBoundedTransaction(this.audioCaptureTransactions, transaction, "audio capture");
+      return this.successText(id, { transactionId: transaction.id, captureId: transaction.captureId, epoch: transaction.epoch, sourceSlotRef: transaction.sourceSlotRef, destinationSlotRef: transaction.destinationSlotRef, destinationTrackRef: transaction.destinationTrackRef, captureMode: plan.captureMode, prior: transaction.prior, durationSeconds: transaction.durationMs / 1_000, consent: params.consent, rawRetention: "ephemeral-until-analysis-then-unlink", outputSafety: transaction.outputSafety, audibleImpact: "plays-one-exact-session-clip-while-recording-one-exact-resampling-slot", confirmation: transaction.confirmation, expiresAt: transaction.expiresAt, recovery: { watchdog: true, statusTool: "live_audio_capture_status", emergencyTool: "live_audio_capture_emergency_stop" } });
+    } catch (cause) { return this.adapterToolError(id, cause, "Capture preview made no changes; choose a real-Live source clip and exact empty audio destination slot in the disposable Set."); }
+  }
+
+  private async captureMapperStatus(adapter: AsyncLiveAdapter): Promise<JsonObject> {
+    return await adapter.invokeAsync({ operation: "audio.capture.status", args: {} }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as JsonObject;
+  }
+
+  private async waitForCapturedMedia(adapter: AsyncLiveAdapter, signal?: AbortSignal, deadline = Date.now() + 5_000): Promise<JsonObject> {
+    let status = await this.captureMapperStatus(adapter);
+    while (Date.now() < deadline) {
+      if (status.state === "failed") throw new Error("capture mapper reported failed cleanup or stop state");
+      if (status.playbackStopped === true && isObject(status.clip) && isNonEmptyString(status.clip.ref, 256) && isNonEmptyString(status.clip.filePath, 4_096)) return status;
+      await this.waitFor(100, signal);
+      status = await this.captureMapperStatus(adapter);
+    }
+    throw new Error("capture media identity did not become authoritative before the bounded deadline");
+  }
+
+  private captureSourceTrack(snapshot: LiveSnapshot, slotRef: LiveRef): LiveRef {
+    const track = snapshot.tracks.find((candidate) => (candidate.clipSlots ?? []).some((slot) => slot.ref === slotRef));
+    if (!track) throw new Error("capture source slot is absent from the fresh diagnosis snapshot");
+    return track.ref;
+  }
+
+  private async recoverAudioCapture(transaction: AudioCaptureTransaction, acquired?: DecodedCaptureFile): Promise<{ safe: boolean; residual: string[] }> {
+    const residual: string[] = [];
+    let media = acquired;
+    let rawConfirmedAbsent = false;
+    const includeMapperResidual = (status: JsonObject, prefix: string): void => {
+      if (Array.isArray(status.residual)) for (const item of status.residual) if (typeof item === "string" && item) residual.push(`${prefix}:${item}`);
+    };
+    try {
+      const adapter = this.asyncAdapter();
+      let status = await this.captureMapperStatus(adapter);
+      if (status.state === "idle") {
+        if (transaction.startDispatched || transaction.mapperToken || media) residual.push("capture-lifecycle-is-not-observable");
+        return { safe: residual.length === 0, residual: [...new Set(residual)] };
+      }
+      // Never inspect, acquire, clean, or unlink a different lifecycle merely
+      // because it happens to be the mapper's current captured state.
+      if (status.captureId !== transaction.captureId || status.sourceSlotRef !== transaction.sourceSlotRef || status.destinationSlotRef !== transaction.destinationSlotRef) {
+        residual.push("foreign-capture-lifecycle-observed");
+        return { safe: false, residual };
+      }
+      includeMapperResidual(status, "mapper");
+      if (status.active === true || status.playbackStopped !== true || status.state === "active" || status.state === "failed") {
+        try {
+          await adapter.invokeAsync({ operation: "audio.capture.emergency-stop", args: { captureId: transaction.captureId, sourceSlotRef: transaction.sourceSlotRef, destinationSlotRef: transaction.destinationSlotRef } }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+        } catch { residual.push("capture-emergency-stop-unverified"); }
+        status = await this.captureMapperStatus(adapter);
+        if (status.captureId !== transaction.captureId) {
+          residual.push("capture-identity-changed-during-recovery");
+          return { safe: false, residual: [...new Set(residual)] };
+        }
+        const stopDeadline = Date.now() + 5_000;
+        while ((status.active === true || status.playbackStopped !== true) && Date.now() < stopDeadline) {
+          await this.waitFor(100);
+          status = await this.captureMapperStatus(adapter);
+          if (status.captureId !== transaction.captureId) break;
+        }
+        includeMapperResidual(status, "mapper-after-stop");
+      }
+      if (status.active === true || status.playbackStopped !== true) residual.push("capture-playback-not-stopped");
+      if ((status.state === "stopped" || status.state === "captured" || status.state === "failed") && !isObject(status.clip)) {
+        const expiresAt = typeof status.expiresAt === "number" ? status.expiresAt : Date.now();
+        const finalizationDeadline = Math.min(Date.now() + 12_000, Math.max(Date.now() + 5_000, expiresAt + 2_000));
+        try { status = await this.waitForCapturedMedia(adapter, undefined, finalizationDeadline); }
+        catch { residual.push("capture-media-finalization-unresolved"); status = await this.captureMapperStatus(adapter); }
+      }
+      if (status.captureId !== transaction.captureId) {
+        residual.push("capture-identity-changed-before-cleanup");
+        return { safe: false, residual: [...new Set(residual)] };
+      }
+      const clip = isObject(status.clip) ? status.clip : undefined;
+      const token = transaction.mapperToken ?? (typeof status.recoveryToken === "string" ? status.recoveryToken : undefined);
+      if (!media && clip && isNonEmptyString(clip.filePath, 4_096)) {
+        try {
+          const snapshot = await adapter.snapshotAsync({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+          if (typeof snapshot.set.filePath === "string" && snapshot.set.filePath) {
+            transaction.projectFilePath = snapshot.set.filePath;
+            media = await decodeOwnedWaveFile(clip.filePath, snapshot.set.filePath, transaction.startedAt ?? Date.now());
+          }
+          else residual.push("saved-project-path-unavailable");
+        } catch {
+          try {
+            const snapshot = await adapter.snapshotAsync({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+            if (typeof snapshot.set.filePath === "string" && snapshot.set.filePath.length > 0) transaction.projectFilePath = snapshot.set.filePath;
+            rawConfirmedAbsent = typeof snapshot.set.filePath === "string" && snapshot.set.filePath.length > 0 && await captureMediaIsAbsent(clip.filePath as string, snapshot.set.filePath);
+            if (!rawConfirmedAbsent) residual.push("raw-media-could-not-be-verified-for-unlink");
+          } catch { residual.push("raw-media-could-not-be-verified-for-unlink"); }
+        }
+      }
+      // Remove verified raw media before deleting Live's only authoritative
+      // clip/path record. A crash can therefore never leave raw media after
+      // mapper cleanup with no recovery identity.
+      const cleanedMedia = media;
+      let rawCleanupSafe = rawConfirmedAbsent || transaction.rawPrimaryUnlinked === true || (!media && status.state === "cleaned");
+      if (media && !transaction.rawPrimaryUnlinked) {
+        try { await unlinkOwnedCaptureFile(media); transaction.rawPrimaryUnlinked = true; rawCleanupSafe = true; }
+        catch { residual.push("transaction-owned-raw-file-not-unlinked"); }
+      }
+      let liveCleanupSafe = status.state === "cleaned";
+      if (clip && isNonEmptyString(clip.ref, 256) && token && rawCleanupSafe) {
+        try {
+          const cleaned = await adapter.invokeAsync({ operation: "audio.capture.cleanup", args: { captureId: transaction.captureId, token, expectedClipRef: clip.ref } }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as JsonObject;
+          includeMapperResidual(cleaned, "mapper-cleanup");
+          liveCleanupSafe = true;
+        } catch { residual.push("transaction-owned-live-clip-not-cleaned"); }
+      } else if (status.state !== "cleaned") residual.push(!rawCleanupSafe ? "capture-live-clip-retained-for-raw-recovery" : clip ? "capture-cleanup-authority-unavailable" : "capture-live-clip-state-unresolved");
+      if (cleanedMedia && liveCleanupSafe && transaction.projectFilePath) {
+        try {
+          await unlinkLateCaptureCompanions(cleanedMedia);
+          if (!await captureMediaIsAbsent(cleanedMedia.realPath, transaction.projectFilePath)) throw new Error("capture media remains after late companion sweep");
+          media = undefined;
+        } catch { residual.push("late-capture-companion-not-cleaned"); }
+      }
+      const finalStatus = await this.captureMapperStatus(adapter);
+      if (finalStatus.captureId !== transaction.captureId) residual.push("capture-final-identity-mismatch");
+      includeMapperResidual(finalStatus, "mapper-final");
+      if (finalStatus.active === true || finalStatus.playbackStopped !== true) residual.push("capture-remains-active");
+      if (finalStatus.state !== "cleaned") residual.push("capture-lifecycle-not-cleaned");
+      if (isObject(finalStatus.clip)) residual.push("capture-clip-remains-present");
+
+      try {
+        const snapshot = await adapter.snapshotAsync({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+        const transport = snapshot.playback.transport;
+        if (transport.playing !== false || transport.arrangementRecord !== false || transport.sessionRecord !== false || snapshot.playback.firedTargets.length > 0 || snapshot.playback.playingTargets.length > 0) residual.push("fresh-playback-readback-not-stopped");
+        const destinationTrackRef = isNonEmptyString(finalStatus.destinationTrackRef, 256) ? finalStatus.destinationTrackRef : transaction.destinationTrackRef;
+        const destination = snapshot.tracks.find((track) => track.ref === destinationTrackRef || (track.clipSlots ?? []).some((slot) => slot.ref === transaction.destinationSlotRef));
+        const destinationSlot = destination?.clipSlots?.find((slot) => slot.ref === transaction.destinationSlotRef);
+        if (!destination || !destinationSlot || destinationSlot.empty !== true || destinationSlot.clipRef) residual.push("fresh-destination-slot-not-empty");
+        if (destination && transaction.prior.arm !== undefined && destination.armed !== transaction.prior.arm) residual.push("fresh-destination-arm-not-restored");
+        if (destination && transaction.prior.monitoring !== undefined && destination.monitoringState !== transaction.prior.monitoring) residual.push("fresh-destination-monitoring-not-restored");
+        if (destination && transaction.prior.route !== undefined && destination.routing?.inputType !== transaction.prior.route) residual.push("fresh-destination-route-not-restored");
+        if (destination && transaction.prior.arm === undefined && destination.armed !== false) residual.push("fresh-destination-remains-armed");
+      } catch { residual.push("fresh-recovery-snapshot-unavailable"); }
+    } catch { residual.push("capture-emergency-recovery-unavailable"); }
+    return { safe: residual.length === 0, residual: [...new Set(residual)] };
+  }
+
+  private async awaitAudioCaptureApply(id: RequestId, transaction: AudioCaptureTransaction, signal?: AbortSignal): Promise<JsonObject | null> {
+    const inflight = transaction.inflight;
+    if (!inflight) return this.transactionError(id, "Audio-capture apply is no longer in flight");
+    transaction.waiters = (transaction.waiters ?? 0) + 1;
+    let callerAborted = signal?.aborted === true;
+    let removeAbort: (() => void) | undefined;
+    const aborted = new Promise<{ kind: "aborted" }>((resolve) => {
+      if (callerAborted) { resolve({ kind: "aborted" }); return; }
+      if (signal) {
+        const listener = (): void => { callerAborted = true; resolve({ kind: "aborted" }); };
+        signal.addEventListener("abort", listener, { once: true });
+        removeAbort = () => signal.removeEventListener("abort", listener);
+      }
+    });
+    try {
+      const settled = await Promise.race([inflight.then((value) => ({ kind: "settled" as const, value })), aborted]);
+      if (settled.kind === "aborted") return null;
+      return settled.value === null ? null : { ...settled.value, id };
+    } finally {
+      removeAbort?.();
+      transaction.waiters = Math.max(0, (transaction.waiters ?? 1) - 1);
+      // A caller cancellation suppresses only that caller's response. Shared
+      // capture is cancelled when no idempotent waiter remains.
+      if (callerAborted && transaction.waiters === 0) transaction.abortController?.abort();
+    }
+  }
+
+  private async liveAudioCaptureApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!isObject(params) || !hasOnly(params, ["transactionId", "confirmation", "idempotencyKey"]) || !isNonEmptyString(params.transactionId, 128) || !isNonEmptyString(params.confirmation, 128) || !isNonEmptyString(params.idempotencyKey, 128)) return error(id, -32602, "transactionId, exact confirmation, and idempotencyKey are required");
+    const transaction = this.audioCaptureTransactions.get(params.transactionId);
+    if (!transaction) return this.transactionError(id, "Unknown or expired audio-capture transaction");
+    if (params.confirmation !== transaction.confirmation) return this.transactionError(id, "Audio-capture confirmation is invalid");
+    if (transaction.state === "completed" && transaction.applyKey === params.idempotencyKey && transaction.result) return this.successText(id, { ...transaction.result, idempotent: true });
+    if (transaction.inflight) {
+      if (transaction.applyKey !== params.idempotencyKey) return this.transactionError(id, "Audio-capture apply is already in progress with a different idempotency key");
+      return this.awaitAudioCaptureApply(id, transaction, signal);
+    }
+    if (transaction.state !== "previewed" || transaction.expiresAt <= Date.now()) return this.transactionError(id, "Audio-capture preview expired or is no longer applicable");
+    if (signal?.aborted) return null;
+    transaction.applyKey = params.idempotencyKey;
+    transaction.state = "applying";
+    transaction.abortController = new AbortController();
+    const inflight = this.dispatchAudioCaptureApply(id, transaction, transaction.abortController.signal);
+    transaction.inflight = inflight;
+    void inflight.finally(() => {
+      if (transaction.inflight === inflight) transaction.inflight = undefined;
+      transaction.abortController = undefined;
+    });
+    return this.awaitAudioCaptureApply(id, transaction, signal);
+  }
+
+  private async dispatchAudioCaptureApply(id: RequestId, transaction: AudioCaptureTransaction, signal?: AbortSignal): Promise<JsonObject | null> {
+    let acquired: DecodedCaptureFile | undefined;
+    try {
+      this.validateOutputSafety(transaction.outputSafety);
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      this.requireCaptureCapability(status);
+      if (status.epoch !== transaction.epoch) throw new Error("Live connection epoch changed; capture must be previewed again");
+      const adapter = this.asyncAdapter();
+      if (signal?.aborted) throw new Error("audio capture cancelled before audible dispatch");
+      transaction.startedAt = Date.now();
+      transaction.startDispatched = true;
+      const started = await adapter.invokeAsync({ operation: "audio.capture.start", args: { captureId: transaction.captureId, setName: transaction.setName, sourceSlotRef: transaction.sourceSlotRef, destinationSlotRef: transaction.destinationSlotRef, fence: transaction.fence, maxDurationMs: Math.min(10_000, transaction.durationMs + 3_000) } }, { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as JsonObject;
+      if (!isNonEmptyString(started.token, 128) || started.state !== "active") throw new Error("capture mapper did not confirm bounded authority");
+      transaction.mapperToken = started.token;
+      transaction.state = "capturing";
+      await this.waitFor(transaction.durationMs, signal);
+      await adapter.invokeAsync({ operation: "audio.capture.stop", args: { captureId: transaction.captureId, token: transaction.mapperToken } }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      const captureStatus = await this.waitForCapturedMedia(adapter, signal);
+      if (Array.isArray(captureStatus.residual) && captureStatus.residual.length > 0) throw new Error("capture mapper reported residual state");
+      const clip = captureStatus.clip as JsonObject;
+      const snapshot = await adapter.snapshotAsync({ signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (typeof snapshot.set.filePath !== "string" || !snapshot.set.filePath) throw new Error("capture requires an authoritatively saved Live Set path");
+      transaction.projectFilePath = snapshot.set.filePath;
+      acquired = await decodeOwnedWaveFile(clip.filePath as string, snapshot.set.filePath, transaction.startedAt);
+      transaction.state = "analyzing";
+      const source: EncodedAnalysisSource = { pcmBase64: this.encodeFloat32Le(acquired.samples), sampleRate: acquired.sampleRate, channels: acquired.channels, channelLayout: acquired.channels === 1 ? ["M"] : ["L", "R"] };
+      const analysis = await this.analysisRunner.run({ mode: "analyze", source }, signal) as PcmAnalysis;
+      const sourceTrackRef = this.captureSourceTrack(snapshot, transaction.sourceSlotRef);
+      const diagnosis: AudioDiagnosis = diagnoseAudioWithLiveContext(analysis, snapshot, transaction.epoch, sourceTrackRef, { kind: "verified-live-resampling-capture", observedAt: new Date().toISOString(), description: "Mapper-owned Session-slot Resampling capture", captureId: transaction.captureId });
+      const mediaSummary = { format: acquired.format, bitsPerSample: acquired.bitsPerSample, sampleRate: acquired.sampleRate, channels: acquired.channels, durationSeconds: acquired.durationSeconds, byteLength: acquired.byteLength, byteLengthBounded: true, rawPathReturned: false };
+      // Keep the mapper-owned clip/path as recovery authority until the
+      // descriptor-fenced raw media has been quarantined and unlinked.
+      await unlinkOwnedCaptureFile(acquired);
+      transaction.rawPrimaryUnlinked = true;
+      await adapter.invokeAsync({ operation: "audio.capture.cleanup", args: { captureId: transaction.captureId, token: transaction.mapperToken, expectedClipRef: clip.ref } }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      await unlinkLateCaptureCompanions(acquired);
+      if (!await captureMediaIsAbsent(acquired.realPath, transaction.projectFilePath)) throw new Error("capture media did not verify absent after Live clip cleanup");
+      acquired = undefined;
+      const finalStatus = await this.captureMapperStatus(adapter);
+      const finalSnapshot = await adapter.snapshotAsync({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      const transport = finalSnapshot.playback.transport;
+      const destination = finalSnapshot.tracks.find((track) => track.ref === transaction.destinationTrackRef);
+      if (finalStatus.state !== "cleaned" || finalStatus.active !== false || transport.playing !== false || transport.arrangementRecord !== false || transport.sessionRecord !== false || !destination || destination.armed !== transaction.prior.arm || destination.monitoringState !== transaction.prior.monitoring || destination.routing?.inputType !== transaction.prior.route) throw new Error("capture teardown did not verify the exact stopped baseline");
+      const result: JsonObject = {
+        transactionId: transaction.id,
+        captureId: transaction.captureId,
+        state: "completed",
+        provenance: "real-live",
+        sourceSlotRef: transaction.sourceSlotRef,
+        destinationSlotRef: transaction.destinationSlotRef,
+        durationRequestedSeconds: transaction.durationMs / 1_000,
+        media: mediaSummary,
+        analysis,
+        diagnosis,
+        cleanup: { captureStopped: true, transportStopped: true, routingRestored: true, armRestored: true, monitoringRestored: true, liveClipDeleted: true, rawFileUnlinked: true, rawAudioRetained: false },
+        idempotent: false,
+      };
+      transaction.result = result;
+      transaction.state = "completed";
+      return this.successText(id, result);
+    } catch (cause) {
+      const recovery = await this.recoverAudioCapture(transaction, acquired);
+      transaction.state = signal?.aborted && recovery.safe ? "cancelled" : "uncertain";
+      if (signal?.aborted) return null;
+      // Filesystem/native adapter errors can embed absolute media paths. Keep
+      // the MCP failure stable and path-free; detailed diagnostics stay on the
+      // redacted stderr/operator boundary.
+      const failureClass = cause instanceof RangeError ? "bounded-input-or-media-validation" : "capture-lifecycle-failure";
+      return response(id, { content: [{ type: "text", text: JSON.stringify({ reason: "capture lifecycle did not reach a verified clean completion", failureClass, captureId: transaction.captureId, state: transaction.state, cleanup: recovery, remediation: recovery.safe ? "Preview again from fresh stopped state." : "Use live_audio_capture_status and the independent emergency-stop tool; do not retry capture while residual state remains." }) }], isError: true });
+    }
+  }
+
+  private async liveAudioCaptureStatusAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!this.utilityParams(params)) return error(id, -32602, "capture status takes no arguments");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      this.requireCaptureCapability(status, true);
+      const capture = await this.captureMapperStatus(this.asyncAdapter());
+      return this.successText(id, this.captureStatusRedacted(capture));
+    } catch (cause) { return this.adapterToolError(id, cause, "Capture status is unavailable; independently verify Live recording, transport, arm, monitoring, and routing state."); }
+  }
+
+  private async liveAudioCaptureEmergencyStopAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, ["confirmation", "captureId", "sourceSlotRef", "destinationSlotRef"]) || params.confirmation !== "emergency-stop-and-clean" || !isNonEmptyString(params.captureId, 128) || !isNonEmptyString(params.sourceSlotRef, 256) || !isNonEmptyString(params.destinationSlotRef, 256)) return error(id, -32602, "exact fresh capture identities and confirmation are required");
+    const synthetic: AudioCaptureTransaction = { id: `recovery_${params.captureId}`, captureId: params.captureId, epoch: 0, setName: "recovery", sourceSlotRef: params.sourceSlotRef as LiveRef, destinationSlotRef: params.destinationSlotRef as LiveRef, destinationTrackRef: params.destinationSlotRef as LiveRef, fence: "", prior: {}, durationMs: 0, outputSafety: {}, confirmation: "", expiresAt: Date.now() + 10_000, state: "uncertain" };
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS }); this.requireCaptureCapability(status, true);
+      const observed = await this.captureMapperStatus(this.asyncAdapter());
+      if (observed.captureId !== params.captureId || observed.sourceSlotRef !== params.sourceSlotRef || observed.destinationSlotRef !== params.destinationSlotRef) throw new Error("capture emergency observation is stale or inexact");
+      synthetic.epoch = status.epoch!; synthetic.startedAt = typeof observed.startedAt === "number" ? observed.startedAt : Date.now(); synthetic.mapperToken = typeof observed.recoveryToken === "string" ? observed.recoveryToken : undefined;
+      const recovery = await this.recoverAudioCapture(synthetic);
+      return this.successText(id, { captureId: params.captureId, state: recovery.safe ? "cleaned" : "uncertain", stopped: true, cleanup: recovery, rawPathReturned: false });
+    } catch (cause) { return this.adapterToolError(id, cause, "Emergency capture cleanup is uncertain; manually stop Live and inspect the exact destination slot and project media."); }
   }
 
   private asyncAdapter(): AsyncLiveAdapter {
@@ -2624,7 +3160,7 @@ export class McpHost {
       return error(id, -32602, "Invalid tools/call parameters");
     }
     if (params.arguments !== undefined && !isObject(params.arguments)) return error(id, -32602, "Tool arguments must be an object");
-    const argumentTools = new Set(["audio_analyze", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+    const argumentTools = new Set(["audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
     if (!argumentTools.has(params.name) && params.arguments !== undefined && Object.keys(params.arguments as JsonObject).length !== 0) {
       return error(id, -32602, "Tool arguments must be an empty object");
     }
@@ -2637,7 +3173,7 @@ export class McpHost {
     if (params.name === "live_status") return this.liveStatus(id);
     if (params.name === "live_snapshot") return this.liveSnapshot(id);
     if (params.name === "live_discover") return this.liveDiscover(id, params.arguments);
-    if (["live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_backup_preview", "live_project_backup_apply"].includes(params.name)) return error(id, -32001, "Project operations require the asynchronous host request path");
+    if (["audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_backup_preview", "live_project_backup_apply"].includes(params.name)) return error(id, -32001, "This operation requires the asynchronous host request path");
     if (params.name === "live_device_parameter_preview") return this.liveDeviceParameterPreview(id, params.arguments);
     if (params.name === "live_device_parameter_apply") return this.liveDeviceParameterApply(id, params.arguments);
     if (params.name === "live_session_structure_preview") return this.liveSessionStructurePreview(id, params.arguments);
@@ -2649,35 +3185,6 @@ export class McpHost {
     if (params.name === "live_tempo_preview") return this.liveTempoPreview(id, params.arguments);
     if (params.name === "live_tempo_apply") return this.liveTempoApply(id, params.arguments);
     if (params.name === "live_undo") return this.liveUndo(id, params.arguments);
-    if (params.name === "audio_analyze") {
-      const args = params.arguments;
-      if (
-        !isObject(args) ||
-        !hasOnly(args, ["pcmBase64", "sampleRate", "channels", "frameSize"]) ||
-        typeof args.pcmBase64 !== "string" ||
-        !isIntegerInRange(args.sampleRate, 8_000, 384_000) ||
-        (args.channels !== undefined && !isIntegerInRange(args.channels, 1, 32)) ||
-        (args.frameSize !== undefined && !isIntegerInRange(args.frameSize, 256, 4_096))
-      ) {
-        return error(id, -32602, "audio_analyze requires pcmBase64 and sampleRate");
-      }
-      const now = Date.now();
-      while (this.toolCallTimes.length > 0 && now - (this.toolCallTimes[0] ?? now) >= 60_000) this.toolCallTimes.shift();
-      if (this.toolCallTimes.length >= MAX_TOOL_CALLS_PER_MINUTE) return error(id, -32029, "Tool invocation rate limit exceeded");
-      this.toolCallTimes.push(now);
-      try {
-        const result = analyzePcm({
-          samples: decodeFloat32Le(args.pcmBase64),
-          sampleRate: args.sampleRate,
-          channels: args.channels as number | undefined,
-          frameSize: args.frameSize as number | undefined,
-        });
-        return response(id, { content: [{ type: "text", text: JSON.stringify(result) }], isError: false });
-      } catch (cause) {
-        const message = cause instanceof Error ? cause.message : "invalid audio input";
-        return response(id, { content: [{ type: "text", text: JSON.stringify({ reason: message, remediation: "Provide bounded little-endian float32 PCM normalized to [-1, 1]." }) }], isError: true });
-      }
-    }
     return error(id, -32601, "Tool not found");
   }
 
@@ -2698,6 +3205,8 @@ export class McpHost {
       ...(live.capabilities.includes("transport") ? ["live.tempo.preview", "live.tempo.apply", "live.undo"] : []),
       ...(live.capabilities.includes("arrangement.read") ? ["live.arrangement.section.preview"] : []),
       ...(live.capabilities.includes("arrangement.write") ? ["live.arrangement.section.apply", "live.arrangement.section.undo"] : []),
+      ...(live.capabilities.includes("session.read") ? ["audio.diagnose.live-context"] : []),
+      ...(live.capabilities.includes("audio.capture.resampling") ? ["live.audio.capture.preview", "live.audio.capture.apply", "live.audio.capture.status", "live.audio.capture.emergency-stop", "live.audio.analysis"] : []),
     ] : [];
     const liveUnavailable = live.connected ? [
       ...hostUnavailableCapabilities,
@@ -2708,9 +3217,11 @@ export class McpHost {
       ...(live.capabilities.includes("session.structure") ? [] : ["live.session.structure.preview", "live.session.structure.apply", "live.session.structure.undo"]),
       ...(live.capabilities.includes("session.midi_clip.create") && live.capabilities.includes("session.midi_note.write") ? [] : ["live.midi_clip.preview", "live.midi_clip.apply", "live.midi_clip.undo"]),
       ...(live.capabilities.includes("transport") ? [] : ["live.tempo.preview", "live.tempo.apply", "live.undo"]),
-    ] : [...unavailableCapabilities, ...LIVE_CAPABILITIES];
+      ...(live.capabilities.includes("session.read") ? [] : ["audio.diagnose.live-context"]),
+      ...(live.capabilities.includes("audio.capture.resampling") ? [] : ["live.audio.capture.preview", "live.audio.capture.apply", "live.audio.capture.status", "live.audio.capture.emergency-stop", "live.audio.analysis"]),
+    ] : [...unavailableCapabilities, "audio.diagnose.live-context", "live.audio.capture.preview", "live.audio.capture.apply", "live.audio.capture.status", "live.audio.capture.emergency-stop", ...LIVE_CAPABILITIES];
     return {
-      implemented: ["server.status", "capabilities", "audio.analyze", ...liveImplemented],
+      implemented: ["server.status", "capabilities", "audio.analyze", "audio.analysis.standards", "audio.reference.compare", ...liveImplemented],
       unavailable: [...new Set(liveUnavailable)],
       live: { connected: live.connected, adapter: live.adapter, epoch: live.epoch, protocol: live.protocol, capabilities: live.capabilities },
     };

@@ -1,6 +1,12 @@
 export { McpHost, UnavailableLiveAdapter, serve, PROTOCOL_VERSION, MAX_MESSAGE_BYTES } from "./host.js";
 export type { AsyncLiveAdapter, LiveAdapter, LiveStatus } from "./host.js";
 export { analyzePcm, decodeFloat32Le } from "./analysis.js";
+export { analyzeStandardsAudio, STANDARDS_AUDIO_VERSION } from "./audio-standards.js";
+export type { ConventionalChannelLabel, StandardsAudioAnalysis, StandardsAudioInput } from "./audio-standards.js";
+export { compareReferenceAudio, resamplePcm, REFERENCE_ANALYSIS_VERSION } from "./reference-analysis.js";
+export type { ReferenceComparison, ReferenceComparisonInput, ReferencePcmSource } from "./reference-analysis.js";
+export { diagnoseAudioWithLiveContext, AUDIO_DIAGNOSIS_VERSION } from "./audio-diagnosis.js";
+export type { AudioDiagnosis, AudioDiagnosticFinding, AudioSourceProvenance } from "./audio-diagnosis.js";
 export {
   LIVE_CAPABILITIES,
   LIVE_PROTOCOL_VERSION,

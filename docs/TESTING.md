@@ -10,6 +10,7 @@ npm run typecheck
 npm test
 npm run property-test
 npm run benchmark
+npm run audio:oracle
 npm run compatibility
 npm run package:verify
 npm pack --dry-run --json
@@ -25,17 +26,39 @@ git diff --cached --check
 
 Node tests compile into `dist/` and cover MCP lifecycle, schema validation,
 bounded concurrent stdio framing, async adapter behavior, authenticated
-loopback responses, Session audition preflight/apply/stop, transactions,
-analysis, properties, delivery, and package installation. Python tests cover
+loopback responses, Session audition preflight/apply/stop, transactions, standards loudness/true peak, bounded reference alignment,
+secret-stripped worker cancellation/queue limits, secure WAV/ASD lifecycle,
+signal-chain diagnosis, consent-bound capture normal/cancel paths, properties,
+delivery, and package installation. Python tests cover
 the dependency-free Control Surface entrypoint, canonical registry loading and
 hashing, authentication, sequencing/replay rejection, main-thread queueing,
 fake-Live references, hierarchical discovery, empty clip slots,
 shape-dependent operation advertisement, Session playback operations, Session
-MIDI, locators, structure, device/parameter validation, and cleanup. The
+MIDI, locators, structure, device/parameter validation, track-scoped routing
+choices, capture fences/watchdog/emergency/cleanup, and bridge teardown. The
 package verifier starts the installed production bridge and checks
 authenticated fake Set, scene, track, child-slot, and playback discovery.
 
-The benchmark warms the declared maximum PCM input and reports repeated latency measurements. Latency, output size, and bounded-memory evidence are distinct concerns; no unavailable platform runner or simulator result is a pass for real Live.
+The operator-only packaged real-Live Phase 8 verifier is not a CI substitute.
+After installing an `npm pack` artifact and visibly preparing the disposable
+Set/output/destination route, run it with explicit evidence inputs:
+
+```sh
+PHASE8_CLI=/absolute/installed/dist/src/cli.js \
+PHASE8_TARBALL_SHA=<64-hex-sha256> \
+PHASE8_OUTPUT_SAFETY_PROVENANCE='<fresh operator observation>' \
+PHASE8_LIVE_VERSION='<visible Live version>' \
+  npm run audio:live-verify > /owner-only/path/phase-8-audio-live.json
+```
+
+The verifier refuses a missing raw-media directory, non-empty source device
+baseline, absent source clip, or destination other than visibly prepared
+`No Input`/unarmed/monitoring-off/empty. It verifies cancellation response
+suppression while the original host remains alive, kills another host during
+capture, requires mapper-watchdog finalization, independently recovers, and
+compensates its temporary notes/mixer/device mutations on failure.
+
+The benchmark warms the declared maximum PCM input and reports repeated latency measurements. `audio:oracle` generates temporary PCM, compares BS.1770/EBU and true-peak outputs to FFmpeg `ebur128`, and removes the owner-only temporary tree; it commits no third-party audio. Latency, output size, bounded-memory, DSP-oracle, package, and real-Live evidence are distinct concerns; none substitutes for another.
 
 ## What passing means
 
@@ -47,8 +70,9 @@ Add success and fail-closed tests for every new protocol method or Live side
 effect. Cover stale epochs/cursors/revisions, expired confirmations,
 conflicting idempotency keys, timeouts, cancellation before and after
 dispatch, disconnects, lost acknowledgements, partial mutation, compensation
-failure, external edits, external playback, and guarded undo. The repository
-does not yet contain a reusable packed TypeScript-to-Python production journey;
-unit and package-smoke evidence must not be presented as that journey. Keep
-fixtures bounded and privacy-preserving. Never open, copy, stage, package, or
+failure, external edits, external playback, and guarded undo. The packaged production journey and tracked real-Live phase evidence must keep
+`fake-live`, simulator, and `real-live` provenance distinct. Phase 8 evidence
+must include normal capture, controlled recapture, cancellation cleanup, host-
+restart watchdog recovery, exact baseline readback, and zero WAV/ASD residuals.
+Keep fixtures bounded and privacy-preserving. Never open, copy, stage, package, or
 expose the protected local SDK evidence.

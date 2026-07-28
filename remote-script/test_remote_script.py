@@ -315,6 +315,82 @@ class FakeAuditionSong(FakeSong):
         self.is_playing = False
 
 
+class FakeRouteChoice:
+    def __init__(self, name):
+        self.name = name
+        self.display_name = name
+
+
+class FakeCapturedAudioClip(FakeClip):
+    def __init__(self):
+        super().__init__(2.0)
+        self.name = "MCP Ephemeral Capture"
+        self.is_audio_clip = True
+        self.file_path = None
+        self.is_recording = True
+        self.gain = 1.0
+
+
+class FakeCaptureSlot(FakeSlot):
+    def __init__(self, fire_callback):
+        super().__init__()
+        self._fire_callback = fire_callback
+
+    def fire(self):
+        self._fire_callback(self)
+
+
+class FakeCaptureTrack:
+    def __init__(self, song, name, audio=False):
+        self.song = song
+        self.name = name
+        self.has_audio_input = audio
+        self.has_midi_input = not audio
+        self.can_be_armed = True
+        self.arm = False
+        self.current_monitoring_state = 2
+        self.playing_slot_index = -1
+        self.fired_slot_index = -1
+        self.devices = []
+        self.available_input_routing_types = [FakeRouteChoice("Ext. In"), FakeRouteChoice("Resampling")] if audio else []
+        self.input_routing_type = self.available_input_routing_types[0] if audio else None
+        self.current_input_routing = self.input_routing_type
+        def fire(slot):
+            self.song.is_playing = True
+            self.playing_slot_index = 0
+            self.fired_slot_index = 0
+            if self.has_audio_input and self.arm and slot.clip is None:
+                slot.clip = FakeCapturedAudioClip()
+                slot.clip.name = self.name
+        self.clip_slots = [FakeCaptureSlot(fire)]
+
+    def stop_all_clips(self, *_):
+        self.playing_slot_index = -1
+        self.fired_slot_index = -1
+        for slot in self.clip_slots:
+            if isinstance(slot.clip, FakeCapturedAudioClip):
+                slot.clip.is_recording = False
+                slot.clip.file_path = "/tmp/MCP Ephemeral Capture.wav"
+
+
+class FakeCaptureSong(FakeSong):
+    def __init__(self):
+        self.name = "MCP-Audition-Disposable"
+        self.return_tracks = []
+        self.master_track = None
+        self.scenes = [FakeScene("Scene 1")]
+        self.is_playing = False
+        self.record_mode = False
+        self.session_record = False
+        self.current_song_time = 7.0
+        self.clip_trigger_quantization = 4
+        self.tracks = [FakeCaptureTrack(self, "Source", audio=False), FakeCaptureTrack(self, "Capture", audio=True)]
+        self.tracks[0].clip_slots[0].clip = FakeClip(4.0)
+
+    def stop_playing(self):
+        self.is_playing = False
+
+
 class FakeArrangementSong(FakeSong):
     def __init__(self):
         super().__init__()
@@ -339,7 +415,8 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "006104fd05c0c2eed6dc790ee2215a9e2154fa0a8f0a6f081b53cca4829f108d")
+        self.assertEqual(digest, "81d9e274df2ec544c9c32b3a8f058b872767d3cd6ff1b1d7039a5df3cbe791c7")
+        self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         self.assertNotIn("scene.launch", [item["id"] for item in registry["operations"]])
 
@@ -347,6 +424,238 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(LiveObjectMapper(FakeSong()).status()["provenance"], "fake-live")
         self.assertEqual(LiveObjectMapper(FakeSong(), provenance="real-live").status()["provenance"], "real-live")
         with self.assertRaises(ValueError): LiveObjectMapper(FakeSong(), provenance="unknown")
+
+    def capture_fixture(self):
+        song = FakeCaptureSong(); mapper = LiveObjectMapper(song)
+        snapshot = mapper.snapshot()
+        source = snapshot["tracks"][0]["clipSlots"][0]["ref"]
+        destination = snapshot["tracks"][1]["clipSlots"][0]["ref"]
+        args = {"setName": song.name, "sourceSlotRef": source, "destinationSlotRef": destination}
+        return song, mapper, source, destination, args
+
+    def test_resampling_capture_lifecycle_is_fenced_bounded_and_ephemeral(self):
+        song, mapper, source, destination, args = self.capture_fixture()
+        self.assertIn("audio.capture.resampling", mapper.status()["capabilities"])
+        preview = mapper.invoke("audio.capture.inspect", args)
+        self.assertEqual(preview["captureMode"], "session-slot-resampling")
+        self.assertEqual(preview["rawRetention"], "ephemeral")
+        started = mapper.invoke("audio.capture.start", {**args, "captureId": "capture-unit-test-0001", "fence": preview["fence"], "maxDurationMs": 1000})
+        self.assertEqual(started["state"], "active")
+        self.assertTrue(song.tracks[1].arm)
+        self.assertEqual(song.tracks[1].input_routing_type.name, "Resampling")
+        status = mapper.invoke("audio.capture.status", {})
+        self.assertTrue(status["active"])
+        self.assertNotIn("token", status)
+        stopped = mapper.invoke("audio.capture.stop", {"captureId": started["captureId"], "token": started["token"]})
+        self.assertEqual(stopped["state"], "captured")
+        self.assertEqual(stopped["clip"]["filePath"], "/tmp/MCP Ephemeral Capture.wav")
+        self.assertFalse(song.is_playing)
+        self.assertFalse(song.tracks[1].arm)
+        self.assertEqual(song.tracks[1].input_routing_type.name, "Ext. In")
+        self.assertEqual(song.current_song_time, 7.0)
+        cleaned = mapper.invoke("audio.capture.cleanup", {"captureId": started["captureId"], "token": started["token"], "expectedClipRef": stopped["clip"]["ref"]})
+        self.assertTrue(cleaned["cleaned"])
+        self.assertIsNone(song.tracks[1].clip_slots[0].clip)
+        self.assertEqual(mapper.invoke("audio.capture.status", {})["state"], "cleaned")
+
+    def test_resampling_capture_watchdog_and_independent_emergency_stop(self):
+        song, mapper, source, destination, args = self.capture_fixture()
+        preview = mapper.invoke("audio.capture.inspect", args)
+        started = mapper.invoke("audio.capture.start", {**args, "captureId": "capture-unit-test-0002", "fence": preview["fence"], "maxDurationMs": 1000})
+        with self.assertRaises(ValueError):
+            mapper.invoke("audio.capture.emergency-stop", {"captureId": started["captureId"], "sourceSlotRef": source, "destinationSlotRef": source})
+        mapper._capture_state["deadlineMonotonic"] = 0
+        mapper.capture_tick()
+        status = mapper.invoke("audio.capture.status", {})
+        self.assertFalse(status["active"]); self.assertTrue(status["watchdogStopped"]); self.assertEqual(status["state"], "captured")
+        emergency = mapper.invoke("audio.capture.emergency-stop", {"captureId": started["captureId"], "sourceSlotRef": source, "destinationSlotRef": destination})
+        self.assertTrue(emergency["stopped"])
+        mapper.invoke("audio.capture.cleanup", {"captureId": started["captureId"], "token": started["token"], "expectedClipRef": status["clip"]["ref"]})
+        self.assertFalse(song.is_playing); self.assertFalse(song.tracks[1].arm)
+
+    def test_resampling_capture_refuses_stale_state_and_reports_external_interference(self):
+        song, mapper, source, destination, args = self.capture_fixture()
+        preview = mapper.invoke("audio.capture.inspect", args)
+        song.current_song_time = 8.0
+        with self.assertRaises(ValueError):
+            mapper.invoke("audio.capture.start", {**args, "captureId": "capture-unit-test-0003", "fence": preview["fence"], "maxDurationMs": 1000})
+        song.current_song_time = 7.0
+        preview = mapper.invoke("audio.capture.inspect", args)
+        started = mapper.invoke("audio.capture.start", {**args, "captureId": "capture-unit-test-0004", "fence": preview["fence"], "maxDurationMs": 1000})
+        external = FakeRouteChoice("External Sidechain")
+        song.tracks[1].input_routing_type = external
+        stopped = mapper.invoke("audio.capture.stop", {"captureId": started["captureId"], "token": started["token"]})
+        self.assertIn("destination-route-changed-externally", stopped["residual"])
+        self.assertIs(song.tracks[1].input_routing_type, external)
+        mapper.invoke("audio.capture.cleanup", {"captureId": started["captureId"], "token": started["token"], "expectedClipRef": stopped["clip"]["ref"]})
+
+    def test_capture_binds_an_asynchronously_appearing_recording_clip_only(self):
+        song, mapper, _, _, args = self.capture_fixture()
+        destination_track = song.tracks[1]; destination_slot = destination_track.clip_slots[0]
+        def delayed_fire(_slot):
+            song.is_playing = True; destination_track.playing_slot_index = 0; destination_track.fired_slot_index = 0
+        destination_slot._fire_callback = delayed_fire
+        preview = mapper.invoke("audio.capture.inspect", args)
+        started = mapper.invoke("audio.capture.start", {**args, "captureId": "capture-unit-delayed-owner", "fence": preview["fence"], "maxDurationMs": 1000})
+        self.assertTrue(mapper.invoke("audio.capture.status", {})["active"])
+        destination_slot.clip = FakeCapturedAudioClip(); destination_slot.clip.name = destination_track.name
+        mapper.capture_tick()
+        stopped = mapper.invoke("audio.capture.stop", {"captureId": started["captureId"], "token": started["token"]})
+        mapper.invoke("audio.capture.cleanup", {"captureId": started["captureId"], "token": started["token"], "expectedClipRef": stopped["clip"]["ref"]})
+        self.assertIsNone(destination_slot.clip)
+
+        other_song, other_mapper, _, _, other_args = self.capture_fixture()
+        other_track = other_song.tracks[1]; other_slot = other_track.clip_slots[0]
+        other_slot._fire_callback = lambda _slot: setattr(other_song, "is_playing", True)
+        other_preview = other_mapper.invoke("audio.capture.inspect", other_args)
+        other_mapper.invoke("audio.capture.start", {**other_args, "captureId": "capture-unit-delayed-replacement", "fence": other_preview["fence"], "maxDurationMs": 1000})
+        replacement = FakeClip(8.0); replacement.name = "USER CLIP"; other_slot.clip = replacement
+        other_mapper.capture_tick()
+        self.assertIs(other_slot.clip, replacement)
+        self.assertEqual(other_mapper.invoke("audio.capture.status", {})["state"], "failed")
+
+    def test_capture_fence_refuses_a_replacement_destination_track_or_slot(self):
+        song, mapper, _, _, args = self.capture_fixture()
+        preview = mapper.invoke("audio.capture.inspect", args)
+        replacement = FakeCaptureTrack(song, "Replacement Capture", audio=True)
+        song.tracks[1] = replacement
+        with self.assertRaisesRegex(ValueError, "state changed"):
+            mapper.invoke("audio.capture.start", {**args, "captureId": "capture-unit-replaced-destination", "fence": preview["fence"], "maxDurationMs": 1000})
+        self.assertIsNone(replacement.clip_slots[0].clip)
+
+    def test_capture_refuses_a_foreign_recording_clip_without_private_tag(self):
+        song, mapper, _, _, args = self.capture_fixture()
+        destination_track = song.tracks[1]; destination_slot = destination_track.clip_slots[0]
+        destination_slot._fire_callback = lambda _slot: setattr(song, "is_playing", True)
+        preview = mapper.invoke("audio.capture.inspect", args)
+        mapper.invoke("audio.capture.start", {**args, "captureId": "capture-unit-foreign-recording", "fence": preview["fence"], "maxDurationMs": 1000})
+        foreign = FakeCapturedAudioClip(); foreign.name = "FOREIGN RECORDING"; destination_slot.clip = foreign
+        mapper.capture_tick()
+        self.assertIs(destination_slot.clip, foreign)
+        status = mapper.invoke("audio.capture.status", {})
+        self.assertEqual(status["state"], "failed"); self.assertIn("destination-clip-lacks-private-ownership-tag", status["residual"])
+
+    def test_capture_fence_refuses_a_replacement_in_the_same_source_slot(self):
+        song, mapper, _, _, args = self.capture_fixture()
+        preview = mapper.invoke("audio.capture.inspect", args)
+        replacement = FakeClip(4.0); replacement.name = "UNAUTHORIZED REPLACEMENT"
+        song.tracks[0].clip_slots[0].clip = replacement
+        with self.assertRaisesRegex(ValueError, "state changed"):
+            mapper.invoke("audio.capture.start", {**args, "captureId": "capture-unit-replaced-source", "fence": preview["fence"], "maxDurationMs": 1000})
+        self.assertFalse(song.is_playing)
+
+    def test_capture_cleanup_and_shutdown_never_delete_a_slot_replacement(self):
+        song, mapper, _, _, args = self.capture_fixture()
+        preview = mapper.invoke("audio.capture.inspect", args)
+        started = mapper.invoke("audio.capture.start", {**args, "captureId": "capture-unit-owned-identity", "fence": preview["fence"], "maxDurationMs": 1000})
+        stopped = mapper.invoke("audio.capture.stop", {"captureId": started["captureId"], "token": started["token"]})
+        replacement = FakeClip(8.0); replacement.name = "USER CLIP"
+        song.tracks[1].clip_slots[0].clip = replacement
+        with self.assertRaisesRegex(ValueError, "identity"):
+            mapper.invoke("audio.capture.cleanup", {"captureId": started["captureId"], "token": started["token"], "expectedClipRef": stopped["clip"]["ref"]})
+        self.assertIs(song.tracks[1].clip_slots[0].clip, replacement)
+        mapper.capture_shutdown()
+        self.assertIs(song.tracks[1].clip_slots[0].clip, replacement)
+        self.assertEqual(mapper.invoke("audio.capture.status", {})["state"], "failed")
+
+        clean_song, clean_mapper, _, _, clean_args = self.capture_fixture()
+        clean_preview = clean_mapper.invoke("audio.capture.inspect", clean_args)
+        clean_started = clean_mapper.invoke("audio.capture.start", {**clean_args, "captureId": "capture-unit-post-clean", "fence": clean_preview["fence"], "maxDurationMs": 1000})
+        clean_stopped = clean_mapper.invoke("audio.capture.stop", {"captureId": clean_started["captureId"], "token": clean_started["token"]})
+        clean_mapper.invoke("audio.capture.cleanup", {"captureId": clean_started["captureId"], "token": clean_started["token"], "expectedClipRef": clean_stopped["clip"]["ref"]})
+        post_cleanup = FakeClip(8.0); post_cleanup.name = "POST CLEANUP USER CLIP"
+        clean_song.tracks[1].clip_slots[0].clip = post_cleanup
+        clean_mapper.capture_shutdown()
+        self.assertIs(clean_song.tracks[1].clip_slots[0].clip, post_cleanup)
+
+    def test_destination_fire_that_schedules_then_raises_stays_recoverable(self):
+        song, mapper, source, destination, args = self.capture_fixture()
+        destination_track = song.tracks[1]; destination_slot = destination_track.clip_slots[0]
+        def schedule_then_raise(_slot):
+            song.is_playing = True; destination_track.playing_slot_index = 0; destination_track.fired_slot_index = 0
+            raise RuntimeError("fire raised after scheduling")
+        destination_slot._fire_callback = schedule_then_raise
+        preview = mapper.invoke("audio.capture.inspect", args)
+        with self.assertRaisesRegex(RuntimeError, "after scheduling"):
+            mapper.invoke("audio.capture.start", {**args, "captureId": "capture-unit-fire-raised", "fence": preview["fence"], "maxDurationMs": 1000})
+        failed = mapper.invoke("audio.capture.status", {})
+        self.assertEqual(failed["state"], "failed"); self.assertIsInstance(failed["recoveryToken"], str)
+        late = FakeCapturedAudioClip(); late.name = destination_track.name; destination_slot.clip = late
+        mapper.capture_tick()
+        observed = mapper.invoke("audio.capture.status", {})
+        self.assertTrue(observed["active"]); self.assertNotEqual(observed["state"], "cleaned")
+        stopped = mapper.invoke("audio.capture.emergency-stop", {"captureId": failed["captureId"], "sourceSlotRef": source, "destinationSlotRef": destination})
+        mapper.invoke("audio.capture.cleanup", {"captureId": failed["captureId"], "token": failed["recoveryToken"], "expectedClipRef": stopped["clip"]["ref"]})
+        self.assertIsNone(destination_slot.clip)
+
+    def test_partial_start_failure_and_shutdown_preserve_owned_clip_recovery_identity(self):
+        song, mapper, _, _, args = self.capture_fixture()
+        preview = mapper.invoke("audio.capture.inspect", args)
+        song.tracks[0].clip_slots[0]._fire_callback = lambda _slot: (_ for _ in ()).throw(RuntimeError("injected source fire failure"))
+        with self.assertRaisesRegex(RuntimeError, "injected source fire failure"):
+            mapper.invoke("audio.capture.start", {**args, "captureId": "capture-unit-partial-start", "fence": preview["fence"], "maxDurationMs": 1000})
+        status = mapper.invoke("audio.capture.status", {})
+        self.assertIsNotNone(song.tracks[1].clip_slots[0].clip); self.assertIsInstance(status.get("recoveryToken"), str)
+        self.assertNotEqual(status["state"], "cleaned")
+
+        other_song, other_mapper, source, destination, other_args = self.capture_fixture()
+        other_preview = other_mapper.invoke("audio.capture.inspect", other_args)
+        started = other_mapper.invoke("audio.capture.start", {**other_args, "captureId": "capture-unit-shutdown-preserve", "fence": other_preview["fence"], "maxDurationMs": 1000})
+        stopped = other_mapper.invoke("audio.capture.stop", {"captureId": started["captureId"], "token": started["token"]})
+        owned = other_song.tracks[1].clip_slots[0].clip
+        other_mapper.capture_shutdown()
+        self.assertIs(other_song.tracks[1].clip_slots[0].clip, owned)
+        shutdown = other_mapper.invoke("audio.capture.status", {})
+        self.assertEqual(shutdown["state"], "failed"); self.assertIn("bridge-shutdown-requires-host-or-manual-media-cleanup", shutdown["residual"])
+        self.assertEqual(stopped["clip"]["ref"], shutdown["clip"]["ref"])
+
+    def test_capture_retries_when_owned_clip_is_still_recording_despite_stopped_playback(self):
+        song, mapper, _, _, args = self.capture_fixture()
+        preview = mapper.invoke("audio.capture.inspect", args)
+        started = mapper.invoke("audio.capture.start", {**args, "captureId": "capture-unit-recording-retry", "fence": preview["fence"], "maxDurationMs": 1000})
+        destination = song.tracks[1]; calls = {"count": 0}
+        def incomplete_stop(*_args):
+            calls["count"] += 1; destination.playing_slot_index = -1; destination.fired_slot_index = -1
+        destination.stop_all_clips = incomplete_stop
+        mapper.invoke("audio.capture.stop", {"captureId": started["captureId"], "token": started["token"]})
+        before = calls["count"]
+        mapper.capture_tick(); mapper.capture_tick()
+        status = mapper.invoke("audio.capture.status", {})
+        self.assertGreater(calls["count"], before); self.assertTrue(status["active"]); self.assertTrue(destination.clip_slots[0].clip.is_recording)
+
+    def test_capture_failed_stop_remains_active_and_watchdog_retryable(self):
+        song, mapper, _, _, args = self.capture_fixture()
+        preview = mapper.invoke("audio.capture.inspect", args)
+        started = mapper.invoke("audio.capture.start", {**args, "captureId": "capture-unit-stop-retry", "fence": preview["fence"], "maxDurationMs": 1000})
+        original_stop = song.stop_playing
+        def injected_failure():
+            raise RuntimeError("injected stop failure")
+        song.stop_playing = injected_failure
+        immediate = mapper.invoke("audio.capture.stop", {"captureId": started["captureId"], "token": started["token"]})
+        self.assertTrue(immediate["stopped"]); self.assertFalse(immediate["playbackStopped"])
+        failed = mapper.invoke("audio.capture.status", {})
+        self.assertTrue(failed["active"]); self.assertTrue(failed["unsafe"]); self.assertFalse(failed["playbackStopped"]); self.assertIn(failed["state"], {"failed", "captured"})
+        song.stop_playing = original_stop
+        mapper.capture_tick()
+        recovered = mapper.invoke("audio.capture.status", {})
+        self.assertFalse(recovered["active"]); self.assertTrue(recovered["playbackStopped"]); self.assertEqual(recovered["state"], "captured")
+        mapper.invoke("audio.capture.cleanup", {"captureId": started["captureId"], "token": started["token"], "expectedClipRef": recovered["clip"]["ref"]})
+
+    def test_capture_recovery_operations_remain_advertised_while_only_slot_is_occupied(self):
+        _, mapper, _, _, args = self.capture_fixture()
+        preview = mapper.invoke("audio.capture.inspect", args)
+        mapper.invoke("audio.capture.start", {**args, "captureId": "capture-unit-advertisement", "fence": preview["fence"], "maxDurationMs": 1000})
+        status = mapper.status()
+        for operation in ("audio.capture.status", "audio.capture.stop", "audio.capture.emergency-stop", "audio.capture.cleanup"):
+            self.assertIn(operation, status["operations"])
+        self.assertIn("audio.capture.resampling", status["capabilities"])
+
+    def test_routing_choice_discovery_enumerates_the_parent_track(self):
+        _, mapper, _, _, _ = self.capture_fixture()
+        snapshot = mapper.snapshot(); track_ref = snapshot["tracks"][1]["ref"]
+        discovered = mapper.discover("routing_choice", parent=track_ref)
+        self.assertTrue(any(item["name"] == "Resampling" and item["direction"] == "input-type" for item in discovered["items"]))
+        self.assertTrue(all(item["parentRef"] == track_ref for item in discovered["items"]))
         self.assertIn('provenance="real-live"', Path(__file__).with_name("AbletonMcpBridge").joinpath("__init__.py").read_text(encoding="utf-8"))
 
     def test_references_remain_stable_across_fresh_discovery(self):

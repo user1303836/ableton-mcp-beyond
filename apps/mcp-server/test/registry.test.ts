@@ -52,6 +52,18 @@ test("realtime registry enforces explicit unique channels and measured bounded r
   validateLiveOperationResult("realtime.stats", { armed: true, accepted: 2, applied: 2, applyFailures: 0, pending: 0, droppedUnarmed: 0, droppedEndpoint: 0, droppedTarget: 0, droppedInvalid: 0, droppedReplay: 0, droppedRateLimited: 0, droppedQueueFull: 0, droppedBeforeDispatch: 0, revokedBeforeApply: 0, sequenceGaps: 0, lastSequence: 2, jitterMs: 0.2, maxJitterMs: 0.4 });
 });
 
+test("capture registry requires exact bounded authority and cleanup identity", () => {
+  const base = { captureId: "capture_1234567890", setName: "Disposable", sourceSlotRef: "1:clip_slot:0:0", destinationSlotRef: "1:clip_slot:1:0", fence: "a".repeat(64), maxDurationMs: 5000 };
+  validateLiveOperationRequest("audio.capture.start", base);
+  assert.throws(() => validateLiveOperationRequest("audio.capture.start", { ...base, maxDurationMs: 10001 }), /outside registry numeric bounds/);
+  assert.throws(() => validateLiveOperationRequest("audio.capture.start", { ...base, extra: true }), /not allowed/);
+  validateLiveOperationResult("audio.capture.start", { captureId: base.captureId, token: "t".repeat(32), expiresAt: Date.now() + 5000, state: "active", sourceSlotRef: base.sourceSlotRef });
+  validateLiveOperationRequest("audio.capture.cleanup", { captureId: base.captureId, token: "t".repeat(32), expectedClipRef: "1:clip:1:0" });
+  assert.throws(() => validateLiveOperationRequest("audio.capture.cleanup", { captureId: base.captureId, token: "t".repeat(32) }), /required/);
+  validateLiveOperationResult("audio.capture.cleanup", { cleaned: true, filePath: "/project/Samples/Recorded/capture.wav", residual: [] });
+  validateLiveOperationResult("audio.capture.status", { active: false, state: "captured", captureId: base.captureId, clip: { ref: "1:clip:1:0", filePath: "/project/capture.wav" } });
+});
+
 test("guarded audition and emergency operations replace generic audible invocation", () => {
   const registry = loadLiveRegistry();
   const ids = registry.operations.map((item) => item.id);

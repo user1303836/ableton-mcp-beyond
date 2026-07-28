@@ -1,0 +1,342 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-27T23:53:11.114Z",
+  "live": {
+    "version": "12.4.5b8",
+    "application": "Ableton Live",
+    "platform": "darwin",
+    "status": {
+      "adapter": "remote-script",
+      "provenance": "real-live",
+      "epoch": 7461028494981917,
+      "registryHash": "81d9e274df2ec544c9c32b3a8f058b872767d3cd6ff1b1d7039a5df3cbe791c7",
+      "captureCapability": true,
+      "captureOperations": [
+        "audio.capture.cleanup",
+        "audio.capture.emergency-stop",
+        "audio.capture.inspect",
+        "audio.capture.start",
+        "audio.capture.status",
+        "audio.capture.stop"
+      ]
+    }
+  },
+  "package": {
+    "name": "@ableton-mcp/mcp-server",
+    "version": "0.1.0",
+    "installMode": "npm install from npm pack artifact",
+    "tarballSha256": "7dace003c431da8ee6c1e48cd8611498be50a0aff7796f1b0a4ed15c7dbb6570"
+  },
+  "checks": {
+    "initial": {
+      "sourceVolume": 0.8500000238418579,
+      "sourceDevices": [],
+      "sourceSlotEmpty": false,
+      "destination": {
+        "route": "No Input",
+        "armed": false,
+        "monitoring": "off",
+        "slotEmpty": true
+      },
+      "rawFileCount": 0
+    },
+    "preparation": {
+      "sourceClip": "pre-existing-disposable",
+      "temporaryDevice": "Operator",
+      "destinationRoute": "operator-prepared-No Input"
+    },
+    "captureBefore": {
+      "captureId": "capture_0cTrAeaxm9Fad3eVKDr_viCn",
+      "media": {
+        "format": "wav-pcm",
+        "bitsPerSample": 24,
+        "sampleRate": 44100,
+        "channels": 2,
+        "durationSeconds": 3.4713832199546486,
+        "byteLength": 918608,
+        "byteLengthBounded": true,
+        "rawPathReturned": false
+      },
+      "integratedLufs": -26.830818102624438,
+      "lraLu": 0.9073504824127419,
+      "truePeakDbtp": -16.221576507546978,
+      "truePeakMethod": "64-tap Blackman-sinc 44.1-to-48 kHz then Annex 2 FIR",
+      "standardsCompliant": true,
+      "diagnosisId": "7fc137f513434f734fb09f031456421fd2ea1eba3c78921b0143da0db2c97acb",
+      "findings": [
+        {
+          "findingId": "signal-chain-context-observed",
+          "severity": "info",
+          "projectRefs": [
+            "7461028494981917:track:0",
+            "7461028494981917:device:0:0"
+          ],
+          "confidence": "low-context-only",
+          "hasSuggestedPreview": false
+        }
+      ],
+      "causalityClaimed": false,
+      "cleanup": {
+        "captureStopped": true,
+        "transportStopped": true,
+        "routingRestored": true,
+        "armRestored": true,
+        "monitoringRestored": true,
+        "liveClipDeleted": true,
+        "rawFileUnlinked": true,
+        "rawAudioRetained": false
+      },
+      "rawPathReturned": false
+    },
+    "referenceComparison": {
+      "version": "reference-analysis/v1",
+      "resampling": {
+        "method": "32-tap Blackman-windowed sinc",
+        "project": {
+          "sourceRate": 48000,
+          "targetRate": 48000,
+          "resampled": false
+        },
+        "reference": {
+          "sourceRate": 48000,
+          "targetRate": 48000,
+          "resampled": false
+        }
+      },
+      "alignment": {
+        "available": true,
+        "reason": "alignment was disabled; sources are compared from their starts",
+        "mode": "disabled",
+        "referenceOffsetSeconds": 0,
+        "correlation": null,
+        "confidence": null,
+        "ambiguous": false,
+        "overlapSeconds": 3,
+        "maxLagSeconds": 5,
+        "resolutionSeconds": 0.001
+      },
+      "levelMatch": {
+        "available": true,
+        "projectIntegratedLufs": -23.01026452256204,
+        "referenceIntegratedLufs": -16.989664609282418,
+        "projectGainToReferenceDb": 6.0205999132796215,
+        "boundedSuggestedGainDb": 6.0205999132796215,
+        "suggestionLimitDb": 24,
+        "changesAudio": false
+      },
+      "deltas": {
+        "projectMinusReference": {
+          "integratedLoudnessLu": -6.0205999132796215,
+          "truePeakDb": -6.020599913279623,
+          "samplePeakDb": -6.020599913279625,
+          "rmsDb": -6.020599913279625,
+          "crestFactorDb": 0,
+          "dynamicRangeDb": -3.552713678800501e-15,
+          "spectralCentroidHz": 0,
+          "dominantFrequencyHz": 0,
+          "transientDensityPerSecond": 0
+        }
+      },
+      "privacy": {
+        "rawAudioRetained": false,
+        "rawAudioReturned": false,
+        "sourcePathAccepted": false
+      }
+    },
+    "controlledAdjustment": {
+      "previewTool": "live_mixer_preview",
+      "normalizedVolume": {
+        "before": 0.8500000238418579,
+        "experimental": 0.765,
+        "restored": 0.8500000238418579
+      },
+      "measurementBefore": {
+        "captureId": "capture_0cTrAeaxm9Fad3eVKDr_viCn",
+        "media": {
+          "format": "wav-pcm",
+          "bitsPerSample": 24,
+          "sampleRate": 44100,
+          "channels": 2,
+          "durationSeconds": 3.4713832199546486,
+          "byteLength": 918608,
+          "byteLengthBounded": true,
+          "rawPathReturned": false
+        },
+        "integratedLufs": -26.830818102624438,
+        "lraLu": 0.9073504824127419,
+        "truePeakDbtp": -16.221576507546978,
+        "truePeakMethod": "64-tap Blackman-sinc 44.1-to-48 kHz then Annex 2 FIR",
+        "standardsCompliant": true,
+        "diagnosisId": "7fc137f513434f734fb09f031456421fd2ea1eba3c78921b0143da0db2c97acb",
+        "findings": [
+          {
+            "findingId": "signal-chain-context-observed",
+            "severity": "info",
+            "projectRefs": [
+              "7461028494981917:track:0",
+              "7461028494981917:device:0:0"
+            ],
+            "confidence": "low-context-only",
+            "hasSuggestedPreview": false
+          }
+        ],
+        "causalityClaimed": false,
+        "cleanup": {
+          "captureStopped": true,
+          "transportStopped": true,
+          "routingRestored": true,
+          "armRestored": true,
+          "monitoringRestored": true,
+          "liveClipDeleted": true,
+          "rawFileUnlinked": true,
+          "rawAudioRetained": false
+        },
+        "rawPathReturned": false
+      },
+      "measurementAfter": {
+        "captureId": "capture_yGdwdsP0mGy-vM7MAxjDv37z",
+        "media": {
+          "format": "wav-pcm",
+          "bitsPerSample": 24,
+          "sampleRate": 44100,
+          "channels": 2,
+          "durationSeconds": 3.1463038548752835,
+          "byteLength": 832592,
+          "byteLengthBounded": true,
+          "rawPathReturned": false
+        },
+        "integratedLufs": -30.26543377102868,
+        "lraLu": 0.2439488150280127,
+        "truePeakDbtp": -20.507530773246025,
+        "truePeakMethod": "64-tap Blackman-sinc 44.1-to-48 kHz then Annex 2 FIR",
+        "standardsCompliant": true,
+        "diagnosisId": "71f53f92ac43ffdf844d39fc7c3a5248b34b274788f2ed530a148100e8e0cc79",
+        "findings": [
+          {
+            "findingId": "signal-chain-context-observed",
+            "severity": "info",
+            "projectRefs": [
+              "7461028494981917:track:0",
+              "7461028494981917:device:0:0"
+            ],
+            "confidence": "low-context-only",
+            "hasSuggestedPreview": false
+          }
+        ],
+        "causalityClaimed": false,
+        "cleanup": {
+          "captureStopped": true,
+          "transportStopped": true,
+          "routingRestored": true,
+          "armRestored": true,
+          "monitoringRestored": true,
+          "liveClipDeleted": true,
+          "rawFileUnlinked": true,
+          "rawAudioRetained": false
+        },
+        "rawPathReturned": false
+      },
+      "integratedDeltaLu": -3.4346156684042413,
+      "claim": "controlled reversible intervention; normalized volume is not represented as a promised dB change"
+    },
+    "cancellation": {
+      "activeLifecycleObservedBeforeCancel": true,
+      "responseSuppressed": true,
+      "status": {
+        "active": false,
+        "unsafe": false,
+        "playbackStopped": true,
+        "state": "cleaned",
+        "captureId": "capture_p2ox2ZqqiaLNweeJ-Sl6L14e",
+        "sourceSlotRef": "7461028494981917:clip_slot:0:0",
+        "destinationSlotRef": "7461028494981917:clip_slot:2:0",
+        "destinationTrackRef": "7461028494981917:track:2",
+        "startedAt": 1785196500015,
+        "expiresAt": 1785196506015,
+        "residual": [],
+        "watchdogStopped": false
+      },
+      "playback": {
+        "playing": false,
+        "arrangementRecord": false,
+        "sessionRecord": false
+      },
+      "rawFileCount": 0,
+      "rawBaselineUnchanged": true
+    },
+    "hostRestartWatchdog": {
+      "observed": {
+        "state": "captured",
+        "active": false,
+        "playbackStopped": true,
+        "watchdogStopped": true,
+        "clipFileAvailable": true
+      },
+      "recovery": {
+        "captureId": "capture_GCRPsV72g6DUokWRPZyIBSSZ",
+        "state": "cleaned",
+        "stopped": true,
+        "cleanup": {
+          "safe": true,
+          "residual": []
+        },
+        "rawPathReturned": false
+      },
+      "finalStatus": {
+        "active": false,
+        "unsafe": false,
+        "playbackStopped": true,
+        "state": "cleaned",
+        "captureId": "capture_GCRPsV72g6DUokWRPZyIBSSZ",
+        "sourceSlotRef": "7461028494981917:clip_slot:0:0",
+        "destinationSlotRef": "7461028494981917:clip_slot:2:0",
+        "destinationTrackRef": "7461028494981917:track:2",
+        "startedAt": 1785196531549,
+        "expiresAt": 1785196536549,
+        "residual": [],
+        "watchdogStopped": true
+      },
+      "playback": {
+        "playing": false,
+        "arrangementRecord": false,
+        "sessionRecord": false
+      },
+      "rawFileCount": 0,
+      "rawBaselineUnchanged": true
+    },
+    "final": {
+      "sourceVolume": 0.8500000238418579,
+      "sourceDevices": [],
+      "sourceSlotEmpty": false,
+      "destination": {
+        "route": "No Input",
+        "armed": false,
+        "monitoring": "off",
+        "slotEmpty": true
+      },
+      "playback": {
+        "playing": false,
+        "arrangementRecord": false,
+        "sessionRecord": false
+      },
+      "capture": {
+        "active": false,
+        "unsafe": false,
+        "playbackStopped": true,
+        "state": "cleaned",
+        "captureId": "capture_GCRPsV72g6DUokWRPZyIBSSZ",
+        "sourceSlotRef": "7461028494981917:clip_slot:0:0",
+        "destinationSlotRef": "7461028494981917:clip_slot:2:0",
+        "destinationTrackRef": "7461028494981917:track:2",
+        "startedAt": 1785196531549,
+        "expiresAt": 1785196536549,
+        "residual": [],
+        "watchdogStopped": true
+      },
+      "rawFileCount": 0,
+      "rawBaselineUnchanged": true,
+      "authenticatedTcpBridgeReachable": true
+    }
+  },
+  "passed": true
+}

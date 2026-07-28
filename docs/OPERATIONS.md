@@ -23,7 +23,7 @@ Diagnostics separates local host/package/configuration readiness from authentica
 
 ## Limits and shutdown
 
-The host bounds JSON-RPC frames at 64 MiB, remote frames at 1 MiB, remote pending work at 64 requests, tracked request identifiers at 4096, and tool calls at 120 per rolling minute. Stdio allows bounded concurrent work (default 16, maximum 64), preserves response order, observes output backpressure, and treats cancellation after dispatch as non-retracting. Audio analysis is bounded to the limits in `USER_GUIDE.md`. Close stdin for normal completion. On EOF, signal, initialization failure, cancellation, output failure, timeout, or disconnect, close the adapter and settle pending work; reinitialize to obtain a new epoch. A scene-audition disconnect, timeout, or acknowledgement loss is uncertain playback state, not a safe retry condition.
+The host bounds JSON-RPC frames at 64 MiB, remote frames at 1 MiB, remote pending work at 64 requests, tracked request identifiers at 4096, and tool calls at 120 per rolling minute. Stdio allows bounded concurrent work (default 16, maximum 64), preserves response order, observes output backpressure, and treats cancellation after dispatch as non-retracting. Public PCM analysis is limited to 10,000,000 scalar samples/600 seconds; reference comparison is limited to 4,000,000 pair samples/30 seconds per source/10 seconds lag. DSP runs in at most two active and four queued disposable workers with a 512 MiB heap, 30 second wall limit, 64 MiB request, 2 MiB stdout, and 16 KiB stderr. Live capture is limited to one mapper-owned lifecycle, one-to-nine requested seconds, a ten-second watchdog, 32 MiB WAV, 12 seconds, and two channels. Close stdin for normal completion. On EOF, signal, initialization failure, cancellation, output failure, timeout, or disconnect, close the adapter and settle pending work; reinitialize to obtain a new epoch. A scene-audition disconnect, timeout, or acknowledgement loss is uncertain playback state, not a safe retry condition.
 
 ## Realtime operations
 
@@ -34,6 +34,26 @@ packets and applied Live-thread callbacks are separate counters. Endpoint,
 replay, rate, queue, expiry, and generation-fence drops are explicit. See
 `REALTIME_CONTROL.md` for packet formats, limits, OSC/XY/Max extension semantics,
 and recovery.
+
+## Audio capture supervision
+
+Before capture, record the exact Set, source/destination slots, destination
+route/arm/monitor baseline, playback/recording state, output-safety provenance,
+and raw-file directory count. Do not supervise by port/process presence alone;
+require `real-live` provenance and all canonical capture operations.
+
+During apply, the MCP request can remain open for the requested duration plus
+bounded finalization/analysis. Cancellation emits no MCP response but the host
+continues independent stop/cleanup; wait for `live_audio_capture_status` from a
+fresh client. A killed host does not remove mapper authority: the Live-side
+watchdog stops recording, and a new packaged host can run
+`live_audio_capture_emergency_stop` with exact observed identities.
+
+A passing completion requires mapper state `cleaned`, `playbackStopped=true`,
+transport/Session/Arrangement recording false, restored route/arm/monitoring,
+an empty destination slot, `rawFileUnlinked=true`, and no WAV/ASD residual.
+Never log confirmation, mapper/recovery token, PCM, or media path. See
+`AUDIO_INTELLIGENCE.md`.
 
 ## Installation
 

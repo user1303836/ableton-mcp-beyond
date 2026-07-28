@@ -1,10 +1,12 @@
+import { analyzeStandardsAudio, type ConventionalChannelLabel, type StandardsAudioAnalysis } from "./audio-standards.js";
+
 /** Deterministic, local-only analysis of normalized PCM samples.
  *
  * This module deliberately accepts samples rather than paths or URLs. It never
  * retains or returns audio data; callers receive aggregate measurements only.
  */
 
-export const ANALYSIS_VERSION = "pcm-analysis/v1";
+export const ANALYSIS_VERSION = "pcm-analysis/v2";
 export const MAX_ANALYSIS_SAMPLES = 10_000_000;
 export const MAX_ANALYSIS_SECONDS = 600;
 export const MAX_ANALYSIS_CHANNELS = 32;
@@ -18,6 +20,7 @@ export interface PcmAnalysisInput {
   samples: ArrayLike<number>;
   sampleRate: number;
   channels?: number;
+  channelLayout?: readonly ConventionalChannelLabel[];
   frameSize?: number;
 }
 
@@ -57,7 +60,9 @@ export interface PcmAnalysis {
   rmsDbfs: number;
   channelsDetail: Array<{ channel: number; peak: number; peakDbfs: number; rms: number; rmsDbfs: number; dcOffset: number; clipping: { count: number; ratio: number } }>;
   stereo: { phaseCorrelation: number | null; reason?: string };
+  /** @deprecated Compatibility-only RMS proxy. Use standardsAudio.loudness. */
   loudness: { rmsLoudnessProxyDb: number; integratedLufsEstimate: number; method: "rms-derived-proxy"; standardsCompliant: false; deprecatedIntegratedLufsEstimate: true };
+  standardsAudio: StandardsAudioAnalysis;
   dynamics: { crestFactorDb: number; dynamicRangeDb: number; silenceRatio: number };
   clipping: { count: number; ratio: number };
   spectral: { centroidHz: number; dominantFrequencyHz: number; analyzedFrames: number; fftSize: number };
@@ -245,7 +250,7 @@ function remediation(analysis: Pick<PcmAnalysis, "peakDbfs" | "clipping" | "loud
     result.push({ id: "leave-headroom", severity: "warning", reason: "Peak level is within 1 dB of full scale.", action: "Preview at least 1 dB of headroom; do not change the Live set automatically.", reversible: true, changesAudio: false });
   }
   if (analysis.loudness.integratedLufsEstimate > -9) {
-    result.push({ id: "check-loudness", severity: "info", reason: "The RMS-based loudness estimate is high.", action: "Compare against the delivery target and audition at a safe monitoring level.", reversible: true, changesAudio: false });
+    result.push({ id: "check-loudness", severity: "info", reason: "The compatibility RMS proxy is high; inspect the standardsAudio loudness result before making a delivery judgement.", action: "Compare the standards-based result against the delivery target and audition at a safe monitoring level.", reversible: true, changesAudio: false });
   }
   if (analysis.dynamics.silenceRatio > 0.95) {
     result.push({ id: "inspect-silence", severity: "info", reason: "More than 95% of samples are near silence.", action: "Inspect the capture range before editing or deleting anything.", reversible: true, changesAudio: false });
@@ -253,7 +258,7 @@ function remediation(analysis: Pick<PcmAnalysis, "peakDbfs" | "clipping" | "loud
   return result;
 }
 
-export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
+function analyzePcmInternal(input: PcmAnalysisInput, amplitudeLimit: number): PcmAnalysis {
   const channels = input.channels ?? 1;
   const frameSize = input.frameSize ?? 2048;
   finite(input.sampleRate, "sampleRate");
@@ -288,7 +293,7 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
   for (let i = 0; i < sampleCount; i += 1) {
     const sample = input.samples[i] ?? 0;
     finite(sample, `samples[${i}]`);
-    if (sample < -1 || sample > 1) throw new RangeError(`samples[${i}] must be normalized between -1 and 1`);
+    if (sample < -amplitudeLimit || sample > amplitudeLimit) throw new RangeError(amplitudeLimit === 1 ? `samples[${i}] must be normalized between -1 and 1` : `samples[${i}] exceeds the bounded reconstructed-audio range`);
     normalizedSamples[i] = sample;
     const magnitude = Math.abs(sample);
     monoPeak = Math.max(monoPeak, magnitude);
@@ -348,6 +353,7 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
     channelsDetail,
     stereo: { phaseCorrelation, ...(correlationReason ? { reason: correlationReason } : {}) },
     loudness: { rmsLoudnessProxyDb: db(rms), integratedLufsEstimate: db(rms), method: "rms-derived-proxy", standardsCompliant: false, deprecatedIntegratedLufsEstimate: true },
+    standardsAudio: analyzeStandardsAudio({ samples: normalizedSamples, sampleRate: input.sampleRate, channels, ...(input.channelLayout ? { channelLayout: input.channelLayout } : {}) }),
     dynamics: { crestFactorDb: db(peak / Math.max(rms, EPSILON)), dynamicRangeDb, silenceRatio: silenceCount / sampleCount },
     clipping: { count: clippingCount, ratio: clippingCount / sampleCount },
     spectral: analyzeSpectrum(monoSamples, input.sampleRate, frameSize),
@@ -361,6 +367,16 @@ export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
   };
   analysis.remediation = remediation(analysis);
   return analysis;
+}
+
+export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
+  return analyzePcmInternal(input, 1);
+}
+
+/** Package-internal path for a band-limited resampler whose reconstructed
+ * inter-sample values can truthfully exceed normalized sample full scale. */
+export function analyzeReconstructedPcm(input: PcmAnalysisInput): PcmAnalysis {
+  return analyzePcmInternal(input, 4);
 }
 
 export function decodeFloat32Le(base64: string): Float32Array {

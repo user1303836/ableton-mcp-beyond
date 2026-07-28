@@ -27,7 +27,7 @@ function canonical(value: unknown, depth = 0): string {
 
 function registryPath(): string {
   const here = dirname(fileURLToPath(import.meta.url));
-  return [join(here, "../../../protocol/ableton-live-v1.operations.json"), join(process.cwd(), "../../protocol/ableton-live-v1.operations.json"), join(process.cwd(), "protocol/ableton-live-v1.operations.json")].find((candidate) => {
+  return [join(here, "../../remote-script/AbletonMcpBridge/ableton-live-v1.operations.json"), join(here, "../../../protocol/ableton-live-v1.operations.json"), join(process.cwd(), "../../protocol/ableton-live-v1.operations.json"), join(process.cwd(), "protocol/ableton-live-v1.operations.json")].find((candidate) => {
     try { readFileSync(candidate); return true; } catch { return false; }
   }) ?? join(here, "../../../protocol/ableton-live-v1.operations.json");
 }

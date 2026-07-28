@@ -30,10 +30,11 @@ handling, see [`docs/OPERATIONS.md`](docs/OPERATIONS.md) and
 
 The source-controlled operation contract is
 [`protocol/ableton-live-v1.operations.json`](protocol/ableton-live-v1.operations.json).
-The bridge negotiates its canonical SHA-256 before serving Live operations. The
-current host surface includes bounded discovery, guarded Session scene
-audition, Session structure and MIDI, Arrangement locators, tempo, and guarded
-numeric device-parameter adjustment. The Python mapper supports bounded,
+The bridge negotiates its canonical SHA-256 before serving Live operations. The current host surface includes bounded discovery; guarded Session and
+Arrangement lifecycles; transport, MIDI, mixer, automation, devices/racks,
+Browser, routing, recording, projects, subscriptions, realtime control;
+standards audio/reference intelligence; and consent-bound real-Live Resampling
+capture. The Python mapper supports bounded,
 epoch-scoped discovery for the observed hierarchy, including regular/group,
 return and main tracks, scenes, parent-scoped clip slots and clips, notes,
 locators, devices, parameters, selection, routing choices, and Session
@@ -94,11 +95,33 @@ must be stopped with the returned stop confirmation. It is not real-Live
 evidence unless a real authenticated bridge and disposable Set have been
 independently established.
 
+## Audio intelligence
+
+`audio_analyze` runs caller PCM in a cancellable secret-stripped worker and
+returns privacy-bounded `pcm-analysis/v2` summaries, including ITU-R BS.1770-5,
+EBU R128/Tech 3341/3342 loudness/LRA and validated 44.1/48 kHz true peak.
+`audio_compare_reference` adds bounded band-limited resampling,
+coarse-to-fine/manual alignment, standards level matching, and aggregate deltas.
+`audio_diagnose_live_context` links measurements to fresh refs without claiming
+that caller PCM came from Live or that an observed device caused a result.
+
+When—and only when—the installed authenticated bridge reports `real-live` and
+`audio.capture.resampling`, `live_audio_capture_preview/apply` can record one
+exact source through Live's Resampling input into one exact empty audio slot.
+It requires explicit ephemeral consent and output safety, has a ten-second
+Live-side watchdog and post-restart emergency recovery, analyzes a fresh
+bounded WAV internally, deletes the owned clip, and unlinks the WAV/ASD without
+returning raw audio or its path. See
+[`docs/AUDIO_INTELLIGENCE.md`](docs/AUDIO_INTELLIGENCE.md).
+
 ## Evidence boundary
 
 The deterministic simulator, Python fake-Live mapper, package smoke tests,
 benchmarks, and authenticated loopback tests are contract evidence only. They
 do not prove a real Ableton Live version, disposable Set, audio device,
 hardware, accessibility, signing, notarization, or installer-runtime result.
-Those limitations are recorded in [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md)
-and the real-Live safety boundary is in [`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md).
+Tracked evidence distinguishes those contracts from macOS Live 12.4.5b8
+observations through Phase 8; it is not Windows Live, signing, notarization, or
+publication proof. Current limitations are recorded in
+[`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md), and the
+real-Live safety boundary is in [`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md).

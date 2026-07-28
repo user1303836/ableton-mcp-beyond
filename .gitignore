@@ -10,5 +10,6 @@ smithers.db-shm
 smithers.db-wal
 /.agents/
 /.claude/
+/.pi-subagents/
 apps/mcp-server/remote-script/
 apps/mcp-server/*.tgz
