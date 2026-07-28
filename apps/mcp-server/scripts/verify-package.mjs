@@ -1,14 +1,27 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { createServer } from "node:net";
 import { npmExecutable } from "../dist/src/platform.js";
 
 const packageDirectory = new URL("..", import.meta.url);
 const temporaryDirectory = mkdtempSync(join(tmpdir(), "ableton-mcp-package-"));
 const npm = npmExecutable();
 const npmOptions = { shell: process.platform === "win32" };
+
+async function freePort() {
+  return await new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const port = typeof address === "object" && address ? address.port : 0;
+      server.close((error) => error ? reject(error) : resolve(port));
+    });
+  });
+}
 
 function terminateChildProcess(child) {
   if (!child || child.exitCode !== null) return;
@@ -35,17 +48,17 @@ function removeTemporaryDirectory(path) {
 
 let bridgeProcess;
 try {
-  const packOutput = execFileSync(npm, ["pack", "--json", "--pack-destination", temporaryDirectory], {
-    ...npmOptions,
-    cwd: packageDirectory,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  const packed = JSON.parse(packOutput);
-  if (!Array.isArray(packed) || packed.length !== 1 || typeof packed[0]?.filename !== "string") {
-    throw new Error("npm pack did not return exactly one artifact");
+  const requestedArtifact = process.env.ABLETON_MCP_ARTIFACT;
+  let artifact;
+  if (requestedArtifact) {
+    artifact = resolve(requestedArtifact);
+    if (!isAbsolute(requestedArtifact) || !existsSync(artifact)) throw new Error("ABLETON_MCP_ARTIFACT must name an existing absolute tarball");
+  } else {
+    const packOutput = execFileSync(npm, ["pack", "--json", "--pack-destination", temporaryDirectory], { ...npmOptions, cwd: packageDirectory, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const packed = JSON.parse(packOutput);
+    if (!Array.isArray(packed) || packed.length !== 1 || typeof packed[0]?.filename !== "string") throw new Error("npm pack did not return exactly one artifact");
+    artifact = join(temporaryDirectory, packed[0].filename);
   }
-  const artifact = join(temporaryDirectory, packed[0].filename);
   const listing = execFileSync(npm, ["pack", "--dry-run", "--json"], {
     ...npmOptions,
     cwd: packageDirectory,
@@ -56,12 +69,15 @@ try {
   const files = dryRun?.[0]?.files;
   if (!Array.isArray(files)) throw new Error("npm pack dry-run did not report files");
   const names = files.map((entry) => entry.path);
-  for (const required of ["dist/src/cli.js", "dist/src/setup.js", "dist/src/migrate.js", "dist/src/diagnostics.js", "dist/src/install-remote-script.js", "remote-script/AbletonMcpBridge/__init__.py", "remote-script/AbletonMcpBridge/ableton_mcp_remote_script.py", "remote-script/AbletonMcpBridge/ableton-live-v1.operations.json", "remote-script/AbletonMcpBridge/manifest.json", "package.json"]) {
+  for (const required of ["dist/src/cli.js", "dist/src/setup.js", "dist/src/migrate.js", "dist/src/diagnostics.js", "dist/src/install-remote-script.js", "dist/src/lifecycle-cli.js", "remote-script/AbletonMcpBridge/__init__.py", "remote-script/AbletonMcpBridge/ableton_mcp_remote_script.py", "remote-script/AbletonMcpBridge/ableton-live-v1.operations.json", "remote-script/AbletonMcpBridge/manifest.json", "release-docs/USER_GUIDE.md", "release-docs/OPERATIONS.md", "release-docs/RECOVERY.md", "release-docs/DISTRIBUTION_POLICY.md", "release-docs/SUPPORT_MATRIX.md", "release-manifest.json", "LICENSE.md", "package.json"]) {
     if (!names.includes(required)) throw new Error(`package is missing ${required}`);
   }
-  if (names.some((name) => name.includes("extensions-sdk-1.0.0-beta.0") || name.includes("node_modules"))) {
-    throw new Error("package contains a protected SDK or dependency tree");
-  }
+  const runtimeModules = ["analysis-job-worker", "analysis-runner", "analysis", "audio-diagnosis", "audio-file", "audio-standards", "bridge/remote-adapter", "cli", "delivery", "diagnostics", "framing", "host", "index", "install-remote-script", "journeys", "lifecycle-cli", "lifecycle", "live", "loopback", "migrate", "platform", "project", "reference-analysis", "registry", "setup", "stdio", "transactions/session-midi"];
+  const expectedNames = ["package.json", "LICENSE.md", "release-manifest.json", ...runtimeModules.flatMap((module) => [`dist/src/${module}.js`, `dist/src/${module}.d.ts`]), ...["README.md", "USER_GUIDE.md", "USER_JOURNEYS.md", "OPERATIONS.md", "RECOVERY.md", "LIVE_SAFETY.md", "AUDIO_INTELLIGENCE.md", "REALTIME_CONTROL.md", "DELIVERY.md", "DEVELOPER_GUIDE.md", "TESTING.md", "IMPLEMENTATION_STATUS.md", "DISTRIBUTION_POLICY.md", "SUPPORT_MATRIX.md"].map((name) => `release-docs/${name}`), "remote-script/README.md", "remote-script/AbletonMcpBridge/__init__.py", "remote-script/AbletonMcpBridge/ableton_mcp_remote_script.py", "remote-script/AbletonMcpBridge/ableton-live-v1.operations.json", "remote-script/AbletonMcpBridge/manifest.json"].sort();
+  if (JSON.stringify([...names].sort()) !== JSON.stringify(expectedNames)) throw new Error("package inventory differs from the independent explicit allowlist");
+  const allowed = (name) => expectedNames.includes(name);
+  const forbidden = names.filter((name) => !allowed(name) || name.startsWith("scripts/") || name.includes("/test/") || name.endsWith(".map") || name.includes("node_modules") || name.includes("evidence/") || /(?:^|\/)(?:bridge\.secret|bridge-config\.json|install-receipt\.json|lifecycle-journal\.json)$/.test(name));
+  if (forbidden.length > 0) throw new Error(`package contains non-allowlisted files: ${forbidden.join(", ")}`);
 
   const installDirectory = join(temporaryDirectory, "install");
   execFileSync(npm, ["install", "--prefix", installDirectory, artifact, "--ignore-scripts", "--no-audit", "--no-fund"], {
@@ -71,7 +87,24 @@ try {
   });
   const installedPackageDirectory = join(installDirectory, "node_modules", "@ableton-mcp", "mcp-server");
   const installedManifest = JSON.parse(readFileSync(join(installedPackageDirectory, "package.json"), "utf8"));
-  if (installedManifest.bin?.["ableton-mcp-server"] !== "./dist/src/cli.js") throw new Error("installed server binary does not target the executable");
+  if (installedManifest.private !== true || installedManifest.license !== "UNLICENSED" || installedManifest.bin?.["ableton-mcp-server"] !== "./dist/src/cli.js" || installedManifest.bin?.["ableton-mcp-lifecycle"] !== "./dist/src/lifecycle-cli.js") throw new Error("installed package policy or executable map is invalid");
+  const releaseManifest = JSON.parse(readFileSync(join(installedPackageDirectory, "release-manifest.json"), "utf8"));
+  if (releaseManifest.schema !== "ableton-mcp-private-release/v1" || releaseManifest.distribution?.channel !== "private-local-npm-tarball" || releaseManifest.distribution?.published !== false || releaseManifest.distribution?.signed !== false || releaseManifest.distribution?.notarized !== false || releaseManifest.algorithm !== "sha256" || !/^[a-f0-9]{64}$/.test(releaseManifest.build?.builder?.packageLockSha256 ?? "") || !/^[a-f0-9]{64}$/.test(releaseManifest.build?.builder?.workflowSha256 ?? "") || !releaseManifest.build?.builder?.node || !releaseManifest.build?.builder?.npm || !releaseManifest.build?.builder?.typescript) throw new Error("installed release manifest policy is invalid");
+  const manifestNames = Object.keys(releaseManifest.files ?? {}).sort();
+  const expectedManifestNames = names.filter((name) => !["package.json", "release-manifest.json"].includes(name)).sort();
+  if (JSON.stringify(manifestNames) !== JSON.stringify(expectedManifestNames)) throw new Error("release manifest does not exactly cover the packaged payload allowlist");
+  for (const [name, expected] of Object.entries(releaseManifest.files)) {
+    const actual = createHash("sha256").update(readFileSync(join(installedPackageDirectory, ...name.split("/")))).digest("hex");
+    if (actual !== expected) throw new Error(`release payload hash mismatch: ${name}`);
+  }
+  for (const name of manifestNames.filter((entry) => entry.startsWith("release-docs/") && entry.endsWith(".md"))) {
+    const documentPath = join(installedPackageDirectory, ...name.split("/")); const markdown = readFileSync(documentPath, "utf8");
+    for (const match of markdown.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
+      const target = match[1].split("#", 1)[0]; if (!target || /^[a-z]+:/i.test(target)) continue;
+      const resolvedTarget = resolve(dirname(documentPath), target); const within = relative(installedPackageDirectory, resolvedTarget);
+      if (within.startsWith("..") || isAbsolute(within) || !existsSync(resolvedTarget)) throw new Error(`packaged documentation has a broken internal link: ${name} -> ${match[1]}`);
+    }
+  }
   const remotePackageDirectory = join(installedPackageDirectory, "remote-script", "AbletonMcpBridge");
   if (!readFileSync(join(remotePackageDirectory, "__init__.py"), "utf8").includes("def create_instance")) throw new Error("installed Remote Script package has no loadable create_instance");
   if (!readFileSync(join(remotePackageDirectory, "ableton_mcp_remote_script.py"), "utf8").includes("class AbletonMcpBridge")) throw new Error("installed Remote Script package has no production bridge");
@@ -103,6 +136,37 @@ try {
   const diagnosticsOutput = execFileSync(process.execPath, [join(installedPackageDirectory, "dist", "src", "diagnostics.js"), "--config", migratedPath], { encoding: "utf8" });
   const diagnostics = JSON.parse(diagnosticsOutput);
   if (diagnostics.config?.valid !== true || diagnostics.entrypoint?.present !== true || diagnostics.external?.abletonLive !== "unavailable") throw new Error("installed diagnostics helper reported an invalid readiness result");
+
+  // Exercise the installed receipt-driven lifecycle through OS-native paths
+  // containing spaces and Unicode. This is host/package evidence, not Live.
+  const lifecycleExecutable = join(installedPackageDirectory, "dist", "src", "lifecycle-cli.js");
+  const lifecycleRoot = join(temporaryDirectory, "Lifecycle ü space");
+  const lifecycleState = join(lifecycleRoot, "State ü");
+  const lifecycleRemoteParent = join(lifecycleRoot, "Live Remote Scripts ü");
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(lifecycleRemoteParent, { recursive: true });
+  const artifactSha256 = createHash("sha256").update(readFileSync(artifact)).digest("hex");
+  const controlPort = await freePort();
+  let realtimePort = await freePort();
+  while (realtimePort === controlPort) realtimePort = await freePort();
+  const lifecycleBase = ["--remote-scripts-dir", lifecycleRemoteParent, "--state-dir", lifecycleState, "--package-root", installedPackageDirectory, "--allow-dirty-private-build"];
+  const lifecycleCall = (action, extra = []) => JSON.parse(execFileSync(process.execPath, [lifecycleExecutable, action, ...lifecycleBase, ...extra], { encoding: "utf8" }));
+  const installedLifecycle = lifecycleCall("install", ["--artifact", artifact, "--artifact-sha256", artifactSha256, "--port", String(controlPort), "--realtime-port", String(realtimePort), "--apply", "--confirm-live-stopped"]);
+  if (installedLifecycle.state !== "completed" || installedLifecycle.verification?.artifactSha256 !== artifactSha256) throw new Error("installed lifecycle did not bind the exact tarball");
+  const migratedV2Path = join(temporaryDirectory, "migrated-v2.json");
+  execFileSync(process.execPath, [join(installedPackageDirectory, "dist", "src", "migrate.js"), "--input", configPath, "--output", migratedV2Path, "--bridge-host", "127.0.0.1", "--bridge-port", String(controlPort), "--realtime-port", String(realtimePort), "--secret-file", join(lifecycleState, "bridge.secret")], { encoding: "utf8" });
+  const migratedV2 = JSON.parse(readFileSync(migratedV2Path, "utf8"));
+  if (migratedV2.version !== 2 || migratedV2.bridge?.host !== "127.0.0.1" || migratedV2.server?.args?.[1] !== "--config") throw new Error("installed migration CLI did not emit an exact version-2 bridge config");
+  const activationLifecycle = lifecycleCall("activate");
+  if (activationLifecycle.state !== "activation-required" || activationLifecycle.verification?.provenance !== "unknown") throw new Error("installed lifecycle promoted unavailable activation evidence");
+  const lifecycleRemote = join(lifecycleRemoteParent, "AbletonMcpBridge");
+  writeFileSync(join(lifecycleRemote, "drift.txt"), "preserve and quarantine");
+  const repairedLifecycle = lifecycleCall("repair", ["--apply"]);
+  if (repairedLifecycle.state !== "completed" || repairedLifecycle.verification?.changed !== true || !repairedLifecycle.recovery?.quarantine) throw new Error("installed lifecycle repair did not quarantine drift");
+  const rollbackUnavailable = spawnSync(process.execPath, [lifecycleExecutable, "rollback", ...lifecycleBase, "--apply", "--confirm-live-stopped"], { encoding: "utf8" });
+  if (rollbackUnavailable.status === 0 || !rollbackUnavailable.stderr.includes("no verified previous generation")) throw new Error("installed lifecycle accepted rollback without a retained generation");
+  const uninstalledLifecycle = lifecycleCall("uninstall", ["--apply", "--confirm-live-stopped"]);
+  if (uninstalledLifecycle.state !== "completed" || existsSync(lifecycleRemote) || uninstalledLifecycle.verification?.secretPreserved !== true) throw new Error("installed lifecycle uninstall violated ownership or secret policy");
 
   const secretPath = join(temporaryDirectory, "bridge.secret");
   const bridgeConfigPath = join(temporaryDirectory, "bridge-config.json");
@@ -187,7 +251,7 @@ finally: bridge.disconnect()
     terminateChildProcess(bridgeProcess);
     try { bridgeProcess.unref(); } catch {}
   }
-  console.log(JSON.stringify({ artifact: packed[0].filename, files: names.length, installed: true, protocolSmoke: true, setupSmoke: true, migrationSmoke: true, diagnosticsSmoke: true, authenticatedBridgeSmoke: true, discoverySmoke: true, platform: process.platform, arch: process.arch }));
+  console.log(JSON.stringify({ artifact: basename(artifact), files: names.length, installed: true, protocolSmoke: true, setupSmoke: true, migrationSmoke: true, diagnosticsSmoke: true, authenticatedBridgeSmoke: true, discoverySmoke: true, lifecycleSmoke: true, strictArtifactAllowlist: true, releaseManifestVerified: true, platform: process.platform, arch: process.arch }));
 } finally {
   terminateChildProcess(bridgeProcess);
   removeTemporaryDirectory(temporaryDirectory);

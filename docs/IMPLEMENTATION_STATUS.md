@@ -66,6 +66,16 @@ a current capability report.
 - Packed-artifact production journey, Python mapper tests, property tests,
   isolated resource benchmarks, compatibility/package verification, and
   Windows permission hardening.
+- Private/unpublished `UNLICENSED` release staging with an independently exact
+  76-file allowlist, full payload hashes, and clean-SHA/toolchain/lock/workflow
+  provenance. The release workflow is configured to require fresh-clone byte
+  reproducibility and share one exact candidate across Node 22/24/25 on Ubuntu 24.04, macOS 15, and Windows Server 2025.
+- Receipt-driven install, truthful manual activation, strict newer-version
+  upgrade, exact rollback, receipt-bound repair/quarantine, retained cleanup,
+  ownership-safe uninstall/purge, and status. The lifecycle verifies actual
+  tarball bytes/inventory, owner permissions, link/junction ancestors, ports,
+  locks, generations, package/config/Remote Script integrity, and recoverable
+  failure state. Legacy/v1-to-v2 migration is explicit and secret-preserving.
 
 ## Evidence boundary
 
@@ -95,9 +105,10 @@ be opened, copied, staged, packaged, or cited as implementation evidence.
 - The stdio journey surface is text-first and has no server-owned visual focus,
   but VoiceOver/Narrator behavior in third-party MCP clients, Ableton Live, and
   plug-in windows remains client/version-dependent and is not claimed.
-- Complete installer/update/uninstall lifecycle, native signing/notarization,
-  Windows real-Live evidence, publication, and the final
-  capability/documentation/release audit remain Phase 10-11 work.
+- Native signing/notarization, Windows desktop/real-Live evidence, public
+  publication, hosted exact-candidate results for the eventual pushed SHA, and
+  the final capability/documentation/release audit remain unproven. The chosen
+  channel stays private, unsigned, unnotarized, and unpublished.
 
 ## Operating procedure
 

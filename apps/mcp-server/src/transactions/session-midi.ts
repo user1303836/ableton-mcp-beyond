@@ -84,8 +84,8 @@ export class SessionMidiTransactionManager {
   async undoAsync(transactionId: string, confirmation: unknown, idempotencyKey: string): Promise<unknown> {
     if (confirmation !== "undo") throw new Error("confirmation=undo is required");
     const record = this.records.get(transactionId);
+    if (record?.state === "undone" && record.undoKey === idempotencyKey) return { transactionId, state: "undone", idempotent: true };
     if (!record || record.state !== "applied" || !record.clipRef) throw new Error("Only an applied MIDI transaction can be undone");
-    if (record.undoKey === idempotencyKey) return { transactionId, state: "undone", idempotent: true };
     const adapter = this.asyncAdapter(); const status = this.require("session.write");
     if (status.epoch !== record.epoch) throw new Error("Live connection epoch changed; undo refused");
     const clip = await adapter.getAsync(record.clipRef) as { name?: string; length?: number; notes?: Note[] } | undefined;
@@ -141,8 +141,8 @@ export class SessionMidiTransactionManager {
   undo(transactionId: string, confirmation: unknown, idempotencyKey: string): unknown {
     if (confirmation !== "undo") throw new Error("confirmation=undo is required");
     const record = this.records.get(transactionId);
+    if (record?.state === "undone" && record.undoKey === idempotencyKey) return { transactionId, state: "undone", idempotent: true };
     if (!record || record.state !== "applied" || !record.clipRef) throw new Error("Only an applied MIDI transaction can be undone");
-    if (record.undoKey === idempotencyKey) return { transactionId, state: "undone", idempotent: true };
     const status = this.require("session.write");
     if (status.epoch !== record.epoch) throw new Error("Live connection epoch changed; undo refused");
     const clip = this.adapter.get(record.clipRef) as { name?: string; length?: number; notes?: Note[] } | undefined;

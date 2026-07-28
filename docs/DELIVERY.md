@@ -1,44 +1,269 @@
-# Delivery and platform evidence
+# Cross-platform delivery and lifecycle
 
-The npm artifact allowlists compiled host files, the `AbletonMcpBridge`
-package, its bridge module, the versioned operation registry, README, and packaging scripts. The verifier checks the real tarball in a disposable directory and rejects tests, caches, local configuration, secrets, temporary output, and protected evidence. It also installs the tarball, starts the packaged Python bridge with a dependency-free fake Song, authenticates the packaged CLI, and verifies status plus scene discovery. This is production-package/fake-Live evidence, not real Live evidence.
+## Release artifact and channel
 
-Installation requires an explicit absolute destination. It refuses symlink
-trees and overwrite by default; forced replacement moves an existing target to
-a timestamped recoverable backup. It installs a manifest containing SHA-256
-hashes for every bridge asset, including the registry, plus the canonical
-registry digest negotiated by the TypeScript host and Python mapper. The
-verifier rejects either a raw-file hash or canonical-registry mismatch and
-never embeds the bridge secret. Supplying `--config` also installs
-`AbletonMcpBridge/bridge-reference.json`; that file contains only the absolute
-path to the separately protected bridge configuration.
+The only artifact is a private, local npm tarball from `npm pack`. It is marked
+`private` and `UNLICENSED`, is unsigned/unnotarized, and is not published. See
+[DISTRIBUTION_POLICY.md](DISTRIBUTION_POLICY.md). `package:verify` rejects every
+path outside the exact allowlist and verifies `release-manifest.json` against
+every compiled runtime, Remote Script, registry, document, and license byte.
+Tests, verification scripts, source maps, dependencies, secrets, configs,
+state, backups, logs, captured media, evidence, and protected local material
+are excluded.
 
-Version 2 configuration references a separate secret file, emits the explicit
-`--config PATH` server argument, and accepts only a loopback host, valid port,
-safe path, and bounded timeout. Diagnostics report
-host/package/configuration readiness separately from authenticated reachability
-and `liveConnected`. Only the optional authenticated status handshake followed
-by bounded read-only discovery of the Set, scenes, tracks, child clip slots, and
-Session playback can set those active bridge fields. Adapter operations are
-reported separately from capabilities. An authenticated fake mapper is
-reported as `fake-live` and cannot set `liveConnected` or establish a Live
-version, audible state, or restoration evidence; files, ports, processes, and
-simulators cannot do so.
+The manifest records the package version, exact source commit and dirty flag,
+Node range, host/bridge protocol, canonical registry hash, private channel,
+signing/notarization/publication state, file roles, and SHA-256 values. A
+release candidate must come from a clean commit. SHA-256 proves byte integrity,
+not publisher identity.
 
-Node platform support is reported for Darwin, Linux, and Windows, with Node 22
-as the minimum maintained runtime and Node 22/24 in CI. Windows ACL
-permission verification is reported unavailable rather than passed when the
-native security descriptor cannot be observed. Creation and diagnostics use
-the Windows security-descriptor API to verify the owner SID, protected
-inheritance, non-inherited entries, and owner-only FullControl DACL; localized
-`icacls.exe` text is not evidence. Signing,
-notarization, real Live runtime, accessibility, hardware, and installer-runtime
-evidence remain unavailable without dedicated observed runners and identities.
+## Supported matrix
 
-The shipped wrappers reject unknown or repeated options. Setup, migration, and
-diagnostics are exercised in the Node 22/24 Linux, macOS, and Windows CI
-matrix, with Python provisioned for the authenticated package smoke. Version 1 migration
-accepts only the legacy command/args shape and produces a versioned host-only
-configuration; version 2 additionally validates loopback, bounded ports and
-timeouts, absolute non-symlink paths, and the separate secret file. The
-generated client arguments contain exactly `--config PATH` for version 2. The current package smoke does not certify an Ableton Live installation, loaded Control Surface, audio output, or scene audition.
+Node 22, 24, and 25 are explicit supported majors. Linux, macOS, and Windows
+host/package contracts run in CI. Live certification is separate and is never
+inferred from a host test; see [SUPPORT_MATRIX.md](SUPPORT_MATRIX.md).
+
+## Exact platform setup
+
+### macOS 15 (bash/zsh)
+
+Use the user Remote Scripts directory; do not write inside the Live application
+bundle. Preserve spaces exactly:
+
+```sh
+ARTIFACT="$(cd "$(dirname '/absolute/candidate.tgz')" && pwd)/$(basename '/absolute/candidate.tgz')"
+ARTIFACT_SHA="$(shasum -a 256 "$ARTIFACT" | awk '{print $1}')"
+INSTALL_ROOT="$HOME/Library/Application Support/AbletonMcp/package"
+STATE="$HOME/Library/Application Support/AbletonMcp/state"
+REMOTE_SCRIPTS="$HOME/Music/Ableton/User Library/Remote Scripts"
+mkdir -p "$INSTALL_ROOT" "$REMOTE_SCRIPTS"
+npm install --prefix "$INSTALL_ROOT" --ignore-scripts --no-audit --no-fund "$ARTIFACT"
+PACKAGE_ROOT="$INSTALL_ROOT/node_modules/@ableton-mcp/mcp-server"
+LIFECYCLE="$INSTALL_ROOT/node_modules/.bin/ableton-mcp-lifecycle"
+```
+
+Stop Live from its normal UI and verify it has exited; the lifecycle never
+kills it. Run the install commands below. Restart Live, open **Live → Settings
+→ Link, Tempo & MIDI**, choose `AbletonMcpBridge` in a Control Surface row, then
+run `activate`. For uninstall, run lifecycle uninstall while Live is stopped,
+restart Live to unload the script, update MCP client configuration, then remove
+`$INSTALL_ROOT` only after status/evidence is retained.
+
+### Windows Server 2025 host contract / Windows Live procedure (PowerShell)
+
+The hosted host contract uses Windows Server 2025. Windows 11 + Ableton Live is
+not certified; these are the exact operator steps to gather that missing cell,
+not a passing claim:
+
+```powershell
+$Artifact = (Resolve-Path 'C:\absolute\candidate.tgz').Path
+$ArtifactSha = (Get-FileHash -Algorithm SHA256 $Artifact).Hash.ToLowerInvariant()
+$InstallRoot = Join-Path $env:LOCALAPPDATA 'AbletonMcp\package'
+$State = Join-Path $env:LOCALAPPDATA 'AbletonMcp\state'
+$RemoteScripts = Join-Path ([Environment]::GetFolderPath('MyMusic')) 'Ableton\User Library\Remote Scripts'
+New-Item -ItemType Directory -Force $InstallRoot,$RemoteScripts | Out-Null
+npm install --prefix $InstallRoot --ignore-scripts --no-audit --no-fund $Artifact
+$PackageRoot = Join-Path $InstallRoot 'node_modules\@ableton-mcp\mcp-server'
+$Lifecycle = Join-Path $InstallRoot 'node_modules\.bin\ableton-mcp-lifecycle.cmd'
+& $Lifecycle install --remote-scripts-dir $RemoteScripts --state-dir $State `
+  --package-root $PackageRoot --artifact $Artifact --artifact-sha256 $ArtifactSha
+& $Lifecycle install --remote-scripts-dir $RemoteScripts --state-dir $State `
+  --package-root $PackageRoot --artifact $Artifact --artifact-sha256 $ArtifactSha `
+  --apply --confirm-live-stopped
+```
+
+First omit `--apply` and inspect the JSON plan. Stop Live visibly in its UI and
+confirm in Task Manager before the second command; do not automate process
+termination. Restart Live, select `AbletonMcpBridge` under **Options →
+Preferences → Link, Tempo & MIDI**, then run:
+
+```powershell
+& $Lifecycle activate --remote-scripts-dir $RemoteScripts --state-dir $State --package-root $PackageRoot
+```
+
+For upgrade, install the new tarball into a separate `$NewInstallRoot`, compute
+its hash with `Get-FileHash`, stop Live, and use the same `upgrade` syntax shown
+below with the new package/tarball paths. For uninstall, stop Live, run plan then
+`uninstall --apply --confirm-live-stopped`; restart Live, update clients, retain
+receipt/quarantine evidence, then remove the npm prefix. Never use an installer
+or `Remove-Item -Recurse` against a path not proven by the receipt.
+
+## Receipt-driven lifecycle CLI
+
+All examples use the installed artifact's `ableton-mcp-lifecycle`. Always pass
+the exact Live **Remote Scripts parent directory** for the selected Live
+installation. Paths may contain spaces and Unicode. The tool never guesses an
+application-bundle path, selects a Control Surface, kills Live, or follows a
+symlink/junction ancestor.
+
+Choose owner-controlled state and exact candidate values:
+
+The remaining examples use POSIX shell variables from the macOS setup above.
+On Windows use the corresponding PowerShell variables and invoke
+`& $Lifecycle`; option names and safety gates are identical.
+
+Every mutating command first supports a non-mutating plan (omit `--apply`).
+Install, upgrade, rollback, and uninstall additionally require the operator to
+stop Live and pass `--confirm-live-stopped`; the tool never treats process
+absence as proof and never kills a process.
+
+### Install
+
+```sh
+"$LIFECYCLE" install --remote-scripts-dir "$REMOTE_SCRIPTS" \
+  --state-dir "$STATE" --package-root "$PACKAGE_ROOT" \
+  --artifact "$ARTIFACT" --artifact-sha256 "$ARTIFACT_SHA"
+
+"$LIFECYCLE" install --remote-scripts-dir "$REMOTE_SCRIPTS" \
+  --state-dir "$STATE" --package-root "$PACKAGE_ROOT" \
+  --artifact "$ARTIFACT" --artifact-sha256 "$ARTIFACT_SHA" \
+  --apply --confirm-live-stopped
+```
+
+Preflight hashes the exact local tarball bytes, binds the tarball's embedded
+release manifest and complete strict inventory/payload hashes to the extracted
+package root, verifies the release manifest, empty owned
+destinations, ancestor/link safety, distinct loopback ports, and port
+availability before creating state. Apply creates an owner-only secret and
+config, atomically installs the Remote Script/registry/manifest/reference, then
+writes an owner-only receipt and journal. Any injected or real failure after
+secret, config, or bridge staging removes new authority and restores the prior
+state. Success is `installed-restart-required`, not activation.
+
+### Activation
+
+1. Restart Live.
+2. Select `AbletonMcpBridge` as a Control Surface in Live preferences.
+3. Run:
+
+```sh
+"$LIFECYCLE" activate --remote-scripts-dir "$REMOTE_SCRIPTS" \
+  --state-dir "$STATE" --package-root "$PACKAGE_ROOT"
+```
+
+Activation is read-only. It records `activated` only after authenticated status,
+canonical registry identity, bounded discovery, and `real-live` provenance.
+Fake, simulator, unavailable, stale, or wrong-registry responses remain
+`activation-required` with restart/select remediation.
+
+### Upgrade
+
+Install the new tarball at a separate package path, stop Live, review the plan,
+then apply:
+
+```sh
+"$LIFECYCLE" upgrade --remote-scripts-dir "$REMOTE_SCRIPTS" \
+  --state-dir "$STATE" --package-root '/absolute/new/package/root' \
+  --artifact '/absolute/path/to/new-candidate.tgz' \
+  --artifact-sha256 '<new-tarball-sha>'
+
+"$LIFECYCLE" upgrade --remote-scripts-dir "$REMOTE_SCRIPTS" \
+  --state-dir "$STATE" --package-root '/absolute/new/package/root' \
+  --artifact '/absolute/path/to/new-candidate.tgz' \
+  --artifact-sha256 '<new-tarball-sha>' \
+  --apply --confirm-live-stopped
+```
+
+Upgrade refuses drift and an identical candidate, preserves the owner secret,
+stages the new config/bridge, retains the previous config and exact Remote
+Script generation, verifies hashes, and records rollback identity. Failure
+restores the prior bridge/config and leaves the owner receipt unchanged.
+Restart and activate afterward.
+
+### Repair
+
+```sh
+"$LIFECYCLE" repair --remote-scripts-dir "$REMOTE_SCRIPTS" \
+  --state-dir "$STATE" --package-root "$PACKAGE_ROOT"
+"$LIFECYCLE" repair --remote-scripts-dir "$REMOTE_SCRIPTS" \
+  --state-dir "$STATE" --package-root "$PACKAGE_ROOT" --apply
+```
+
+Repair compares receipt-owned hashes, unknown files, config digest, and secret
+permissions. A clean repair is idempotent. Apply moves a drifted tree/config to
+owner-only quarantine and restores only manifest-owned payload. A missing
+secret is never regenerated silently because that would manufacture new bridge
+authority. Restart and activate after changed repair.
+
+### Rollback
+
+```sh
+"$LIFECYCLE" rollback --remote-scripts-dir "$REMOTE_SCRIPTS" \
+  --state-dir "$STATE" --package-root "$PACKAGE_ROOT" \
+  --apply --confirm-live-stopped
+```
+
+Rollback requires a receipt-bound retained generation, verifies its files,
+swaps bridge/config atomically, quarantines the failed generation for reverse
+rollback, and records another restart/activation requirement. It refuses when
+no exact previous generation exists.
+
+### Uninstall
+
+```sh
+"$LIFECYCLE" uninstall --remote-scripts-dir "$REMOTE_SCRIPTS" \
+  --state-dir "$STATE" --package-root "$PACKAGE_ROOT" \
+  --apply --confirm-live-stopped
+```
+
+Exact receipt-owned bridge files and an unchanged managed config are removed.
+Modified or unknown bridge content is moved to quarantine rather than deleted.
+The secret is preserved by default; add `--purge-secret` only for a secret the
+receipt proves this lifecycle created. Purge is ordinary unlink, not a forensic
+secure-erasure claim. The final receipt records `uninstalled`; remove the npm
+package separately only after client configs no longer point to it. Restart
+Live to unload the Control Surface.
+
+### Configuration migration
+
+The migration CLI preserves legacy/v1 output by default. To produce an exact
+version-2 bridge config, provide every authority-bearing bridge field and an
+existing owner-only secret; the entrypoint must already be absolute:
+
+```sh
+ableton-mcp-migrate --input '/absolute/legacy-or-v1.json' \
+  --output '/absolute/bridge-v2.json' \
+  --bridge-host 127.0.0.1 --bridge-port 9765 \
+  --realtime-port 9766 --secret-file '/absolute/bridge.secret'
+```
+
+It never creates a secret during migration, never accepts non-loopback hosts,
+and refuses malformed ports, linked/unsafe secrets, and replacement unless
+`--force` is explicit.
+
+### Status, journal, and recovery
+
+```sh
+"$LIFECYCLE" status --remote-scripts-dir "$REMOTE_SCRIPTS" \
+  --state-dir "$STATE" --package-root "$PACKAGE_ROOT"
+```
+
+Status is read-only and separates receipt state, package/config/Remote Script
+integrity, file drift, permissions, rollback availability, retained cleanup or
+preserved paths, and the historical activation receipt. Historical activation
+is never current-connectivity evidence and is downgraded to an effective
+restart-required status when installation integrity drifts.
+`lifecycle-journal.json` records the last transaction result without secrets. On interruption, do not retry blindly:
+inspect the receipt, journal, quarantine, Live process, and status; use repair
+or rollback as indicated.
+
+## Tested failure matrix
+
+Unit and installed-tarball tests cover spaces/Unicode, non-mutating plans,
+explicit stopped confirmation, occupied ports, owner permissions, leaf and
+ancestor symlinks, install failures after each commit boundary, drift/unknown
+files, quarantine, idempotent repair, upgrade rollback, explicit rollback,
+upgraded-generation retirement, retryable uninstall cleanup, uninstall
+preserve/purge, malformed options, restart-required state, and
+truthful unavailable activation. Hosted Windows runs add native DACL and
+held-file/process behavior; macOS runs add POSIX modes/link behavior. A passing
+lifecycle test is still not a loaded Windows Live Control Surface observation.
+
+## Layered diagnostics
+
+Diagnostics now reports five separate layers: package, configured bridge,
+authenticated bridge, real-Live operational, and release-certified. The legacy
+`ready` summary is true only for authenticated real-Live operation. Release
+certification remains false until exact-candidate matrix and external gates are
+complete. Probe failures return a bounded error code rather than becoming
+positive evidence.

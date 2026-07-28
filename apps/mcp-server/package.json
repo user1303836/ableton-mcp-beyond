@@ -1,6 +1,8 @@
 {
   "name": "@ableton-mcp/mcp-server",
   "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
   "main": "./dist/src/index.js",
   "exports": {
     ".": "./dist/src/index.js"
@@ -10,11 +12,12 @@
     "ableton-mcp-setup": "./dist/src/setup.js",
     "ableton-mcp-migrate": "./dist/src/migrate.js",
     "ableton-mcp-diagnostics": "./dist/src/diagnostics.js",
-    "ableton-mcp-install-remote-script": "./dist/src/install-remote-script.js"
+    "ableton-mcp-install-remote-script": "./dist/src/install-remote-script.js",
+    "ableton-mcp-lifecycle": "./dist/src/lifecycle-cli.js"
   },
-  "files": ["dist/src", "remote-script/AbletonMcpBridge", "remote-script/README.md", "scripts"],
+  "files": ["dist/src/**/*.js", "dist/src/**/*.d.ts", "!dist/src/benchmark.*", "!dist/src/analysis-worker.*", "remote-script/AbletonMcpBridge", "remote-script/README.md", "release-docs", "release-manifest.json", "LICENSE.md"],
   "engines": {
-    "node": ">=22"
+    "node": ">=22 <26"
   },
   "type": "module",
   "scripts": {
@@ -22,6 +25,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node scripts/run-tests.mjs",
     "property-test": "npm run build && node --test dist/test/property.test.js",
+    "coverage": "npm run build && node scripts/run-coverage.mjs",
     "benchmark": "npm run build && node dist/src/benchmark.js",
     "audio:oracle": "npm run build && node scripts/verify-audio-oracle.mjs",
     "audio:live-verify": "node scripts/verify-phase8-live.mjs",
@@ -33,7 +37,7 @@
     "migrate": "node dist/src/migrate.js",
     "diagnostics": "node dist/src/diagnostics.js",
     "start": "node dist/src/cli.js",
-    "prepack": "npm run build && node scripts/stage-remote-script.mjs"
+    "prepack": "npm run build && node scripts/stage-remote-script.mjs && node scripts/stage-release-artifact.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

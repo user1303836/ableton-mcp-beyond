@@ -9,6 +9,7 @@ import type { LiveStatus } from "./live.js";
 export const CONFIG_VERSION = 1;
 export const BRIDGE_CONFIG_VERSION = 2;
 export const MIN_NODE_MAJOR = 22;
+export const SUPPORTED_NODE_MAJORS = [22, 24, 25] as const;
 export const SUPPORTED_PLATFORMS = ["darwin", "linux", "win32"] as const;
 export const REMOTE_SCRIPT_ASSET = "ableton_mcp_remote_script.py";
 export const REMOTE_SCRIPT_PACKAGE = "AbletonMcpBridge";
@@ -54,10 +55,13 @@ export interface DiagnosticReport {
   simulator: boolean;
   evidence: "local-contract" | "authenticated-bridge" | "unavailable";
   external: {
-    abletonLive: "unavailable";
+    abletonLive: "unavailable" | "verified";
     signing: "unavailable";
     notarization: "unavailable";
   };
+  readiness: { package: boolean; configured: boolean; authenticatedBridge: boolean; realLiveOperational: boolean; releaseCertified: false };
+  diagnosticErrors: string[];
+  /** Compatibility summary: true only for authenticated real-Live operation. */
   ready: boolean;
 }
 
@@ -112,20 +116,23 @@ function windowsOwnerOnlyAcl(path: string): { ok: true } | { ok: false; reason: 
   return { ok: false, reason: known ?? "verification command failed" };
 }
 
-function secretPermissions(path: string): DiagnosticReport["secretPermissions"] {
+export function secretPermissions(path: string): DiagnosticReport["secretPermissions"] {
   if (platform === "win32") {
     const verdict = windowsOwnerOnlyAcl(path);
     return verdict.ok ? "owner-only" : "invalid";
   }
   try {
-    const mode = statSync(path).mode & 0o777;
-    return (mode & 0o077) === 0 ? "owner-only" : "invalid";
+    const entry = statSync(path);
+    const mode = entry.mode & 0o777;
+    if ((mode & 0o077) !== 0) return "invalid";
+    if (typeof process.getuid === "function" && entry.uid !== process.getuid()) return "invalid";
+    return "owner-only";
   } catch {
     return "invalid";
   }
 }
 
-function secureWindowsFile(path: string): void {
+export function secureWindowsFile(path: string): void {
   if (platform !== "win32") return;
   try {
     const encodedPath = Buffer.from(path, "utf8").toString("base64");
@@ -147,6 +154,25 @@ function secureWindowsFile(path: string): void {
       ? (error as { stderr: string }).stderr.replaceAll(path, "<redacted-path>").replace(/\s+/g, " ").trim().slice(0, 512)
       : "";
     throw new Error(`could not establish an owner-only Windows ACL${stderr ? `: ${stderr}` : ""}`, { cause: error });
+  }
+}
+
+export function secureWindowsDirectory(path: string): void {
+  if (platform !== "win32") return;
+  try {
+    const encodedPath = Buffer.from(path, "utf8").toString("base64");
+    const script = "$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:ABLETON_MCP_ACL_PATH));" +
+      "$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User;" +
+      "$a=New-Object System.Security.AccessControl.DirectorySecurity;" +
+      "$a.SetOwner($sid);$a.SetAccessRuleProtection($true,$false);" +
+      "$inherit=[System.Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit';" +
+      "$rule=New-Object System.Security.AccessControl.FileSystemAccessRule -ArgumentList @($sid,[System.Security.AccessControl.FileSystemRights]::FullControl,$inherit,[System.Security.AccessControl.PropagationFlags]::None,[System.Security.AccessControl.AccessControlType]::Allow);" +
+      "[void]$a.AddAccessRule($rule);[System.IO.Directory]::SetAccessControl($p,$a)";
+    execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], { encoding: "utf8", env: { ...process.env, ABLETON_MCP_ACL_PATH: encodedPath }, stdio: ["ignore", "pipe", "pipe"] });
+    const verdict = windowsOwnerOnlyAcl(path);
+    if (!verdict.ok) throw new Error(`Windows directory ACL verification rejected the applied descriptor: ${verdict.reason}`);
+  } catch (error) {
+    throw new Error("could not establish an owner-only Windows directory ACL", { cause: error });
   }
 }
 
@@ -225,7 +251,7 @@ export function isSupportedPlatform(value: NodeJS.Platform = platform): boolean 
 
 export function supportedNodeMajor(value = versions.node): boolean {
   const major = Number.parseInt(value.split(".")[0] ?? "0", 10);
-  return Number.isSafeInteger(major) && major >= MIN_NODE_MAJOR;
+  return Number.isSafeInteger(major) && (SUPPORTED_NODE_MAJORS as readonly number[]).includes(major);
 }
 
 export function readConfig(path: string): ServerConfig {
@@ -280,19 +306,23 @@ export function writeConfig(path: string, config: ServerConfig | BridgeConfig, f
   }
 }
 
-export function migrateConfig(inputPath: string, outputPath: string, force = false): ServerConfig {
+export interface BridgeMigrationOptions { host: string; port: number; secretFile: string; timeoutMs: number; realtimePort?: number }
+
+export function migrateConfig(inputPath: string, outputPath: string, force = false, bridge?: BridgeMigrationOptions): ServerConfig | BridgeConfig {
   const source = JSON.parse(readFileSync(inputPath, "utf8")) as unknown;
-  let config: ServerConfig;
-  if (typeof source === "object" && source !== null && !Array.isArray(source) && (source as Record<string, unknown>).version === CONFIG_VERSION) {
-    config = parseConfig(source);
-  } else if (typeof source === "object" && source !== null && !Array.isArray(source)) {
-    const legacy = source as Record<string, unknown>;
-    const command = legacy.command;
-    const args = legacy.args;
+  let config: ServerConfig | BridgeConfig;
+  if (typeof source === "object" && source !== null && !Array.isArray(source) && (source as Record<string, unknown>).version === BRIDGE_CONFIG_VERSION) config = parseBridgeConfig(source);
+  else if (typeof source === "object" && source !== null && !Array.isArray(source) && (source as Record<string, unknown>).version === CONFIG_VERSION) config = parseConfig(source);
+  else if (typeof source === "object" && source !== null && !Array.isArray(source)) {
+    const legacy = source as Record<string, unknown>; const command = legacy.command; const args = legacy.args;
     if (typeof command !== "string" || command.length === 0 || !Array.isArray(args) || !args.every((arg) => typeof arg === "string")) throw new Error("legacy configuration must contain command and string args");
     config = { version: 1, server: { command, args: [...args] } };
-  } else {
-    throw new Error("configuration must be an object");
+  } else throw new Error("configuration must be an object");
+  if (bridge) {
+    const entrypoint = config.server.args[0];
+    if (!entrypoint || !isAbsolute(entrypoint)) throw new Error("version-2 migration requires an absolute server entrypoint as the first argument");
+    readSecretFile(bridge.secretFile);
+    config = configForBridge(entrypoint, bridge, config.server.command, outputPath);
   }
   writeConfig(outputPath, config, force);
   return config;
@@ -327,7 +357,7 @@ function copyOperationRegistry(destination: string): void {
   copyFileSync(source, destination);
 }
 
-function registryDigest(): string {
+export function registryDigest(): string {
   const canonical = (value: unknown): string => {
     if (value === null || typeof value === "boolean" || typeof value === "string" || typeof value === "number") return JSON.stringify(value);
     if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -340,7 +370,7 @@ function registryDigest(): string {
   return createHash("sha256").update(canonical(JSON.parse(readFileSync(operationRegistrySource(), "utf8")))).digest("hex");
 }
 
-function rejectSymlinkTree(path: string): void {
+export function rejectSymlinkTree(path: string): void {
   const entry = lstatSync(path);
   if (entry.isSymbolicLink()) throw new Error(`refusing symbolic-link destination: ${path}`);
   if (entry.isDirectory()) for (const child of readdirSync(path)) rejectSymlinkTree(join(path, child));
@@ -386,7 +416,10 @@ export function installRemoteScript(sourceFile: string, destinationDirectory: st
     if (backup && !existsSync(destinationDirectory) && existsSync(backup)) renameSync(backup, destinationDirectory);
     throw error;
   } finally {
-    rmSync(staging, { recursive: true, force: true });
+    // Cleanup must never override the authoritative replacement/rollback result.
+    // A denied removal can leave only this uniquely named staging directory;
+    // callers verify the destination and report filesystem residue separately.
+    try { rmSync(staging, { recursive: true, force: true }); } catch { /* preserve the primary transaction outcome */ }
   }
 }
 
@@ -437,7 +470,9 @@ export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.m
     simulator: false,
     evidence: hostReady ? "local-contract" : "unavailable",
     external: { abletonLive: "unavailable", signing: "unavailable", notarization: "unavailable" },
-    ready: hostReady && packageAssetsValid,
+    readiness: { package: hostReady && packageAssetsValid, configured: bridgeConfigured, authenticatedBridge: false, realLiveOperational: false, releaseCertified: false },
+    diagnosticErrors: [],
+    ready: false,
   };
 }
 
@@ -488,12 +523,15 @@ export async function diagnosticsAsync(packageRoot = resolve(dirname(fileURLToPa
         liveConnected: status.connected && status.adapter === "remote-script" && provenance === "real-live",
         simulator: status.adapter === "simulator",
         evidence: "authenticated-bridge",
-        ready: report.hostReady && status.connected,
+        external: { ...report.external, abletonLive: provenance === "real-live" ? "verified" : "unavailable" },
+        readiness: { package: report.readiness.package, configured: true, authenticatedBridge: true, realLiveOperational: status.connected && status.adapter === "remote-script" && provenance === "real-live", releaseCertified: false },
+        diagnosticErrors: [],
+        ready: report.readiness.package && status.connected && status.adapter === "remote-script" && provenance === "real-live",
       };
     } finally {
       await adapter.close();
     }
   } catch {
-    return report;
+    return { ...report, diagnosticErrors: ["authenticated-bridge-probe-failed"] };
   }
 }

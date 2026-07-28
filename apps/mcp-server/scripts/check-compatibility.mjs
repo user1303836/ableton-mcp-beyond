@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { versions, platform, arch } from "node:process";
 
-const minimumNodeMajor = 22;
+const supportedNodeMajors = new Set([22, 24, 25]);
 const supportedPlatforms = new Set(["darwin", "linux", "win32"]);
 const nodeMajor = Number.parseInt(versions.node.split(".")[0] ?? "0", 10);
 const report = {
@@ -9,7 +9,8 @@ const report = {
   arch,
   node: versions.node,
   supportedPlatforms: [...supportedPlatforms],
-  nodeSupported: nodeMajor >= minimumNodeMajor,
+  supportedNodeMajors: [...supportedNodeMajors],
+  nodeSupported: supportedNodeMajors.has(nodeMajor),
   platformSupported: supportedPlatforms.has(platform),
 };
 

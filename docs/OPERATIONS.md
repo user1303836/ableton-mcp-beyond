@@ -55,9 +55,22 @@ an empty destination slot, `rawFileUnlinked=true`, and no WAV/ASD residual.
 Never log confirmation, mapper/recovery token, PCM, or media path. See
 `AUDIO_INTELLIGENCE.md`.
 
-## Installation
+## Delivery lifecycle supervision
 
-Use `node dist/src/install-remote-script.js --destination <absolute-path>`. Inspect with `--dry-run`; use `--force` only for a known recoverable destination. Installation refuses symlink trees, does not auto-select a Live folder, and writes only the allowlisted bridge assets plus a non-secret reference when configured.
+Use `ableton-mcp-lifecycle`; the direct Remote Script copier is a lower-level
+development primitive, not the complete product lifecycle. Always review a
+non-mutating plan, stop Live explicitly for install/upgrade/rollback/uninstall,
+and retain the exact tarball SHA, receipt, journal, and any quarantine path.
+Never delete or edit a backup outside the receipt while rollback is available.
+
+After a mutation, status must show matching managed hashes, owner-only secret
+permissions, stopped/unloaded Live as appropriate, and `restartRequired` until
+manual Control Surface selection plus authenticated real-Live activation.
+`activated` requires registry identity and `real-live`; a free port, process,
+fake mapper, or simulator does not satisfy it. Repair quarantines drift and
+never invents a missing secret. Uninstall preserves modified/unknown content
+and the secret by default. Exact commands and Windows/macOS path policy are in
+`DELIVERY.md`.
 
 ## Evidence boundary
 

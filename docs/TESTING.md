@@ -9,6 +9,7 @@ npm ci
 npm run typecheck
 npm test
 npm run property-test
+npm run coverage
 npm run benchmark
 npm run audio:oracle
 npm run compatibility
@@ -30,7 +31,8 @@ bounded concurrent stdio framing, async adapter behavior, authenticated
 loopback responses, Session audition preflight/apply/stop, transactions, standards loudness/true peak, bounded reference alignment,
 secret-stripped worker cancellation/queue limits, secure WAV/ASD lifecycle,
 signal-chain diagnosis, consent-bound capture normal/cancel paths, properties,
-delivery, journey planning/fallback/rights/accessibility contracts, and package
+delivery, receipt-driven install/activation/upgrade/repair/rollback/uninstall,
+journey planning/fallback/rights/accessibility contracts, and package
 installation. `journey:verify` installs the packed artifact, translates only
 allowlisted traits, blocks identity/copy collisions, and drives every `planned`
 stage of all five plans through actual tool results. It validates stage/status
@@ -50,6 +52,15 @@ choices, capture fences/watchdog/emergency/cleanup, and bridge teardown. The
 package verifier starts the installed production bridge and checks
 authenticated fake Set, scene, track, child-slot, and playback discovery.
 
+CI builds one clean private tarball on Ubuntu 24.04, repeats the pack from a
+fresh detached local clone plus fresh `npm ci` and compares bytes, records the exact Git SHA and tarball SHA-256, then installs that same
+artifact in every Node 22/24/25 Ubuntu 24.04, macOS 15, and Windows Server 2025
+job. Each candidate job verifies strict inventory/hashes and exercises lifecycle
+plan/install, unavailable activation, idempotent repair, unowned rollback
+refusal, and uninstall; Windows additionally tests native ACL repair, junction
+refusal, held-file recovery, and shipped version-2 migration. These remain host/package
+contracts.
+
 The operator-only packaged real-Live Phase 8 verifier is not a CI substitute.
 After installing an `npm pack` artifact and visibly preparing the disposable
 Set/output/destination route, run it with explicit evidence inputs:
@@ -68,6 +79,13 @@ baseline, absent source clip, or destination other than visibly prepared
 suppression while the original host remains alive, kills another host during
 capture, requires mapper-watchdog finalization, independently recovers, and
 compensates its temporary notes/mixer/device mutations on failure.
+
+The built-in V8 coverage gate measures compiled runtime code (excluding the
+separate benchmark-only entrypoints) and enforces at least 85% lines, 65%
+branches, and 84% functions overall, production-module floors, and stronger
+thresholds for delivery, lifecycle, host, remote-adapter, project, and Session
+MIDI modules. Coverage is a regression signal, not a substitute
+for real-Live, security, recovery, or platform evidence.
 
 The benchmark warms the declared maximum PCM input and reports repeated latency measurements. `audio:oracle` generates temporary PCM, compares BS.1770/EBU and true-peak outputs to FFmpeg `ebur128`, and removes the owner-only temporary tree; it commits no third-party audio. Latency, output size, bounded-memory, DSP-oracle, package, and real-Live evidence are distinct concerns; none substitutes for another.
 

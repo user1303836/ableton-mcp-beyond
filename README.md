@@ -10,7 +10,7 @@ transport.
 
 ## Quick start
 
-Requirements: Node.js 22 or newer (Node 22 and 24 are exercised in CI).
+Requirements: Node.js 22, 24, or 25 (all three are exercised in CI).
 
 ```sh
 cd apps/mcp-server
@@ -75,16 +75,27 @@ They report adapter operations separately from capabilities. `fake-live`,
 simulator, unavailable, and unknown provenance remain non-passing evidence for
 `liveConnected`, real Live state, audible state, or restoration.
 
-The Remote Script installer requires an explicit destination:
+Private installed artifacts use the receipt-driven lifecycle CLI for exact
+install, manual activation verification, upgrade, repair, rollback, status, and
+ownership-safe uninstall:
 
 ```sh
-npm run build
-node dist/src/install-remote-script.js --destination /absolute/path/ControlSurface --dry-run
+ableton-mcp-lifecycle install \
+  --remote-scripts-dir '/absolute/path/to/Live/Remote Scripts' \
+  --state-dir '/absolute/owner-only/ableton-mcp' \
+  --package-root '/absolute/installed/package/root' \
+  --artifact '/absolute/path/to/exact-candidate.tgz' \
+  --artifact-sha256 '<exact-tarball-sha>'
 ```
 
-Use `--force` only for a known disposable or recoverable destination. See
-[`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) and
-[`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md) for operating boundaries.
+Omit `--apply` for a plan. Mutating install/upgrade/rollback/uninstall also
+require `--confirm-live-stopped`; the tool never guesses a Live path, kills
+Live, follows symlink/junction ancestors, deletes drift, or claims activation
+without authenticated `real-live` discovery. See
+[`docs/DELIVERY.md`](docs/DELIVERY.md),
+[`docs/DISTRIBUTION_POLICY.md`](docs/DISTRIBUTION_POLICY.md),
+[`docs/SUPPORT_MATRIX.md`](docs/SUPPORT_MATRIX.md), and
+[`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md).
 
 Scene audition is a potentially audible workflow. Preview is read-only and
 requires an exact Set name, authoritative stopped/non-recording playback,

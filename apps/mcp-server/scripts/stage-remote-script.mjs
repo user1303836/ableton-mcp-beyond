@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,9 +15,7 @@ copyFileSync(join(sourceRoot, "README.md"), join(destinationRoot, "README.md"));
 const packageSource = join(sourceRoot, "AbletonMcpBridge");
 const packageDestination = join(destinationRoot, "AbletonMcpBridge");
 mkdirSync(packageDestination, { recursive: true });
-for (const name of readdirSync(packageSource)) {
-  if (name.endsWith(".py")) copyFileSync(join(packageSource, name), join(packageDestination, name));
-}
+copyFileSync(join(packageSource, "__init__.py"), join(packageDestination, "__init__.py"));
 copyFileSync(source, join(packageDestination, "ableton_mcp_remote_script.py"));
 copyFileSync(registrySource, join(packageDestination, "ableton-live-v1.operations.json"));
 const manifestFiles = ["__init__.py", "ableton_mcp_remote_script.py", "ableton-live-v1.operations.json"];

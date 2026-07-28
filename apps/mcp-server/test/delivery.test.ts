@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { configForBridge, configForEntrypoint, diagnostics, generateSecret, installRemoteScript, isSupportedPlatform, migrateConfig, readAnyConfig, readConfig, readSecretFile, supportedNodeMajor, writeBridgeReference, writeConfig, writeSecretFile } from "../src/delivery.js";
 import { npmExecutable } from "../src/platform.js";
@@ -52,9 +54,29 @@ test("migrates the legacy command-and-args shape", () => {
   writeFileSync(input, JSON.stringify({ command: "/usr/bin/node", args: ["server.js"] }));
   assert.deepEqual(migrateConfig(input, output), { version: 1, server: { command: "/usr/bin/node", args: ["server.js"] } });
   assert.match(readFileSync(output, "utf8"), /"version": 1/);
+  const absoluteInput = join(directory, "absolute-v1.json");
+  const secret = join(directory, "bridge.secret");
+  const v2 = join(directory, "v2.json");
+  writeFileSync(absoluteInput, JSON.stringify({ version: 1, server: { command: "/usr/bin/node", args: ["/opt/ableton/server.js"] } }));
+  writeSecretFile(secret, "a".repeat(32));
+  assert.deepEqual(migrateConfig(absoluteInput, v2, false, { host: "127.0.0.1", port: 9_765, realtimePort: 9_766, secretFile: secret, timeoutMs: 5_000 }), configForBridge("/opt/ableton/server.js", { host: "127.0.0.1", port: 9_765, realtimePort: 9_766, secretFile: secret, timeoutMs: 5_000 }, "/usr/bin/node", v2));
+  assert.equal(JSON.parse(readFileSync(v2, "utf8")).version, 2);
+  assert.throws(() => migrateConfig(absoluteInput, v2, false, { host: "127.0.0.1", port: 9_765, secretFile: secret, timeoutMs: 5_000 }), /refusing to overwrite/);
+  assert.equal(migrateConfig(absoluteInput, v2, true, { host: "127.0.0.1", port: 9_765, secretFile: secret, timeoutMs: 5_000 }).version, 2);
+  const cli = resolve(dirname(fileURLToPath(import.meta.url)), "../src/migrate.js"); const cliOutput = join(directory, "cli-v2.json");
+  const cliResult = spawnSync(process.execPath, [cli, "--input", absoluteInput, "--output", cliOutput, "--bridge-host", "127.0.0.1", "--bridge-port", "9765", "--realtime-port", "9766", "--secret-file", secret], { encoding: "utf8" });
+  assert.equal(cliResult.status, 0, cliResult.stderr); assert.equal(JSON.parse(readFileSync(cliOutput, "utf8")).version, 2);
   const invalid = join(directory, "invalid-legacy.json");
   writeFileSync(invalid, JSON.stringify({ command: "", args: [] }));
   assert.throws(() => migrateConfig(invalid, join(directory, "invalid-output.json")), /legacy configuration/);
+});
+
+test("migration CLI rejects repeated and partial version-2 authority options", () => {
+  const cli = resolve(dirname(fileURLToPath(import.meta.url)), "../src/migrate.js");
+  const repeated = spawnSync(process.execPath, [cli, "--input", "/tmp/a", "--input", "/tmp/b", "--output", "/tmp/c"], { encoding: "utf8" });
+  assert.equal(repeated.status, 2); assert.match(repeated.stderr, /repeated --input/);
+  const partial = spawnSync(process.execPath, [cli, "--input", "/tmp/a", "--output", "/tmp/b", "--bridge-host", "127.0.0.1"], { encoding: "utf8" });
+  assert.equal(partial.status, 2); assert.match(partial.stderr, /usage: ableton-mcp-migrate/);
 });
 
 test("diagnostics report local readiness separately from unavailable external evidence", () => {
@@ -62,6 +84,8 @@ test("diagnostics report local readiness separately from unavailable external ev
   assert.equal(report.external.abletonLive, "unavailable");
   assert.equal(report.external.signing, "unavailable");
   assert.equal(report.ready, false);
+  assert.deepEqual(report.readiness, { package: false, configured: false, authenticatedBridge: false, realLiveOperational: false, releaseCertified: false });
+  assert.deepEqual(report.diagnosticErrors, []);
   assert.equal(report.entrypoint.path.replaceAll("\\", "/").endsWith("dist/src/cli.js"), true);
   assert.equal(report.platformSupported, true);
 });
@@ -76,6 +100,8 @@ test("compatibility is explicit for the portable Node runtime", () => {
 test("requires a maintained Node runtime", () => {
   assert.equal(supportedNodeMajor("22.0.0"), true);
   assert.equal(supportedNodeMajor("24.1.0"), true);
+  assert.equal(supportedNodeMajor("25.0.0"), true);
+  assert.equal(supportedNodeMajor("26.0.0"), false);
   assert.equal(supportedNodeMajor("20.19.0"), false);
   assert.equal(supportedNodeMajor("not-a-version"), false);
 });
@@ -117,6 +143,8 @@ test("bridge configuration and secrets are explicit and fail closed", () => {
   assert.throws(() => readSecretFile(join(directory, "bad-secret")), /secret file is invalid/);
   assert.throws(() => configForBridge("/opt/cli.js", { host: "127.999.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000 }), /loopback/);
   if (process.platform !== "win32") {
+    const linkedSecret = join(directory, "linked-secret"); symlinkSync(secretPath, linkedSecret);
+    assert.throws(() => readSecretFile(linkedSecret), /symbolic link|regular file/);
     chmodSync(secretPath, 0o644);
     assert.throws(() => readSecretFile(secretPath), /permissions.*owner-only/);
   }

@@ -29,3 +29,5 @@ export { RemoteScriptLiveAdapter } from "./bridge/remote-adapter.js";
 export type { RemoteScriptEndpoint } from "./bridge/remote-adapter.js";
 export { SessionMidiTransactionManager, discoverSession } from "./transactions/session-midi.js";
 export type { SessionMidiPreview, SessionMidiRecord, SessionMidiRequest } from "./transactions/session-midi.js";
+export { assertNoLinkedAncestors, LIFECYCLE_ACTIONS, LIFECYCLE_RECEIPT_VERSION, runLifecycle } from "./lifecycle.js";
+export type { LifecycleAction, LifecycleOptions, LifecycleReceipt, LifecycleResult } from "./lifecycle.js";

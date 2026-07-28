@@ -4,9 +4,28 @@
 
 Correct the request and use a fresh request identifier. For malformed or oversized input, discard the rejected frame and inspect only the redacted stderr diagnostic. If authentication, framing, sequencing, or response correlation is no longer trustworthy, stop and restart the process; do not continue the stream.
 
-## Configuration and installation errors
+## Configuration and lifecycle errors
 
-Verify that the path is explicit, regular, non-symlink, and owner-controlled; configuration is version 1 or 2; the bridge host is numeric loopback (`127.x.x.x` or `::1`); port and timeout are in range; and the separate secret is at least 32 non-whitespace characters with safe permissions. Never put a secret on the command line. Write a repaired configuration to a new path before using `--force`. Preserve any installer backup and never replace an unrelated destination.
+Verify that the path is explicit, regular, non-symlink, and owner-controlled;
+configuration is version 1 or 2; the bridge host is exact loopback; ports are
+distinct/free at install preflight; and the separate secret has conclusive
+owner-only permissions. Never put a secret on the command line.
+
+For receipt-driven lifecycle failures, stop Live and inspect
+`install-receipt.json`, `lifecycle-journal.json`, managed hashes, and quarantine
+before retrying. A failed install removes newly created secret/config/bridge
+state. A failed upgrade restores the old config/bridge and leaves the receipt
+generation unchanged. A held file, ACL error, symlink/junction, occupied port,
+or interrupted rename is not success; release the handle or fix permissions,
+then use status and repair. Repair preserves drift in quarantine and refuses to
+manufacture a missing secret. Rollback uses only the exact receipt-bound prior
+generation. Uninstall stages owned paths before commit, restores them if commit
+fails, retires receipt-owned rollback generations, quarantines drift, and
+preserves secrets unless receipt-owned purge is explicit. If post-commit
+removal is blocked, the receipt retains `pendingCleanup`; release the handle and
+repeat the exact uninstall command. `preserved` paths are operator content and
+are never deleted by retry. Never manually replace/delete a backup while rollback is advertised.
+See `DELIVERY.md`.
 
 ## Adapter uncertainty
 

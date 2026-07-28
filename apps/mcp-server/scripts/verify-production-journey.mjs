@@ -1,10 +1,10 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, statSync, writeFileSync, chmodSync } from "node:fs";
 import { createSocket } from "node:dgram";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import { npmExecutable } from "../dist/src/platform.js";
 
 // Phase 2: prove the packaged production boundary without Live. The packed
@@ -532,20 +532,22 @@ let harnessPort;
 let packageEvidence;
 
 try {
-  const packOutput = execFileSync(npm, ["pack", "--json", "--pack-destination", temporaryDirectory], { ...npmOptions, cwd: packageDirectory, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  const packed = JSON.parse(packOutput);
-  const artifact = join(temporaryDirectory, packed[0].filename);
+  const requestedArtifact = process.env.ABLETON_MCP_ARTIFACT;
+  let artifact;
+  let packedRecord;
+  if (requestedArtifact) {
+    artifact = resolve(requestedArtifact);
+    if (!isAbsolute(requestedArtifact) || !existsSync(artifact)) throw new Error("ABLETON_MCP_ARTIFACT must name an existing absolute tarball");
+    packedRecord = { name: "@ableton-mcp/mcp-server", version: "0.1.0", filename: basename(artifact), shasum: null, integrity: null, size: statSync(artifact).size, unpackedSize: null };
+  } else {
+    const packOutput = execFileSync(npm, ["pack", "--json", "--pack-destination", temporaryDirectory], { ...npmOptions, cwd: packageDirectory, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const packed = JSON.parse(packOutput);
+    packedRecord = packed[0]; artifact = join(temporaryDirectory, packedRecord.filename);
+  }
   packageEvidence = {
-    version: "npm-packed-artifact/v1",
-    generatedAt: new Date().toISOString(),
-    name: packed[0].name,
-    packageVersion: packed[0].version,
-    filename: packed[0].filename,
-    sha256: createHash("sha256").update(readFileSync(artifact)).digest("hex"),
-    npmSha1: packed[0].shasum,
-    npmIntegrity: packed[0].integrity,
-    sizeBytes: packed[0].size,
-    unpackedSizeBytes: packed[0].unpackedSize,
+    version: "npm-packed-artifact/v1", generatedAt: new Date().toISOString(), name: packedRecord.name, packageVersion: packedRecord.version,
+    filename: packedRecord.filename, sha256: createHash("sha256").update(readFileSync(artifact)).digest("hex"), npmSha1: packedRecord.shasum,
+    npmIntegrity: packedRecord.integrity, sizeBytes: packedRecord.size, unpackedSizeBytes: packedRecord.unpackedSize,
   };
   const installDirectory = join(temporaryDirectory, "install");
   execFileSync(npm, ["install", "--prefix", installDirectory, artifact, "--ignore-scripts", "--no-audit", "--no-fund"], { ...npmOptions, cwd: packageDirectory, stdio: "pipe" });

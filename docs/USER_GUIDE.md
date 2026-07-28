@@ -2,10 +2,14 @@
 
 Ableton MCP Beyond is a fail-closed MCP host. With no explicit configuration it uses `UnavailableLiveAdapter`; it does not inspect or change Live. A configured bridge is accepted only after loopback, secret, protocol, operation-registry hash, and status negotiation succeed.
 
-## Start
+## Install and start
 
-Requirements: Node.js 22 or newer. Node 20 is end-of-life and is not a
-supported runtime for this package.
+The supported runtime majors are Node.js 22, 24, and 25. Node 20 and untested
+future majors are not supported. Private tarball installations should use the
+receipt-driven `ableton-mcp-lifecycle` flow in [DELIVERY.md](DELIVERY.md) for
+install, activation verification, upgrade, repair, rollback, and uninstall.
+The artifact is private/unpublished and requires its exact SHA-256; see
+[DISTRIBUTION_POLICY.md](DISTRIBUTION_POLICY.md). For a source checkout:
 
 ```sh
 cd apps/mcp-server
