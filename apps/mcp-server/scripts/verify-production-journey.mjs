@@ -620,7 +620,7 @@ class EnvelopeEvent:
         self.time = time; self.value = value
 `, { encoding: "utf8" });
   const python = process.platform === "win32" ? "python.exe" : "python3";
-  const harness = spawn(python, [harnessPath, readyPath, controlPath, ackPath], { cwd: temporaryDirectory, env: { ...process.env, PYTHONPATH: `${temporaryDirectory}${process.platform === "win32" ? ";" : ":"}${join(installedPackageDirectory, "remote-script")}`, ABLETON_MCP_JOURNEY_SECRET_FILE: secretPath }, stdio: ["ignore", "ignore", openSync(join(temporaryDirectory, "journey-harness-stderr.log"), "w")] });
+  const harness = spawn(python, [harnessPath, readyPath, controlPath, ackPath], { cwd: temporaryDirectory, env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1", PYTHONPATH: `${temporaryDirectory}${process.platform === "win32" ? ";" : ":"}${join(installedPackageDirectory, "remote-script")}`, ABLETON_MCP_JOURNEY_SECRET_FILE: secretPath }, stdio: ["ignore", "ignore", openSync(join(temporaryDirectory, "journey-harness-stderr.log"), "w")] });
   children.add(harness);
 
   const controlSeq = { value: 0 };

@@ -16,6 +16,10 @@ function revision(snapshot: LiveSnapshot, trackRef: LiveRef, sceneIndex: number)
 }
 function validateNote(note: Note, length: number): void {
   if (!Number.isInteger(note.pitch) || note.pitch < 0 || note.pitch > 127 || !Number.isInteger(note.velocity) || note.velocity < 1 || note.velocity > 127 || !Number.isInteger(note.channel) || note.channel < 1 || note.channel > 16 || !Number.isFinite(note.start) || note.start < 0 || !Number.isFinite(note.duration) || note.duration <= 0 || note.start + note.duration > length) throw new Error("invalid MIDI note");
+  if (note.mute != null && typeof note.mute !== "boolean") throw new Error("invalid MIDI note mute");
+  if (note.probability != null && (!Number.isFinite(note.probability) || note.probability < 0 || note.probability > 1)) throw new Error("invalid MIDI note probability");
+  if (note.velocityDeviation != null && (!Number.isFinite(note.velocityDeviation) || note.velocityDeviation < -127 || note.velocityDeviation > 127)) throw new Error("invalid MIDI velocity deviation");
+  if (note.releaseVelocity != null && (!Number.isFinite(note.releaseVelocity) || note.releaseVelocity < 0 || note.releaseVelocity > 127)) throw new Error("invalid MIDI release velocity");
 }
 function validateRequest(value: unknown): asserts value is SessionMidiRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid MIDI clip request");
@@ -52,7 +56,7 @@ export class SessionMidiTransactionManager {
   async previewAsync(request: unknown): Promise<SessionMidiPreview> {
     validateRequest(request);
     const adapter = this.asyncAdapter();
-    const status = this.require(["session.read", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.write"], ["clip.create", "clip.delete", "note.add"]);
+    const status = this.require(["session.read", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.write"], ["clip.create", "clip.delete", "note.add-batch"]);
     const snapshot = await adapter.snapshotAsync();
     const track = snapshot.tracks.find((item) => item.ref === (request as SessionMidiRequest).trackRef);
     if (!track || (track.kind !== "midi" && (track as unknown as { mediaKind?: string }).mediaKind !== "midi")) throw new Error("MIDI track not found");
@@ -72,7 +76,7 @@ export class SessionMidiTransactionManager {
     if (!record || (record.state === "previewed" && record.expiresAt <= Date.now())) throw new Error("MIDI preview expired; preview again");
     if (record.state !== "previewed") throw new Error("MIDI transaction is no longer applicable");
     const adapter = this.asyncAdapter();
-    const status = this.require(["session.read", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.write"], ["clip.create", "clip.delete", "note.add"]);
+    const status = this.require(["session.read", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.write"], ["clip.create", "clip.delete", "note.add-batch"]);
     if (status.epoch !== record.epoch) throw new Error("Live connection epoch changed; preview again");
     record.state = "applying"; record.applyKey = idempotencyKey;
     let clipRef: LiveRef | undefined;
@@ -82,7 +86,10 @@ export class SessionMidiTransactionManager {
       const created = await adapter.invokeAsync({ operation: "clip.create", args: { trackRef: record.target.trackRef, kind: "midi", name: record.proposed.name, sceneIndex: record.target.sceneIndex, length: record.proposed.length } }, context) as { ref?: LiveRef };
       if (!created?.ref) throw new Error("Live did not return the created clip reference");
       clipRef = created.ref;
-      for (const note of record.proposed.notes) await adapter.invokeAsync({ operation: "note.add", args: { ref: clipRef, note } }, context);
+      if (record.proposed.notes.length > 0) {
+        const added = await adapter.invokeAsync({ operation: "note.add-batch", args: { ref: clipRef, notes: record.proposed.notes } }, context) as { added?: unknown };
+        if (added.added !== record.proposed.notes.length) throw new Error("Live did not add the complete MIDI note batch");
+      }
       const verified = await adapter.getAsync(clipRef, context) as { name?: string; length?: number; notes?: Note[] } | undefined;
       if (!verified || verified.name !== record.proposed.name || verified.length !== record.proposed.length || !notesMatch(verified.notes ?? [], record.proposed.notes)) throw new Error("Live did not confirm MIDI clip contents");
       record.state = "applied"; record.clipRef = clipRef; record.appliedNotes = clone(verified.notes ?? []); record.applyKey = idempotencyKey;
@@ -117,7 +124,7 @@ export class SessionMidiTransactionManager {
 
   preview(request: unknown): SessionMidiPreview {
     validateRequest(request);
-    const status = this.require(["session.read", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.write"], ["clip.create", "clip.delete", "note.add"]);
+    const status = this.require(["session.read", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.write"], ["clip.create", "clip.delete", "note.add-batch"]);
     const snapshot = this.adapter.snapshot();
     const track = snapshot.tracks.find((item) => item.ref === request.trackRef);
     if (!track || (track.kind !== "midi" && (track as unknown as { mediaKind?: string }).mediaKind !== "midi")) throw new Error("MIDI track not found");
@@ -136,7 +143,7 @@ export class SessionMidiTransactionManager {
     if (!record || (record.state === "previewed" && record.expiresAt <= Date.now())) throw new Error("MIDI preview expired; preview again");
     if (record.state === "applied" && record.applyKey === idempotencyKey) return { transactionId, state: "applied", clipRef: record.clipRef, notes: record.appliedNotes, idempotent: true };
     if (record.state !== "previewed") throw new Error("MIDI transaction is no longer applicable");
-    const status = this.require(["session.read", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.write"], ["clip.create", "clip.delete", "note.add"]);
+    const status = this.require(["session.read", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.write"], ["clip.create", "clip.delete", "note.add-batch"]);
     if (status.epoch !== record.epoch) throw new Error("Live connection epoch changed; preview again");
     record.state = "applying"; record.applyKey = idempotencyKey;
     let clipRef: LiveRef | undefined;
@@ -146,7 +153,10 @@ export class SessionMidiTransactionManager {
       const created = this.adapter.invoke({ operation: "clip.create", args: { trackRef: record.target.trackRef, kind: "midi", name: record.proposed.name, sceneIndex: record.target.sceneIndex, length: record.proposed.length } }) as { ref?: LiveRef };
       if (!created?.ref) throw new Error("Live did not return the created clip reference");
       clipRef = created.ref;
-      for (const note of record.proposed.notes) this.adapter.invoke({ operation: "note.add", args: { ref: clipRef, note } });
+      if (record.proposed.notes.length > 0) {
+        const added = this.adapter.invoke({ operation: "note.add-batch", args: { ref: clipRef, notes: record.proposed.notes } }) as { added?: unknown };
+        if (added.added !== record.proposed.notes.length) throw new Error("Live did not add the complete MIDI note batch");
+      }
       const verified = this.adapter.get(clipRef) as { name?: string; length?: number; notes?: Note[] } | undefined;
       if (!verified || verified.name !== record.proposed.name || verified.length !== record.proposed.length || !notesMatch(verified.notes ?? [], record.proposed.notes)) throw new Error("Live did not confirm MIDI clip contents");
       record.state = "applied"; record.clipRef = clipRef; record.appliedNotes = clone(verified.notes ?? []); record.applyKey = idempotencyKey;
@@ -214,11 +224,22 @@ export async function discoverSessionAsync(adapter: AsyncLiveAdapter, kind: "tra
 }
 
 /** Compare requested note content against authoritative notes enriched with
- * server-assigned fields (id, mute, probability, deviations, release). */
+ * server-assigned fields (id and defaults), without relying on Live's ordering. */
 function notesMatch(actual: Note[], proposed: Note[]): boolean {
   if (actual.length !== proposed.length) return false;
-  return proposed.every((wanted, index) => {
-    const found = actual[index]!;
-    return found.pitch === wanted.pitch && found.start === wanted.start && found.duration === wanted.duration && found.velocity === wanted.velocity && found.channel === wanted.channel;
-  });
+  const remaining = [...actual];
+  for (const wanted of proposed) {
+    const index = remaining.findIndex((found) => found.pitch === wanted.pitch
+      && Math.abs(found.start - wanted.start) < 1e-6
+      && Math.abs(found.duration - wanted.duration) < 1e-6
+      && found.velocity === wanted.velocity
+      && found.channel === wanted.channel
+      && (wanted.mute == null || found.mute === wanted.mute)
+      && (wanted.probability == null || (typeof found.probability === "number" && Math.abs(found.probability - wanted.probability) <= 0.01))
+      && (wanted.velocityDeviation == null || (typeof found.velocityDeviation === "number" && Math.abs(found.velocityDeviation - wanted.velocityDeviation) <= 0.51))
+      && (wanted.releaseVelocity == null || (typeof found.releaseVelocity === "number" && Math.abs(found.releaseVelocity - wanted.releaseVelocity) <= 0.51)));
+    if (index < 0) return false;
+    remaining.splice(index, 1);
+  }
+  return true;
 }

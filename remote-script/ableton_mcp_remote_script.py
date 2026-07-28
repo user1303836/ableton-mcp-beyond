@@ -167,7 +167,9 @@ MAX_NONCE_LENGTH = 256
 MAX_WIRE_BYTES = 1_048_576
 MAX_WIRE_DEPTH = 16
 MAX_WIRE_STRING_LENGTH = 16_384
-MAX_WIRE_COLLECTION_LENGTH = 256
+MAX_WIRE_ARRAY_LENGTH = 512
+MAX_WIRE_OBJECT_PROPERTIES = 256
+MAX_DISCOVERY_COLLECTION_LENGTH = 256
 MAX_QUEUE_ITEMS = 128
 DEFAULT_TIMEOUT_SECONDS = 5.0
 
@@ -209,11 +211,11 @@ class AuthenticatedRemoteScript:
             encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
             return re.sub(r"e([+-])0+(\d+)", r"e\1\2", encoded)
         if isinstance(value, list):
-            if len(value) > MAX_WIRE_COLLECTION_LENGTH:
+            if len(value) > MAX_WIRE_ARRAY_LENGTH:
                 raise ValueError("wire array is too large")
             return "[" + ",".join(cls._canonical(item, depth + 1) for item in value) + "]"
         if isinstance(value, dict):
-            if len(value) > MAX_WIRE_COLLECTION_LENGTH:
+            if len(value) > MAX_WIRE_OBJECT_PROPERTIES:
                 raise ValueError("wire object is too large")
             return "{" + ",".join(json.dumps(key, ensure_ascii=False) + ":" + cls._canonical(value[key], depth + 1) for key in sorted(value)) + "}"
         raise TypeError("unsupported wire value")
@@ -482,8 +484,10 @@ class LiveObjectMapper:
             return any(bool(getattr(track, "has_midi_input", False)) and any(callable(getattr(slot, "create_clip", None)) for slot in self._items(getattr(track, "clip_slots", []))) for track in tracks)
         if operation == "clip.delete":
             return any(getattr(slot, "clip", None) is not None and callable(getattr(slot, "delete_clip", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
-        if operation == "note.add":
-            return any(callable(getattr(getattr(slot, "clip", None), "add_new_notes", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation in {"note.add", "note.add-batch"}:
+            existing_clip_support = any(callable(getattr(getattr(slot, "clip", None), "add_new_notes", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+            creatable_midi_slot = any(bool(getattr(track, "has_midi_input", False)) and any(callable(getattr(slot, "create_clip", None)) for slot in self._items(getattr(track, "clip_slots", []))) for track in tracks)
+            return existing_clip_support or creatable_midi_slot
         if operation == "note.update":
             return any(callable(getattr(getattr(slot, "clip", None), "apply_note_modifications", None)) and callable(getattr(getattr(slot, "clip", None), "get_notes_extended", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
         if operation == "note.delete":
@@ -506,8 +510,8 @@ class LiveObjectMapper:
         if any(supports(item) for item in structure_operations): capabilities.append("session.structure")
         if supports("clip.create"): capabilities.append("session.midi_clip.create")
         if supports("clip.delete"): capabilities.append("session.midi_clip.delete")
-        if any(supports(item) for item in {"note.add", "note.update", "note.delete"}): capabilities.extend(("notes", "session.midi_note.read"))
-        if supports("note.add"): capabilities.append("session.midi_note.write")
+        if any(supports(item) for item in {"note.add", "note.add-batch", "note.update", "note.delete"}): capabilities.extend(("notes", "session.midi_note.read"))
+        if supports("note.add") and supports("note.add-batch"): capabilities.append("session.midi_note.write")
         if supports("transport.set") and supports("tempo.set"): capabilities.append("transport")
         if supports("subscribe"): capabilities.append("subscriptions")
         if self._locator_supported() or supports("arrangement.clip.delete"): capabilities.append("arrangement.read")
@@ -674,7 +678,7 @@ class LiveObjectMapper:
             offset = int(offset_text)
         except (ValueError, TypeError, UnicodeError, OSError) as error:
             raise ValueError("invalid discovery cursor") from error
-        if not 0 <= offset <= MAX_WIRE_COLLECTION_LENGTH * MAX_WIRE_COLLECTION_LENGTH:
+        if not 0 <= offset <= MAX_DISCOVERY_COLLECTION_LENGTH * MAX_DISCOVERY_COLLECTION_LENGTH:
             raise ValueError("invalid discovery cursor")
         return offset
 
@@ -758,11 +762,11 @@ class LiveObjectMapper:
                 for chain in pad.get("chains", []):
                     for nested in chain.get("devices", []): visit(nested)
         for row in rows: visit(row)
-        return flattened[:MAX_WIRE_COLLECTION_LENGTH]
+        return flattened[:MAX_DISCOVERY_COLLECTION_LENGTH]
 
     def _device_row(self, device: Any, device_ref: str, track_ref: str, track_index: int, path: str, index: int) -> dict[str, Any]:
         parameters: list[dict[str, Any]] = []
-        for parameter_index, parameter in enumerate(self._items(getattr(device, "parameters", []))[:MAX_WIRE_COLLECTION_LENGTH]):
+        for parameter_index, parameter in enumerate(self._items(getattr(device, "parameters", []))[:MAX_DISCOVERY_COLLECTION_LENGTH]):
             minimum = self._read_attr(parameter, "min", "min_value")
             maximum = self._read_attr(parameter, "max", "max_value")
             value = self._read_attr(parameter, "value")
@@ -969,7 +973,7 @@ class LiveObjectMapper:
                 value = item.get(field) if isinstance(item, dict) else getattr(item, attr, None)
                 row[field] = convert(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else (bool(value) if field == "mute" and isinstance(value, bool) else None)
             rows.append(row)
-        return rows[:MAX_WIRE_COLLECTION_LENGTH]
+        return rows[:MAX_WIRE_ARRAY_LENGTH]
         return []
 
     def get(self, reference: str) -> Any:
@@ -1613,7 +1617,7 @@ class LiveObjectMapper:
             return self._locator_mutate(args, delete=False)
         if operation in {"locator.delete", "arrangement.locator.delete"}:
             return self._locator_mutate(args, delete=True)
-        if operation in {"clip.create", "clip.delete", "note.add"}:
+        if operation in {"clip.create", "clip.delete", "note.add", "note.add-batch"}:
             return self._mutate(operation, args)
         if operation in {"track.create", "track.delete", "scene.create", "scene.delete"}:
             return self._structure_mutate(operation, args)
@@ -1767,6 +1771,10 @@ class LiveObjectMapper:
             slot.delete_clip()
             return {"deleted": args["ref"]}
         clip = self.refs.get(str(args["ref"]))
+        if operation == "note.add-batch":
+            if not isinstance(args.get("notes"), list) or not 1 <= len(args["notes"]) <= 512:
+                raise ValueError("note batch is invalid")
+            return self._note_add_batch(args)
         if not isinstance(args.get("note"), dict):
             raise ValueError("note is invalid")
         return self._note_add(args)
@@ -3141,15 +3149,12 @@ class LiveObjectMapper:
         self.song.record_mode = action == "start"
         return {"recording": action == "start"}
 
-    def _note_add(self, args: dict[str, Any]) -> dict[str, Any]:
-        clip = self.refs.get(str(args["ref"]))
-        if not isinstance(args.get("note"), dict):
+    def _validated_note(self, clip: Any, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict) or not hasattr(clip, "add_new_notes"):
             raise ValueError("note is invalid")
-        note = dict(args["note"])
-        if not hasattr(clip, "add_new_notes"):
-            raise ValueError("target is not a MIDI clip")
+        note = dict(value)
         if (not isinstance(note.get("pitch"), int) or isinstance(note["pitch"], bool) or not 0 <= note["pitch"] <= 127
-                or not isinstance(note.get("velocity"), (int, float)) or isinstance(note["velocity"], bool) or not 0 <= float(note["velocity"]) <= 127
+                or not isinstance(note.get("velocity"), (int, float)) or isinstance(note["velocity"], bool) or not 1 <= float(note["velocity"]) <= 127
                 or not isinstance(note.get("channel"), int) or isinstance(note["channel"], bool) or not 1 <= note["channel"] <= 16
                 or not isinstance(note.get("start"), (int, float)) or isinstance(note["start"], bool)
                 or not isinstance(note.get("duration"), (int, float)) or isinstance(note["duration"], bool)
@@ -3166,40 +3171,63 @@ class LiveObjectMapper:
         release_velocity = note.get("releaseVelocity")
         if release_velocity is not None and (not isinstance(release_velocity, (int, float)) or isinstance(release_velocity, bool) or not 0 <= float(release_velocity) <= 127):
             raise ValueError("note release velocity is invalid")
-        mute = note.get("mute")
-        if mute is not None and not isinstance(mute, bool):
+        if note.get("mute") is not None and not isinstance(note["mute"], bool):
             raise ValueError("note mute is invalid")
+        return note
+
+    def _note_add_batch(self, args: dict[str, Any]) -> dict[str, Any]:
+        clip = self.refs.get(str(args["ref"]))
+        values = args.get("notes")
+        if not isinstance(values, list) or not 1 <= len(values) <= 512:
+            raise ValueError("note batch is invalid")
+        notes = [self._validated_note(clip, value) for value in values]
+        prior_candidates = list(clip.get_all_notes_extended()) if hasattr(clip, "get_all_notes_extended") else []
+        prior_ids = {int(candidate.note_id) for candidate in prior_candidates if isinstance(getattr(candidate, "note_id", None), int) and not isinstance(candidate.note_id, bool)}
         try:
             spec_class = getattr(__import__("Live.Clip", fromlist=["MidiNoteSpecification"]), "MidiNoteSpecification", None)
         except Exception:
             spec_class = None
         if spec_class is not None:
-            clip.add_new_notes([spec_class(
+            specifications = [spec_class(
                 note["pitch"], float(note["start"]), float(note["duration"]), float(note["velocity"]),
-                bool(mute) if mute is not None else False,
-                float(probability) if probability is not None else 1.0,
-                float(velocity_deviation) if velocity_deviation is not None else 0.0,
-                float(release_velocity) if release_velocity is not None else 64.0,
-            )])
+                bool(note.get("mute", False)), float(note.get("probability", 1.0)),
+                float(note.get("velocityDeviation", 0.0)), float(note.get("releaseVelocity", 64.0)),
+            ) for note in notes]
+            clip.add_new_notes(specifications)
         elif hasattr(clip, "set_notes"):
-            # Legacy fallback carries no advanced fields.
-            if any(field is not None for field in (probability, velocity_deviation, release_velocity, mute)):
+            if any(any(note.get(field) is not None for field in ("probability", "velocityDeviation", "releaseVelocity", "mute")) for note in notes):
                 raise ValueError("advanced note fields are unavailable on this Live shape")
             if hasattr(clip, "get_all_notes_extended"):
                 existing = [(int(item.pitch), float(item.start_time), float(item.duration), int(item.velocity), bool(item.mute)) for item in clip.get_all_notes_extended()]
             else:
                 existing = [tuple(item) for item in clip.get_notes(0, 0, 4096, 128)]
-            existing.append((note["pitch"], float(note["start"]), float(note["duration"]), note["velocity"], False))
+            existing.extend((note["pitch"], float(note["start"]), float(note["duration"]), note["velocity"], False) for note in notes)
             clip.set_notes(tuple(existing))
         else:
-            note_spec = {"pitch": note["pitch"], "start_time": float(note["start"]), "duration": float(note["duration"]), "velocity": note["velocity"], "mute": False, "channel": note["channel"]}
-            clip.add_new_notes([note_spec])
-        note_id = None
-        if hasattr(clip, "get_all_notes_extended"):
-            for candidate in clip.get_all_notes_extended():
-                if int(candidate.pitch) == note["pitch"] and abs(float(candidate.start_time) - float(note["start"])) < 1e-6:
-                    note_id = int(candidate.note_id)
-        return {"added": True, "noteId": note_id}
+            clip.add_new_notes([{
+                "pitch": note["pitch"], "start_time": float(note["start"]), "duration": float(note["duration"]),
+                "velocity": note["velocity"], "mute": bool(note.get("mute", False)), "channel": note["channel"],
+                "probability": float(note.get("probability", 1.0)), "velocityDeviation": float(note.get("velocityDeviation", 0.0)),
+                "releaseVelocity": float(note.get("releaseVelocity", 64.0)),
+            } for note in notes])
+        note_ids: list[int | None] = []
+        candidates = list(clip.get_all_notes_extended()) if hasattr(clip, "get_all_notes_extended") else []
+        used: set[int] = set(prior_ids)
+        for note in notes:
+            note_id = None
+            for candidate in candidates:
+                raw_id = getattr(candidate, "note_id", None)
+                if not isinstance(raw_id, int) or isinstance(raw_id, bool):
+                    continue
+                candidate_id = int(raw_id)
+                if candidate_id not in used and int(candidate.pitch) == note["pitch"] and abs(float(candidate.start_time) - float(note["start"])) < 1e-6 and abs(float(candidate.duration) - float(note["duration"])) < 1e-6:
+                    note_id = candidate_id; used.add(candidate_id); break
+            note_ids.append(note_id)
+        return {"added": len(notes), "noteIds": note_ids}
+
+    def _note_add(self, args: dict[str, Any]) -> dict[str, Any]:
+        result = self._note_add_batch({"ref": args.get("ref"), "notes": [args.get("note")]})
+        return {"added": True, "noteId": result["noteIds"][0]}
 
 
 MAX_PENDING_EVENTS = 256

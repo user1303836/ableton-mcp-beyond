@@ -117,6 +117,8 @@ const REMOTE_MODULE = "ableton_mcp_remote_script.py";
 const ARTIFACT_SHA_PATTERN = /^[a-f0-9]{64}$/;
 const MAX_ARTIFACT_BYTES = 32 * 1024 * 1024;
 const MAX_ARTIFACT_TAR_BYTES = 64 * 1024 * 1024;
+const PYTHON_CACHE_BLOCKER = "__pycache__";
+const EMPTY_FILE_SHA256 = createHash("sha256").update("").digest("hex");
 
 function sha256(value: Buffer | string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -245,10 +247,14 @@ function hashRegularTree(root: string): Record<string, string> {
 }
 
 function verifyFiles(root: string, expected: Record<string, string>): { valid: boolean; missing: string[]; changed: string[]; unknown: string[] } {
+  // Enforce this invariant independently of receipt version so an older
+  // receipt cannot bless a cache-capable Remote Script tree. Repair migrates
+  // legacy generations by reinstalling the managed empty regular-file blocker.
+  const required = PYTHON_CACHE_BLOCKER in expected ? expected : { ...expected, [PYTHON_CACHE_BLOCKER]: EMPTY_FILE_SHA256 };
   const current = existsSync(root) ? hashRegularTree(root) : {};
-  const missing = Object.keys(expected).filter((name) => !(name in current));
-  const changed = Object.keys(expected).filter((name) => name in current && current[name] !== expected[name]);
-  const unknown = Object.keys(current).filter((name) => !(name in expected));
+  const missing = Object.keys(required).filter((name) => !(name in current));
+  const changed = Object.keys(required).filter((name) => name in current && current[name] !== required[name]);
+  const unknown = Object.keys(current).filter((name) => !(name in required));
   return { valid: missing.length === 0 && changed.length === 0 && unknown.length === 0, missing, changed, unknown };
 }
 

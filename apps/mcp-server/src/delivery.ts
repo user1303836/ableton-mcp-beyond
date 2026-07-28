@@ -408,6 +408,10 @@ export function installRemoteScript(sourceFile: string, destinationDirectory: st
     const files = ["__init__.py", REMOTE_SCRIPT_ASSET, OPERATION_REGISTRY_ASSET] as const;
     const hashes = Object.fromEntries(files.map((name) => [name, createHash("sha256").update(readFileSync(join(stagedPackage, name))).digest("hex")]));
     writeFileSync(join(stagedPackage, "manifest.json"), `${JSON.stringify({ package: REMOTE_SCRIPT_PACKAGE, algorithm: "sha256", registryHash: registryDigest(), files: hashes })}\n`, { mode: 0o600, flag: "wx" });
+    // Python writes bytecode only beneath a directory named __pycache__. A
+    // receipt-bound regular file at that exact path blocks unverified runtime
+    // code generation on every platform without relying on process-wide env.
+    writeFileSync(join(stagedPackage, "__pycache__"), "", { mode: 0o400, flag: "wx" });
     if (referencePath && options.configPath) writeBridgeReference(join(stagedPackage, "bridge-reference.json"), options.configPath);
     if (backup) renameSync(destinationDirectory, backup);
     renameSync(stagedPackage, destinationDirectory);

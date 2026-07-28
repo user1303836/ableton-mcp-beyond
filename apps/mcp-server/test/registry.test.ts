@@ -30,6 +30,10 @@ test("canonical registry includes strict snapshot and playback contracts", () =>
   assert.equal(registry.operations.find((item) => item.id === "session.playback")?.method, "discover");
   validateLiveOperationRequest("session.playback", {});
   validateLiveOperationResult("session.playback", playback);
+  const note = { pitch: 36, start: 0, duration: 0.25, velocity: 100, channel: 1 };
+  validateLiveOperationRequest("note.add-batch", { ref: "1:clip:0:0", notes: [note, { ...note, pitch: 38, start: 1 }] });
+  validateLiveOperationResult("note.add-batch", { added: 2, noteIds: [1, null] });
+  assert.throws(() => validateLiveOperationRequest("note.add-batch", { ref: "1:clip:0:0", notes: [] }), /below registry item bound/);
   assert.throws(() => validateLiveOperationRequest("browser.load", { itemId: "instruments/Synth", expectedName: "Synth" }), /required/);
 });
 

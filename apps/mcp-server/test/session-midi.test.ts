@@ -8,10 +8,10 @@ const request = { trackRef: "track:track-1" as const, sceneIndex: 1, name: "Boun
   { pitch: 38, start: 1, duration: 0.25, velocity: 90, channel: 1 },
 ] };
 
-function asynchronous(simulator: DeterministicLiveSimulator): AsyncLiveAdapter {
+function asynchronous(simulator: DeterministicLiveSimulator, operations: string[] = []): AsyncLiveAdapter {
   return {
     status: () => simulator.status(), snapshot: () => simulator.snapshot(), get: (ref) => simulator.get(ref), invoke: (value) => simulator.invoke(value), subscribe: (listener) => simulator.subscribe(listener), reconnect: () => simulator.reconnect(),
-    snapshotAsync: async () => simulator.snapshot(), discoverAsync: async () => { throw new Error("not used by this test adapter"); }, getAsync: async (ref) => simulator.get(ref), invokeAsync: async (value) => simulator.invoke(value), reconnectAsync: async () => simulator.reconnect(), close: async () => undefined,
+    snapshotAsync: async () => simulator.snapshot(), discoverAsync: async () => { throw new Error("not used by this test adapter"); }, getAsync: async (ref) => simulator.get(ref), invokeAsync: async (value) => { operations.push(value.operation); return simulator.invoke(value); }, reconnectAsync: async () => simulator.reconnect(), close: async () => undefined,
   };
 }
 
@@ -55,12 +55,30 @@ test("expired applied MIDI records retain recovery authority until safely undone
   assert.equal((manager as any).records.has(preview.transactionId), false);
 });
 
+test("expressive batch verification compensates when an adapter drops requested fields", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const base = asynchronous(simulator);
+  const adapter: AsyncLiveAdapter = {
+    ...base,
+    invokeAsync: async (invocation) => invocation.operation === "note.add-batch"
+      ? simulator.invoke({ ...invocation, args: { ...invocation.args, notes: (invocation.args.notes as Array<Record<string, unknown>>).map(({ probability: _probability, velocityDeviation: _deviation, releaseVelocity: _release, mute: _mute, ...note }) => note) } })
+      : simulator.invoke(invocation),
+  };
+  const manager = new SessionMidiTransactionManager(adapter);
+  const preview = await manager.previewAsync({ ...request, notes: [{ ...request.notes[0], probability: 0.5, velocityDeviation: 8, releaseVelocity: 32, mute: true }] });
+  await assert.rejects(manager.applyAsync(preview.transactionId, "apply", "lossy-batch"), /confirm MIDI clip contents/);
+  assert.equal(simulator.snapshot().tracks[0]!.clips.some((clip) => clip.start === request.sceneIndex * 4), false);
+});
+
 test("supports the asynchronous guarded Session MIDI lifecycle and async pagination", async () => {
-  const adapter = asynchronous(new DeterministicLiveSimulator());
+  const operations: string[] = [];
+  const adapter = asynchronous(new DeterministicLiveSimulator(), operations);
   const manager = new SessionMidiTransactionManager(adapter);
   const preview = await manager.previewAsync(request);
   const applied = await manager.applyAsync(preview.transactionId, "apply", "async-apply") as any;
   assert.equal(applied.state, "applied"); assert.equal((await manager.applyAsync(preview.transactionId, "apply", "async-apply") as any).idempotent, true);
+  assert.equal(operations.filter((operation) => operation === "note.add-batch").length, 1);
+  assert.equal(operations.filter((operation) => operation === "note.add").length, 0);
   const notes = await discoverSessionAsync(adapter, "note", 1); assert.equal(notes.truncated, true);
   assert.equal((await discoverSessionAsync(adapter, "note", 10, notes.nextCursor)).items.length, 2);
   const undone = await manager.undoAsync(preview.transactionId, "undo", "async-undo") as any;

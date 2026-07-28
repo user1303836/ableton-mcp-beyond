@@ -113,7 +113,7 @@ export type LiveOperation =
   | "automation.envelope.create" | "automation.envelope.delete" | "automation.envelope.read" | "automation.point.delete" | "automation.point.insert"
   | "browser.inspect" | "browser.load" | "browser.search" | "browser.preview.start" | "browser.preview.stop" | "clip.create" | "clip.delete" | "clip.duplicate" | "clip.rename"
   | "device.delete" | "device.enable" | "device.insert" | "device.move" | "device.parameter.set" | "device.rename"
-  | "locator.add" | "locator.delete" | "locator.rename" | "mixer.set" | "note.add" | "note.delete" | "note.update"
+  | "locator.add" | "locator.delete" | "locator.rename" | "mixer.set" | "note.add" | "note.add-batch" | "note.delete" | "note.update"
   | "project.bounce" | "project.collect" | "project.export" | "project.new" | "project.open" | "project.save" | "project.save-as"
   | "realtime.arm" | "realtime.disarm" | "realtime.stats" | "recording.arrangement" | "recording.session" | "routing.set"
   | "scene.capture" | "scene.create" | "scene.delete" | "scene.rename" | "session.audition-launch" | "session.audition-stop" | "session.capture-midi" | "session.clip-launch" | "session.clip-stop" | "session.discover" | "session.emergency-stop"
@@ -162,7 +162,7 @@ function createSimulatorState(): LiveSnapshot {
   };
 }
 
-export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "transport.set", "tempo.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "session.clip-launch", "session.clip-stop", "clip.create", "clip.delete", "track.create", "track.delete", "track.rename", "scene.create", "scene.delete", "scene.rename", "clip.rename", "device.rename", "locator.rename", "scene.capture", "note.add", "note.update", "note.delete", "locator.add", "locator.delete", "session.capture-midi", "device.parameter.set", "clip.duplicate", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "audio.clip.set", "mixer.set", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.point.insert", "automation.point.delete", "device.insert", "device.delete", "device.enable", "device.move", "browser.search", "browser.inspect", "browser.load", "routing.set", "recording.session", "recording.arrangement"] as const;
+export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "transport.set", "tempo.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "session.clip-launch", "session.clip-stop", "clip.create", "clip.delete", "track.create", "track.delete", "track.rename", "scene.create", "scene.delete", "scene.rename", "clip.rename", "device.rename", "locator.rename", "scene.capture", "note.add", "note.add-batch", "note.update", "note.delete", "locator.add", "locator.delete", "session.capture-midi", "device.parameter.set", "clip.duplicate", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "audio.clip.set", "mixer.set", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.point.insert", "automation.point.delete", "device.insert", "device.delete", "device.enable", "device.move", "browser.search", "browser.inspect", "browser.load", "routing.set", "recording.session", "recording.arrangement"] as const;
 
 export class DeterministicLiveSimulator implements LiveAdapter {
   private state = createSimulatorState();
@@ -650,6 +650,18 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         return { changed: true, revision: ++this.sequence };
       }
       case "note.add": return this.addNote(objectRef("ref"), args.note as Note);
+      case "note.add-batch": {
+        const clipRef = objectRef("ref");
+        const notes = args.notes;
+        if (!Array.isArray(notes) || notes.length < 1 || notes.length > 512) throw new RangeError("note batch is invalid");
+        const clip = this.findClip(clipRef); const typed = notes as Note[];
+        typed.forEach((note) => this.validateNoteForClip(clip, note));
+        const before = structuredClone(clip.notes); const firstNextId = this.nextNoteId;
+        try {
+          const results = typed.map((note) => this.addNote(clipRef, note));
+          return { added: results.length, noteIds: results.map((result) => result.noteId) };
+        } catch (error) { clip.notes = before; this.nextNoteId = firstNextId; throw error; }
+      }
       case "note.update": {
         const clip = this.findClip(objectRef("ref"));
         const patches = args.notes;
@@ -734,14 +746,17 @@ export class DeterministicLiveSimulator implements LiveAdapter {
   async reconnectAsync(): Promise<LiveStatus> { return this.reconnect(); }
   async close(): Promise<void> { this.listeners.clear(); }
   private nextNoteId = 2;
-  addNote(clipRef: LiveRef, note: Note): { added: boolean; noteId: number } {
-    const clip = this.findClip(clipRef);
+  private validateNoteForClip(clip: Clip, note: Note): void {
     if (clip.kind !== "midi") throw new Error("notes require a MIDI clip");
-    if (!Number.isInteger(note.pitch) || note.pitch < 0 || note.pitch > 127 || !Number.isFinite(note.start) || note.start < 0 || !Number.isFinite(note.duration) || note.duration <= 0 || typeof note.velocity !== "number" || !Number.isFinite(note.velocity) || note.velocity < 0 || note.velocity > 127 || !Number.isInteger(note.channel) || note.channel < 1 || note.channel > 16) throw new RangeError("invalid MIDI note");
+    if (!Number.isInteger(note.pitch) || note.pitch < 0 || note.pitch > 127 || !Number.isFinite(note.start) || note.start < 0 || !Number.isFinite(note.duration) || note.duration <= 0 || typeof note.velocity !== "number" || !Number.isFinite(note.velocity) || note.velocity < 1 || note.velocity > 127 || !Number.isInteger(note.channel) || note.channel < 1 || note.channel > 16) throw new RangeError("invalid MIDI note");
     if (note.probability !== undefined && note.probability !== null && (typeof note.probability !== "number" || !Number.isFinite(note.probability) || note.probability < 0 || note.probability > 1)) throw new RangeError("note probability is invalid");
     if (note.velocityDeviation !== undefined && note.velocityDeviation !== null && (typeof note.velocityDeviation !== "number" || !Number.isFinite(note.velocityDeviation) || note.velocityDeviation < -127 || note.velocityDeviation > 127)) throw new RangeError("note velocity deviation is invalid");
     if (note.releaseVelocity !== undefined && note.releaseVelocity !== null && (typeof note.releaseVelocity !== "number" || !Number.isFinite(note.releaseVelocity) || note.releaseVelocity < 0 || note.releaseVelocity > 127)) throw new RangeError("note release velocity is invalid");
     if (note.mute !== undefined && note.mute !== null && typeof note.mute !== "boolean") throw new RangeError("note mute is invalid");
+  }
+  addNote(clipRef: LiveRef, note: Note): { added: boolean; noteId: number } {
+    const clip = this.findClip(clipRef);
+    this.validateNoteForClip(clip, note);
     const id = this.nextNoteId++;
     clip.notes.push(structuredClone({ ...note, id, mute: note.mute ?? false, probability: note.probability ?? 1, velocityDeviation: note.velocityDeviation ?? 0, releaseVelocity: note.releaseVelocity ?? 64 }));
     this.emit({ type: "object", ref: clipRef, payload: { operation: "note.add", note } });

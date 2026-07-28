@@ -130,6 +130,24 @@ test("remote adapter obtains mutation preflight authority with stable transactio
   } finally { await adapter?.close(); await close(server); }
 });
 
+test("remote adapter authenticates a maximum 512-note canonical batch and result", async () => {
+  const notes = Array.from({ length: 512 }, (_, index) => ({ pitch: index % 128, start: index, duration: 0.25, velocity: 100, channel: 1 }));
+  const noteIds = Array.from({ length: 512 }, (_, index) => index);
+  const server = framedServer((request, socket) => {
+    if (request.method === "status") { socket.write(`${JSON.stringify(response(request.id as string, status({ operations: [...requiredOperations, "note.add-batch"] })))}\n`); return; }
+    const argsDigest = createHash("sha256").update(canonical(request.args ?? {})).digest("hex");
+    if (request.method === "preflight") socket.write(`${JSON.stringify(response(request.id as string, { preflightToken: "p".repeat(32), confirmation: "c".repeat(32), operation: request.operation, argsDigest, stateDigest: "a".repeat(64), impact: "mutates-live", expiresAt: Date.now() + 5000 }))}\n`);
+    else if (request.method === "prepare") socket.write(`${JSON.stringify(response(request.id as string, { authorityToken: "t".repeat(32), operation: request.operation, argsDigest, stateDigest: "a".repeat(64), expiresAt: Date.now() + 5000 }))}\n`);
+    else socket.write(`${JSON.stringify(response(request.id as string, { added: 512, noteIds }))}\n`);
+  });
+  const port = await listen(server); let adapter: RemoteScriptLiveAdapter | undefined;
+  try {
+    adapter = await RemoteScriptLiveAdapter.connect({ host: "127.0.0.1", port, secret, timeoutMs: 1000 });
+    const result = await adapter.invokeAsync({ operation: "note.add-batch", args: { ref: "1:clip:0:0", notes } }, { deadlineMs: Date.now() + 5000, idempotencyKey: "maximum-note-batch", transactionId: "maximum-note-batch-transaction" }) as { added: number; noteIds: number[] };
+    assert.equal(result.added, 512); assert.equal(result.noteIds.length, 512);
+  } finally { await adapter?.close(); await close(server); }
+});
+
 test("remote adapter closes the session on timeout and reports post-dispatch uncertainty", async () => {
   const sockets = new Set<Socket>();
   const server = framedServer((request, socket) => { sockets.add(socket); if (request.method === "status") socket.write(`${JSON.stringify(response(request.id as string, status()))}\n`); });

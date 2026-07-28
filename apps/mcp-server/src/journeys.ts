@@ -52,7 +52,7 @@ const token = (tools: string[], note: string): StageAuthority => ({ tools, mecha
 
 const playbackOperations = ["session.playback", "session.audition-launch", "session.audition-stop", "session.emergency-stop"];
 const clipPlaybackOperations = ["session.playback", "session.clip-launch", "session.clip-stop", "session.emergency-stop"];
-const midiOperations = ["clip.create", "clip.delete", "note.add", "note.delete"];
+const midiOperations = ["clip.create", "clip.delete", "note.add", "note.add-batch", "note.delete"];
 const captureOperations = ["audio.capture.inspect", "audio.capture.start", "audio.capture.status", "audio.capture.stop", "audio.capture.cleanup", "audio.capture.emergency-stop"];
 
 export const JOURNEY_CATALOG: readonly JourneyDefinition[] = [

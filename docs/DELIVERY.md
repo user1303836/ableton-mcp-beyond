@@ -242,7 +242,13 @@ Status is read-only and separates receipt state, package/config/Remote Script
 integrity, file drift, permissions, rollback availability, retained cleanup or
 preserved paths, and the historical activation receipt. Historical activation
 is never current-connectivity evidence and is downgraded to an effective
-restart-required status when installation integrity drifts.
+restart-required status when installation integrity drifts. The installer owns
+an empty regular file named `__pycache__` at Python's cache-directory path. That
+receipt-bound blocker prevents Live from generating or loading unverified
+bytecode while leaving the source modules readable. Replacing it with a
+directory, cache payload, link, or any other entry is actionable drift. This
+invariant is enforced even for legacy receipts that did not list the blocker;
+status/activation fail closed and `repair --apply` migrates that generation.
 `lifecycle-journal.json` records the last transaction result without secrets. On interruption, do not retry blindly:
 inspect the receipt, journal, quarantine, Live process, and status; use repair
 or rollback as indicated.
@@ -252,7 +258,7 @@ or rollback as indicated.
 Unit and installed-tarball tests cover spaces/Unicode, non-mutating plans,
 explicit stopped confirmation, occupied ports, owner permissions, leaf and
 ancestor symlinks, install failures after each commit boundary, drift/unknown
-files, quarantine, idempotent repair, upgrade rollback, explicit rollback,
+files, receipt-bound Python bytecode-cache blocking, quarantine, idempotent repair, upgrade rollback, explicit rollback,
 upgraded-generation retirement, retryable uninstall cleanup, uninstall
 preserve/purge, malformed options, restart-required state, and
 truthful unavailable activation. Hosted Windows runs add native DACL and

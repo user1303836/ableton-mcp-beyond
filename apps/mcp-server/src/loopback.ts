@@ -7,7 +7,8 @@ const MAX_NONCE_LENGTH = 256;
 const MAX_WIRE_BYTES = 1_048_576;
 const MAX_WIRE_DEPTH = 16;
 const MAX_WIRE_STRING_LENGTH = 16_384;
-const MAX_WIRE_COLLECTION_LENGTH = 256;
+const MAX_WIRE_ARRAY_LENGTH = 512;
+const MAX_WIRE_OBJECT_PROPERTIES = 256;
 type WireRequestBase = { version: string; id: string; ref?: LiveRef; operation?: LiveInvocation["operation"]; args?: Record<string, unknown>; nonce: string; sequence: number; bridgeEpoch: string; connectionChallenge: string; deadlineMs: number; mac: string };
 export type LoopbackRequest = WireRequestBase & { method: "status" | "snapshot" | "discover" | "get" | "invoke" | "subscribe" | "reconnect" };
 export type RemoteBridgeRequest = WireRequestBase & { method: "status" | "snapshot" | "discover" | "get" | "preflight" | "prepare" | "invoke" | "subscribe" | "reconnect"; preflightToken?: string; confirmation?: string; idempotencyKey?: string; authorityToken?: string };
@@ -26,12 +27,12 @@ function canonical(value: unknown, depth = 0): string {
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) {
-    if (value.length > MAX_WIRE_COLLECTION_LENGTH) throw new TypeError("wire array is too large");
+    if (value.length > MAX_WIRE_ARRAY_LENGTH) throw new TypeError("wire array is too large");
     return `[${value.map((item) => canonical(item, depth + 1)).join(",")}]`;
   }
   if (isObject(value)) {
     const keys = Object.keys(value);
-    if (keys.length > MAX_WIRE_COLLECTION_LENGTH) throw new TypeError("wire object is too large");
+    if (keys.length > MAX_WIRE_OBJECT_PROPERTIES) throw new TypeError("wire object is too large");
     return `{${keys.sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key], depth + 1)}`).join(",")}}`;
   }
   throw new TypeError("unsupported wire value");

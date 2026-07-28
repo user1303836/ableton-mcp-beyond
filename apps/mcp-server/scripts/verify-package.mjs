@@ -224,7 +224,7 @@ finally: bridge.disconnect()
   const bridgeErrorPath = join(temporaryDirectory, "bridge-smoke-stderr.log");
   bridgeProcess = spawn(python, [bridgeScript, readyPath], {
     cwd: temporaryDirectory,
-    env: { ...process.env, PYTHONPATH: join(installedPackageDirectory, "remote-script"), ABLETON_MCP_SMOKE_SECRET_FILE: secretPath },
+    env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1", PYTHONPATH: join(installedPackageDirectory, "remote-script"), ABLETON_MCP_SMOKE_SECRET_FILE: secretPath },
     stdio: ["ignore", "ignore", openSync(bridgeErrorPath, "w")],
   });
   try {

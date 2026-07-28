@@ -40,7 +40,7 @@ function canonical(value: unknown, depth = 0): string {
   if (value === null || typeof value === "boolean") return JSON.stringify(value);
   if (typeof value === "string") { if (value.length > 16_384) throw new Error("wire string is too large"); return JSON.stringify(value); }
   if (typeof value === "number") { if (!Number.isFinite(value)) throw new Error("wire number is not finite"); return JSON.stringify(Object.is(value, -0) ? 0 : value); }
-  if (Array.isArray(value)) { if (value.length > 256) throw new Error("wire array is too large"); return `[${value.map((item) => canonical(item, depth + 1)).join(",")}]`; }
+  if (Array.isArray(value)) { if (value.length > 512) throw new Error("wire array is too large"); return `[${value.map((item) => canonical(item, depth + 1)).join(",")}]`; }
   if (typeof value === "object") { const object = value as Record<string, unknown>; const keys = Object.keys(object); if (keys.length > 256) throw new Error("wire object is too large"); return `{${keys.sort().map((key) => `${JSON.stringify(key)}:${canonical(object[key], depth + 1)}`).join(",")}}`; }
   throw new Error("unsupported wire value");
 }
@@ -72,7 +72,7 @@ function validStatus(value: unknown): value is LiveStatus {
     "notes": readableHierarchy, "session.discovery": all("discover"),
     "session.structure": any("track.create", "track.delete", "scene.create", "scene.delete"),
     "session.midi_clip.create": all("clip.create"), "session.midi_clip.delete": all("clip.delete"),
-    "session.midi_note.read": readableHierarchy, "session.midi_note.write": all("note.add"),
+    "session.midi_note.read": readableHierarchy, "session.midi_note.write": all("note.add", "note.add-batch"),
     "arrangement.read": any("locator.add", "arrangement.clip.delete"),
     "arrangement.write": any("locator.add", "locator.delete", "arrangement.clip.create", "arrangement.clip.delete"),
     "audio": all("audio.clip.set"), "audio.capture.resampling": all("audio.capture.inspect", "audio.capture.start", "audio.capture.stop", "audio.capture.cleanup"),

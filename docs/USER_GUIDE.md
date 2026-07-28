@@ -44,7 +44,7 @@ All Live mutations require a connected negotiated adapter, fresh discovery, a re
 
 - `live_device_parameter_preview` and `live_device_parameter_apply` for an already-discovered enabled numeric parameter on an authoritative device. Bounds, finite values, quantization, parentage, and revisions are checked; guarded undo is performed through `live_undo`.
 - `live_session_structure_preview/apply` for bounded named MIDI/audio track and scene creation. Existing objects, clips, devices, routing, transport, and recording are not changed.
-- `live_midi_clip_preview/apply` for a bounded MIDI clip in an empty Session slot, including normalized notes.
+- `live_midi_clip_preview/apply` for a bounded MIDI clip in an empty Session slot, including normalized notes. Apply creates the clip, submits the complete validated note set through one canonical `note.add-batch` mutation, then verifies authoritative note content; it never loops through separately authorized note mutations.
 - `live_arrangement_section_preview/apply` for two named locators in a bounded non-colliding range.
 - `live_tempo_preview/apply` for a bounded tempo change.
 - `live_undo` for an applied transaction whose epoch and verified postcondition still match.

@@ -50,6 +50,17 @@ test("simulator exposes domain objects and bounded editing operations", () => {
   assert.throws(() => live.setAutomation(clip.ref, { time: Number.NaN, value: 0.5 }), /outside the clip/);
   assert.throws(() => live.addNote(clip.ref, { pitch: 40, start: Number.NaN, duration: 0.25, velocity: 90, channel: 1 }), /invalid MIDI note/);
   assert.throws(() => live.addNote(clip.ref, { pitch: 40, start: 1, duration: 0.25, velocity: 90, channel: 17 }), /invalid MIDI note/);
+  const batched = live.invoke({ operation: "note.add-batch", args: { ref: clip.ref, notes: [
+    { pitch: 41, start: 1, duration: 0.25, velocity: 90, channel: 1 },
+    { pitch: 42, start: 2, duration: 0.25, velocity: 80, channel: 1 },
+  ] } }) as { added: number; noteIds: number[] };
+  assert.equal(batched.added, 2); assert.equal(batched.noteIds.length, 2);
+  const afterBatch = (live.get(clip.ref) as typeof clip).notes.length;
+  assert.throws(() => live.invoke({ operation: "note.add-batch", args: { ref: clip.ref, notes: [
+    { pitch: 43, start: 3, duration: 0.25, velocity: 70, channel: 1 },
+    { pitch: 44, start: Number.NaN, duration: 0.25, velocity: 70, channel: 1 },
+  ] } }), /invalid MIDI note/);
+  assert.equal((live.get(clip.ref) as typeof clip).notes.length, afterBatch);
   assert.throws(() => live.addTake(clip.ref, 42 as unknown as string), /invalid or duplicate take/);
   assert.throws(() => live.setWarp(clip.ref, "yes" as unknown as boolean), /warp must be boolean/);
 });
@@ -122,6 +133,9 @@ test("loopback signing rejects oversized, deeply nested, and non-finite wire val
   for (let index = 0; index < 17; index += 1) nested = { value: nested };
   assert.throws(() => transport.authenticate({ version: LOOPBACK_PROTOCOL_VERSION, id: "deep", method: "invoke", operation: "browser.search", args: nested as Record<string, unknown>, nonce: "deep-wire-value-0001" }), /too deeply nested/);
   assert.throws(() => transport.authenticate({ version: LOOPBACK_PROTOCOL_VERSION, id: "nan", method: "invoke", operation: "browser.search", args: { value: Number.NaN }, nonce: "nan-wire-value-0001" }), /not finite/);
+  const notes = Array.from({ length: 512 }, (_, index) => ({ pitch: index % 128, start: index, duration: 0.25, velocity: 100, channel: 1 }));
+  assert.doesNotThrow(() => transport.authenticate({ version: LOOPBACK_PROTOCOL_VERSION, id: "bounded-note-batch", method: "invoke", operation: "note.add-batch", args: { ref: "1:clip:0:0", notes }, nonce: "bounded-note-batch-0001" }));
+  assert.throws(() => transport.authenticate({ version: LOOPBACK_PROTOCOL_VERSION, id: "oversized-note-batch", method: "invoke", operation: "note.add-batch", args: { ref: "1:clip:0:0", notes: [...notes, notes[0]] }, nonce: "oversized-note-batch-0001" }), /wire array is too large/);
 });
 
 test("loopback retains replay protection beyond the old eviction threshold", () => {

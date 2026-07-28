@@ -171,6 +171,9 @@ class RemoteScriptTests(unittest.TestCase):
         deeply_nested = {"version": PROTOCOL, "id": "deep", "method": "invoke", "operation": "browser.search", "args": nested, "nonce": "deep-wire-value-0001", "sequence": 1}
         with self.assertRaises(ValueError):
             remote.sign(deeply_nested)
+        remote.sign({"version": PROTOCOL, "id": "bounded-array", "method": "status", "values": list(range(512))})
+        with self.assertRaises(ValueError):
+            remote.sign({"version": PROTOCOL, "id": "oversized-array", "method": "status", "values": list(range(513))})
 
     def test_direct_authenticated_mutation_without_prepared_authority_is_rejected(self):
         calls = []
@@ -418,7 +421,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "616268a4464c3e3db4ea9f08a67fc1e755714ebd7a42ca070ab3b029213d19c4")
+        self.assertEqual(digest, "6cff8686779afc92a0e9c70477573a207c13a634ba2b27c3f643e036cd8b61c8")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -783,7 +786,7 @@ class ControlSurfaceTests(unittest.TestCase):
         requirements = {
             "transport": {"transport.set", "tempo.set"}, "subscriptions": {"subscribe"},
             "session.midi_clip.create": {"clip.create"}, "session.midi_clip.delete": {"clip.delete"},
-            "session.midi_note.write": {"note.add", "note.update", "note.delete"},
+            "session.midi_note.write": {"note.add", "note.add-batch"},
         }
         for capability, required in requirements.items():
             if capability in capabilities: self.assertTrue(required <= operations, (capability, required - operations))
@@ -843,6 +846,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertNotIn("scene.create", status["operations"])
         self.assertNotIn("clip.create", status["operations"])
         self.assertNotIn("note.add", status["operations"])
+        self.assertNotIn("note.add-batch", status["operations"])
         self.assertNotIn("device.parameter.set", status["operations"])
         self.assertNotIn("locator.add", status["operations"])
 
@@ -1096,13 +1100,40 @@ class ControlSurfaceTests(unittest.TestCase):
         status = mapper.status()
         self.assertTrue(status["connected"])
         self.assertIn("session.midi_clip.create", status["capabilities"])
+        self.assertIn("session.midi_note.write", status["capabilities"])
+        self.assertIn("note.add-batch", status["operations"])
         track = mapper.discover("track")["items"][0]["ref"]
         created = mapper.invoke("clip.create", {"trackRef": track, "sceneIndex": 0, "name": "Four bars", "length": 16})
         self.assertEqual(created["name"], "Four bars")
         mapper.invoke("note.add", {"ref": created["ref"], "note": {"pitch": 36, "start": 0, "duration": 0.25, "velocity": 110, "channel": 1}})
+        batch = mapper.invoke("note.add-batch", {"ref": created["ref"], "notes": [
+            {"pitch": 38, "start": 1, "duration": 0.25, "velocity": 100, "channel": 1},
+            {"pitch": 42, "start": 2, "duration": 0.25, "velocity": 90, "channel": 1, "mute": True, "probability": 0.5, "velocityDeviation": 7, "releaseVelocity": 32},
+        ]})
+        self.assertEqual(batch, {"added": 2, "noteIds": [None, None]})
         clip = mapper.refs.get(created["ref"])
-        self.assertEqual(clip.get_notes(0, 0, 0, 128)[0]["pitch"], 36)
+        self.assertEqual([note["pitch"] for note in clip.get_notes(0, 0, 0, 128)], [36, 38, 42])
+        expressive = mapper.get(created["ref"])["notes"][2]
+        self.assertEqual({key: expressive[key] for key in ("mute", "probability", "velocityDeviation", "releaseVelocity")}, {"mute": True, "probability": 0.5, "velocityDeviation": 7.0, "releaseVelocity": 32.0})
         self.assertEqual(mapper.invoke("clip.delete", {"ref": created["ref"]}), {"deleted": created["ref"]})
+
+    def test_note_batch_ids_exclude_preexisting_coincident_notes(self):
+        class ExtendedNote:
+            def __init__(self, note_id, pitch, start, duration, velocity=100):
+                self.note_id = note_id; self.pitch = pitch; self.start_time = start; self.duration = duration; self.velocity = velocity
+                self.channel = 1; self.mute = False; self.probability = 1.0; self.velocity_deviation = 0.0; self.release_velocity = 64.0
+
+        class ExtendedClip:
+            length = 4.0
+            def __init__(self): self.notes = [ExtendedNote(7, 36, 0, 0.25)]; self.next_id = 8
+            def get_all_notes_extended(self): return list(self.notes)
+            def add_new_notes(self, notes):
+                for note in notes:
+                    self.notes.append(ExtendedNote(self.next_id, note["pitch"], note["start_time"], note["duration"], note["velocity"])); self.next_id += 1
+
+        mapper = LiveObjectMapper(FakeSong()); clip = ExtendedClip(); clip_ref = mapper.refs.put("clip", clip, "identity-test")
+        result = mapper.invoke("note.add-batch", {"ref": clip_ref, "notes": [{"pitch": 36, "start": 0, "duration": 0.25, "velocity": 100, "channel": 1}]})
+        self.assertEqual(result, {"added": 1, "noteIds": [8]})
 
     def test_mapper_clip_creation_uses_session_slot_index(self):
         mapper = LiveObjectMapper(FakeSong())
@@ -1118,6 +1149,12 @@ class ControlSurfaceTests(unittest.TestCase):
         created = mapper.invoke("clip.create", {"trackRef": track, "sceneIndex": 0, "name": "bounded", "length": 4})
         with self.assertRaises(ValueError):
             mapper.invoke("note.add", {"ref": created["ref"], "note": {"pitch": 36, "start": 3.5, "duration": 1, "velocity": 100, "channel": 1}})
+        with self.assertRaises(ValueError):
+            mapper.invoke("note.add-batch", {"ref": created["ref"], "notes": [
+                {"pitch": 36, "start": 0, "duration": 0.25, "velocity": 100, "channel": 1},
+                {"pitch": 38, "start": 3.5, "duration": 1, "velocity": 100, "channel": 1},
+            ]})
+        self.assertEqual(mapper.refs.get(created["ref"]).get_notes(0, 0, 0, 128), [])
 
     def test_discovery_pages_notes_and_rejects_stale_cursor(self):
         mapper = LiveObjectMapper(FakeSong())

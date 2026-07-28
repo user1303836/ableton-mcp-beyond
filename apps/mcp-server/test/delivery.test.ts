@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -187,6 +187,12 @@ test("Remote Script installer is explicit, atomic, and preserves a recoverable b
   assert.equal(readFileSync(join(destination, "ableton_mcp_remote_script.py"), "utf8"), "replacement");
   assert.equal(first.backup, null);
   assert.equal(existsSync(join(destination, "ableton-live-v1.operations.json")), true);
+  assert.equal(lstatSync(join(destination, "__pycache__")).isFile(), true);
+  assert.equal(lstatSync(join(destination, "__pycache__")).size, 0);
+  const python = process.platform === "win32" ? "python.exe" : "python3";
+  const imported = spawnSync(python, ["-c", "import AbletonMcpBridge"], { env: { ...process.env, PYTHONPATH: directory }, encoding: "utf8" });
+  assert.equal(imported.status, 0, imported.stderr);
+  assert.equal(lstatSync(join(destination, "__pycache__")).isFile(), true);
   const manifest = JSON.parse(readFileSync(join(destination, "manifest.json"), "utf8")) as { registryHash?: string; files?: Record<string, string> };
   assert.equal(typeof manifest.files?.["ableton-live-v1.operations.json"], "string");
   assert.match(manifest.registryHash ?? "", /^[a-f0-9]{64}$/);
