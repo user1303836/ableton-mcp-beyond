@@ -73,7 +73,10 @@ function sameIdentity(left: FileIdentity, right: FileIdentity, includeTimes = tr
 async function openVerifiedCandidate(filePath: string, maximumBytes: number, captureStartedAtMs: number, label: string, writable = false): Promise<OpenCandidate> {
   const before = await lstat(filePath);
   if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || before.size < (label === "media" ? 44 : 0) || before.size > maximumBytes) throw new Error(`capture ${label} must be one fresh bounded regular file`);
-  if (Math.max(before.birthtimeMs, before.mtimeMs) < captureStartedAtMs - 5_000) throw new Error(`capture ${label} predates the authorized capture lifecycle`);
+  // mtime is the cross-platform write freshness signal. Birth time cannot be
+  // rewritten by utimes on Windows and would let an old untouched file appear
+  // fresh merely because it was copied/created recently.
+  if (before.mtimeMs < captureStartedAtMs - 5_000) throw new Error(`capture ${label} predates the authorized capture lifecycle`);
   const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
   const handle = await open(filePath, (writable ? constants.O_RDWR : constants.O_RDONLY) | noFollow);
   try {
