@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { createSocket } from "node:dgram";
 import { createConnection } from "node:net";
@@ -19,6 +19,11 @@ const npm = npmExecutable();
 const npmOptions = { shell: process.platform === "win32" };
 const children = new Set();
 const results = [];
+const userJourneyEvidence = [];
+const plannedJourneys = new Map();
+const journeyPlanHistory = new Map();
+const journeyExecutions = new Map();
+const accessibilityChecks = [];
 let failed = false;
 let harnessRealtimePort = 0;
 
@@ -30,6 +35,49 @@ function step(name, fn) {
 }
 
 function assert(condition, message) { if (!condition) throw new Error(`assertion failed: ${message}`); }
+
+function journeyProgress(journey, stage, status, evidence = {}) {
+  const execution = journeyExecutions.get(journey) ?? { events: [], residualState: null };
+  const plan = plannedJourneys.get(journey);
+  assert(plan, `${journey} has no bound plan`);
+  const stageDefinition = plan.stages.find((candidate) => candidate.id === stage && candidate.status === "planned");
+  assert(stageDefinition, `${journey}/${stage} is not an available planned stage`);
+  const readOnly = stageDefinition.impact === "read-only";
+  const legal = readOnly ? {
+    start: ["planned", "discovering", "applying", "verifying", "completed"],
+    planned: ["applying", "verifying", "completed", "uncertain"],
+    discovering: ["planned", "applying", "verifying", "completed", "uncertain"],
+    applying: ["verifying", "completed", "uncertain"],
+    verifying: ["completed", "uncertain"],
+    awaiting_confirmation: [], completed: [], recovered: [], uncertain: [],
+  } : {
+    start: ["planned", "awaiting_confirmation"],
+    planned: ["awaiting_confirmation", "uncertain"],
+    awaiting_confirmation: ["applying", "uncertain"],
+    applying: ["verifying", "uncertain"],
+    verifying: ["completed", "recovered", "uncertain"],
+    discovering: [], completed: [], recovered: [], uncertain: [],
+  };
+  const previous = execution.events.at(-1);
+  const previousForStage = [...execution.events].reverse().find((event) => event.stage === stage);
+  const stageOrder = plan.stages.findIndex((candidate) => candidate.id === stage);
+  if (previous) {
+    const previousOrder = plan.stages.findIndex((candidate) => candidate.id === previous.stage);
+    assert(stageOrder >= previousOrder, `${journey}/${stage} regressed behind ${previous.stage}`);
+  }
+  const priorStatus = previousForStage?.status ?? "start";
+  assert(legal[priorStatus].includes(status), `${journey}/${stage} made an illegal ${priorStatus}->${status} transition`);
+  execution.events.push({ sequence: execution.events.length + 1, planId: plan.planId, stage, status, evidence });
+  journeyExecutions.set(journey, execution);
+}
+
+function journeyResidual(journey, residualState) {
+  assert(residualState && ["completed", "recovered", "uncertain"].includes(residualState.status), `${journey} residual state lacks a terminal status`);
+  for (const field of ["playback", "recording", "temporaryMedia", "realtimeAuthority"]) assert(Object.hasOwn(residualState, field), `${journey} residual state omitted ${field}`);
+  const execution = journeyExecutions.get(journey) ?? { events: [], residualState: null };
+  execution.residualState = residualState;
+  journeyExecutions.set(journey, execution);
+}
 
 function bindUdp() {
   const socket = createSocket("udp4");
@@ -169,7 +217,7 @@ class FakeDevice:
         self.class_name = "AudioEffectUtility"
         self.enabled = True
         self.is_active = True
-        self.parameters = [FakeParameter("Gain")]
+        self.parameters = [FakeParameter("Filter Cutoff", 0.75)] if name == "Drum Rack" else [FakeParameter("Gain")]
         if name == "Drum Rack":
             self.can_have_chains = True
             self.can_have_drum_pads = True
@@ -481,11 +529,24 @@ const secret = "journey-secret-0123456789abcdef0123456789abcdef";
 let cliConfigPath;
 let installedPackageDirectory;
 let harnessPort;
+let packageEvidence;
 
 try {
   const packOutput = execFileSync(npm, ["pack", "--json", "--pack-destination", temporaryDirectory], { ...npmOptions, cwd: packageDirectory, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   const packed = JSON.parse(packOutput);
   const artifact = join(temporaryDirectory, packed[0].filename);
+  packageEvidence = {
+    version: "npm-packed-artifact/v1",
+    generatedAt: new Date().toISOString(),
+    name: packed[0].name,
+    packageVersion: packed[0].version,
+    filename: packed[0].filename,
+    sha256: createHash("sha256").update(readFileSync(artifact)).digest("hex"),
+    npmSha1: packed[0].shasum,
+    npmIntegrity: packed[0].integrity,
+    sizeBytes: packed[0].size,
+    unpackedSizeBytes: packed[0].unpackedSize,
+  };
   const installDirectory = join(temporaryDirectory, "install");
   execFileSync(npm, ["install", "--prefix", installDirectory, artifact, "--ignore-scripts", "--no-audit", "--no-fund"], { ...npmOptions, cwd: packageDirectory, stdio: "pipe" });
   installedPackageDirectory = join(installDirectory, "node_modules", "@ableton-mcp", "mcp-server");
@@ -616,6 +677,85 @@ class EnvelopeEvent:
     for (const removed of ["scene.launch", "stop-all-clips", "transport.stop"]) assert(!operations.includes(removed), `generic audible operation ${removed} is still advertised`);
   });
 
+  await step("five packaged user journeys expose capability-aware plans, prompts, rights, progress, and recovery", async () => {
+    const ids = ["create-beat-or-song", "sequence-advanced-drums", "design-owned-sound", "compare-reference-mix", "diagnose-performance-setup"];
+    const resources = await client.request("resources/read", { uri: "ableton://journeys" });
+    assert(resources.result?.contents?.length === 1, "journey resource is unavailable from the installed package");
+    const catalog = JSON.parse(resources.result.contents[0].text);
+    assert(catalog.journeys.length === 5 && catalog.journeys.every((entry) => ids.includes(entry.id)), "journey resource does not contain the canonical five journeys");
+    const listed = await client.request("prompts/list");
+    const promptNames = listed.result?.prompts?.map((entry) => entry.name) ?? [];
+    for (const id of ids) {
+      const planned = (await textOf(client, "plan_user_journey", { journey: id, traits: "syncopated, controlled, warm, spacious", experienceLevel: "advanced", bars: 8 })).parsed;
+      assert(planned.version === "ableton-user-journey/v1", `${id} plan version mismatch`);
+      assert(["capability-complete", "core-capability-complete"].includes(planned.mode) && planned.executable === true, `${id} core is unexpectedly unavailable in the full fake-Live boundary: capabilities=${JSON.stringify(planned.advanced.missingCapabilities)} operations=${JSON.stringify(planned.advanced.missingOperations)}`);
+      assert(planned.advanced.provenance === "fake-live" && Number.isInteger(planned.advanced.epoch), `${id} lacks explicit fake provenance/epoch`);
+      assert(planned.rights.translationPerformed === true && planned.rights.exactReplicationDelivered === false && planned.rights.legalClearanceClaimed === false, `${id} overclaims rights or exact replication`);
+      assert(planned.intent.highLevelTraits.some((entry) => entry.value === "syncopated") && planned.intent.highLevelTraits.some((entry) => entry.value === "warm") && !JSON.stringify(planned.guidance).includes("artist reference"), `${id} did not derive safe guidance from allowlisted traits`);
+      assert(planned.accessibility.nonColorStatusLabels === true && planned.accessibility.mouseOnlyInstructions === false, `${id} lacks the text accessibility contract`);
+      assert(planned.progress.terminalResultRequiresResidualState === true && planned.progress.templateStatusOnly === true && planned.stages.every((stage, index) => stage.order === index + 1 && ["planned", "unavailable"].includes(stage.status)) && planned.stages.filter((stage) => stage.requiredForCore).every((stage) => stage.status === "planned"), `${id} progress/availability is not deterministic and ordered`);
+      assert(planned.stages.some((stage) => stage.authorities.some((authority) => authority.mechanism !== "none")) && planned.stages.every((stage) => stage.verification && stage.recovery && stage.unavailableFallback), `${id} lacks authority, verification, recovery, or fallback`);
+      const promptName = id.replaceAll("-", "_");
+      assert(promptNames.includes(promptName), `missing installed prompt ${promptName}`);
+      const prompt = await client.request("prompts/get", { name: promptName, arguments: { traits: "clear high-level traits only", experienceLevel: "beginner", bars: "4" } });
+      const promptContent = prompt.result?.messages?.[0]?.content;
+      const promptText = promptContent?.text ?? "";
+      assert(promptContent?.type === "text" && promptText.startsWith("# ") && !/\u001b\[[0-9;]*m/.test(promptText), `${id} prompt is not plain ordered semantic text`);
+      assert(promptText.includes("Do not promise exact replication or legal clearance") && promptText.includes("report uncertain state") && promptText.includes("never communicate status by color alone"), `${id} prompt omits rights, uncertainty, or non-color guidance`);
+      accessibilityChecks.push({ id, contentType: promptContent.type, heading: promptText.split("\n", 1)[0], ansiControlBytes: false, nonColorGuidance: true, orderedStages: planned.stages.every((stage, index) => stage.order === index + 1), pointerInputUsedByVerifier: false });
+      plannedJourneys.set(id, planned);
+      journeyPlanHistory.set(id, [{ planId: planned.planId, reason: "initial-negotiation", mode: planned.mode, unavailableOptionalStages: planned.advanced.unavailableOptionalStages.map((stage) => stage.id) }]);
+      userJourneyEvidence.push({ id, planId: planned.planId, mode: planned.mode, provenance: planned.advanced.provenance, stages: planned.stages.length, unavailableOptionalStages: planned.advanced.unavailableOptionalStages.map((stage) => stage.id), packagedPrompt: promptName });
+    }
+  });
+
+  await step("reference-mix journey runs bounded packaged standards analysis without retaining raw PCM", async () => {
+    const sampleRate = 48_000;
+    const samples = Buffer.alloc(sampleRate * 2 * 4);
+    for (let frame = 0; frame < sampleRate; frame += 1) {
+      const project = 0.08 * Math.sin(2 * Math.PI * 220 * frame / sampleRate);
+      samples.writeFloatLE(project, frame * 8);
+      samples.writeFloatLE(project, frame * 8 + 4);
+    }
+    const projectSource = { pcmBase64: samples.toString("base64"), sampleRate, channels: 2, channelLayout: ["L", "R"] };
+    journeyProgress("compare-reference-mix", "source-relationship", "applying", { relationship: "generated-test-fixture", rawPathSupplied: false, tool: "audio_analyze" });
+    const sourceAnalysis = (await textOf(client, "audio_analyze", projectSource, 30_000)).parsed;
+    assert(sourceAnalysis.version === "pcm-analysis/v2" && sourceAnalysis.privacy?.rawAudioReturned === false && sourceAnalysis.privacy?.rawAudioRetained === false, "source relationship analysis violated privacy/version contract");
+    journeyProgress("compare-reference-mix", "source-relationship", "completed", { relationship: "generated-test-fixture", rawPathSupplied: false, toolResultVersion: sourceAnalysis.version });
+    const referenceBytes = Buffer.from(samples);
+    for (let frame = 0; frame < sampleRate; frame += 1) {
+      const value = 0.1 * Math.sin(2 * Math.PI * 220 * frame / sampleRate);
+      referenceBytes.writeFloatLE(value, frame * 8);
+      referenceBytes.writeFloatLE(value, frame * 8 + 4);
+    }
+    journeyProgress("compare-reference-mix", "measure", "applying", { worker: "disposable-installed-package" });
+    const compared = (await textOf(client, "audio_compare_reference", { project: projectSource, reference: { ...projectSource, pcmBase64: referenceBytes.toString("base64") }, alignment: { mode: "disabled" } }, 30_000)).parsed;
+    journeyProgress("compare-reference-mix", "measure", "verifying", { version: compared.version, alignment: compared.alignment?.mode });
+    assert(compared.version === "reference-analysis/v1" && compared.privacy?.rawAudioReturned === false && compared.privacy?.rawAudioRetained === false, "reference analysis privacy/version contract mismatch");
+    assert(compared.project?.standardsAudio?.standards?.programmeLoudness === "ITU-R BS.1770-5" && compared.reference?.standardsAudio?.standards?.operatingRecommendation === "EBU R128" && compared.project?.standardsAudio?.truePeak?.method?.includes("ITU-R BS.1770-5 Annex 2"), "reference analysis omitted standards provenance");
+    assert(Number.isFinite(compared.deltas?.projectMinusReference?.integratedLoudnessLu), "reference loudness delta is unavailable");
+    journeyProgress("compare-reference-mix", "measure", "completed", { rawAudioReturned: false, standards: ["ITU-R BS.1770-5", "EBU R128"], integratedLoudnessDeltaLu: compared.deltas.projectMinusReference.integratedLoudnessLu });
+    const tracks = (await textOf(client, "live_discover", { kind: "track" })).parsed.items;
+    journeyProgress("compare-reference-mix", "live-context", "applying", { trackRef: tracks[0].ref, sourceRelationship: "declared-not-verified" });
+    const diagnosed = (await textOf(client, "audio_diagnose_live_context", { ...projectSource, trackRef: tracks[0].ref, provenance: { observedAt: new Date().toISOString(), description: "generated packaged-journey fixture; not captured from Live" } }, 30_000)).parsed;
+    assert(diagnosed.diagnosis?.version === "audio-diagnosis/v1" && diagnosed.diagnosis?.source?.relationshipToLive === "declared-by-caller-not-verified" && diagnosed.diagnosis?.causality?.claimed === false, "reference Live-context diagnosis overclaimed provenance or causality");
+    journeyProgress("compare-reference-mix", "live-context", "completed", { trackRef: tracks[0].ref, relationshipToLive: diagnosed.diagnosis.source.relationshipToLive, causalityClaimed: false });
+    const priorVolume = tracks[0].mixer.volume;
+    const hypothesisVolume = Math.max(0, priorVolume - 0.1);
+    const hypothesisPreview = (await textOf(client, "live_mixer_preview", { trackRef: tracks[0].ref, volume: hypothesisVolume })).parsed;
+    journeyProgress("compare-reference-mix", "reversible-hypothesis", "awaiting_confirmation", { tool: "live_mixer_apply", mechanism: "fixed-apply", trackRef: tracks[0].ref, causalClaim: false });
+    journeyProgress("compare-reference-mix", "reversible-hypothesis", "applying", { tool: "live_mixer_apply", idempotencyKeyPresent: true });
+    const hypothesisApplied = (await textOf(client, "live_mixer_apply", { transactionId: hypothesisPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-reference-hypothesis" })).parsed;
+    assert(hypothesisApplied.state === "applied", "reference hypothesis did not apply");
+    const hypothesisUndone = (await textOf(client, "live_undo", { transactionId: hypothesisPreview.transactionId, confirmation: "undo", idempotencyKey: "journey-reference-hypothesis-undo" })).parsed;
+    assert(hypothesisUndone.state === "undone", "reference hypothesis did not restore mixer state");
+    const remeasured = (await textOf(client, "audio_compare_reference", { project: projectSource, reference: { ...projectSource, pcmBase64: referenceBytes.toString("base64") }, alignment: { mode: "disabled" } }, 30_000)).parsed;
+    assert(remeasured.deltas.projectMinusReference.integratedLoudnessLu === compared.deltas.projectMinusReference.integratedLoudnessLu, "same-scope deterministic remeasurement changed unexpectedly");
+    journeyProgress("compare-reference-mix", "reversible-hypothesis", "verifying", { mixerRestored: true, sameScopeRemeasurementVersion: remeasured.version });
+    journeyProgress("compare-reference-mix", "reversible-hypothesis", "completed", { mixerAppliedThenRestored: true, sameScopeRemeasured: true, causalClaim: false });
+    journeyProgress("compare-reference-mix", "final-report", "completed", { textAlternatives: ["loudness", "true-peak", "dynamics", "spectrum", "transients"], rawAudioResiduals: 0 });
+  });
+
   let sceneRef;
   let trackRef;
   await step("read-only discovery covers set, scenes, track kinds, clip slots, and playback", async () => {
@@ -638,6 +778,10 @@ class EnvelopeEvent:
     assert(state.transport.playing === false && state.transport.arrangementRecord === false && state.transport.sessionRecord === false, "transport is not authoritatively stopped");
     assert(state.transport.launchQuantization.normalized === "1-bar", "quantization mismatch");
     assert(state.firedTargets.length === 0 && state.playingTargets.length === 0, "unexpected playback targets");
+    journeyProgress("create-beat-or-song", "discover", "completed", { setRef: setItems[0].ref, trackRef, emptySceneIndex: 1, playback: "stopped" });
+    journeyProgress("create-beat-or-song", "draft", "completed", { planId: plannedJourneys.get("create-beat-or-song").planId, recognizedTraits: plannedJourneys.get("create-beat-or-song").intent.highLevelTraits, guidanceKind: plannedJourneys.get("create-beat-or-song").guidance.kind });
+    journeyProgress("sequence-advanced-drums", "discover", "completed", { trackRef, pitchMapping: "operator-supplied-fixture-map", stableNoteIdsRequired: true });
+    journeyProgress("sequence-advanced-drums", "draft", "completed", { planId: plannedJourneys.get("sequence-advanced-drums").planId, recognizedTraits: plannedJourneys.get("sequence-advanced-drums").intent.highLevelTraits, guidanceKind: plannedJourneys.get("sequence-advanced-drums").guidance.kind });
     previewArgs.sceneRef = sceneRef;
   });
 
@@ -850,41 +994,101 @@ class EnvelopeEvent:
 
   await step("complete MIDI note lifecycle: create, update by id, delete, and guarded undo", async () => {
     const freshTracks = (await textOf(client, "live_discover", { kind: "track" })).parsed.items;
-    const midiPreview = (await client.call("live_midi_clip_preview", { trackRef: freshTracks[0].ref, sceneIndex: 1, name: "Journey Notes", length: 4, notes: [{ pitch: 60, start: 0, duration: 1, velocity: 100, channel: 1 }, { pitch: 64, start: 2, duration: 1, velocity: 90, channel: 1 }] })).parsed;
-    const midiApplied = (await client.call("live_midi_clip_apply", { transactionId: midiPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-midi-clip" })).parsed;
-    const clipRef = midiApplied.clipRef;
-    assert(typeof clipRef === "string", "MIDI clip creation failed");
-    const notes = (await textOf(client, "live_discover", { kind: "note", parent: clipRef })).parsed.items;
-    assert(notes.length === 2 && notes.every((item) => typeof item.id === "number"), "notes lack server-assigned ids");
+    const songGuidance = plannedJourneys.get("create-beat-or-song")?.guidance;
+    const drumGuidance = plannedJourneys.get("sequence-advanced-drums")?.guidance;
+    const roleToFixturePitch = { kick: 60, "snare-or-clap": 64, "closed-hat": 67 };
+    const toNote = (event) => ({ pitch: roleToFixturePitch[event.role], start: event.startBeat, duration: event.durationBeats, velocity: event.velocityRange[1], probability: event.probability, channel: 1 });
+    const songEvents = songGuidance.drumRoleEvents;
+    assert(songGuidance.kind === "editable-song-draft" && songGuidance.bars === 8 && songEvents.length >= 64 && songEvents.some((event) => event.startBeat % 1 === 0.75) && Math.max(...songEvents.map((event) => event.startBeat)) >= 28, "beat/song guidance did not derive a substantive syncopated eight-bar pattern");
+    journeyProgress("create-beat-or-song", "preview-create", "planned", { derivedGuidance: songGuidance.kind, roleEvents: songEvents.map((event) => event.role) });
+    const songPreview = (await client.call("live_midi_clip_preview", { trackRef: freshTracks[0].ref, sceneIndex: 1, name: "Journey Song Notes", length: songGuidance.bars * 4, notes: songEvents.map(toNote) })).parsed;
+    const structurePreview = (await client.call("live_session_structure_preview", { tracks: [], scenes: [{ name: "Journey Advanced Drums", index: 2 }] })).parsed;
+    journeyProgress("create-beat-or-song", "preview-create", "completed", { exactTrackRef: freshTracks[0].ref, structures: ["Journey Advanced Drums"], guidanceKind: songGuidance.kind });
+    journeyProgress("create-beat-or-song", "apply-create", "awaiting_confirmation", { mechanisms: ["fixed-apply-midi", "fixed-apply-structure"], exactTargets: true });
+    journeyProgress("create-beat-or-song", "apply-create", "applying", { idempotencyKeys: 2 });
+    const songApplied = (await client.call("live_midi_clip_apply", { transactionId: songPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-song-midi" })).parsed;
+    const structureApplied = (await client.call("live_session_structure_apply", { transactionId: structurePreview.transactionId, confirmation: "apply", idempotencyKey: "journey-song-structure" })).parsed;
+    const songClipRef = songApplied.clipRef;
+    const songNotes = (await textOf(client, "live_discover", { kind: "note", parent: songClipRef, limit: 100 })).parsed.items;
+    assert(typeof songClipRef === "string" && structureApplied.created?.length === 1 && songNotes.length === songEvents.length, "beat/song MIDI/structure creation failed");
+    journeyProgress("create-beat-or-song", "apply-create", "verifying", { midiRef: songClipRef, structureRefs: structureApplied.created.map((item) => item.ref), authoritativeNoteCount: songNotes.length });
+    journeyProgress("create-beat-or-song", "apply-create", "completed", { midiTarget: songClipRef, structureRefs: structureApplied.created.map((item) => item.ref), verifiedNotes: songNotes.length, guidanceKind: songGuidance.kind });
+
+    const drumEvents = drumGuidance.drumRoleEvents;
+    assert(drumGuidance.kind === "editable-drum-role-pattern" && drumGuidance.bars === 8 && drumEvents.length >= 64 && drumEvents.some((event) => event.probability < 1) && drumEvents.some((event) => event.startBeat % 1 === 0.75), "advanced-drum guidance did not derive a substantive expressive eight-bar pattern");
+    const drumSceneIndex = (await textOf(client, "live_discover", { kind: "scene" })).parsed.items.find((scene) => scene.name === "Journey Advanced Drums")?.index;
+    assert(Number.isInteger(drumSceneIndex), "created advanced-drum scene index is unavailable");
+    journeyProgress("sequence-advanced-drums", "preview-write", "planned", { derivedGuidance: drumGuidance.kind, roleEvents: drumEvents.map((event) => event.role), pitchMappingProvenance: "operator-owned-fake-fixture" });
+    const drumPreview = (await client.call("live_midi_clip_preview", { trackRef: freshTracks[0].ref, sceneIndex: drumSceneIndex, name: "Journey Advanced Drum Notes", length: drumGuidance.bars * 4, notes: drumEvents.map(toNote) })).parsed;
+    assert(typeof drumPreview.transactionId === "string", `advanced drum preview failed: ${JSON.stringify(drumPreview)}`);
+    journeyProgress("sequence-advanced-drums", "preview-write", "completed", { exactTrackRef: freshTracks[0].ref, sceneIndex: drumSceneIndex, guidanceKind: drumGuidance.kind });
+    journeyProgress("sequence-advanced-drums", "apply-write", "awaiting_confirmation", { mechanism: "fixed-apply-midi", exactTarget: true });
+    journeyProgress("sequence-advanced-drums", "apply-write", "applying", { idempotencyKeyPresent: true });
+    const drumApplied = (await client.call("live_midi_clip_apply", { transactionId: drumPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-drum-midi" })).parsed;
+    const clipRef = drumApplied.clipRef;
+    const notes = (await textOf(client, "live_discover", { kind: "note", parent: clipRef, limit: 100 })).parsed.items;
+    assert(typeof clipRef === "string" && notes.length === drumEvents.length && notes.every((item) => typeof item.id === "number"), "advanced drum clip/notes failed verification");
+    journeyProgress("sequence-advanced-drums", "apply-write", "verifying", { clipRef, authoritativeNoteCount: notes.length, stableIds: true });
+    journeyProgress("sequence-advanced-drums", "apply-write", "completed", { clipRef, verifiedNotes: notes.length, guidanceKind: drumGuidance.kind });
     const firstId = notes[0].id;
     const updatePreview = (await textOf(client, "live_note_update_preview", { clipRef, notes: [{ id: firstId, velocity: 66, probability: 0.5, velocityDeviation: 10, releaseVelocity: 32, mute: true }] })).parsed;
+    journeyProgress("sequence-advanced-drums", "expressive-revision", "awaiting_confirmation", { noteId: firstId, mechanism: "fixed-apply", fields: ["velocity", "probability", "velocityDeviation", "releaseVelocity", "mute"] });
+    journeyProgress("sequence-advanced-drums", "expressive-revision", "applying", { noteId: firstId, idempotencyKeyPresent: true });
     const updated = (await textOf(client, "live_note_update_apply", { transactionId: updatePreview.transactionId, confirmation: "apply", idempotencyKey: "journey-note-update" })).parsed;
     assert(updated.updated === 1, "note update failed");
-    const afterUpdate = (await textOf(client, "live_discover", { kind: "note", parent: clipRef })).parsed.items;
+    const afterUpdate = (await textOf(client, "live_discover", { kind: "note", parent: clipRef, limit: 100 })).parsed.items;
     const edited = afterUpdate.find((item) => item.id === firstId);
     assert(edited.velocity === 66 && edited.probability === 0.5 && edited.velocityDeviation === 10 && edited.releaseVelocity === 32 && edited.mute === true, `note fields did not land: ${JSON.stringify(edited)}`);
+    journeyProgress("sequence-advanced-drums", "expressive-revision", "verifying", { noteId: firstId, authoritativeReadback: true });
+    journeyProgress("sequence-advanced-drums", "expressive-revision", "completed", { noteId: firstId, verifiedFields: ["velocity", "probability", "velocityDeviation", "releaseVelocity", "mute"] });
     const deletePreview = (await textOf(client, "live_note_delete_preview", { clipRef, noteIds: [firstId] })).parsed;
     const deleted = (await textOf(client, "live_note_delete_apply", { transactionId: deletePreview.transactionId, confirmation: "apply", idempotencyKey: "journey-note-delete" })).parsed;
-    assert(deleted.deleted === 1, "note delete failed");
-    assert((await textOf(client, "live_discover", { kind: "note", parent: clipRef })).parsed.items.length === 1, "note was not removed");
+    assert(deleted.deleted === 1 && (await textOf(client, "live_discover", { kind: "note", parent: clipRef, limit: 100 })).parsed.items.length === drumEvents.length - 1, "note was not removed");
     const undone = (await textOf(client, "live_undo", { transactionId: deletePreview.transactionId, confirmation: "undo", idempotencyKey: "journey-note-delete-undo" })).parsed;
-    assert(undone.state === "undone", "note-delete undo failed");
-    assert((await textOf(client, "live_discover", { kind: "note", parent: clipRef })).parsed.items.length === 2, "undo did not restore the note");
+    assert(undone.state === "undone" && (await textOf(client, "live_discover", { kind: "note", parent: clipRef, limit: 100 })).parsed.items.length === drumEvents.length, "note-delete undo did not restore the note");
+    const drumSlots = (await textOf(client, "live_discover", { kind: "clip-slot", parent: freshTracks[0].ref })).parsed.items;
+    const drumSlot = drumSlots.find((slot) => slot.clipRef === clipRef);
+    const drumAuditionPreview = (await textOf(client, "live_clip_launch_preview", { slotRef: drumSlot.ref, outputSafety: { safe: true, provenance: "journey-operator-confirmed-headphones" } })).parsed;
+    journeyProgress("sequence-advanced-drums", "audition", "awaiting_confirmation", { clipRef, exactSlotRef: drumSlot.ref, mechanism: "unpredictable-preview-token" });
+    journeyProgress("sequence-advanced-drums", "audition", "applying", { exactSlotRef: drumSlot.ref, idempotencyKeyPresent: true });
+    const drumAuditionApplied = (await textOf(client, "live_clip_launch_apply", { transactionId: drumAuditionPreview.transactionId, confirmation: drumAuditionPreview.confirmation, idempotencyKey: "journey-drum-audition" })).parsed;
+    assert(drumAuditionApplied.state === "applied", "advanced drum audition did not start");
+    const drumAuditionStopped = (await textOf(client, "live_clip_launch_stop", { transactionId: drumAuditionPreview.transactionId, confirmation: drumAuditionPreview.stopConfirmation, idempotencyKey: "journey-drum-audition-stop" })).parsed;
+    assert(drumAuditionStopped.state === "stopped", "advanced drum audition did not stop");
+    journeyProgress("sequence-advanced-drums", "audition", "verifying", { started: true, authoritativeStopState: drumAuditionStopped.state });
+    journeyProgress("sequence-advanced-drums", "audition", "completed", { clipRef, started: true, stopped: true });
   });
 
   await step("clip duplicate, arrangement create/move/delete through the packaged path", async () => {
-    const freshTracks = (await textOf(client, "live_discover", { kind: "track" })).parsed.items;
+    let freshTracks = (await textOf(client, "live_discover", { kind: "track" })).parsed.items;
     const slots = (await textOf(client, "live_discover", { kind: "clip-slot", parent: freshTracks[0].ref })).parsed.items;
-    const sourceRef = slots.find((item) => item.empty === false)?.clipRef;
-    // Duplicate to arrangement
+    const sourceRef = slots.find((item) => item.sceneIndex === 1)?.clipRef;
+    assert(typeof sourceRef === "string", "substantive eight-bar song clip is unavailable for Arrangement duplication");
+    // Duplicate the exact created song section to Arrangement.
     const dupArr = (await textOf(client, "live_clip_duplicate_preview", { clipRef: sourceRef, arrangementPosition: 8 })).parsed;
+    journeyProgress("create-beat-or-song", "arrange", "awaiting_confirmation", { operations: ["clip.duplicate", "arrangement.clip.delete"], mechanism: "fixed-apply-per-preview", sourceClipRef: sourceRef });
+    journeyProgress("create-beat-or-song", "arrange", "applying", { sourceClipRef: sourceRef, tools: ["live_clip_duplicate_apply"] });
     const dupArrApplied = (await textOf(client, "live_clip_duplicate_apply", { transactionId: dupArr.transactionId, confirmation: "apply", idempotencyKey: "journey-dup-arr" })).parsed;
     assert(dupArrApplied.state === "applied" && typeof dupArrApplied.created?.ref === "string", "arrangement duplication failed");
-    const arrangementClips = (await textOf(client, "live_discover", { kind: "arrangement-clip", parent: freshTracks[0].ref })).parsed.items;
-    assert(arrangementClips.length === 1 && arrangementClips[0].start === 8 && arrangementClips[0].trackRef === freshTracks[0].ref, `arrangement clip row mismatch: ${JSON.stringify(arrangementClips)}`);
-    // Move it
+    let arrangementClips = (await textOf(client, "live_discover", { kind: "arrangement-clip", parent: freshTracks[0].ref })).parsed.items;
+    assert(arrangementClips.length === 1 && arrangementClips[0].start === 8 && arrangementClips[0].trackRef === freshTracks[0].ref && arrangementClips[0].name === "Journey Song Notes", `arrangement clip row mismatch: ${JSON.stringify(arrangementClips)}`);
+    journeyProgress("create-beat-or-song", "arrange", "verifying", { sourceClipRef: sourceRef, retainedArrangementRef: arrangementClips[0].ref, retainedName: arrangementClips[0].name, start: arrangementClips[0].start });
+    journeyProgress("create-beat-or-song", "arrange", "completed", { sourceClipRef: sourceRef, retainedArrangementRef: arrangementClips[0].ref, duplicatedEightBarSong: true });
+    // Arrangement move support appears only after the first Arrangement clip.
+    // Reconnect and bind the remaining stage to a new negotiated plan.
+    await restartClient();
+    const priorSongPlan = plannedJourneys.get("create-beat-or-song");
+    const replannedSong = (await textOf(client, "plan_user_journey", { journey: "create-beat-or-song", traits: "syncopated, controlled, warm, spacious", experienceLevel: "advanced", bars: 8 })).parsed;
+    assert(replannedSong.planId !== priorSongPlan.planId && replannedSong.stages.find((stage) => stage.id === "arrange-edit")?.status === "planned", "song journey did not replan newly available Arrangement edit operations");
+    plannedJourneys.set("create-beat-or-song", replannedSong);
+    journeyPlanHistory.get("create-beat-or-song").push({ planId: replannedSong.planId, previousPlanId: priorSongPlan.planId, reason: "fresh-connection-renegotiation-after-arrangement-duplication", mode: replannedSong.mode, unavailableOptionalStages: replannedSong.advanced.unavailableOptionalStages.map((stage) => stage.id) });
+    userJourneyEvidence.find((entry) => entry.id === "create-beat-or-song").replannedAfterArrangementDuplication = { planId: replannedSong.planId, arrangeEdit: "planned" };
+    freshTracks = (await textOf(client, "live_discover", { kind: "track" })).parsed.items;
+    arrangementClips = (await textOf(client, "live_discover", { kind: "arrangement-clip", parent: freshTracks[0].ref })).parsed.items;
     const movePreview = (await textOf(client, "live_clip_move_preview", { clipRef: arrangementClips[0].ref, position: 16 })).parsed;
     console.error("movePreview:", JSON.stringify(movePreview).slice(0, 300));
+    journeyProgress("create-beat-or-song", "arrange-edit", "awaiting_confirmation", { operations: ["arrangement.clip.move", "arrangement.clip.create", "arrangement.clip.delete"], mechanism: "fixed-apply-per-preview", retainedArrangementRef: arrangementClips[0].ref });
+    journeyProgress("create-beat-or-song", "arrange-edit", "applying", { retainedArrangementRef: arrangementClips[0].ref, idempotencyKeysPresent: true });
     const moved = (await textOf(client, "live_clip_move_apply", { transactionId: movePreview.transactionId, confirmation: "apply", idempotencyKey: "journey-arr-move" })).parsed;
     assert(moved.state === "applied", "arrangement move failed");
     assert((await textOf(client, "live_discover", { kind: "arrangement-clip", parent: freshTracks[0].ref })).parsed.items[0].start === 16, "arrangement move did not land");
@@ -896,9 +1100,13 @@ class EnvelopeEvent:
     const delPreview = (await textOf(client, "live_arrangement_clip_preview", { action: "delete", clipRef: created.result.ref })).parsed;
     const deleted = (await textOf(client, "live_arrangement_clip_apply", { transactionId: delPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-arr-delete" })).parsed;
     assert(deleted.state === "applied", "arrangement delete failed");
-    assert((await textOf(client, "live_discover", { kind: "arrangement-clip", parent: freshTracks[0].ref })).parsed.items.length === 1, "arrangement delete not visible");
-    // Session duplicate into a fresh empty slot (create a scene first)
-    const structurePreview = (await client.call("live_session_structure_preview", { tracks: [], scenes: [{ name: "Journey Dup Scene" }] })).parsed;
+    const finalArrangement = (await textOf(client, "live_discover", { kind: "arrangement-clip", parent: freshTracks[0].ref })).parsed.items;
+    assert(finalArrangement.length === 1 && finalArrangement[0].name === "Journey Song Notes" && finalArrangement[0].start === 16, "substantive arranged song section or temporary cleanup did not verify");
+    journeyProgress("create-beat-or-song", "arrange-edit", "verifying", { retainedArrangementRef: finalArrangement[0].ref, retainedName: finalArrangement[0].name, start: finalArrangement[0].start, temporaryClipDeleted: true });
+    journeyProgress("create-beat-or-song", "arrange-edit", "completed", { retainedArrangementRef: finalArrangement[0].ref, arrangementClipsVerified: 1, temporaryClipDeleted: true });
+    // Additional generic Session-duplicate contract coverage is deliberately
+    // outside the Arrangement journey stage.
+    const structurePreview = (await client.call("live_session_structure_preview", { tracks: [], scenes: [{ name: "Journey Dup Scene", index: 3 }] })).parsed;
     await client.call("live_session_structure_apply", { transactionId: structurePreview.transactionId, confirmation: "apply", idempotencyKey: "journey-dup-scene" });
     const slotsAfter = (await textOf(client, "live_discover", { kind: "clip-slot", parent: freshTracks[0].ref })).parsed.items;
     const emptySlot = slotsAfter.find((item) => item.empty === true);
@@ -907,6 +1115,27 @@ class EnvelopeEvent:
     assert(dupApplied.state === "applied", "Session duplication failed");
     const afterSlots = (await textOf(client, "live_discover", { kind: "clip-slot", parent: freshTracks[0].ref })).parsed.items;
     assert(afterSlots.find((item) => item.sceneIndex === emptySlot.sceneIndex)?.empty === false, "duplicated clip not in target slot");
+    const songSlot = afterSlots.find((slot) => slot.sceneIndex === 1);
+    const songAuditionPreview = (await textOf(client, "live_clip_launch_preview", { slotRef: songSlot.ref, outputSafety: { safe: true, provenance: "journey-operator-confirmed-headphones", scope: "created song section" } })).parsed;
+    journeyProgress("create-beat-or-song", "audition", "awaiting_confirmation", { slotRef: songSlot.ref, mechanism: "unpredictable-preview-token" });
+    journeyProgress("create-beat-or-song", "audition", "applying", { slotRef: songSlot.ref, idempotencyKeyPresent: true });
+    const songAuditionApplied = (await textOf(client, "live_clip_launch_apply", { transactionId: songAuditionPreview.transactionId, confirmation: songAuditionPreview.confirmation, idempotencyKey: "journey-song-audition" })).parsed;
+    assert(songAuditionApplied.state === "applied", `created song audition did not start: ${JSON.stringify(songAuditionApplied)}`);
+    const songAuditionStopped = (await textOf(client, "live_clip_launch_stop", { transactionId: songAuditionPreview.transactionId, confirmation: songAuditionPreview.stopConfirmation, idempotencyKey: "journey-song-audition-stop" })).parsed;
+    assert(songAuditionStopped.state === "stopped", "created song audition did not stop");
+    journeyProgress("create-beat-or-song", "audition", "verifying", { started: true, authoritativeStopState: songAuditionStopped.state });
+    journeyProgress("create-beat-or-song", "audition", "completed", { slotRef: songSlot.ref, started: true, stopped: true });
+    const songClipRef = songSlot.clipRef;
+    const songNotes = (await textOf(client, "live_discover", { kind: "note", parent: songClipRef, limit: 100 })).parsed.items;
+    const revisePreview = (await textOf(client, "live_note_update_preview", { clipRef: songClipRef, notes: [{ id: songNotes[0].id, velocity: 77 }] })).parsed;
+    journeyProgress("create-beat-or-song", "revise", "awaiting_confirmation", { clipRef: songClipRef, noteId: songNotes[0].id, mechanism: "fixed-apply" });
+    journeyProgress("create-beat-or-song", "revise", "applying", { clipRef: songClipRef, noteId: songNotes[0].id, idempotencyKeyPresent: true });
+    const revised = (await textOf(client, "live_note_update_apply", { transactionId: revisePreview.transactionId, confirmation: "apply", idempotencyKey: "journey-song-revise" })).parsed;
+    assert(revised.updated === 1, "created song revision did not apply");
+    const reviseUndo = (await textOf(client, "live_undo", { transactionId: revisePreview.transactionId, confirmation: "undo", idempotencyKey: "journey-song-revise-undo" })).parsed;
+    assert(reviseUndo.state === "undone", "created song revision did not undo");
+    journeyProgress("create-beat-or-song", "revise", "verifying", { applied: true, restored: true, authoritativeReadbackRequired: true });
+    journeyProgress("create-beat-or-song", "revise", "completed", { clipRef: songClipRef, noteId: songNotes[0].id, appliedThenRestored: true });
   });
 
   await step("mixer and clip automation lifecycle through the packaged path", async () => {
@@ -946,32 +1175,91 @@ class EnvelopeEvent:
     const search = (await textOf(client, "live_browser_search", { category: "instruments", query: "rack" })).parsed;
     assert(search.items.length >= 1 && search.items.some((item) => item.id === "instruments/Drum Rack"), `browser search mismatch: ${JSON.stringify(search)}`);
     const freshTracks = (await textOf(client, "live_discover", { kind: "track" })).parsed.items;
+    journeyProgress("design-owned-sound", "discover-browser", "completed", { browserResultId: "instruments/Drum Rack", targetTrackRef: freshTracks[0].ref });
+    journeyProgress("design-owned-sound", "draft", "completed", { planId: plannedJourneys.get("design-owned-sound").planId, recognizedTraits: plannedJourneys.get("design-owned-sound").intent.highLevelTraits, guidanceKind: plannedJourneys.get("design-owned-sound").guidance.kind });
     const preview = (await textOf(client, "live_browser_load_preview", { itemId: "instruments/Drum Rack", trackRef: freshTracks[0].ref })).parsed;
+    journeyProgress("design-owned-sound", "preview-load", "completed", { browserResultId: "instruments/Drum Rack", targetTrackRef: freshTracks[0].ref });
+    journeyProgress("design-owned-sound", "apply-load", "awaiting_confirmation", { mechanism: "fixed-apply", exactTarget: true });
+    journeyProgress("design-owned-sound", "apply-load", "applying", { browserResultId: "instruments/Drum Rack", idempotencyKeyPresent: true });
     const applied = (await textOf(client, "live_browser_load_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "journey-load" })).parsed;
     assert(applied.state === "applied" && typeof applied.deviceRef === "string", "browser load failed");
     const trackAfter = (await textOf(client, "live_discover", { kind: "track" })).parsed.items[0];
-    const rack = trackAfter.devices.find((device) => device.name === "Drum Rack");
+    let rack = trackAfter.devices.find((device) => device.name === "Drum Rack");
     assert(rack && rack.canHaveDrumPads === true && rack.drumPads.length === 16, `drum rack row mismatch: ${JSON.stringify(rack)}`);
-    const enable = (await textOf(client, "live_device_preview", { action: "enable", deviceRef: rack.ref, enabled: false })).parsed;
-    const disabled = (await textOf(client, "live_device_apply", { transactionId: enable.transactionId, confirmation: "apply", idempotencyKey: "journey-dev-disable" })).parsed;
-    assert(disabled.state === "applied" && disabled.result?.enabled === false, "device disable failed");
-    const del = (await textOf(client, "live_device_preview", { action: "delete", deviceRef: rack.ref })).parsed;
-    const deleted = (await textOf(client, "live_device_apply", { transactionId: del.transactionId, confirmation: "apply", idempotencyKey: "journey-dev-delete" })).parsed;
-    assert(deleted.state === "applied", "device delete failed");
-    assert(!(await textOf(client, "live_discover", { kind: "track" })).parsed.items[0].devices.some((device) => device.name === "Drum Rack"), "device was not deleted");
+    journeyProgress("design-owned-sound", "apply-load", "verifying", { deviceRef: rack.ref, parentTrackRef: freshTracks[0].ref, authoritativeReadback: true });
+    journeyProgress("design-owned-sound", "apply-load", "completed", { deviceRef: rack.ref, parentTrackRef: freshTracks[0].ref, verified: true });
+    // Adapter operation/capability negotiation is connection-scoped. Reconnect
+    // after loading the first device, then replan against the newly published
+    // parameter surface rather than assuming it appeared in the old status.
+    await restartClient();
+    const reconnectedTrack = (await textOf(client, "live_discover", { kind: "track" })).parsed.items[0];
+    rack = reconnectedTrack.devices.find((device) => device.name === "Drum Rack");
+    assert(rack, "loaded rack was not present after capability renegotiation");
+    const priorSoundPlan = plannedJourneys.get("design-owned-sound");
+    const replanned = (await textOf(client, "plan_user_journey", { journey: "design-owned-sound", traits: "syncopated, controlled, warm, spacious", experienceLevel: "advanced", bars: 8 })).parsed;
+    assert(replanned.planId !== priorSoundPlan.planId && replanned.stages.find((stage) => stage.id === "shape-published-controls")?.status === "planned", `sound journey did not replan newly negotiated published parameters: ${JSON.stringify(replanned.stages.find((stage) => stage.id === "shape-published-controls"))}`);
+    plannedJourneys.set("design-owned-sound", replanned);
+    journeyPlanHistory.get("design-owned-sound").push({ planId: replanned.planId, previousPlanId: priorSoundPlan.planId, reason: "fresh-connection-renegotiation-after-device-load", mode: replanned.mode, unavailableOptionalStages: replanned.advanced.unavailableOptionalStages.map((stage) => stage.id) });
+    userJourneyEvidence.find((entry) => entry.id === "design-owned-sound").replannedAfterLoad = { planId: replanned.planId, shapePublishedControls: "planned" };
+    const soundDirection = replanned.guidance.controlDirections.find((direction) => direction.semanticControl === "filter-cutoff-or-high-frequency-balance");
+    const parameter = rack.parameters?.find((candidate) => candidate.name === "Filter Cutoff");
+    assert(soundDirection?.direction === "decrease-moderately-within-published-bounds" && parameter && Number.isFinite(parameter.min) && Number.isFinite(parameter.max), "warm intent did not resolve an exact matching published Filter Cutoff control");
+    const proposedValue = Math.max(parameter.min, parameter.value - (parameter.max - parameter.min) * 0.25);
+    const parameterPreview = (await textOf(client, "live_device_parameter_preview", { deviceRef: rack.ref, parameterRef: parameter.ref, value: proposedValue })).parsed;
+    journeyProgress("design-owned-sound", "shape-published-controls", "awaiting_confirmation", { deviceRef: rack.ref, parameterRef: parameter.ref, semanticControl: soundDirection.semanticControl, semanticDirection: soundDirection.direction });
+    journeyProgress("design-owned-sound", "shape-published-controls", "applying", { parameterRef: parameter.ref, idempotencyKeyPresent: true });
+    const parameterApplied = (await textOf(client, "live_device_parameter_apply", { transactionId: parameterPreview.transactionId, confirmation: parameterPreview.confirmation, idempotencyKey: "journey-sound-parameter" })).parsed;
+    assert(parameterApplied.state === "applied" && parameterApplied.value === proposedValue, "published sound-design parameter did not verify");
+    journeyProgress("design-owned-sound", "shape-published-controls", "verifying", { parameterRef: parameter.ref, authoritativeValue: parameterApplied.value });
+    journeyProgress("design-owned-sound", "shape-published-controls", "completed", { parameterRef: parameter.ref, semanticControl: soundDirection.semanticControl, proposedValue, verified: true });
+    const soundSlots = (await textOf(client, "live_discover", { kind: "clip-slot", parent: reconnectedTrack.ref })).parsed.items;
+    const soundSlot = soundSlots.find((slot) => slot.empty === false);
+    const soundAuditionPreview = (await textOf(client, "live_clip_launch_preview", { slotRef: soundSlot.ref, outputSafety: { safe: true, provenance: "journey-operator-confirmed-headphones" } })).parsed;
+    journeyProgress("design-owned-sound", "audition", "awaiting_confirmation", { deviceRef: rack.ref, slotRef: soundSlot.ref, mechanism: "unpredictable-preview-token" });
+    journeyProgress("design-owned-sound", "audition", "applying", { slotRef: soundSlot.ref, idempotencyKeyPresent: true });
+    const soundAuditionApplied = (await textOf(client, "live_clip_launch_apply", { transactionId: soundAuditionPreview.transactionId, confirmation: soundAuditionPreview.confirmation, idempotencyKey: "journey-sound-audition" })).parsed;
+    assert(soundAuditionApplied.state === "applied", "sound-design audition did not start");
+    const soundAuditionStopped = (await textOf(client, "live_clip_launch_stop", { transactionId: soundAuditionPreview.transactionId, confirmation: soundAuditionPreview.stopConfirmation, idempotencyKey: "journey-sound-audition-stop" })).parsed;
+    assert(soundAuditionStopped.state === "stopped", "sound-design audition did not stop");
+    journeyProgress("design-owned-sound", "audition", "verifying", { started: true, authoritativeStopState: soundAuditionStopped.state });
+    journeyProgress("design-owned-sound", "audition", "completed", { deviceRef: rack.ref, started: true, stopped: true, semanticControlAuditioned: soundDirection.semanticControl });
+    // Prove recovery, then intentionally reapply the designed value so this
+    // representative journey leaves an editable sound rather than only testing
+    // parameter mechanics and deleting the outcome.
+    const parameterUndo = (await textOf(client, "live_undo", { transactionId: parameterPreview.transactionId, confirmation: "undo", idempotencyKey: "journey-sound-parameter-undo" })).parsed;
+    assert(parameterUndo.state === "undone", "sound-design parameter recovery failed");
+    const finalParameterPreview = (await textOf(client, "live_device_parameter_preview", { deviceRef: rack.ref, parameterRef: parameter.ref, value: proposedValue })).parsed;
+    const finalParameterApplied = (await textOf(client, "live_device_parameter_apply", { transactionId: finalParameterPreview.transactionId, confirmation: finalParameterPreview.confirmation, idempotencyKey: "journey-sound-parameter-final" })).parsed;
+    assert(finalParameterApplied.state === "applied" && finalParameterApplied.value === proposedValue, "designed parameter value was not retained after recovery proof");
+    const finalTrack = (await textOf(client, "live_discover", { kind: "track" })).parsed.items[0];
+    const finalRack = finalTrack.devices.find((device) => device.ref === rack.ref);
+    const finalParameter = finalRack?.parameters.find((candidate) => candidate.ref === parameter.ref);
+    assert(finalRack?.enabled === true && finalParameter?.value === proposedValue, "final intent-directed sound topology/value did not verify");
+    journeyProgress("design-owned-sound", "final-readback", "completed", { retainedDeviceRef: rack.ref, retainedParameterRef: parameter.ref, semanticControl: soundDirection.semanticControl, value: proposedValue, recoveryProvenThenReapplied: true, activePlayback: false });
   });
 
   await step("routing and bounded recording lifecycle through the packaged path", async () => {
     const freshTracks = (await textOf(client, "live_discover", { kind: "track" })).parsed.items;
+    const baselinePlayback = await playback(client);
+    journeyProgress("diagnose-performance-setup", "diagnose", "completed", { trackRefs: freshTracks.map((track) => track.ref), playback: baselinePlayback.transport.playing, recording: baselinePlayback.transport.arrangementRecord || baselinePlayback.transport.sessionRecord, latency: "unknown" });
     const feedback = await textOf(client, "live_routing_preview", { trackRef: freshTracks[0].ref, outputType: freshTracks[0].name });
     assert(feedback.isError === true, "feedback route was not refused");
     const preview = (await textOf(client, "live_routing_preview", { trackRef: freshTracks[0].ref, arm: true, monitoring: "off" })).parsed;
+    const diagnosticMixerPreview = (await textOf(client, "live_mixer_preview", { trackRef: freshTracks[0].ref, volume: freshTracks[0].mixer.volume })).parsed;
+    assert(diagnosticMixerPreview.transactionId && diagnosticMixerPreview.prior?.volume === freshTracks[0].mixer.volume, "performance mixer preview did not preserve baseline");
+    journeyProgress("diagnose-performance-setup", "preview-fixes", "completed", { feedbackRouteRefused: true, routingPreviewed: true, mixerPreviewed: true, exactTrackRef: freshTracks[0].ref });
+    journeyProgress("diagnose-performance-setup", "apply-fixes", "awaiting_confirmation", { exactTrackRef: freshTracks[0].ref, mechanism: "fixed-apply" });
+    journeyProgress("diagnose-performance-setup", "apply-fixes", "applying", { exactTrackRef: freshTracks[0].ref, idempotencyKeyPresent: true });
     const applied = (await textOf(client, "live_routing_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "journey-route" })).parsed;
     assert(applied.state === "applied", "routing apply failed");
     const trackAfter = (await textOf(client, "live_discover", { kind: "track" })).parsed.items[0];
     assert(trackAfter.armed === true && trackAfter.monitoringState === "off", "routing fields did not land");
+    journeyProgress("diagnose-performance-setup", "apply-fixes", "verifying", { authoritativeArm: trackAfter.armed, authoritativeMonitoring: trackAfter.monitoringState });
+    journeyProgress("diagnose-performance-setup", "apply-fixes", "completed", { routeAppliedAndVerified: true, arm: true, monitoring: "off", restorationScheduledAfterRecording: true });
     // Arrangement recording with explicit destination
     const recPreview = (await textOf(client, "live_recording_preview", { action: "start", lane: "arrangement", intent: "journey bounded recording test", destinationTrackRef: freshTracks[0].ref, outputSafety: { safe: true, provenance: "journey-operator-confirmed" } })).parsed;
+    journeyProgress("diagnose-performance-setup", "bounded-recording", "awaiting_confirmation", { lane: "arrangement", destinationTrackRef: freshTracks[0].ref, outputSafety: "operator-confirmed" });
+    journeyProgress("diagnose-performance-setup", "bounded-recording", "applying", { action: "start-then-stop", idempotencyKeysPresent: true });
     const recApplied = (await textOf(client, "live_recording_apply", { transactionId: recPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-rec" })).parsed;
     assert(recApplied.state === "applied" && recApplied.recording === true, "recording start failed");
     const during = await playback(client);
@@ -979,6 +1267,8 @@ class EnvelopeEvent:
     const stopPreview = (await textOf(client, "live_recording_preview", { action: "stop", lane: "arrangement", intent: "stop journey recording", outputSafety: { safe: true, provenance: "journey-operator-confirmed" } })).parsed;
     const stopped = (await textOf(client, "live_recording_apply", { transactionId: stopPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-rec-stop" })).parsed;
     assert(stopped.state === "applied" && stopped.recording === false, "recording stop failed");
+    journeyProgress("diagnose-performance-setup", "bounded-recording", "verifying", { startVerified: during.transport.arrangementRecord, stopVerified: stopped.recording === false });
+    journeyProgress("diagnose-performance-setup", "bounded-recording", "completed", { started: true, stopped: true, destinationTrackRef: freshTracks[0].ref });
     // Restore disarmed state for later steps
     const disarm = (await textOf(client, "live_routing_preview", { trackRef: freshTracks[0].ref, arm: false, monitoring: "off" })).parsed;
     await textOf(client, "live_routing_apply", { transactionId: disarm.transactionId, confirmation: "apply", idempotencyKey: "journey-disarm" });
@@ -1080,7 +1370,24 @@ class EnvelopeEvent:
   });
 
   await step("shutdown leaves no residual playback or processes", async () => {
-    assert((await playback(client)).transport.playing === false, "playback was active before shutdown");
+    const finalPlayback = await playback(client);
+    assert(finalPlayback.transport.playing === false && finalPlayback.transport.arrangementRecord === false && finalPlayback.transport.sessionRecord === false, "playback or recording was active before shutdown");
+    const finalTracks = (await textOf(client, "live_discover", { kind: "track" })).parsed.items;
+    const finalSlots = (await textOf(client, "live_discover", { kind: "clip-slot", parent: finalTracks[0].ref })).parsed.items;
+    const songClip = finalSlots.find((slot) => slot.sceneIndex === 1)?.clipRef;
+    const drumClip = finalSlots.find((slot) => slot.sceneIndex === 2)?.clipRef;
+    const songFinalNotes = songClip ? (await textOf(client, "live_discover", { kind: "note", parent: songClip, limit: 100 })).parsed.items : [];
+    const drumFinalNotes = drumClip ? (await textOf(client, "live_discover", { kind: "note", parent: drumClip, limit: 100 })).parsed.items : [];
+    const realtime = await adapter_call(client, "realtime.stats", {});
+    assert(finalTracks[0].armed === false && finalTracks[0].monitoringState === "off" && realtime.armed === false, "routing or realtime authority remained active");
+    journeyProgress("create-beat-or-song", "final-readback", "completed", { clipRef: songClip, notes: songFinalNotes.length, playback: "stopped", recording: "stopped" });
+    journeyProgress("sequence-advanced-drums", "final-readback", "completed", { clipRef: drumClip, stableNotes: drumFinalNotes.length, playback: "stopped" });
+    journeyProgress("diagnose-performance-setup", "final-readback", "completed", { arm: false, monitoring: "off", playback: "stopped", recording: "stopped", realtimeArmed: false });
+    journeyResidual("create-beat-or-song", { status: "completed", items: ["intentional fake-Live song structure, MIDI clip, Session variation, and one Arrangement clip"], playback: false, recording: false, temporaryMedia: 0, realtimeAuthority: false });
+    journeyResidual("sequence-advanced-drums", { status: "completed", items: ["intentional editable fake-Live MIDI clip; deleted note restored under a new stable ID"], playback: false, recording: false, temporaryMedia: 0, realtimeAuthority: false });
+    journeyResidual("design-owned-sound", { status: "completed", items: ["intentional editable fake-Live Drum Rack with intent-directed Filter Cutoff value"], playback: false, recording: false, temporaryMedia: 0, realtimeAuthority: false, recoveryProvenThenDesignedValueReapplied: true });
+    journeyResidual("compare-reference-mix", { status: "completed", items: [], playback: false, recording: false, rawAudioRetained: false, temporaryMedia: 0, realtimeAuthority: false });
+    journeyResidual("diagnose-performance-setup", { status: "completed", items: [], playback: false, recording: false, arm: false, monitoring: "off", temporaryMedia: 0, realtimeAuthority: false });
     await client.close();
   });
 } catch (cause) {
@@ -1093,6 +1400,35 @@ class EnvelopeEvent:
   else console.error(`journey temp kept: ${temporaryDirectory}`);
 }
 
-const summary = { journey: "packaged-production-boundary", provenance: "fake-live", steps: results, passed: !failed && results.every((entry) => entry.passed) && results.length === 23 };
+const executionRows = userJourneyEvidence.map((entry) => {
+  const plan = plannedJourneys.get(entry.id);
+  const execution = journeyExecutions.get(entry.id) ?? { events: [], residualState: null };
+  const requiredPlannedStages = plan?.stages.filter((stage) => stage.status === "planned").map((stage) => stage.id) ?? [];
+  const terminalPlannedStages = requiredPlannedStages.filter((stage) => execution.events.some((event) => event.stage === stage && ["completed", "recovered"].includes(event.status)));
+  const planHistory = journeyPlanHistory.get(entry.id) ?? [];
+  const planIds = new Set(planHistory.map((item) => item.planId));
+  const eventsBoundToPlanHistory = execution.events.every((event) => planIds.has(event.planId));
+  const { planId: initialPlanId, ...entryWithoutAmbiguousPlanId } = entry;
+  return { ...entryWithoutAmbiguousPlanId, initialPlanId, finalPlanId: plan?.planId, planHistory, execution: { requiredPlannedStages, terminalPlannedStages, eventsBoundToPlanHistory, orderValidatedDuringExecution: true, legalTransitionsValidatedDuringExecution: true, events: execution.events, residualState: execution.residualState } };
+});
+const representativeJourneysPassed = executionRows.every((entry) => entry.execution.requiredPlannedStages.length > 0 && entry.execution.requiredPlannedStages.length === entry.execution.terminalPlannedStages.length && entry.execution.eventsBoundToPlanHistory && entry.execution.residualState !== null && ["completed", "recovered"].includes(entry.execution.residualState.status));
+const accessibilityEvidence = {
+  version: "installed-stdio-accessibility-contract/v1",
+  platform: process.platform,
+  architecture: process.arch,
+  node: process.version,
+  scope: "installed-package MCP stdio text boundary only",
+  semanticPrompts: accessibilityChecks,
+  keyboardOrStdinOnlyServerOperation: true,
+  pointerInputObserved: false,
+  focusManagement: "not-applicable-no-server-owned-interactive-UI",
+  boundedVisualTextAlternativesRequired: true,
+  screenReaderValidation: "not-performed-client-and-Ableton-Live-version-dependent",
+  contrastValidation: "not-applicable-no-server-owned-visual-surface",
+  knownLimitationsDocumented: true,
+};
+const packageIdentityPassed = packageEvidence?.version === "npm-packed-artifact/v1" && packageEvidence?.name === "@ableton-mcp/mcp-server" && packageEvidence?.packageVersion === "0.1.0" && /^[a-f0-9]{64}$/.test(packageEvidence?.sha256 ?? "") && Number.isSafeInteger(packageEvidence?.sizeBytes);
+const accessibilityPassed = accessibilityChecks.length === 5 && accessibilityChecks.every((entry) => entry.contentType === "text" && entry.orderedStages && !entry.ansiControlBytes && entry.nonColorGuidance && !entry.pointerInputUsedByVerifier);
+const summary = { schemaVersion: "phase-9-packaged-journeys/v1", generatedAt: new Date().toISOString(), package: packageEvidence, journey: "packaged-production-boundary", provenance: "fake-live", progressEvidence: "derived-from-actual-purpose-specific-tool-results-not-plan-template-flags", accessibilityEvidence, userJourneys: executionRows, steps: results, passed: !failed && results.every((entry) => entry.passed) && results.length === 25 && userJourneyEvidence.length === 5 && representativeJourneysPassed && accessibilityPassed && packageIdentityPassed };
 console.log(JSON.stringify(summary));
 if (!summary.passed) process.exitCode = 1;

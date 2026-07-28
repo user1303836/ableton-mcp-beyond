@@ -19,7 +19,7 @@ test("requires initialization and exposes only read-only tools", () => {
   assert.equal((host.handle({ ...initialize, id: 2 }) as any).result.protocolVersion, PROTOCOL_VERSION);
   assert.equal(host.handle(initialized), null);
   const tools = (host.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
-  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
   const auditionPreview = tools.find((tool: { name: string }) => tool.name === "live_session_audition_preview");
   assert.deepEqual(auditionPreview.inputSchema.properties.outputSafety.required, ["safe", "provenance"]);
   const auditionStop = tools.find((tool: { name: string }) => tool.name === "live_session_audition_stop");
@@ -270,16 +270,30 @@ test("advertises and serves static safety resources and a complete audio workflo
   const init = host.handle({ ...initialize, id: 99 });
   assert.equal((init as any).error.code, -32600);
   const resources = host.handle({ jsonrpc: "2.0", id: 30, method: "resources/list", params: {} });
-  assert.deepEqual((resources as any).result.resources.map((resource: { uri: string }) => resource.uri), ["ableton://capabilities", "ableton://safety", "ableton://live-workflow"]);
+  assert.deepEqual((resources as any).result.resources.map((resource: { uri: string }) => resource.uri), ["ableton://capabilities", "ableton://safety", "ableton://journeys", "ableton://live-workflow"]);
   const safety = host.handle({ jsonrpc: "2.0", id: 31, method: "resources/read", params: { uri: "ableton://safety" } });
   assert.match((safety as any).result.contents[0].text, /does not connect to Ableton Live/);
   assert.match((safety as any).result.contents[0].text, /explicit project mutations/);
+  const journeys = host.handle({ jsonrpc: "2.0", id: 38, method: "resources/read", params: { uri: "ableton://journeys" } });
+  const journeyCatalog = JSON.parse((journeys as any).result.contents[0].text);
+  assert.equal(journeyCatalog.journeys.length, 5);
+  assert.equal(journeyCatalog.journeys.find((entry: any) => entry.id === "compare-reference-mix").mode, "local-analysis");
+  assert.ok(journeyCatalog.journeys.filter((entry: any) => entry.id !== "compare-reference-mix").every((entry: any) => entry.mode === "capability-limited"));
   const prompts = host.handle({ jsonrpc: "2.0", id: 32, method: "prompts/list" });
   assert.equal((prompts as any).result.prompts[0].name, "analyze_audio");
+  assert.equal((prompts as any).result.prompts.length, 7);
   const prompt = host.handle({ jsonrpc: "2.0", id: 33, method: "prompts/get", params: { name: "analyze_audio", arguments: { sampleRate: "44100" } } });
   assert.match((prompt as any).result.messages[0].content.text, /sampleRate=44100/);
   const workflowPrompt = host.handle({ jsonrpc: "2.0", id: 37, method: "prompts/get", params: { name: "change_tempo_safely" } });
   assert.match((workflowPrompt as any).result.messages[0].content.text, /live_tempo_preview/);
+  const userPrompt = host.handle({ jsonrpc: "2.0", id: 39, method: "prompts/get", params: { name: "create_beat_or_song", arguments: { traits: "sparse and syncopated", bars: "8", experienceLevel: "beginner" } } });
+  assert.match((userPrompt as any).result.messages[0].content.text, /capability-limited/);
+  assert.match((userPrompt as any).result.messages[0].content.text, /Do not promise exact replication/);
+  const planned = host.handle({ jsonrpc: "2.0", id: 40, method: "tools/call", params: { name: "plan_user_journey", arguments: { journey: "compare-reference-mix", traits: "balanced and clear", bars: 4 } } });
+  const plan = JSON.parse((planned as any).result.content[0].text);
+  assert.equal(plan.mode, "local-analysis");
+  assert.equal(plan.stages.filter((stage: any) => stage.requiredForCore).every((stage: any) => stage.status === "planned"), true);
+  assert.equal(plan.stages.filter((stage: any) => !stage.requiredForCore).every((stage: any) => stage.status === "unavailable"), true);
 });
 
 test("rejects unknown resources, prompts, and extension fields", () => {
@@ -352,7 +366,7 @@ test("cancels an in-flight audio worker without a response", async () => {
 test("rejects duplicates, unsupported methods, and unknown fields", () => {
   const host = new McpHost();
   ready(host);
-  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 70);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 71);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).error.message, "Duplicate request identifier");
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set", arguments: {} } }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 4, method: "tools/list", debug: true }) as any).error.code, -32600);
@@ -516,6 +530,17 @@ test("rejects expired tempo confirmation and validates negotiated adapter status
   ready(invalid);
   const status = invalid.handle({ jsonrpc: "2.0", id: 58, method: "tools/call", params: { name: "live_status", arguments: {} } });
   assert.equal(JSON.parse((status as any).result.content[0].text).connected, false);
+  for (const malformed of [
+    { operations: ["discover", "discover"] },
+    { operations: ["fabricated.operation"] },
+    { provenance: "claimed-live" },
+    { registryHash: "not-a-canonical-hash" },
+  ]) {
+    const malformedHost = new McpHost({ ...simulator, status: () => ({ ...simulator.status(), ...malformed }) } as any);
+    ready(malformedHost);
+    const malformedStatus = malformedHost.handle({ jsonrpc: "2.0", id: 59, method: "tools/call", params: { name: "live_status", arguments: {} } });
+    assert.equal(JSON.parse((malformedStatus as any).result.content[0].text).connected, false);
+  }
 });
 
 test("keeps stdout protocol-only and emits redacted parse diagnostics on stderr", async () => {
@@ -922,7 +947,7 @@ test("realtime control requires real provenance and arms exact bounded channels 
   let armCalls = 0;
   const operations = ["status", "snapshot", "discover", "get", "set", "reconnect", "session.playback", "realtime.arm", "realtime.disarm", "realtime.stats"];
   const adapter = {
-    status: () => ({ ...simulator.status(), adapter: "remote-script", epoch: 7, provenance, registryHash: "registry-v1", operations }),
+    status: () => ({ ...simulator.status(), adapter: "remote-script", epoch: 7, provenance, registryHash: "a".repeat(64), operations }),
     snapshot: () => simulator.snapshot(), get: (ref: LiveRef) => simulator.get(ref), set: (ref: LiveRef, property: string, value: unknown) => simulator.set(ref, property, value), invoke: () => { throw new Error("synchronous invoke is unavailable"); }, subscribe: () => () => undefined, reconnect: () => simulator.status(),
     snapshotAsync: async () => simulator.snapshot(), discoverAsync: async () => ({ epoch: 7, items: [], truncated: false, revision: "7:empty", kind: "track" }), getAsync: async (ref: LiveRef) => simulator.get(ref), setAsync: async (ref: LiveRef, property: string, value: unknown) => simulator.set(ref, property, value), reconnectAsync: async () => simulator.status(), close: async () => undefined,
     invokeAsync: async (invocation: any) => {

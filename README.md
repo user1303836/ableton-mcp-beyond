@@ -95,6 +95,19 @@ must be stopped with the returned stop confirmation. It is not real-Live
 evidence unless a real authenticated bridge and disposable Set have been
 independently established.
 
+## Capability-aware journeys
+
+`plan_user_journey`, `ableton://journeys`, and five matching MCP prompts expose
+bounded beat/song, advanced-drum, sound-design, reference-mix, and
+recording/performance-diagnosis plans. Plans negotiate the current epoch,
+capabilities, operations, and provenance; contain no mutation authority; use
+ordered non-color progress text; stop at purpose-specific confirmation gates;
+and include verification, recovery, accessibility, and truthful per-stage
+fallback. Only allowlisted high-level traits influence derived guidance;
+artist/song identity and exact-copy wording is excluded, and a copy-only request
+requires clarification—never an exact-replication or legal-clearance claim. See
+[`docs/USER_JOURNEYS.md`](docs/USER_JOURNEYS.md).
+
 ## Audio intelligence
 
 `audio_analyze` runs caller PCM in a cancellable secret-stripped worker and

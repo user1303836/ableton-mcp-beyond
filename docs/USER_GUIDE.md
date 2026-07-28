@@ -32,6 +32,7 @@ The only accepted CLI option is one `--config PATH`. Secrets, endpoints, adapter
 - `audio_compare_reference` accepts two bounded mono/stereo PCM sources and returns deterministic band-limited resampling, bounded coarse-to-fine alignment (or explicit manual/disabled alignment), standards level-match advice, and aggregate deltas. It returns no aligned PCM.
 - `audio_diagnose_live_context` links caller PCM measurements to one fresh exact Live track snapshot. Its source relationship is explicitly caller-declared and unverified; observed devices are context, never asserted causes.
 - `live_audio_capture_status` is read-only when the real bridge negotiates the purpose-specific capture provider. It redacts mapper authority and raw file paths.
+- `plan_user_journey` returns a non-mutating capability-aware plan for beat/song creation, advanced drums, sound design, reference comparison, or mix/recording/performance diagnosis. `ableton://journeys` reports availability and fallback, and matching MCP prompts provide ordered beginner/advanced guidance. See [Capability-aware user journeys](USER_JOURNEYS.md).
 
 ## Mutation workflow
 

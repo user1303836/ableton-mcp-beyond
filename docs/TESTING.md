@@ -13,6 +13,7 @@ npm run benchmark
 npm run audio:oracle
 npm run compatibility
 npm run package:verify
+npm run journey:verify
 npm pack --dry-run --json
 ```
 
@@ -29,7 +30,17 @@ bounded concurrent stdio framing, async adapter behavior, authenticated
 loopback responses, Session audition preflight/apply/stop, transactions, standards loudness/true peak, bounded reference alignment,
 secret-stripped worker cancellation/queue limits, secure WAV/ASD lifecycle,
 signal-chain diagnosis, consent-bound capture normal/cancel paths, properties,
-delivery, and package installation. Python tests cover
+delivery, journey planning/fallback/rights/accessibility contracts, and package
+installation. `journey:verify` installs the packed artifact, translates only
+allowlisted traits, blocks identity/copy collisions, and drives every `planned`
+stage of all five plans through actual tool results. It validates stage/status
+ordering, binds events across any explicit replan, records package SHA-256 and
+terminal residual state, and covers MIDI/structure/Arrangement, expressive notes,
+Browser loading followed by capability replan and published-parameter undo,
+standards reference analysis and non-causal Live context,
+routing/recording/subscription/realtime contracts, uncertainty, and recovery
+with explicit `fake-live` provenance. Real-Live-only capture and host realtime
+authority remain unavailable in that evidence rather than being promoted. Python tests cover
 the dependency-free Control Surface entrypoint, canonical registry loading and
 hashing, authentication, sequencing/replay rejection, main-thread queueing,
 fake-Live references, hierarchical discovery, empty clip slots,

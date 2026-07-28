@@ -50,6 +50,19 @@ a current capability report.
   validation, standards analysis, signal-chain-linked non-causal diagnosis,
   transaction-owned clip deletion, WAV/ASD unlink, and zero-residual readback.
   See `AUDIO_INTELLIGENCE.md` and the Phase 8 evidence files.
+- Five capability-aware composition journeys for editable beat/song creation,
+  advanced drums, owned/native sound design, standards reference comparison,
+  and mix/recording/performance diagnosis. The tool/resource/prompts expose
+  ordered text progress, impact labels, exact confirmation boundaries,
+  verification, recovery, rights-aware high-level trait translation,
+  accessibility scope, per-stage capability/provenance negotiation, and
+  truthful fallback. The packed fake-Live boundary translates allowlisted
+  traits into guidance, blocks identity/copy collisions, executes every
+  `planned` stage through actual purpose-specific tool results, validates
+  non-regressing runtime progress, and records residual state,
+  replans after device capability renegotiation, and leaves real-Live-only
+  capture/realtime stages unavailable without claiming real-Live or
+  third-party client accessibility evidence.
 - Packed-artifact production journey, Python mapper tests, property tests,
   isolated resource benchmarks, compatibility/package verification, and
   Windows permission hardening.
@@ -79,12 +92,15 @@ be opened, copied, staged, packaged, or cited as implementation evidence.
 - Current real-Live proof is on macOS. Windows hosted CI is externally blocked
   when GitHub account billing prevents jobs from starting; that is not treated
   as a passing check.
-- Accessible end-user journeys, complete installer/update/uninstall lifecycle,
-  native signing/notarization, Windows real-Live evidence, publication, and the
-  final capability/documentation/release audit remain Phase 9-11 work.
+- The stdio journey surface is text-first and has no server-owned visual focus,
+  but VoiceOver/Narrator behavior in third-party MCP clients, Ableton Live, and
+  plug-in windows remains client/version-dependent and is not claimed.
+- Complete installer/update/uninstall lifecycle, native signing/notarization,
+  Windows real-Live evidence, publication, and the final
+  capability/documentation/release audit remain Phase 10-11 work.
 
 ## Operating procedure
 
-Use `USER_GUIDE.md`, `AUDIO_INTELLIGENCE.md`, and `REALTIME_CONTROL.md` for
-client contracts; `OPERATIONS.md` for supervision; `RECOVERY.md` for uncertain
+Use `USER_GUIDE.md`, `USER_JOURNEYS.md`, `AUDIO_INTELLIGENCE.md`, and
+`REALTIME_CONTROL.md` for client contracts; `OPERATIONS.md` for supervision; `RECOVERY.md` for uncertain
 state; and `TESTING.md` for release gates.

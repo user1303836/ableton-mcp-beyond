@@ -5,10 +5,11 @@ import type { PcmAnalysis } from "./analysis.js";
 import type { ConventionalChannelLabel } from "./audio-standards.js";
 import { captureMediaIsAbsent, decodeOwnedWaveFile, unlinkLateCaptureCompanions, unlinkOwnedCaptureFile, type DecodedCaptureFile } from "./audio-file.js";
 import { diagnoseAudioWithLiveContext, type AudioDiagnosis } from "./audio-diagnosis.js";
-import { LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_UNAVAILABLE_CAPABILITIES, UnavailableLiveAdapter, type LiveAdapter, type LiveCapability, type LiveEvent, type LiveRef, type LiveSnapshot, type LiveStatus } from "./live.js";
+import { LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_REGISTRY_OPERATIONS, LIVE_UNAVAILABLE_CAPABILITIES, UnavailableLiveAdapter, type LiveAdapter, type LiveCapability, type LiveEvent, type LiveRef, type LiveSnapshot, type LiveStatus } from "./live.js";
 import { serveStdio, type RecordContext } from "./stdio.js";
 import { projectBackup, projectInfo, projectLimitation } from "./project.js";
 import { SessionMidiTransactionManager, discoverSession } from "./transactions/session-midi.js";
+import { JOURNEY_IDS, JOURNEY_PROMPTS, journeyResource, planUserJourney, renderJourneyPrompt, type ExperienceLevel, type JourneyId } from "./journeys.js";
 import type { AsyncLiveAdapter } from "./live.js";
 
 export const PROTOCOL_VERSION = "2025-11-25";
@@ -178,6 +179,7 @@ const MONITORABLE_TRACK_KINDS = new Set(["regular", "audio", "midi"]);
 const resources = [
   { uri: "ableton://capabilities", name: "Capability catalog", description: "Implemented and unavailable host capabilities.", mimeType: "application/json" },
   { uri: "ableton://safety", name: "Live safety contract", description: "The host's read-only and unavailable-capability guarantees.", mimeType: "text/markdown" },
+  { uri: "ableton://journeys", name: "Capability-aware user journeys", description: "Five bounded composition, sound-design, reference, recording, and performance journeys with truthful availability and fallback.", mimeType: "application/json" },
 ] as const;
 
 const prompts = [
@@ -194,6 +196,7 @@ const prompts = [
     description: "Discover, preview, confirm, verify, and undo a reversible tempo change.",
     arguments: [],
   },
+  ...JOURNEY_PROMPTS,
 ] as const;
 
 const safetyResource = [
@@ -220,6 +223,22 @@ const implementedTools = [
     name: "capabilities",
     description: "Return the negotiated read-only capability catalog.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  },
+  {
+    name: "plan_user_journey",
+    description: "Build a capability-aware, non-mutating plan for one of five bounded composition, sound-design, reference, recording, or performance journeys.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        journey: { type: "string", enum: [...JOURNEY_IDS] },
+        traits: { type: "string", minLength: 1, maxLength: 1000 },
+        experienceLevel: { type: "string", enum: ["beginner", "advanced"] },
+        bars: { type: "integer", minimum: 1, maximum: 16 },
+      },
+      required: ["journey", "traits"],
+      additionalProperties: false,
+    },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   },
   {
@@ -3160,7 +3179,7 @@ export class McpHost {
       return error(id, -32602, "Invalid tools/call parameters");
     }
     if (params.arguments !== undefined && !isObject(params.arguments)) return error(id, -32602, "Tool arguments must be an object");
-    const argumentTools = new Set(["audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
+    const argumentTools = new Set(["plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi", "live_scene_capture", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo"]);
     if (!argumentTools.has(params.name) && params.arguments !== undefined && Object.keys(params.arguments as JsonObject).length !== 0) {
       return error(id, -32602, "Tool arguments must be an empty object");
     }
@@ -3169,6 +3188,18 @@ export class McpHost {
     }
     if (params.name === "capabilities") {
       return response(id, { content: [{ type: "text", text: JSON.stringify(this.capabilityCatalog()) }], isError: false });
+    }
+    if (params.name === "plan_user_journey") {
+      const args = params.arguments;
+      if (!isObject(args) || !hasOnly(args, ["journey", "traits", "experienceLevel", "bars"]) || typeof args.journey !== "string" || !JOURNEY_IDS.includes(args.journey as JourneyId) || typeof args.traits !== "string" || (args.experienceLevel !== undefined && args.experienceLevel !== "beginner" && args.experienceLevel !== "advanced") || (args.bars !== undefined && !isIntegerInRange(args.bars, 1, 16))) {
+        return error(id, -32602, "Invalid plan_user_journey arguments");
+      }
+      try {
+        const plan = planUserJourney({ journey: args.journey as JourneyId, traits: args.traits, experienceLevel: args.experienceLevel as ExperienceLevel | undefined, bars: args.bars as number | undefined }, this.safeAdapterStatus());
+        return response(id, { content: [{ type: "text", text: JSON.stringify(plan) }], isError: false });
+      } catch (cause) {
+        return error(id, -32602, cause instanceof Error ? cause.message : "Invalid journey plan arguments");
+      }
     }
     if (params.name === "live_status") return this.liveStatus(id);
     if (params.name === "live_snapshot") return this.liveSnapshot(id);
@@ -3221,7 +3252,7 @@ export class McpHost {
       ...(live.capabilities.includes("audio.capture.resampling") ? [] : ["live.audio.capture.preview", "live.audio.capture.apply", "live.audio.capture.status", "live.audio.capture.emergency-stop", "live.audio.analysis"]),
     ] : [...unavailableCapabilities, "audio.diagnose.live-context", "live.audio.capture.preview", "live.audio.capture.apply", "live.audio.capture.status", "live.audio.capture.emergency-stop", ...LIVE_CAPABILITIES];
     return {
-      implemented: ["server.status", "capabilities", "audio.analyze", "audio.analysis.standards", "audio.reference.compare", ...liveImplemented],
+      implemented: ["server.status", "capabilities", "journeys.plan", "audio.analyze", "audio.analysis.standards", "audio.reference.compare", ...liveImplemented],
       unavailable: [...new Set(liveUnavailable)],
       live: { connected: live.connected, adapter: live.adapter, epoch: live.epoch, protocol: live.protocol, capabilities: live.capabilities },
     };
@@ -3476,7 +3507,7 @@ export class McpHost {
   private safeAdapterStatus(): LiveStatus {
     try {
       const status = this.adapter.status();
-      if (!isObject(status) || typeof status.connected !== "boolean" || !["simulator", "remote-script", "extension", "unavailable"].includes(String(status.adapter)) || status.protocol !== LIVE_PROTOCOL_VERSION || (status.epoch !== null && (!Number.isSafeInteger(status.epoch) || status.epoch < 1)) || !Array.isArray(status.capabilities) || new Set(status.capabilities).size !== status.capabilities.length || status.capabilities.some((capability) => !LIVE_CAPABILITIES.includes(capability as typeof LIVE_CAPABILITIES[number]))) throw new Error("invalid live adapter status");
+      if (!isObject(status) || typeof status.connected !== "boolean" || !["simulator", "remote-script", "extension", "unavailable"].includes(String(status.adapter)) || status.protocol !== LIVE_PROTOCOL_VERSION || (status.epoch !== null && (!Number.isSafeInteger(status.epoch) || status.epoch < 1)) || !Array.isArray(status.capabilities) || new Set(status.capabilities).size !== status.capabilities.length || status.capabilities.some((capability) => !LIVE_CAPABILITIES.includes(capability as typeof LIVE_CAPABILITIES[number])) || (status.operations !== undefined && (!Array.isArray(status.operations) || new Set(status.operations).size !== status.operations.length || status.operations.some((operation) => typeof operation !== "string" || !LIVE_REGISTRY_OPERATIONS.includes(operation)))) || (status.provenance !== undefined && !["real-live", "fake-live", "simulator", "unknown"].includes(String(status.provenance))) || (status.registryHash !== undefined && (typeof status.registryHash !== "string" || !/^[a-f0-9]{64}$/.test(status.registryHash)))) throw new Error("invalid live adapter status");
       if (status.connected && status.epoch === null) throw new Error("connected adapter has no epoch");
       return status;
     } catch {
@@ -3518,6 +3549,9 @@ export class McpHost {
     if (params.uri === "ableton://capabilities") {
       return response(id, { contents: [{ uri: params.uri, mimeType: "application/json", text: JSON.stringify(this.capabilityCatalog()) }] });
     }
+    if (params.uri === "ableton://journeys") {
+      return response(id, { contents: [{ uri: params.uri, mimeType: "application/json", text: JSON.stringify(journeyResource(this.safeAdapterStatus())) }] });
+    }
     if (params.uri === liveResource.uri) return response(id, { contents: [{ uri: params.uri, mimeType: liveResource.mimeType, text: liveWorkflowResource }] });
     return error(id, -32002, "Resource not found", { uri: params.uri });
   }
@@ -3528,18 +3562,29 @@ export class McpHost {
   }
 
   private getPrompt(id: RequestId, params: unknown): JsonObject {
-    if (!isObject(params) || !hasOnly(params, ["name", "arguments"]) || typeof params.name !== "string") {
+    if (!isObject(params) || !hasOnly(params, ["name", "arguments"]) || typeof params.name !== "string" || (params.arguments !== undefined && !isObject(params.arguments))) {
       return error(id, -32602, "Invalid prompts/get parameters");
     }
-    if (params.arguments !== undefined && (!isObject(params.arguments) || !hasOnly(params.arguments, ["sampleRate", "channels"]))) {
-      return error(id, -32602, "Invalid prompt arguments");
-    }
+    const argumentsObject = params.arguments as JsonObject | undefined;
     if (params.name === "change_tempo_safely") {
-      if (params.arguments !== undefined && (!isObject(params.arguments) || !hasOnly(params.arguments, []))) return error(id, -32602, "Invalid prompt arguments");
+      if (argumentsObject !== undefined && !hasOnly(argumentsObject, [])) return error(id, -32602, "Invalid prompt arguments");
       return response(id, { description: "Discover, preview, confirm, verify, and undo a tempo change", messages: [{ role: "user", content: textContent("Use live_status and live_snapshot, then live_tempo_preview, live_tempo_apply with explicit confirmation, live_snapshot for verification, and live_undo when restoration is requested.") }] });
     }
+    const journeyPrompt = JOURNEY_PROMPTS.find((candidate) => candidate.name === params.name);
+    if (journeyPrompt !== undefined) {
+      if (argumentsObject === undefined || !hasOnly(argumentsObject, ["traits", "experienceLevel", "bars"]) || typeof argumentsObject.traits !== "string" || (argumentsObject.experienceLevel !== undefined && argumentsObject.experienceLevel !== "beginner" && argumentsObject.experienceLevel !== "advanced") || (argumentsObject.bars !== undefined && (typeof argumentsObject.bars !== "string" || !/^(?:[1-9]|1[0-6])$/.test(argumentsObject.bars)))) {
+        return error(id, -32602, "Invalid journey prompt arguments");
+      }
+      const journey = params.name.replaceAll("_", "-") as JourneyId;
+      try {
+        const text = renderJourneyPrompt({ journey, traits: argumentsObject.traits, experienceLevel: argumentsObject.experienceLevel as ExperienceLevel | undefined, bars: argumentsObject.bars === undefined ? undefined : Number(argumentsObject.bars) }, this.safeAdapterStatus());
+        return response(id, { description: journeyPrompt.description, messages: [{ role: "user", content: textContent(text) }] });
+      } catch (cause) {
+        return error(id, -32602, cause instanceof Error ? cause.message : "Invalid journey prompt arguments");
+      }
+    }
     if (params.name !== "analyze_audio") return error(id, -32002, "Prompt not found", { name: params.name });
-    const argumentsObject = params.arguments as JsonObject | undefined;
+    if (argumentsObject !== undefined && !hasOnly(argumentsObject, ["sampleRate", "channels"])) return error(id, -32602, "Invalid prompt arguments");
     const sampleRate = argumentsObject?.sampleRate;
     const channels = argumentsObject?.channels;
     const details = [
