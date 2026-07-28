@@ -70,7 +70,10 @@ try {
     const sampleRate = fixture.sampleRate ?? SAMPLE_RATE;
     const command = ["-hide_banner", "-nostats", "-f", "f32le", "-ar", String(sampleRate), "-ac", String(fixture.channels), "-i", path, "-filter_complex", "ebur128=peak=true", "-f", "null", "-"];
     const oracleRun = spawnSync("ffmpeg", command, { encoding: "utf8", maxBuffer: 2 * 1024 * 1024 });
-    if (oracleRun.status !== 0) throw new Error(`FFmpeg oracle failed for ${fixture.id}`);
+    if (oracleRun.status !== 0) {
+      const detail = oracleRun.error?.message ?? `status=${oracleRun.status ?? "none"} signal=${oracleRun.signal ?? "none"}; ${String(oracleRun.stderr ?? "").slice(-4_096)}`;
+      throw new Error(`FFmpeg oracle failed for ${fixture.id}: ${detail}`);
+    }
     const log = oracleRun.stderr;
     const oracle = {
       integratedLufs: capture(log, /Integrated loudness:\s+I:\s+(-?\d+(?:\.\d+)?) LUFS/s, "integrated loudness"),
