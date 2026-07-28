@@ -7,10 +7,10 @@ certification. A green host cell is never promoted to a Live cell.
 
 | Surface | Version / architecture | Status | Evidence |
 |---|---|---|---|
-| Node.js | 22.x, 24.x, 25.x | Supported contract; current exact-SHA hosted result pending | `.github/workflows/ci.yml`; do not infer a pass from configuration |
+| Node.js | 22.x, 24.x, 25.x | Supported host/package contract only for a candidate whose exact-SHA matrix is green | `.github/workflows/ci.yml`; configuration or a result from another SHA is not evidence |
 | Node.js | 26.x or future majors | Unsupported release runtime | Requires an explicit matrix and engine-range update |
-| macOS host | GitHub `macos-15`; local macOS arm64 environment | Supported contract when exact-SHA jobs pass | Node/package/lifecycle gates |
-| Windows host | GitHub Windows Server 2025 x64 (`windows-2025`) | Supported host contract when exact-SHA jobs pass | Node/package/lifecycle/ACL gates; not Windows 11 or Live evidence |
+| macOS host | GitHub `macos-15`; local macOS arm64 environment | Supported host/package contract only when the exact-SHA jobs pass | Node/package/lifecycle gates; separate local Live evidence is required |
+| Windows host | GitHub Windows Server 2025 x64 (`windows-2025`) | Supported host/package contract only when the exact-SHA jobs pass | Node/package/lifecycle/ACL/junction/held-file gates; not Windows 11 or Live evidence |
 | Windows desktop | Windows 11 x64 | Procedure documented, not certified | Requires exact-candidate host plus Live evidence; must not inherit Server status |
 | Linux host | Ubuntu 24.04 x64 (`ubuntu-24.04`) | Supported host contract only | Node/package gates; no Live claim |
 
@@ -40,7 +40,8 @@ external surfaces and are not certified by the server tests.
 ## Release implications
 
 The private artifact can be built and lifecycle-tested without signing.
-However, comprehensive cross-platform release certification remains incomplete
-until hosted Windows gates pass and a suitable Windows Live environment
-produces exact-candidate evidence. This limitation is intentional and must not
-be rewritten as a passing cell.
+A private candidate is host-release-ready only when every exact-SHA Server
+matrix job passes. Windows Server host evidence does not certify Windows 11,
+Ableton Live, Narrator, or plug-in windows. Those external cells remain
+explicitly unavailable until a suitable environment produces candidate-bound
+evidence; they must not be rewritten as passing cells.

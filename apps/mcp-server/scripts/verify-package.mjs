@@ -211,7 +211,10 @@ while time.time() < deadline:
         client.close(); bridge.update_display(); time.sleep(0.01)
 else:
     bridge.disconnect(); raise RuntimeError("production bridge listener did not become reachable")
-pathlib.Path(sys.argv[1]).write_text(json.dumps({"port":port}), encoding="utf-8")
+ready_path = pathlib.Path(sys.argv[1])
+ready_temporary = ready_path.with_name(ready_path.name + ".tmp")
+ready_temporary.write_text(json.dumps({"port":port}), encoding="utf-8")
+os.replace(ready_temporary, ready_path)
 try:
     while True: bridge.update_display(); time.sleep(0.01)
 except KeyboardInterrupt: pass

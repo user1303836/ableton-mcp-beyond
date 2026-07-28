@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, statSync, writeFileSync, chmodSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, chmodSync } from "node:fs";
 import { createSocket } from "node:dgram";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
@@ -461,7 +461,10 @@ while time.time() < deadline:
         client.close(); bridge.update_display(); time.sleep(0.01)
 else:
     bridge.disconnect(); raise RuntimeError("journey bridge listener did not become reachable")
-pathlib.Path(sys.argv[1]).write_text(json.dumps({"port": port, "realtimePort": realtime_port}), encoding="utf-8")
+ready_path = pathlib.Path(sys.argv[1])
+ready_temporary = ready_path.with_name(ready_path.name + ".tmp")
+ready_temporary.write_text(json.dumps({"port": port, "realtimePort": realtime_port}), encoding="utf-8")
+os.replace(ready_temporary, ready_path)
 
 def apply_control(command):
     name = command.get("command")
@@ -486,9 +489,13 @@ try:
                 command = json.loads(control_path.read_text(encoding="utf-8"))
                 control_path.unlink()
                 apply_control(command)
-                ack_path.write_text(json.dumps({"applied": command.get("command"), "seq": command.get("seq")}), encoding="utf-8")
+                ack_temporary = ack_path.with_name(ack_path.name + ".tmp")
+                ack_temporary.write_text(json.dumps({"applied": command.get("command"), "seq": command.get("seq")}), encoding="utf-8")
+                os.replace(ack_temporary, ack_path)
             except Exception as error:
-                ack_path.write_text(json.dumps({"error": str(error)}), encoding="utf-8")
+                ack_temporary = ack_path.with_name(ack_path.name + ".tmp")
+                ack_temporary.write_text(json.dumps({"error": str(error)}), encoding="utf-8")
+                os.replace(ack_temporary, ack_path)
         drained = bridge.queue.drain()
         if pause_after["callbacks"] > 0:
             pause_after["callbacks"] -= drained
@@ -619,7 +626,9 @@ class EnvelopeEvent:
   const controlSeq = { value: 0 };
   async function control(command, extra = {}) {
     const seq = ++controlSeq.value;
-    writeFileSync(controlPath, JSON.stringify({ ...extra, ...command, seq }), { encoding: "utf8" });
+    const controlTemporary = `${controlPath}.tmp`;
+    writeFileSync(controlTemporary, JSON.stringify({ ...extra, ...command, seq }), { encoding: "utf8" });
+    renameSync(controlTemporary, controlPath);
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
       if (existsSync(ackPath)) {
@@ -660,6 +669,11 @@ class EnvelopeEvent:
   const textOf = async (client, name, args, timeoutMs) => {
     const response = await client.call(name, args, timeoutMs);
     return response;
+  };
+  const requiredTool = async (client, name, args, timeoutMs) => {
+    const response = await client.call(name, args, timeoutMs);
+    assert(!response.isError, `${name} failed: ${JSON.stringify(response.parsed)}`);
+    return response.parsed;
   };
   const playback = async (client) => {
     const response = await textOf(client, "live_discover", { kind: "session-playback" });
@@ -1017,13 +1031,13 @@ class EnvelopeEvent:
     const songEvents = songGuidance.drumRoleEvents;
     assert(songGuidance.kind === "editable-song-draft" && songGuidance.bars === 8 && songEvents.length >= 64 && songEvents.some((event) => event.startBeat % 1 === 0.75) && Math.max(...songEvents.map((event) => event.startBeat)) >= 28, "beat/song guidance did not derive a substantive syncopated eight-bar pattern");
     journeyProgress("create-beat-or-song", "preview-create", "planned", { derivedGuidance: songGuidance.kind, roleEvents: songEvents.map((event) => event.role) });
-    const songPreview = (await client.call("live_midi_clip_preview", { trackRef: freshTracks[0].ref, sceneIndex: 1, name: "Journey Song Notes", length: songGuidance.bars * 4, notes: songEvents.map(toNote) })).parsed;
-    const structurePreview = (await client.call("live_session_structure_preview", { tracks: [], scenes: [{ name: "Journey Advanced Drums", index: 2 }] })).parsed;
+    const songPreview = await requiredTool(client, "live_midi_clip_preview", { trackRef: freshTracks[0].ref, sceneIndex: 1, name: "Journey Song Notes", length: songGuidance.bars * 4, notes: songEvents.map(toNote) });
+    const structurePreview = await requiredTool(client, "live_session_structure_preview", { tracks: [], scenes: [{ name: "Journey Advanced Drums", index: 2 }] });
     journeyProgress("create-beat-or-song", "preview-create", "completed", { exactTrackRef: freshTracks[0].ref, structures: ["Journey Advanced Drums"], guidanceKind: songGuidance.kind });
     journeyProgress("create-beat-or-song", "apply-create", "awaiting_confirmation", { mechanisms: ["fixed-apply-midi", "fixed-apply-structure"], exactTargets: true });
     journeyProgress("create-beat-or-song", "apply-create", "applying", { idempotencyKeys: 2 });
-    const songApplied = (await client.call("live_midi_clip_apply", { transactionId: songPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-song-midi" })).parsed;
-    const structureApplied = (await client.call("live_session_structure_apply", { transactionId: structurePreview.transactionId, confirmation: "apply", idempotencyKey: "journey-song-structure" })).parsed;
+    const songApplied = await requiredTool(client, "live_midi_clip_apply", { transactionId: songPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-song-midi" });
+    const structureApplied = await requiredTool(client, "live_session_structure_apply", { transactionId: structurePreview.transactionId, confirmation: "apply", idempotencyKey: "journey-song-structure" });
     const songClipRef = songApplied.clipRef;
     const songNotes = (await textOf(client, "live_discover", { kind: "note", parent: songClipRef, limit: 100 })).parsed.items;
     assert(typeof songClipRef === "string" && structureApplied.created?.length === 1 && songNotes.length === songEvents.length, "beat/song MIDI/structure creation failed");
@@ -1035,12 +1049,12 @@ class EnvelopeEvent:
     const drumSceneIndex = (await textOf(client, "live_discover", { kind: "scene" })).parsed.items.find((scene) => scene.name === "Journey Advanced Drums")?.index;
     assert(Number.isInteger(drumSceneIndex), "created advanced-drum scene index is unavailable");
     journeyProgress("sequence-advanced-drums", "preview-write", "planned", { derivedGuidance: drumGuidance.kind, roleEvents: drumEvents.map((event) => event.role), pitchMappingProvenance: "operator-owned-fake-fixture" });
-    const drumPreview = (await client.call("live_midi_clip_preview", { trackRef: freshTracks[0].ref, sceneIndex: drumSceneIndex, name: "Journey Advanced Drum Notes", length: drumGuidance.bars * 4, notes: drumEvents.map(toNote) })).parsed;
+    const drumPreview = await requiredTool(client, "live_midi_clip_preview", { trackRef: freshTracks[0].ref, sceneIndex: drumSceneIndex, name: "Journey Advanced Drum Notes", length: drumGuidance.bars * 4, notes: drumEvents.map(toNote) });
     assert(typeof drumPreview.transactionId === "string", `advanced drum preview failed: ${JSON.stringify(drumPreview)}`);
     journeyProgress("sequence-advanced-drums", "preview-write", "completed", { exactTrackRef: freshTracks[0].ref, sceneIndex: drumSceneIndex, guidanceKind: drumGuidance.kind });
     journeyProgress("sequence-advanced-drums", "apply-write", "awaiting_confirmation", { mechanism: "fixed-apply-midi", exactTarget: true });
     journeyProgress("sequence-advanced-drums", "apply-write", "applying", { idempotencyKeyPresent: true });
-    const drumApplied = (await client.call("live_midi_clip_apply", { transactionId: drumPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-drum-midi" })).parsed;
+    const drumApplied = await requiredTool(client, "live_midi_clip_apply", { transactionId: drumPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-drum-midi" });
     const clipRef = drumApplied.clipRef;
     const notes = (await textOf(client, "live_discover", { kind: "note", parent: clipRef, limit: 100 })).parsed.items;
     assert(typeof clipRef === "string" && notes.length === drumEvents.length && notes.every((item) => typeof item.id === "number"), "advanced drum clip/notes failed verification");
@@ -1122,8 +1136,8 @@ class EnvelopeEvent:
     journeyProgress("create-beat-or-song", "arrange-edit", "completed", { retainedArrangementRef: finalArrangement[0].ref, arrangementClipsVerified: 1, temporaryClipDeleted: true });
     // Additional generic Session-duplicate contract coverage is deliberately
     // outside the Arrangement journey stage.
-    const structurePreview = (await client.call("live_session_structure_preview", { tracks: [], scenes: [{ name: "Journey Dup Scene", index: 3 }] })).parsed;
-    await client.call("live_session_structure_apply", { transactionId: structurePreview.transactionId, confirmation: "apply", idempotencyKey: "journey-dup-scene" });
+    const structurePreview = await requiredTool(client, "live_session_structure_preview", { tracks: [], scenes: [{ name: "Journey Dup Scene", index: 3 }] });
+    await requiredTool(client, "live_session_structure_apply", { transactionId: structurePreview.transactionId, confirmation: "apply", idempotencyKey: "journey-dup-scene" });
     const slotsAfter = (await textOf(client, "live_discover", { kind: "clip-slot", parent: freshTracks[0].ref })).parsed.items;
     const emptySlot = slotsAfter.find((item) => item.empty === true);
     const dupPreview = (await textOf(client, "live_clip_duplicate_preview", { clipRef: sourceRef, targetTrackRef: freshTracks[0].ref, targetSceneIndex: emptySlot.sceneIndex })).parsed;

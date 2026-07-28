@@ -105,17 +105,18 @@ be opened, copied, staged, packaged, or cited as implementation evidence.
   unavailable.
 - Live capture requires a saved Set, WAV recording, a selectable restorable
   destination route, explicit consent/output safety, and real-Live provenance.
-- Current real-Live proof is on macOS. The latest pushed Phase 10 candidate jobs
-  started but failed because performance tests were run under V8 coverage
-  instrumentation, so all dependent Windows jobs were skipped. Performance now
-  remains an uninstrumented independent gate; a new exact-SHA run is required.
+- Current tracked real-Live proof is on macOS and remains candidate-specific.
+  Hosted host/package evidence is valid only when the complete exact-SHA matrix
+  is green; no historical run transfers to a newer commit. Performance remains
+  an uninstrumented gate separate from V8 coverage.
 - The stdio journey surface is text-first and has no server-owned visual focus,
   but VoiceOver/Narrator behavior in third-party MCP clients, Ableton Live, and
   plug-in windows remains client/version-dependent and is not claimed.
-- Native signing/notarization, Windows desktop/real-Live evidence, public
-  publication, hosted exact-candidate results for the eventual pushed SHA, and
-  the final capability/documentation/release audit remain unproven. The chosen
-  channel stays private, unsigned, unnotarized, and unpublished.
+- Native signing/notarization, Windows desktop/real-Live evidence, external
+  VoiceOver/Narrator/client evidence, and public publication are not available
+  for the chosen channel. The channel stays explicitly private, unsigned,
+  unnotarized, and unpublished; those external cells are not inferred from host
+  CI or the server-owned text accessibility contract.
 
 ## Operating procedure
 

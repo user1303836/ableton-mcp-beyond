@@ -700,7 +700,7 @@ const implementedTools = [
   },
   {
     name: "live_undo",
-    description: "Undo a verified tempo change only when the current state still matches its postcondition.",
+    description: "Undo a verified guarded transaction only when fresh authoritative state still matches its exact postcondition.",
     inputSchema: {
       type: "object",
       properties: { transactionId: { type: "string" }, confirmation: { type: "string", enum: ["undo"] }, idempotencyKey: { type: "string", minLength: 1, maxLength: 128 } },
