@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tarfile
 
@@ -21,9 +22,9 @@ if expected_git and metadata.get("gitSha") != expected_git:
     raise SystemExit("candidate Git SHA does not match checkout")
 repository = Path(__file__).resolve().parents[3]
 expected = {
-    "package/remote-script/AbletonMcpBridge/__init__.py": repository / "remote-script/AbletonMcpBridge/__init__.py",
-    "package/remote-script/AbletonMcpBridge/ableton_mcp_remote_script.py": repository / "remote-script/ableton_mcp_remote_script.py",
-    "package/remote-script/AbletonMcpBridge/ableton-live-v1.operations.json": repository / "protocol/ableton-live-v1.operations.json",
+    "package/remote-script/AbletonMcpBridge/__init__.py": "remote-script/AbletonMcpBridge/__init__.py",
+    "package/remote-script/AbletonMcpBridge/ableton_mcp_remote_script.py": "remote-script/ableton_mcp_remote_script.py",
+    "package/remote-script/AbletonMcpBridge/ableton-live-v1.operations.json": "protocol/ableton-live-v1.operations.json",
 }
 with tarfile.open(artifact, "r:gz") as archive:
     members = {member.name: member for member in archive.getmembers()}
@@ -35,9 +36,18 @@ with tarfile.open(artifact, "r:gz") as archive:
             raise SystemExit(f"candidate is missing regular Python contract asset: {name}")
         stream = archive.extractfile(member)
         candidate = stream.read() if stream else b""
-        checkout = source.read_bytes()
+        try:
+            checkout = subprocess.run(
+                ["git", "cat-file", "blob", f"{metadata['gitSha']}:{source}"],
+                cwd=repository,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            ).stdout
+        except subprocess.CalledProcessError as error:
+            raise SystemExit(f"cannot read exact Git blob for {source}: {error.stderr.decode('utf-8', 'replace')[-512:]}") from error
         if candidate != checkout:
-            raise SystemExit(f"candidate Python contract differs from exact checkout: {name}")
+            raise SystemExit(f"candidate Python contract differs from exact Git blob: {name}")
         if name.endswith(".py"):
             compile(candidate, name, "exec")
 print(json.dumps({"schema": "ableton-mcp-candidate-python/v1", "gitSha": metadata["gitSha"], "artifactSha256": actual_sha, "assets": len(expected), "exactCheckout": True}))

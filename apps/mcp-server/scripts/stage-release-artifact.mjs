@@ -45,7 +45,7 @@ const packageJson = JSON.parse(readFileSync(join(packageRoot, "package.json"), "
 const typescriptPackage = JSON.parse(readFileSync(join(packageRoot, "node_modules", "typescript", "package.json"), "utf8"));
 const packageLockSha256 = createHash("sha256").update(readFileSync(join(packageRoot, "package-lock.json"))).digest("hex");
 const workflowSha256 = createHash("sha256").update(readFileSync(join(repositoryRoot, ".github", "workflows", "ci.yml"))).digest("hex");
-const npmVersion = execFileSync(process.platform === "win32" ? "npm.cmd" : "npm", ["--version"], { encoding: "utf8" }).trim();
+const npmVersion = execFileSync(process.platform === "win32" ? "npm.cmd" : "npm", ["--version"], { encoding: "utf8", shell: process.platform === "win32" }).trim();
 const remoteManifest = JSON.parse(readFileSync(join(packageRoot, "remote-script", "AbletonMcpBridge", "manifest.json"), "utf8"));
 const digest = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
 const files = {};

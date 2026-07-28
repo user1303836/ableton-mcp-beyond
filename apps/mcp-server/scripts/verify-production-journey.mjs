@@ -142,6 +142,7 @@ class McpClient {
     this.cancelled = new Set();
     this.nextId = 1;
     this.buffer = "";
+    this.stderr = "";
     this.events = [];
     this.child.stdout.on("data", (chunk) => {
       this.buffer += chunk.toString("utf8");
@@ -158,13 +159,17 @@ class McpClient {
         if (entry) { this.pending.delete(message.id); entry.resolve(message); }
       }
     });
-    this.child.stderr.on("data", () => undefined);
+    this.child.stderr.on("data", (chunk) => { this.stderr = `${this.stderr}${chunk.toString("utf8")}`.slice(-65_536); });
   }
-  request(method, params, timeoutMs = 15_000) {
+  request(method, params, timeoutMs = 45_000) {
     const id = this.nextId++;
     const payload = params === undefined ? { jsonrpc: "2.0", id, method } : { jsonrpc: "2.0", id, method, params };
     const promise = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`MCP request ${id} (${method}) timed out`)); }, timeoutMs);
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        const diagnostics = this.stderr.trim() ? `; server diagnostics: ${this.stderr.trim().slice(-4_096)}` : "";
+        reject(new Error(`MCP request ${id} (${method}) timed out after ${timeoutMs}ms${diagnostics}`));
+      }, timeoutMs);
       this.pending.set(id, { resolve: (value) => { clearTimeout(timer); resolve(value); }, reject });
     });
     this.child.stdin.write(`${JSON.stringify(payload)}\n`);
