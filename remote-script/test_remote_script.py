@@ -708,6 +708,19 @@ class ControlSurfaceTests(unittest.TestCase):
         locator_preflight = bridge._dispatch_with_holder("preflight", locator_request, holder); bridge.mapper.song.cue_points.append(FakeLocator(4.0, "External"))
         with self.assertRaises(ValueError): bridge._dispatch_with_holder("prepare", {**locator_request, "preflightToken": locator_preflight["preflightToken"], "confirmation": locator_preflight["confirmation"], "idempotencyKey": "locator-external-edit"}, holder)
 
+    def test_capture_cleanup_authority_ignores_native_media_finalization_drift(self):
+        song = FakeSong(); song.tracks[0].clip_slots[0].clip = FakeClip(4.0)
+        bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(song)
+        class ImmediateQueue:
+            def submit(self, action, deadline_ms=None): return action()
+        bridge.queue = ImmediateQueue(); bridge._executed_mutations = {}; bridge._executed_lock = threading.Lock(); holder = {}
+        clip = bridge.mapper.snapshot()["tracks"][0]["clips"][0]
+        request = {"operation": "audio.capture.cleanup", "args": {"captureId": "capture-test", "token": "t" * 24, "expectedClipRef": clip["ref"]}}
+        preflight = bridge._dispatch_with_holder("preflight", request, holder)
+        song.tracks[0].clip_slots[0].clip.length = 4.25
+        prepared = bridge._dispatch_with_holder("prepare", {**request, "preflightToken": preflight["preflightToken"], "confirmation": preflight["confirmation"], "idempotencyKey": "capture-cleanup-finalization"}, holder)
+        self.assertEqual(prepared["operation"], "audio.capture.cleanup")
+
     def test_scene_capture_claims_the_identity_distinct_scene_with_duplicate_names(self):
         song = FakeSong(); song.scenes = [FakeScene("Duplicate"), FakeScene("Duplicate")]; created = FakeScene("Duplicate")
         song.capture_and_insert_scene = lambda: song.scenes.insert(1, created)
@@ -1475,7 +1488,7 @@ class RealtimePlaneTests(unittest.TestCase):
             holder = {}
             def authorized(request):
                 token = secrets.token_urlsafe(24); args = request["args"]
-                holder.setdefault("authorities", {})[token] = {"operation": request["operation"], "argsDigest": hashlib.sha256(AuthenticatedRemoteScript._bounded_canonical(args).encode()).hexdigest(), "stateDigest": _authority_state_digest(bridge.mapper, args), "expiresAt": int(time.time() * 1000) + 10000, "idempotencyKey": f"test-{request['operation']}-{secrets.token_hex(4)}"}
+                holder.setdefault("authorities", {})[token] = {"operation": request["operation"], "argsDigest": hashlib.sha256(AuthenticatedRemoteScript._bounded_canonical(args).encode()).hexdigest(), "stateDigest": _authority_state_digest(bridge.mapper, args, request["operation"]), "expiresAt": int(time.time() * 1000) + 10000, "idempotencyKey": f"test-{request['operation']}-{secrets.token_hex(4)}"}
                 return bridge._dispatch_with_holder("invoke", {**request, "authorityToken": token}, holder)
             arm_request = {"operation": "realtime.arm", "args": {"ttlMs": 30000, "channels": ["udp-json"], "parameterRefs": [parameter_ref], "outputSafety": {"safe": True, "provenance": "unit-test-operator"}}}
             with self.assertRaises(ValueError): bridge._realtime_op("realtime.arm", {"ttlMs": 30000, "channels": ["udp-json"], "parameterRefs": [parameter_ref]})

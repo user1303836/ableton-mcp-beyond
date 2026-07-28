@@ -3818,7 +3818,7 @@ class _MainThreadQueue:
         return count
 
 
-def _authority_state_digest(mapper: LiveObjectMapper, args: dict[str, Any]) -> str:
+def _authority_state_digest(mapper: LiveObjectMapper, args: dict[str, Any], operation: str | None = None) -> str:
     references: list[str] = []
     def collect(value: Any, key: str = "") -> None:
         if isinstance(value, dict):
@@ -3833,6 +3833,13 @@ def _authority_state_digest(mapper: LiveObjectMapper, args: dict[str, Any]) -> s
     for reference in sorted(set(references)):
         try:
             revision = mapper.refs.revision(reference); row = mapper.get(reference)
+            # A stopped capture clip can finish updating its native length/name
+            # while the cleanup preflight crosses adjacent Live display ticks.
+            # Cleanup is already fenced by capture id, one-use token, expected
+            # ref, exact owned-object identity, stopped playback, and deletion
+            # postcondition. Bind existence/revision here rather than volatile
+            # media-finalization fields so safe cleanup authority remains usable.
+            if operation == "audio.capture.cleanup": row = {"present": row is not None}
             if row is None:
                 obj = mapper.refs.get(reference)
                 if isinstance(obj, dict): row = {key: value for key, value in obj.items() if isinstance(value, (str, int, float, bool, type(None)))}
@@ -3955,7 +3962,7 @@ class AbletonMcpBridge:
                 for key, row in list(preflights.items()):
                     if row["expiresAt"] <= now: preflights.pop(key, None)
                 if len(preflights) >= 64: raise ValueError("too many pending mutation preflights")
-                args_digest = hashlib.sha256(AuthenticatedRemoteScript._bounded_canonical(args).encode("utf-8")).hexdigest(); state_digest = _authority_state_digest(self.mapper, args)
+                args_digest = hashlib.sha256(AuthenticatedRemoteScript._bounded_canonical(args).encode("utf-8")).hexdigest(); state_digest = _authority_state_digest(self.mapper, args, operation)
                 token = secrets.token_urlsafe(24); confirmation = secrets.token_urlsafe(24); expires_at = now + 10000
                 preflights[token] = {"operation": operation, "argsDigest": args_digest, "stateDigest": state_digest, "confirmation": confirmation, "expiresAt": expires_at}
                 return {"preflightToken": token, "confirmation": confirmation, "operation": operation, "argsDigest": args_digest, "stateDigest": state_digest, "impact": "mutates-live", "expiresAt": expires_at}
@@ -3966,7 +3973,7 @@ class AbletonMcpBridge:
                 preflight_row = holder.setdefault("preflights", {}).pop(preflight_token, None); authorities = holder.setdefault("authorities", {})
                 for key, row in list(authorities.items()):
                     if row["expiresAt"] <= now: authorities.pop(key, None)
-                args_digest = hashlib.sha256(AuthenticatedRemoteScript._bounded_canonical(args).encode("utf-8")).hexdigest(); state_digest = _authority_state_digest(self.mapper, args)
+                args_digest = hashlib.sha256(AuthenticatedRemoteScript._bounded_canonical(args).encode("utf-8")).hexdigest(); state_digest = _authority_state_digest(self.mapper, args, operation)
                 if preflight_row is None or preflight_row["expiresAt"] <= now or preflight_row["operation"] != operation or preflight_row["argsDigest"] != args_digest or preflight_row["stateDigest"] != state_digest or not hmac.compare_digest(preflight_row["confirmation"], str(request["confirmation"])):
                     raise ValueError("missing, expired, stale, or mismatched mutation preflight")
                 if len(authorities) >= 64: raise ValueError("too many pending mutation authorities")
@@ -3991,7 +3998,7 @@ class AbletonMcpBridge:
             if request.get("operation") in {"realtime.arm", "realtime.disarm"}:
                 return replay_or_apply(lambda: self._realtime_op(request["operation"], args))
             def invoke_authorized() -> Any:
-                if _authority_state_digest(self.mapper, args) != authority["stateDigest"]: raise ValueError("Live state changed after mutation authority preparation")
+                if _authority_state_digest(self.mapper, args, str(request["operation"])) != authority["stateDigest"]: raise ValueError("Live state changed after mutation authority preparation")
                 return replay_or_apply(lambda: self.mapper.invoke(str(request["operation"]), args))
             return self.queue.submit(invoke_authorized, deadline_ms=request.get("deadlineMs"))
         if method == "invoke" and request.get("operation") == "realtime.stats":
