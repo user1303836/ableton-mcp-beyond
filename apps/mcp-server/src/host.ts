@@ -173,6 +173,11 @@ const AUDITION_TTL_MS = 30_000;
 // state propagates asynchronously at quantization boundaries; the deadline
 // must cover snapshot + dispatch + polled verification.
 const AUDITION_DEADLINE_MS = 15_000;
+// A complete MIDI transaction crosses snapshot plus two separately authorized
+// mutations and authoritative readback. Each bridge frame remains capped by
+// the adapter's 5 s timeout; this absolute bound prevents later frames from
+// inheriting only the exhausted tail of the general audition deadline.
+const SESSION_MIDI_TRANSACTION_DEADLINE_MS = 30_000;
 const MAX_AUDITION_TRANSACTIONS = 64;
 const MONITORABLE_TRACK_KINDS = new Set(["regular", "audio", "midi"]);
 
@@ -3140,7 +3145,7 @@ export class McpHost {
 
   private async liveMidiApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject> {
     if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
-    return this.successText(id, await this.midiTransactions.applyAsync(params.transactionId as string, params.confirmation, params.idempotencyKey as string, { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }));
+    return this.successText(id, await this.midiTransactions.applyAsync(params.transactionId as string, params.confirmation, params.idempotencyKey as string, { signal, deadlineMs: Date.now() + SESSION_MIDI_TRANSACTION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }));
   }
 
   private async liveArrangementPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
@@ -3231,7 +3236,7 @@ export class McpHost {
   private async liveUndoAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject> {
     if (!this.validTransactionParams(params, "undo")) return error(id, -32602, "transactionId, confirmation=undo, and idempotencyKey are required");
     const transaction = this.transactions.get(params.transactionId as string);
-    if (!transaction && String(params.transactionId).startsWith("midi_")) return this.successText(id, await this.midiTransactions.undoAsync(params.transactionId as string, params.confirmation, params.idempotencyKey as string, { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }));
+    if (!transaction && String(params.transactionId).startsWith("midi_")) return this.successText(id, await this.midiTransactions.undoAsync(params.transactionId as string, params.confirmation, params.idempotencyKey as string, { signal, deadlineMs: Date.now() + SESSION_MIDI_TRANSACTION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }));
     if (!transaction && String(params.transactionId).startsWith("transport_")) {
       const transport = this.transportTransactions.get(params.transactionId as string);
       if (!transport) return this.transactionError(id, "Unknown or expired transport transaction");

@@ -510,6 +510,25 @@ test("completes bounded Session MIDI discovery, preview, idempotent apply, verif
   assert.equal(simulator.snapshot().tracks[0]!.clips.length, 1);
 });
 
+test("asynchronous MIDI apply and undo retain a bounded transaction-wide bridge deadline", async () => {
+  const base = new DeterministicLiveSimulator(); const remaining: number[] = [];
+  const record = (context?: { deadlineMs?: number }): void => { if (context?.deadlineMs) remaining.push(context.deadlineMs - Date.now()); };
+  const adapter = {
+    status: () => base.status(), snapshot: () => base.snapshot(), get: (ref: LiveRef) => base.get(ref), invoke: (invocation: LiveInvocation) => base.invoke(invocation), subscribe: (listener: Parameters<LiveAdapter["subscribe"]>[0]) => base.subscribe(listener), reconnect: () => base.reconnect(),
+    snapshotAsync: async (context?: { deadlineMs?: number }) => { record(context); return base.snapshot(); }, getAsync: async (ref: LiveRef, context?: { deadlineMs?: number }) => { record(context); return base.get(ref); }, invokeAsync: async (invocation: LiveInvocation, context?: { deadlineMs?: number }) => { record(context); return base.invoke(invocation); }, reconnectAsync: async () => base.reconnect(),
+  } as unknown as LiveAdapter;
+  const host = new McpHost(adapter); ready(host); const track = base.snapshot().tracks[0]!;
+  const previewFrame = await host.handleAsync({ jsonrpc: "2.0", id: 641, method: "tools/call", params: { name: "live_midi_clip_preview", arguments: { trackRef: track.ref, sceneIndex: 1, name: "Deadline MIDI", length: 4, notes: [{ pitch: 60, start: 0, duration: 0.25, velocity: 100, channel: 1 }] } } }) as any;
+  const preview = JSON.parse(previewFrame.result.content[0].text); remaining.length = 0;
+  const appliedFrame = await host.handleAsync({ jsonrpc: "2.0", id: 642, method: "tools/call", params: { name: "live_midi_clip_apply", arguments: { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "deadline-midi-apply" } } }) as any;
+  const applied = JSON.parse(appliedFrame.result.content[0].text); assert.equal(applied.state, "applied");
+  assert.ok(remaining.length >= 4); assert.ok(remaining.every((value) => value > 25_000), `short MIDI apply deadline: ${remaining}`);
+  remaining.length = 0;
+  const undoneFrame = await host.handleAsync({ jsonrpc: "2.0", id: 643, method: "tools/call", params: { name: "live_undo", arguments: { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "deadline-midi-undo" } } }) as any;
+  const undone = JSON.parse(undoneFrame.result.content[0].text); assert.equal(undone.state, "undone");
+  assert.ok(remaining.length >= 2); assert.ok(remaining.every((value) => value > 25_000), `short MIDI undo deadline: ${remaining}`);
+});
+
 test("keeps new Live tools fail-closed with the default unavailable adapter", () => {
   const host = new McpHost();
   ready(host);
