@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="128" height="128">
+  <!-- 3x3 Session clip grid -->
+  <g fill="#666666">
+    <rect x="2"    y="2"    width="17" height="17" opacity="0.35"/>
+    <rect x="23.5" y="2"    width="17" height="17" opacity="0.35"/>
+    <rect x="45"   y="2"    width="17" height="17" opacity="0.35"/>
+    <rect x="2"    y="23.5" width="17" height="17" opacity="0.35"/>
+    <rect x="45"   y="23.5" width="17" height="17" opacity="0.35"/>
+    <rect x="2"    y="45"   width="17" height="17" opacity="0.7"/>
+    <rect x="23.5" y="45"   width="17" height="17" opacity="0.7"/>
+    <rect x="45"   y="45"   width="17" height="17" opacity="0.7"/>
+    <!-- launching clip -->
+    <rect x="23.5" y="23.5" width="17" height="17"/>
+  </g>
+  <path d="M27.5 26.5v11l10-5.5z" fill="#ffffff"/>
+</svg>
