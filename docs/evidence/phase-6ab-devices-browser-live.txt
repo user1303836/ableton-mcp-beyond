@@ -1,0 +1,8 @@
+Phase 6A/6B real-Live evidence (Ableton Live 12.4.5b8, MCP-Audition-Disposable set)
+- browser.search instruments "drift": ["instruments/Drift"]
+- browser.search instruments "rack": ["instruments/Drum Rack","instruments/Instrument Rack"]
+- browser.load Drum Rack onto track 1: {"loaded":true}
+- nested discovery: kind rack, canHaveDrumPads true, 16 pads, chains 0, macros 0, variationCount 0
+- device.enable off: {"changed":true,"enabled":false} -> enabled=false, Device On=0
+- device.enable on: {"changed":true,"enabled":true} -> enabled=true
+- device.delete: {"deleted":true} -> rack removed from track

@@ -1,0 +1,120 @@
+{
+ "scene": {
+  "ref": "8176265744875536:scene:0",
+  "parentRef": "8176265744875536:set:song",
+  "name": "",
+  "index": 0,
+  "triggerable": true
+ },
+ "preview": {
+  "isError": false,
+  "parsed": {
+   "transactionId": "audition_eKN_Fs8lgOFMVfACNdglilOE",
+   "epoch": 8176265744875536,
+   "scene": {
+    "ref": "8176265744875536:scene:0",
+    "parentRef": "8176265744875536:set:song",
+    "name": "",
+    "index": 0,
+    "triggerable": true
+   },
+   "sceneRevision": "{\"ref\":\"8176265744875536:scene:0\",\"parentRef\":\"8176265744875536:set:song\",\"name\":\"\",\"index\":0,\"triggerable\":true}",
+   "playbackRevision": "{\"playback\":{\"ref\":\"8176265744875536:session_playback:playback\",\"epoch\":8176265744875536,\"revision\":\"8176265744875536:playback:fe38494d609a5677b938a39f\",\"transport\":{\"playing\":false,\"arrangementRecord\":false,\"sessionRecord\":false,\"position\":0,\"launchQuantization\":{\"raw\":4,\"normalized\":\"1-bar\"}},\"firedTargets\":[],\"playingTargets\":[]},\"tracks\":[{\"ref\":\"8176265744875536:track:0\",\"armed\":false,\"monitoringState\":\"auto\",\"playingSlotIndex\":null,\"firedSlotIndex\":null},{\"ref\":\"8176265744875536:track:1\",\"armed\":false,\"monitoringState\":\"auto\",\"playingSlotIndex\":null,\"firedSlotIndex\":null},{\"ref\":\"8176265744875536:track:2\",\"armed\":false,\"monitoringState\":\"off\",\"playingSlotIndex\":null,\"firedSlotIndex\":null},{\"ref\":\"8176265744875536:track:3\",\"armed\":false,\"monitoringState\":\"off\",\"playingSlotIndex\":null,\"firedSlotIndex\":null},{\"ref\":\"8176265744875536:track:4\",\"armed\":null,\"monitoringState\":null,\"playingSlotIndex\":null,\"firedSlotIndex\":null},{\"ref\":\"8176265744875536:track:5\",\"armed\":null,\"monitoringState\":null,\"playingSlotIndex\":null,\"firedSlotIndex\":null},{\"ref\":\"8176265744875536:track:6\",\"armed\":null,\"monitoringState\":null,\"playingSlotIndex\":null,\"firedSlotIndex\":null}],\"scenes\":[{\"ref\":\"8176265744875536:scene:0\",\"parentRef\":\"8176265744875536:set:song\",\"name\":\"\",\"index\":0,\"triggerable\":true},{\"ref\":\"8176265744875536:scene:1\",\"parentRef\":\"8176265744875536:set:song\",\"name\":\"\",\"index\":1,\"triggerable\":true},{\"ref\":\"8176265744875536:scene:2\",\"parentRef\":\"8176265744875536:set:song\",\"name\":\"\",\"index\":2,\"triggerable\":true},{\"ref\":\"8176265744875536:scene:3\",\"parentRef\":\"8176265744875536:set:song\",\"name\":\"\",\"index\":3,\"triggerable\":true},{\"ref\":\"8176265744875536:scene:4\",\"parentRef\":\"8176265744875536:set:song\",\"name\":\"\",\"index\":4,\"triggerable\":true},{\"ref\":\"8176265744875536:scene:5\",\"parentRef\":\"8176265744875536:set:song\",\"name\":\"\",\"index\":5,\"triggerable\":true},{\"ref\":\"8176265744875536:scene:6\",\"parentRef\":\"8176265744875536:set:song\",\"name\":\"\",\"index\":6,\"triggerable\":true},{\"ref\":\"8176265744875536:scene:7\",\"parentRef\":\"8176265744875536:set:song\",\"name\":\"\",\"index\":7,\"triggerable\":true}]}",
+   "eligibleTargets": [
+    "8176265744875536:track:0|8176265744875536:clip_slot:0:0|8176265744875536:scene:0"
+   ],
+   "disposableSet": {
+    "expected": "MCP-Audition-Disposable",
+    "observed": "MCP-Audition-Disposable",
+    "matches": true
+   },
+   "baseline": {
+    "stopped": true,
+    "arrangementRecord": false,
+    "sessionRecord": false
+   },
+   "launchQuantization": {
+    "raw": 4,
+    "normalized": "1-bar"
+   },
+   "outputSafety": {
+    "safe": true,
+    "provenance": "operator-disposable-mac-mini-low-monitoring",
+    "scope": "master",
+    "observedAt": "2026-07-27T02:21:27.741Z"
+   },
+   "audibleImpact": "potentially-audible-session-scene-launch",
+   "confirmation": "KWCcVJLwXtYExuyPYxsZFTigkV9nuVGMPAw5zzuEy3U",
+   "stopConfirmation": "5_md1A2hOOrYejPxhT4O6VS0VpG1rziqPzssL6hz7sI",
+   "expiresAt": 1785118919863
+  }
+ },
+ "applied": {
+  "isError": false,
+  "parsed": {
+   "transactionId": "audition_eKN_Fs8lgOFMVfACNdglilOE",
+   "state": "applied",
+   "launched": {
+    "launched": "8176265744875536:scene:0",
+    "targets": []
+   },
+   "verified": {
+    "sceneRef": "8176265744875536:scene:0",
+    "firedOrPlaying": true
+   },
+   "stopConfirmation": "5_md1A2hOOrYejPxhT4O6VS0VpG1rziqPzssL6hz7sI",
+   "idempotent": false
+  }
+ },
+ "duringPlayback": {
+  "ref": "8176265744875536:session_playback:playback",
+  "epoch": 8176265744875536,
+  "revision": "8176265744875536:playback:56e9e7ef5c37cdcaaf0205f0",
+  "transport": {
+   "playing": true,
+   "arrangementRecord": false,
+   "sessionRecord": false,
+   "position": 11.362267573696146,
+   "launchQuantization": {
+    "raw": 4,
+    "normalized": "1-bar"
+   }
+  },
+  "firedTargets": [],
+  "playingTargets": [
+   {
+    "trackRef": "8176265744875536:track:0",
+    "clipSlotRef": "8176265744875536:clip_slot:0:0",
+    "sceneRef": "8176265744875536:scene:0",
+    "sceneIndex": 0,
+    "clipRef": "8176265744875536:clip:0:0"
+   }
+  ]
+ },
+ "stopped": {
+  "isError": false,
+  "parsed": {
+   "transactionId": "audition_eKN_Fs8lgOFMVfACNdglilOE",
+   "state": "stopped",
+   "restoredBaseline": true,
+   "idempotent": false
+  }
+ },
+ "afterStop": {
+  "ref": "8176265744875536:session_playback:playback",
+  "epoch": 8176265744875536,
+  "revision": "8176265744875536:playback:b1547cdc5f6d3dd68c7b74ea",
+  "transport": {
+   "playing": false,
+   "arrangementRecord": false,
+   "sessionRecord": false,
+   "position": 20.154920634920636,
+   "launchQuantization": {
+    "raw": 4,
+    "normalized": "1-bar"
+   }
+  },
+  "firedTargets": [],
+  "playingTargets": []
+ }
+}

@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-27T23:40:43.856Z",
+  "implementation": "bs1770-5-ebu-r128-2023/v1",
+  "normativeSources": [
+    "https://www.itu.int/dms_pubrec/itu-r/rec/bs/R-REC-BS.1770-5-202311-I!!PDF-E.pdf",
+    "https://tech.ebu.ch/docs/r/r128.pdf",
+    "https://tech.ebu.ch/docs/tech/tech3341.pdf",
+    "https://tech.ebu.ch/docs/tech/tech3342.pdf"
+  ],
+  "independentOracle": {
+    "implementation": "ffmpeg version 8.1 Copyright (c) 2000-2026 the FFmpeg developers",
+    "filter": "ebur128=peak=true",
+    "input": "generated 44.1/48 kHz float32 PCM",
+    "redistribution": "no third-party audio stored"
+  },
+  "tolerance": {
+    "loudnessLu": 0.1,
+    "truePeakDb": 0.1,
+    "truePeakDbAt44100": 0.15
+  },
+  "fixtures": [
+    {
+      "id": "stereo-1khz-faded",
+      "sampleRate": 48000,
+      "generatedPcmSha256": "d7872def62c9125a79dffe3a10f78d1f02e19a8b4fcaa1441213d84003a79040",
+      "frames": 480000,
+      "channels": 2,
+      "oracle": {
+        "integratedLufs": -20,
+        "relativeGateLufs": -30,
+        "lraLu": 0,
+        "lraLowLufs": -20,
+        "lraHighLufs": -20,
+        "truePeakDbtp": -20
+      },
+      "implementation": {
+        "integratedLufs": -20.00076644001251,
+        "relativeGateLufs": -30.00076644001251,
+        "lraLu": 3.872457909892546e-13,
+        "lraLowLufs": -19.993295586600865,
+        "lraHighLufs": -19.99329558660048,
+        "truePeakDbtp": -19.993303920245964
+      },
+      "absoluteDifferences": {
+        "integratedLufs": 0.0007664400125086956,
+        "relativeGateLufs": 0.0007664400125086956,
+        "lraLu": 3.872457909892546e-13,
+        "lraLowLufs": 0.006704413399134523,
+        "lraHighLufs": 0.006704413399521769,
+        "truePeakDbtp": 0.006696079754036077
+      },
+      "passed": true
+    },
+    {
+      "id": "absolute-relative-gates",
+      "sampleRate": 48000,
+      "generatedPcmSha256": "5c5c2fadf50226ac5b2de2153edb45457815fa1145968b32d6a12b9fee0439f0",
+      "frames": 768000,
+      "channels": 2,
+      "oracle": {
+        "integratedLufs": -22.8,
+        "relativeGateLufs": -34.4,
+        "lraLu": 20,
+        "lraLowLufs": -40,
+        "lraHighLufs": -20,
+        "truePeakDbtp": -20
+      },
+      "implementation": {
+        "integratedLufs": -22.782907052467483,
+        "relativeGateLufs": -34.39799283596858,
+        "lraLu": 19.999999990493333,
+        "lraLowLufs": -39.993295577095616,
+        "lraHighLufs": -19.993295586602283,
+        "truePeakDbtp": -19.993303920245964
+      },
+      "absoluteDifferences": {
+        "integratedLufs": 0.01709294753251811,
+        "relativeGateLufs": 0.00200716403141854,
+        "lraLu": 9.506667453251794e-9,
+        "lraLowLufs": 0.006704422904384444,
+        "lraHighLufs": 0.006704413397716991,
+        "truePeakDbtp": 0.006696079754036077
+      },
+      "passed": true
+    },
+    {
+      "id": "lra-plateaus",
+      "sampleRate": 48000,
+      "generatedPcmSha256": "50f70607bf7a860d389da6b65fc32c3813ce74c3f156e4a06b6c864bf7cda792",
+      "frames": 1200000,
+      "channels": 2,
+      "oracle": {
+        "integratedLufs": -23.4,
+        "relativeGateLufs": -35.5,
+        "lraLu": 20,
+        "lraLowLufs": -40,
+        "lraHighLufs": -20,
+        "truePeakDbtp": -20
+      },
+      "implementation": {
+        "integratedLufs": -23.393801352557883,
+        "relativeGateLufs": -35.469172146891694,
+        "lraLu": 19.99999999049358,
+        "lraLowLufs": -39.99329557709595,
+        "lraHighLufs": -19.99329558660237,
+        "truePeakDbtp": -19.993303920245964
+      },
+      "absoluteDifferences": {
+        "integratedLufs": 0.006198647442115401,
+        "relativeGateLufs": 0.030827853108306158,
+        "lraLu": 9.506418763294278e-9,
+        "lraLowLufs": 0.006704422904050489,
+        "lraHighLufs": 0.0067044133976317255,
+        "truePeakDbtp": 0.006696079754036077
+      },
+      "passed": true
+    },
+    {
+      "id": "12khz-inter-sample-peak",
+      "sampleRate": 48000,
+      "generatedPcmSha256": "942b08965d0b867120c1e58295003281a31844902091fc016e68b857f887e283",
+      "frames": 240000,
+      "channels": 1,
+      "oracle": {
+        "integratedLufs": -0.6,
+        "relativeGateLufs": -10.6,
+        "lraLu": 0.1,
+        "lraLowLufs": -0.7,
+        "lraHighLufs": -0.6,
+        "truePeakDbtp": -0.9
+      },
+      "implementation": {
+        "integratedLufs": -0.6047013403434492,
+        "relativeGateLufs": -10.60470134034345,
+        "lraLu": 5.071377762178031e-10,
+        "lraLowLufs": -0.5737857239568088,
+        "lraHighLufs": -0.573785723449671,
+        "truePeakDbtp": -0.8704586876718554
+      },
+      "absoluteDifferences": {
+        "integratedLufs": 0.004701340343449267,
+        "relativeGateLufs": 0.0047013403434501555,
+        "lraLu": 0.09999999949286223,
+        "truePeakDbtp": 0.02954131232814461
+      },
+      "passed": true
+    },
+    {
+      "id": "44k1-inter-sample-peak",
+      "sampleRate": 44100,
+      "generatedPcmSha256": "344634fe9ae833e6eb1c51ed454856ae4823bfcdf60c2379c8bd1c01f5207d3c",
+      "frames": 220500,
+      "channels": 1,
+      "oracle": {
+        "integratedLufs": -0.6,
+        "relativeGateLufs": -10.6,
+        "lraLu": 0.1,
+        "lraLowLufs": -0.7,
+        "lraHighLufs": -0.6,
+        "truePeakDbtp": -0.9
+      },
+      "implementation": {
+        "integratedLufs": -0.6010511167853028,
+        "relativeGateLufs": -10.601051116785303,
+        "lraLu": 6.624339965455306e-10,
+        "lraLowLufs": -0.570135071935175,
+        "lraHighLufs": -0.570135071272741,
+        "truePeakDbtp": -0.7754309100645191
+      },
+      "absoluteDifferences": {
+        "integratedLufs": 0.0010511167853027858,
+        "relativeGateLufs": 0.001051116785303563,
+        "lraLu": 0.09999999933756601,
+        "truePeakDbtp": 0.12456908993548088
+      },
+      "passed": true
+    }
+  ],
+  "privacy": {
+    "rawPcmCommitted": false,
+    "temporaryDirectoryOwnerOnly": true,
+    "temporaryFilesOwnerOnly": true,
+    "temporaryFilesRemoved": true
+  },
+  "passed": true
+}

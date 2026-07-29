@@ -1,0 +1,4 @@
+Phase 7A real-Live evidence (Ableton Live 12.4.5b8, MCP-Audition-Disposable set)
+- project info: path, size 15760, sha256, scenes 8, mediaRefs 3, missingMedia ["/Dotted Eighth Note.adv","/Reverb Default.adv"] (real finding)
+- backup: atomic verified copy with matching sha256 into the set's directory
+- save/open: precise negotiated limitation payloads (no Remote Script API in this Live version)

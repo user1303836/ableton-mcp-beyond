@@ -1,0 +1,5 @@
+Phase 7B real-Live evidence (Ableton Live 12.4.5b8, MCP-Audition-Disposable set)
+- live_subscribe {types:["transport","object"]}: {"subscribed":true,"subscriptionId":"DBzNL2PEoA5vgMsb","epoch":6396693243080415}
+- clip launch -> MCP notification: {"sequence":1,"type":"transport","payload":{"playing":true}}
+- clip stop: transport kept playing (truthful; no false playing:false event emitted)
+- live_unsubscribe: {"subscribed":false}

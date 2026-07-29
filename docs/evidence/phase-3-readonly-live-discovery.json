@@ -1,0 +1,1374 @@
+{
+ "status": {
+  "connected": true,
+  "adapter": "remote-script",
+  "epoch": 5860646751601769,
+  "protocol": "ableton-live/v1",
+  "capabilities": [
+   "session.read",
+   "session.write",
+   "tracks",
+   "scenes",
+   "clips",
+   "notes",
+   "session.discovery",
+   "session.structure",
+   "session.midi_clip.create",
+   "session.midi_clip.delete",
+   "session.midi_note.read",
+   "session.midi_note.write",
+   "transport",
+   "reconnect",
+   "arrangement.read",
+   "arrangement.write"
+  ],
+  "registryHash": "4d0448742077dce889fc496767b3b6e3a9c408e37902629f3c21eb61f166257f",
+  "operations": [
+   "clip.create",
+   "discover",
+   "get",
+   "locator.add",
+   "locator.delete",
+   "reconnect",
+   "scene.create",
+   "scene.delete",
+   "session.audition-launch",
+   "session.audition-stop",
+   "session.emergency-stop",
+   "session.playback",
+   "set",
+   "snapshot",
+   "status",
+   "track.create",
+   "track.delete"
+  ],
+  "provenance": "real-live"
+ },
+ "set": {
+  "epoch": 5860646751601769,
+  "items": [
+   {
+    "ref": "5860646751601769:set:song",
+    "name": "",
+    "tempo": 120,
+    "position": 0,
+    "playing": false,
+    "loop": {
+     "enabled": false,
+     "length": 16
+    }
+   }
+  ],
+  "truncated": false,
+  "revision": "5860646751601769:set:1:c3ebb43178222b57",
+  "kind": "set"
+ },
+ "scenes": {
+  "epoch": 5860646751601769,
+  "items": [
+   {
+    "ref": "5860646751601769:scene:7",
+    "parentRef": "5860646751601769:set:song",
+    "name": "",
+    "index": 0,
+    "triggerable": true
+   },
+   {
+    "ref": "5860646751601769:scene:5",
+    "parentRef": "5860646751601769:set:song",
+    "name": "",
+    "index": 1,
+    "triggerable": true
+   },
+   {
+    "ref": "5860646751601769:scene:2",
+    "parentRef": "5860646751601769:set:song",
+    "name": "",
+    "index": 2,
+    "triggerable": true
+   },
+   {
+    "ref": "5860646751601769:scene:3",
+    "parentRef": "5860646751601769:set:song",
+    "name": "",
+    "index": 3,
+    "triggerable": true
+   },
+   {
+    "ref": "5860646751601769:scene:4",
+    "parentRef": "5860646751601769:set:song",
+    "name": "",
+    "index": 4,
+    "triggerable": true
+   },
+   {
+    "ref": "5860646751601769:scene:5",
+    "parentRef": "5860646751601769:set:song",
+    "name": "",
+    "index": 5,
+    "triggerable": true
+   },
+   {
+    "ref": "5860646751601769:scene:1",
+    "parentRef": "5860646751601769:set:song",
+    "name": "",
+    "index": 6,
+    "triggerable": true
+   },
+   {
+    "ref": "5860646751601769:scene:2",
+    "parentRef": "5860646751601769:set:song",
+    "name": "",
+    "index": 7,
+    "triggerable": true
+   }
+  ],
+  "truncated": false,
+  "revision": "5860646751601769:scene:8:b0692f0702bfcaac",
+  "kind": "scene"
+ },
+ "tracks": {
+  "epoch": 5860646751601769,
+  "items": [
+   {
+    "ref": "5860646751601769:track:6",
+    "parentRef": "5860646751601769:set:song",
+    "name": "1-MIDI",
+    "kind": "regular",
+    "mediaKind": "midi",
+    "armed": false,
+    "monitoringState": "auto",
+    "playingSlotIndex": null,
+    "firedSlotIndex": null,
+    "clips": [],
+    "clipSlots": [
+     {
+      "ref": "5860646751601769:clip_slot:0:0",
+      "parentRef": "5860646751601769:track:6",
+      "trackRef": "5860646751601769:track:6",
+      "sceneIndex": 0,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:1",
+      "parentRef": "5860646751601769:track:6",
+      "trackRef": "5860646751601769:track:6",
+      "sceneIndex": 1,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:2",
+      "parentRef": "5860646751601769:track:6",
+      "trackRef": "5860646751601769:track:6",
+      "sceneIndex": 2,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:3",
+      "parentRef": "5860646751601769:track:6",
+      "trackRef": "5860646751601769:track:6",
+      "sceneIndex": 3,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:4",
+      "parentRef": "5860646751601769:track:6",
+      "trackRef": "5860646751601769:track:6",
+      "sceneIndex": 4,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:5",
+      "parentRef": "5860646751601769:track:6",
+      "trackRef": "5860646751601769:track:6",
+      "sceneIndex": 5,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:6",
+      "parentRef": "5860646751601769:track:6",
+      "trackRef": "5860646751601769:track:6",
+      "sceneIndex": 6,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:7",
+      "parentRef": "5860646751601769:track:6",
+      "trackRef": "5860646751601769:track:6",
+      "sceneIndex": 7,
+      "empty": true
+     }
+    ],
+    "devices": []
+   },
+   {
+    "ref": "5860646751601769:track:1",
+    "parentRef": "5860646751601769:set:song",
+    "name": "2-MIDI",
+    "kind": "regular",
+    "mediaKind": "midi",
+    "armed": false,
+    "monitoringState": "auto",
+    "playingSlotIndex": null,
+    "firedSlotIndex": null,
+    "clips": [],
+    "clipSlots": [
+     {
+      "ref": "5860646751601769:clip_slot:0:5",
+      "parentRef": "5860646751601769:track:1",
+      "trackRef": "5860646751601769:track:1",
+      "sceneIndex": 0,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:4",
+      "parentRef": "5860646751601769:track:1",
+      "trackRef": "5860646751601769:track:1",
+      "sceneIndex": 1,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:3",
+      "parentRef": "5860646751601769:track:1",
+      "trackRef": "5860646751601769:track:1",
+      "sceneIndex": 2,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:0",
+      "parentRef": "5860646751601769:track:1",
+      "trackRef": "5860646751601769:track:1",
+      "sceneIndex": 3,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:6",
+      "parentRef": "5860646751601769:track:1",
+      "trackRef": "5860646751601769:track:1",
+      "sceneIndex": 4,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:1",
+      "parentRef": "5860646751601769:track:1",
+      "trackRef": "5860646751601769:track:1",
+      "sceneIndex": 5,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:2",
+      "parentRef": "5860646751601769:track:1",
+      "trackRef": "5860646751601769:track:1",
+      "sceneIndex": 6,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:1:7",
+      "parentRef": "5860646751601769:track:1",
+      "trackRef": "5860646751601769:track:1",
+      "sceneIndex": 7,
+      "empty": true
+     }
+    ],
+    "devices": []
+   },
+   {
+    "ref": "5860646751601769:track:6",
+    "parentRef": "5860646751601769:set:song",
+    "name": "3-Audio",
+    "kind": "regular",
+    "mediaKind": "audio",
+    "armed": false,
+    "monitoringState": "off",
+    "playingSlotIndex": null,
+    "firedSlotIndex": null,
+    "clips": [],
+    "clipSlots": [
+     {
+      "ref": "5860646751601769:clip_slot:2:0",
+      "parentRef": "5860646751601769:track:6",
+      "trackRef": "5860646751601769:track:6",
+      "sceneIndex": 0,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:7",
+      "parentRef": "5860646751601769:track:6",
+      "trackRef": "5860646751601769:track:6",
+      "sceneIndex": 1,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:0",
+      "parentRef": "5860646751601769:track:6",
+      "trackRef": "5860646751601769:track:6",
+      "sceneIndex": 2,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:2",
+      "parentRef": "5860646751601769:track:6",
+      "trackRef": "5860646751601769:track:6",
+      "sceneIndex": 3,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:1",
+      "parentRef": "5860646751601769:track:6",
+      "trackRef": "5860646751601769:track:6",
+      "sceneIndex": 4,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:6",
+      "parentRef": "5860646751601769:track:6",
+      "trackRef": "5860646751601769:track:6",
+      "sceneIndex": 5,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:3",
+      "parentRef": "5860646751601769:track:6",
+      "trackRef": "5860646751601769:track:6",
+      "sceneIndex": 6,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:4",
+      "parentRef": "5860646751601769:track:6",
+      "trackRef": "5860646751601769:track:6",
+      "sceneIndex": 7,
+      "empty": true
+     }
+    ],
+    "devices": []
+   },
+   {
+    "ref": "5860646751601769:track:0",
+    "parentRef": "5860646751601769:set:song",
+    "name": "4-Audio",
+    "kind": "regular",
+    "mediaKind": "audio",
+    "armed": false,
+    "monitoringState": "off",
+    "playingSlotIndex": null,
+    "firedSlotIndex": null,
+    "clips": [],
+    "clipSlots": [
+     {
+      "ref": "5860646751601769:clip_slot:0:6",
+      "parentRef": "5860646751601769:track:0",
+      "trackRef": "5860646751601769:track:0",
+      "sceneIndex": 0,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:2",
+      "parentRef": "5860646751601769:track:0",
+      "trackRef": "5860646751601769:track:0",
+      "sceneIndex": 1,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:2:0",
+      "parentRef": "5860646751601769:track:0",
+      "trackRef": "5860646751601769:track:0",
+      "sceneIndex": 2,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:1",
+      "parentRef": "5860646751601769:track:0",
+      "trackRef": "5860646751601769:track:0",
+      "sceneIndex": 3,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:4",
+      "parentRef": "5860646751601769:track:0",
+      "trackRef": "5860646751601769:track:0",
+      "sceneIndex": 4,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:3",
+      "parentRef": "5860646751601769:track:0",
+      "trackRef": "5860646751601769:track:0",
+      "sceneIndex": 5,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:0:0",
+      "parentRef": "5860646751601769:track:0",
+      "trackRef": "5860646751601769:track:0",
+      "sceneIndex": 6,
+      "empty": true
+     },
+     {
+      "ref": "5860646751601769:clip_slot:1:7",
+      "parentRef": "5860646751601769:track:0",
+      "trackRef": "5860646751601769:track:0",
+      "sceneIndex": 7,
+      "empty": true
+     }
+    ],
+    "devices": []
+   }
+  ],
+  "truncated": false,
+  "revision": "5860646751601769:track:4:0e3bc3e240b24a38",
+  "kind": "track"
+ },
+ "returnTracks": {
+  "epoch": 5860646751601769,
+  "items": [
+   {
+    "ref": "5860646751601769:track:4",
+    "parentRef": "5860646751601769:set:song",
+    "name": "A-Reverb",
+    "kind": "return",
+    "mediaKind": "audio",
+    "armed": null,
+    "monitoringState": null,
+    "playingSlotIndex": null,
+    "firedSlotIndex": null,
+    "clips": [],
+    "clipSlots": [],
+    "devices": [
+     {
+      "ref": "5860646751601769:device:5527968704:0",
+      "parentRef": "5860646751601769:track:4",
+      "chainPosition": 0,
+      "className": "Reverb",
+      "name": "Reverb",
+      "enabled": true,
+      "parameters": [
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:0",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Device On",
+        "value": 1,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "1.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:1",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Predelay",
+        "value": 0.2589765787124634,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "2.5",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:2",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "In Lo Cut On",
+        "value": 1,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "1.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:3",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "In Hi Cut On",
+        "value": 1,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "1.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:4",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Input Freq",
+        "value": 0.47729402780532837,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "830.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:5",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Input Width",
+        "value": 0.6294117569923401,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "5.849999904632568",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:6",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "ER Spin On",
+        "value": 1,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "1.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:7",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "ER Spin Rate",
+        "value": 0.4296875298023224,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.25",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:8",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "ER Spin Amount",
+        "value": 0.12234228849411011,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "3.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:9",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "ER Shape",
+        "value": 0.5,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.5",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:10",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Diff. Hi On",
+        "value": 1,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "1.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:11",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Diff. Hi Type",
+        "value": 0,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:12",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Diff. Hi Freq",
+        "value": 0.8102341890335083,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "4500.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:13",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "HiShelf Gain",
+        "value": 0.625,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.699999988079071",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:14",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Diff. Lo On",
+        "value": 0,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:15",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Diff. Lo Freq",
+        "value": 0.227199524641037,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "90.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:16",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "LowShelf Gain",
+        "value": 0.6875,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.75",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:17",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Chorus On",
+        "value": 1,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "1.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:18",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Chorus Rate",
+        "value": 0.10369296371936798,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.019999999552965164",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:19",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Chorus Amount",
+        "value": 0.002506265649572015,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.019999999552965164",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:20",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Decay Time",
+        "value": 0.4428164064884186,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "2500.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:21",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Diffusion",
+        "value": 0.6246089935302734,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "60.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:22",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Scale",
+        "value": 0.3684210479259491,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "40.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:23",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Freeze On",
+        "value": 0,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:24",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Flat On",
+        "value": 1,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "1.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:25",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Cut On",
+        "value": 1,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "1.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:26",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Room Size",
+        "value": 0.7915151119232178,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "100.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:27",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Size Smoothing",
+        "value": 0,
+        "min": 0,
+        "max": 2,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:28",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Stereo Image",
+        "value": 0.8333333134651184,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "100.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:29",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Density",
+        "value": 3,
+        "min": 0,
+        "max": 3,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "3.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:30",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Reflect Level",
+        "value": 0.49356332421302795,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:31",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Diffuse Level",
+        "value": 0.49356332421302795,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527968704:0:32",
+        "parentRef": "5860646751601769:device:5527968704:0",
+        "name": "Dry/Wet",
+        "value": 1,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "100.0",
+        "revision": 1
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "ref": "5860646751601769:track:5",
+    "parentRef": "5860646751601769:set:song",
+    "name": "B-Delay",
+    "kind": "return",
+    "mediaKind": "audio",
+    "armed": null,
+    "monitoringState": null,
+    "playingSlotIndex": null,
+    "firedSlotIndex": null,
+    "clips": [],
+    "clipSlots": [],
+    "devices": [
+     {
+      "ref": "5860646751601769:device:5527972032:0",
+      "parentRef": "5860646751601769:track:5",
+      "chainPosition": 0,
+      "className": "Delay",
+      "name": "Delay",
+      "enabled": true,
+      "parameters": [
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:0",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "Device On",
+        "value": 1,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "1.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:1",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "Smoothing",
+        "value": 0,
+        "min": 0,
+        "max": 2,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:2",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "Link",
+        "value": 0,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:3",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "Ping Pong",
+        "value": 0,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:4",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "L Sync",
+        "value": 1,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "1.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:5",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "R Sync",
+        "value": 1,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "1.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:6",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "L Time",
+        "value": 0.3350270390510559,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "22.100000381469727",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:7",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "R Time",
+        "value": 0.33752983808517456,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "22.899999618530273",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:8",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "L 16th",
+        "value": 2,
+        "min": 0,
+        "max": 7,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "2.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:9",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "R 16th",
+        "value": 2,
+        "min": 0,
+        "max": 7,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "2.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:10",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "L Offset",
+        "value": 0.5,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:11",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "R Offset",
+        "value": 0.5,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:12",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "Feedback",
+        "value": 0.2210526317358017,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "21.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:13",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "Freeze",
+        "value": 0,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:14",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "Filter On",
+        "value": 0,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:15",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "Filter Freq",
+        "value": 0.508949875831604,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "1000.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:16",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "Filter Width",
+        "value": 0.8823529481887817,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "8.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:17",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "LFO Mode",
+        "value": 0,
+        "min": 0,
+        "max": 5,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:18",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "LFO Freq",
+        "value": 0.47166621685028076,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.5",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:19",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "LFO Time",
+        "value": 0.1973896026611328,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "1000.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:20",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "LFO Synced",
+        "value": 4,
+        "min": 0,
+        "max": 21,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "2",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:21",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "LFO 16th",
+        "value": 16,
+        "min": 1,
+        "max": 64,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "16.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:22",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "LFO Wave",
+        "value": 1,
+        "min": 0,
+        "max": 6,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "1.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:23",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "LFO Morph",
+        "value": 0.5,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:24",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "LFO > Delay",
+        "value": 0,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:25",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "LFO > Filter",
+        "value": 0,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "0.0",
+        "revision": 1
+       },
+       {
+        "ref": "5860646751601769:parameter:5860646751601769:device:5527972032:0:26",
+        "parentRef": "5860646751601769:device:5527972032:0",
+        "name": "Dry/Wet",
+        "value": 1,
+        "min": 0,
+        "max": 1,
+        "quantization": 0,
+        "enabled": true,
+        "automatable": true,
+        "automationState": "none",
+        "displayValue": "100.0",
+        "revision": 1
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "truncated": false,
+  "revision": "5860646751601769:return_track:2:7cdcf8c5d21cdef5",
+  "kind": "return-track"
+ },
+ "mainTrack": {
+  "epoch": 5860646751601769,
+  "items": [
+   {
+    "ref": "5860646751601769:track:6",
+    "parentRef": "5860646751601769:set:song",
+    "name": "Main",
+    "kind": "main",
+    "mediaKind": "audio",
+    "armed": null,
+    "monitoringState": null,
+    "playingSlotIndex": null,
+    "firedSlotIndex": null,
+    "clips": [],
+    "clipSlots": [],
+    "devices": []
+   }
+  ],
+  "truncated": false,
+  "revision": "5860646751601769:main_track:1:7f37f4b6b30a442b",
+  "kind": "main-track"
+ },
+ "clipSlots": {
+  "epoch": 5860646751601769,
+  "items": [],
+  "truncated": false,
+  "revision": "5860646751601769:clip_slot:0:4f53cda18c2baa0c",
+  "kind": "clip-slot"
+ },
+ "playback": {
+  "epoch": 5860646751601769,
+  "items": [
+   {
+    "ref": "5860646751601769:session_playback:playback",
+    "epoch": 5860646751601769,
+    "revision": "5860646751601769:playback:fe38494d609a5677b938a39f",
+    "transport": {
+     "playing": false,
+     "arrangementRecord": false,
+     "sessionRecord": false,
+     "position": 0,
+     "launchQuantization": {
+      "raw": 4,
+      "normalized": "1-bar"
+     }
+    },
+    "firedTargets": [],
+    "playingTargets": []
+   }
+  ],
+  "truncated": false,
+  "revision": "5860646751601769:playback:fe38494d609a5677b938a39f",
+  "kind": "session-playback"
+ }
+}

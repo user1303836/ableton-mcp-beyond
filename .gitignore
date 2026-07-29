@@ -1,0 +1,19 @@
+# macOS metadata
+.DS_Store
+
+# Locally supplied Ableton Extensions SDK
+/extensions-sdk-1.0.0-beta.0/
+
+# Smithers workflow/runtime state and locally provisioned agent skills (ephemeral — never commit)
+/.smithers/
+smithers.db
+smithers.db-shm
+smithers.db-wal
+/.agents/
+/.claude/
+/.pi-subagents/
+apps/mcp-server/remote-script/
+apps/mcp-server/release-docs/
+apps/mcp-server/release-manifest.json
+apps/mcp-server/LICENSE.md
+apps/mcp-server/*.tgz
