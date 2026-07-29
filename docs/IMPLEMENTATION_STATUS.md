@@ -18,8 +18,10 @@ a current capability report.
   Live-main-thread dispatch, epoch-scoped refs/cursors, signed subscriptions,
   canonical registry negotiation, and a read-only preflight → unpredictable
   confirmation → one-use mutation authority protocol. Stable transaction-scoped
-  replay keys and the bridge-epoch executed-result ledger survive TCP response
-  loss without conflating distinct host transactions.
+  replay keys include canonical argument digests, and the bounded bridge-epoch
+  executed-result ledger survives TCP response loss without conflating steps or
+  transactions. Exact same-key reconciliation requires unchanged bridge/Live
+  epochs; verified transactions retire their ledger entries.
 - Real-Live discovery and guarded lifecycle evidence for Live 12.4.5b8:
   transport; Session clip launch/stop/emergency stop; MIDI notes and clips;
   Arrangement clips and locators; mixer; Session automation; nested devices,
@@ -27,9 +29,16 @@ a current capability report.
   Arrangement recording; project path/manifest/backup; subscriptions; and
   realtime UDP JSON/OSC/XY plus bounded `max`-label extension packets (not a Max capability).
 - Purpose-specific preview/apply/verify/undo or cleanup workflows with exact
-  targets, epochs/revisions, expiry, idempotency, fresh postconditions, bounded
-  compensation, and explicit uncertain state. Unsupported Live shapes remain
-  negotiated limitations.
+  object and hierarchy identities, state/content revisions, creation-time
+  fingerprints, epochs, expiry, idempotency, fresh postconditions, bounded
+  compensation, and explicit uncertain state. Atomic Session clip move runs
+  duplicate/delete/compensation on Live's main thread. Apply, undo, and
+  compensation acknowledgement loss retain exact step arguments for same-key
+  reconciliation; explicit evidence-bound recovery finalization releases
+  protected capacity only after audible/recording/capture/realtime safety checks.
+  The capability catalog classifies every Live tool from both its domain
+  capability and exact negotiated operation set; unsupported or partial Live
+  shapes remain negotiated limitations.
 - Realtime authority limited by loopback endpoint, unpredictable token, TTL,
   source ports, channels, exact parameter refs, packet/rate/queue bounds,
   sequence/replay checks, generation fencing, verified writes, XY compensation,
@@ -43,7 +52,8 @@ a current capability report.
   evidence is tracked; no third-party audio is stored.
 - Bounded 48 kHz reference comparison with band-limited resampling,
   coarse-to-fine alignment, ambiguity refusal, standards level matching, and
-  aggregate deltas.
+  aggregate deltas. Untrusted automatic alignment retains separate source
+  analyses but withholds overlap, comparative deltas, and gain advice.
 - Disposable secret-stripped analysis workers with two active/four queued job
   limits, wall/output/memory/request bounds, kill-on-cancel, and no raw PCM in
   results.
@@ -93,6 +103,9 @@ be opened, copied, staged, packaged, or cited as implementation evidence.
 
 ## Truthful limitations
 
+- Arbitrary device and Arrangement clip deletion is refused because prior
+  state cannot be reconstructed. Only exact transaction-created identity,
+  hierarchy, and creation-fingerprint cleanup is available through guarded undo.
 - Live save/open/new/export/collect/bounce, Arrangement automation, warp-marker
   editing, take/comp editing, and Browser audio preview remain unavailable where
   the observed API has no authoritative operation. Strict reserved canonical

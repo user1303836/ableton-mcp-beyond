@@ -66,15 +66,25 @@ After installing an `npm pack` artifact and visibly preparing the disposable
 Set/output/destination route, run it with explicit evidence inputs:
 
 ```sh
-PHASE8_CLI=/absolute/installed/dist/src/cli.js \
-PHASE8_TARBALL_SHA=<64-hex-sha256> \
+PHASE8_CLI=/absolute/receipt-owned/dist/src/cli.js \
+PHASE8_CONFIG=/absolute/receipt-owned/bridge-config.json \
+PHASE8_RECEIPT=/absolute/receipt-owned/install-receipt.json \
+PHASE8_EXPECTED_GIT_SHA=<40-hex-candidate-sha> \
+PHASE8_TARBALL_SHA=<64-hex-artifact-sha256> \
+PHASE8_EXPECTED_REGISTRY_HASH=<64-hex-canonical-registry-sha256> \
 PHASE8_OUTPUT_SAFETY_PROVENANCE='<fresh operator observation>' \
 PHASE8_LIVE_VERSION='<visible Live version>' \
   npm run audio:live-verify > /owner-only/path/phase-8-audio-live.json
 ```
 
-The verifier refuses a missing raw-media directory, non-empty source device
-baseline, absent source clip, or destination other than visibly prepared
+Before touching Live, the verifier requires an activated real-Live lifecycle
+receipt, binds the expected clean Git SHA, artifact digest, canonical registry,
+receipt-owned CLI/configuration, release-manifest digest, every installed package
+file, and every installed Remote Script file, and rejects extra, missing,
+linked, or drifted package bytes. It then requires runtime `remote-script` /
+`real-live` provenance and the same registry hash. The verifier also refuses a
+missing raw-media directory, non-empty source device baseline, absent source
+clip, or destination other than visibly prepared
 `No Input`/unarmed/monitoring-off/empty. It verifies cancellation response
 suppression while the original host remains alive, kills another host during
 capture, requires mapper-watchdog finalization, independently recovers, and

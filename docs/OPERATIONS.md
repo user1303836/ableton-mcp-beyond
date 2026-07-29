@@ -40,7 +40,7 @@ and recovery.
 
 ## Domain and extension boundaries
 
-Rename, Browser load, and audio-clip changes use purpose-specific preview/apply/undo transactions; generic authenticated `invoke` is not user-facing mutation authority. Browser load requires a fresh exact `browser.inspect` device identity. Audio edits are field-negotiated per clip; warp-marker readback does not grant marker-edit authority. Subscription events include a connection epoch, and overflow emits `reset`; either condition or a sequence gap requires a fresh snapshot.
+Rename, Browser load, and audio-clip changes use purpose-specific preview/apply/undo transactions; generic authenticated `invoke` is not user-facing mutation authority. Browser load requires a fresh exact `browser.inspect` device identity. Audio edits are field-negotiated per clip; warp-marker readback does not grant marker-edit authority. Subscriptions negotiate only event types with real producers (`transport`, `object`, and protocol `reset`). Coalescing an undelivered adjacent event preserves its sequence and does not claim overflow; actual queue overflow or an epoch change emits `reset`, and a reset or sequence gap requires a fresh snapshot.
 
 `ableton://max-extension` truthfully reports that no Max device is bundled. Canonical `project.new/open/save/save-as/collect/export/bounce` identifiers reserve a future adapter contract, but current adapters do not advertise or execute them. Local `project.info` and receipt-bound `.als` backup remain the only project operations.
 
@@ -49,8 +49,9 @@ Rename, Browser load, and audio-clip changes use purpose-specific preview/apply/
 Both Session and Arrangement recording start require an exact armed
 destination, explicit intent and output-safety evidence. The mapper atomically
 rechecks both prior recording booleans plus destination and safety authority.
-Do not retry an uncertain start. Discover fresh playback, then use
-`live_session_emergency_stop` with exact active targets and `expectedRecording` set to the freshly observed `stopped`, `session`, `arrangement`, or `both` mode to clear playback and
+Do not issue a second start or a new key after uncertainty. In an unchanged
+bridge/Live epoch, reconcile only the exact original transaction and key;
+otherwise discover fresh playback, then use `live_session_emergency_stop` with exact active targets and `expectedRecording` set to the freshly observed `stopped`, `session`, `arrangement`, or `both` mode to clear playback and
 both recording modes; verify `recordingStopped=true` and fresh stopped state.
 
 ## Audio capture supervision

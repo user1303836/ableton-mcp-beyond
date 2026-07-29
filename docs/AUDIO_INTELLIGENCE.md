@@ -95,7 +95,9 @@ most ten seconds of alignment lag. It:
    search, avoiding unbounded quadratic fine correlation;
 3. refuses weak, silent, or competing automatic matches; manual and disabled
    alignment modes are explicit;
-4. analyzes only the equal overlap;
+4. analyzes only the equal overlap when alignment is trusted; if automatic
+   alignment is unavailable, it retains separate per-source analyses but sets
+   overlap to zero and all comparative deltas/level-match advice to unavailable;
 5. reports BS.1770 integrated level difference and a bounded ±24 dB advisory
    match value when both sources qualify;
 6. reports loudness, true/sample peak, RMS, crest, dynamic range, spectrum, and
@@ -194,7 +196,8 @@ returns uncertain residual state and does not delete an arbitrary file.
 
 The checked-in operator runner is
 `apps/mcp-server/scripts/verify-phase8-live.mjs` (`npm run
-audio:live-verify`); its required package digest and fresh output-safety inputs
+audio:live-verify`); its required receipt, clean Git SHA, exact artifact and
+registry digests, installed-byte verification, and fresh output-safety inputs
 are documented in `TESTING.md`. Real-Live packaged evidence, including normal
 capture, controlled recapture, proven MCP response suppression, mapper watchdog
 after host death, independent recovery, and zero raw/quarantine residuals, is

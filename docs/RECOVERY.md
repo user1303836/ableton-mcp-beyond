@@ -29,25 +29,22 @@ See `DELIVERY.md`.
 
 ## Adapter uncertainty
 
-Authentication failure, registry mismatch, response-MAC failure, replay, sequence error, malformed response, timeout, cancellation, disconnect, or acknowledgement loss means the result is unknown. Stop mutation attempts. Reconnect only after checking that the bridge is the intended endpoint, then obtain a fresh status, epoch, snapshot, and discovery result. Never automatically replay a mutation.
+Authentication failure, registry mismatch, response-MAC failure, replay, sequence error, malformed response, timeout, cancellation, disconnect, or acknowledgement loss means the result is unknown. Do not issue new mutation authority. The still-running Host may reconnect only to the same authenticated bridge and unchanged Live epoch, reuse the exact original transaction, confirmation, canonical arguments, and idempotency key, obtain the Remote Script ledger result, and verify fresh postconditions. This is reconciliation, not a new replay. A changed bridge or Live epoch fails closed and requires manual authoritative recovery. Hidden cleanup tokens survive a transport reconnect performed by the same adapter instance, but are intentionally not persisted to disk or transferable to a replacement Host/adapter process. Host transaction records are likewise in-memory: after process replacement, automatic destructive cleanup is unavailable and exact manual readback/recovery is required; only the independently authorized emergency stop survives restart.
 
 For a cancelled stdio request, no cancellation response is emitted. Cancellation before handler dispatch may prevent work; cancellation after dispatch does not undo Live work. Treat the latter as uncertain and perform fresh readback before any further mutation.
 
 ## Transaction recovery
 
-Preview expiry, stale epoch, stale revision, invalid parent, occupied Session slot, duplicate structure name, locator collision, unsupported or disabled parameter, out-of-range or incorrectly quantized value, failed verification, or failed compensation requires fresh authoritative discovery and a new preview. `live_undo` refuses uncertain or externally changed state. For device parameters, verify the same device-child relationship, applied value, and applied revision before undo; reconnects, automation changes, or external edits require manual inspection.
+Preview expiry, stale epoch, stale revision, invalid parent, occupied Session slot, duplicate structure name, locator collision, unsupported or disabled parameter, out-of-range or incorrectly quantized value, or an external edit requires fresh authoritative discovery and a new preview. An acknowledgement-lost apply, undo, or compensation remains recovery-protected and accepts only the exact original idempotency key in the unchanged bridge/Live epoch. Multi-step structure, locator, capture, MIDI, and automation recovery replays retained exact step arguments, verifies already completed steps, and resumes only transaction-owned remainder. A different key fails closed. For device parameters, verify the same device-child relationship and exact prior/applied value before restoration.
 
-For scene audition, never replay an uncertain apply or stop. First perform
-fresh authenticated playback discovery. If the connection epoch, Set name,
-scene revision, recording state, arm/monitoring state, output evidence, or
-active targets differ from the transaction, stop is refused and the operator
-must inspect the Set manually. If playback is proven to be only the mapper-
-owned scene, use the original stop confirmation and a new bounded idempotency
-key; a successful exact replay returns the prior result without dispatch.
+Arbitrary device and Arrangement clip deletion is unavailable because deleted state cannot be reconstructed. Cleanup deletes only an exact transaction-created identity whose creation fingerprint and current hierarchy still match. Modified or substituted owned objects are refused. After authoritative manual recovery, `live_recovery_finalize` requires `confirmation=finalize-recovery-record`, a declared resolution, and bounded provenance/scope evidence; it refuses active audible/recording/realtime work and retires Remote Script replay authority before releasing Host capacity.
+
+For scene audition, first perform fresh authenticated playback discovery. If the connection epoch, Set name, scene revision, recording state, arm/monitoring state, output evidence, or active targets differ from the transaction, guarded stop is refused and the operator must inspect the Set manually. Same-epoch acknowledgement loss accepts only the original apply or stop key; never substitute a new key. The independent fresh-observation `live_session_emergency_stop` remains available after Host restart.
 
 Recording acknowledgement loss is always uncertain. Re-read both recording
-modes, the exact destination track and playback targets. Never replay start.
-If any recording mode remains active, call `live_session_emergency_stop` with
+modes, the exact destination track and playback targets. Reconcile a possibly
+applied start only through the exact original transaction/key in the unchanged
+epoch; never preview or dispatch a second start as recovery. If any recording mode remains active, call `live_session_emergency_stop` with
 the exact fresh playback targets and mandatory `expectedRecording` value (`session`, `arrangement`, or `both`; use `stopped` only when both fresh flags are false); its mapper-side fence also verifies recording
 state and clears Session Record and Arrangement Record before reporting
 `recordingStopped=true`.

@@ -31,9 +31,9 @@ The only accepted CLI option is one `--config PATH`. Secrets, endpoints, adapter
 - `server_status` and `capabilities` report host state and the negotiated catalog.
 - `live_status` reports protocol, adapter, epoch, registry hash, operations, and connection state.
 - `live_snapshot` returns a bounded set snapshot when `session.read` is negotiated. Treat fallback values in a fake or incomplete Live shape as unavailable evidence, not proof of Live state.
-- `live_discover` validates all negotiated kinds and requires a parent for child kinds. When the adapter exposes mapper discovery, it accepts `set`, `track`, `return-track`, `main-track`, `scene`, `clip-slot`, `session-clip`, `arrangement-clip`, `note`, `locator`, `device`, `parameter`, `selection`, `routing-choice`, and `session-playback`, with bounded parent, filters, requested fields, traversal budget, paging, and epoch/revision-bound cursors. The compatibility fallback remains limited to `track`, `scene`, `clip`, and `note`.
+- `live_discover` validates all negotiated kinds and requires a parent for child kinds. When the adapter exposes mapper discovery, it accepts `set`, `track`, `return-track`, `main-track`, `scene`, `clip-slot`, `session-clip`, `arrangement-clip`, `note`, `locator`, `device`, `parameter`, `selection`, `routing-choice`, and `session-playback`, with bounded parent, up to eight scalar string/number/boolean/null filters, requested fields, traversal budget, paging, and epoch/revision-bound cursors. The compatibility fallback remains limited to `track`, `scene`, `clip`, and `note`.
 - `audio_analyze` accepts caller-supplied little-endian float32 PCM and returns bounded aggregate, waveform, spectral/time-frequency, transient, dynamics, clipping, ITU-R BS.1770-5/EBU loudness, LRA, and validated 44.1/48 kHz true-peak summaries. It runs in an isolated cancellable worker, never captures Live audio, and never returns raw samples.
-- `audio_compare_reference` accepts two bounded mono/stereo PCM sources and returns deterministic band-limited resampling, bounded coarse-to-fine alignment (or explicit manual/disabled alignment), standards level-match advice, and aggregate deltas. It returns no aligned PCM.
+- `audio_compare_reference` accepts two bounded mono/stereo PCM sources and returns deterministic band-limited resampling, bounded coarse-to-fine alignment (or explicit manual/disabled alignment), standards level-match advice, and aggregate deltas. If automatic alignment is weak or ambiguous, separate source analyses remain available but overlap, comparative deltas, and level-match advice are unavailable until manual or explicitly disabled alignment is selected. It returns no aligned PCM.
 - `audio_diagnose_live_context` links caller PCM measurements to one fresh exact Live track snapshot. Its source relationship is explicitly caller-declared and unverified; observed devices are context, never asserted causes.
 - `live_audio_capture_status` is read-only when the real bridge negotiates the purpose-specific capture provider. It redacts mapper authority and raw file paths.
 - `plan_user_journey` returns a non-mutating capability-aware plan for beat/song creation, advanced drums, sound design, reference comparison, or mix/recording/performance diagnosis. `ableton://journeys` reports availability and fallback, and matching MCP prompts provide ordered beginner/advanced guidance. See [Capability-aware user journeys](USER_JOURNEYS.md).
@@ -47,19 +47,23 @@ All Live mutations require a connected negotiated adapter, fresh discovery, a re
 - `live_midi_clip_preview/apply` for a bounded MIDI clip in an empty Session slot, including normalized notes. Apply creates the clip, submits the complete validated note set through one canonical `note.add-batch` mutation, then verifies authoritative note content; it never loops through separately authorized note mutations.
 - `live_arrangement_section_preview/apply` for two named locators in a bounded non-colliding range.
 - `live_tempo_preview/apply` for a bounded tempo change.
-- `live_undo` for an applied transaction whose epoch and verified postcondition still match.
-- Purpose-specific clip launch/stop, transport, note update/delete, clip duplicate/move/delete/rename, track/scene/device/locator rename, Arrangement clip, audio-clip, mixer, Session automation, Browser/device, routing, recording, project-backup, subscriptions, and realtime workflows when their exact operations are negotiated.
+- `live_undo` for an applied transaction whose epoch and verified postcondition still match, or exact-key reconciliation of an acknowledgement-lost undo in the unchanged bridge/Live epoch.
+- `live_recovery_finalize` to retire a recovery-protected record only after explicit authoritative manual recovery or acceptance evidence. It never mutates Live, refuses active audible work, and retires Remote Script replay authority before forgetting the record.
+- Purpose-specific clip launch/stop, transport, note update/delete, clip duplicate/move/rename, track/scene/device/locator rename, Arrangement clip creation/move, audio-clip, mixer, Session automation, Browser/device insertion, routing, recording, project-backup, subscriptions, and realtime workflows when their exact operations are negotiated. Capture MIDI is negotiated only while every Session slot is empty, and moves use inverse-move recovery rather than destructive cleanup authority; moving a transaction-created source consumes its prior cleanup token. Arbitrary device or Arrangement clip deletion is refused because prior state cannot be reconstructed; only identity-and-fingerprint-bound transaction-owned cleanup is available through `live_undo`.
 - Audio-clip preview accepts only fields advertised by the exact clip (`availableAudioFields`): supported Live objects may expose gain, pitch, loop, warp enable/mode, and fades. Warp markers are bounded readback only; marker editing, take lanes, and comping remain unavailable unless a future canonical operation is negotiated.
-- Device discovery traverses racks/chains recursively with canonical parent refs. Browser loading requires a fresh exact `browser.inspect` result and rejects non-device items before mutation.
+- Device discovery traverses racks/chains recursively with canonical parent refs. Browser loading requires a fresh exact `browser.inspect` result, rejects non-device items, and targets an empty device owner so any failed-load cleanup cannot affect an unrelated sibling.
 - `live_session_audition_preview/apply/stop` for one guarded, potentially audible Session scene launch. Preview is read-only; it requires the exact Set name, authoritative stopped/non-recording playback, no armed or input-monitored track, safe launch quantization, callable launch/stop operations, and explicit output-safety evidence. Apply requires the exact preview confirmation and idempotency key, launches once, and verifies fresh fired/playing state. Stop requires the returned stop confirmation, stops only mapper-owned playback, and verifies the stopped baseline.
 
 Preview records expire after 30 seconds. A lost acknowledgement, timeout,
-disconnect, failed verification, or failed compensation is uncertain state:
-stop mutation, read authoritative state, and do not blindly retry. An epoch
-change invalidates old references, cursors, previews, confirmations,
-idempotency inputs, and undo inputs. Scene audition is not a general-purpose
-clip launcher or recording control; uncertainty requires fresh authoritative
-playback discovery.
+disconnect, failed verification, or failed compensation is uncertain state.
+Never submit new authority or a new idempotency key. In the same bridge and
+Live epoch, the still-running Host may reconcile only the exact original
+transaction, confirmation, arguments, and idempotency key against the Remote
+Script execution ledger, then verify fresh postconditions. If either epoch
+changed, exact replay authority is unavailable: stop mutation and recover from
+fresh authoritative state. Scene audition is not a general-purpose clip
+launcher or recording control; uncertainty always requires fresh playback
+inspection, and independently authorized emergency stop remains available.
 
 ## Consent-bound Live audio capture
 

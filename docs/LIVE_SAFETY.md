@@ -21,8 +21,11 @@ Every mutation requires:
 - explicit uncertain state after timeout, lost acknowledgement, external edit,
   failed verification, or failed cleanup.
 
-A client must never replay an uncertain mutation automatically. Unsupported
-attributes or enum values are unavailable evidence, not safe defaults.
+A client must never replace uncertain authority with a new preview or key. The
+Host may reconcile only the exact original transaction/key/arguments against
+the Remote Script ledger in the same bridge and Live epoch, followed by fresh
+postcondition verification. Unsupported attributes or enum values are
+unavailable evidence, not safe defaults.
 
 Authentication is not mutation authority. Before every mutating bridge
 `invoke`, the production adapter performs a read-only `authority.preflight`,
@@ -32,7 +35,7 @@ connection epoch, fresh authoritative target values, playback/recording state,
 referenced-object revisions, and Session structure. The bridge consumes it
 before Live-thread dispatch and rejects direct authenticated mutation frames,
 preflight or token replay, guessed confirmation, mismatched arguments, expiry,
-and intervening state change. Stable host transaction keys are transformed into per-operation replay keys; the bridge keeps a bounded executed-result ledger for its full bridge epoch, across TCP reconnections, and clears it only on explicit mapper reconnect/teardown. Audible launch, capture-start, recording, and realtime-arm contracts also revalidate explicit output-safety evidence on the bridge side. This transport fence supplements rather than replaces the host preview,
+and intervening state change. Stable host transaction keys plus canonical argument digests are transformed into per-operation replay keys; the bridge keeps a bounded executed-result ledger across TCP reconnections. The Host retires a transaction's entries after verified acknowledgement or explicit recovery finalization; mapper reconnect/teardown clears the remainder. Audible launch, capture-start, recording, and realtime-arm contracts also revalidate explicit output-safety evidence on the bridge side. This transport fence supplements rather than replaces the host preview,
 confirmation, idempotency, verification, and recovery protocol.
 
 ## Implemented mutation classes
@@ -45,7 +48,11 @@ its user/operations documentation. Session-structure creation returns exact
 object identities; compensation and undo recheck those identities and call
 Live's indexed deletion APIs rather than deleting a stale proxy or reused path.
 `live_undo` is transaction-specific and refuses a changed epoch or
-postcondition.
+postcondition. Arbitrary device and Arrangement clip deletion is unavailable:
+cleanup requires the exact transaction-created object identity, hierarchy, and
+creation-time fingerprint, and refuses modified or substituted objects. Device insertion and Browser loading require an empty exact device owner, and cleanup requires the created device to remain its sole sibling; this avoids trusting an indexed deletion where an unrelated sibling could be selected. Moves never mint destructive cleanup authority: a pre-existing clip remains pre-existing after a move, source and destination content fingerprints are fenced, and recovery uses only the exact unchanged inverse-move transaction. Moving a transaction-created clip atomically consumes its prior cleanup token without minting deletion authority for the moved result.
+
+MIDI capture is dynamically advertised only while every Session slot is empty. This conservative isolation prevents a partially failing or incompatible Capture MIDI implementation from changing pre-existing clip content without an exact restoration path.
 
 Read-only operations include status, capability negotiation, snapshot,
 discovery, previews, project inspection, subscription reads, realtime stats,
