@@ -37,6 +37,7 @@
     "migrate": "node dist/src/migrate.js",
     "diagnostics": "node dist/src/diagnostics.js",
     "start": "node dist/src/cli.js",
+    "demo": "node scripts/demo.mjs",
     "prepack": "npm run build && node scripts/stage-remote-script.mjs && node scripts/stage-release-artifact.mjs"
   },
   "devDependencies": {
