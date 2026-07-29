@@ -558,14 +558,16 @@ try {
     const packed = JSON.parse(packOutput);
     packedRecord = packed[0]; artifact = join(temporaryDirectory, packedRecord.filename);
   }
-  packageEvidence = {
-    version: "npm-packed-artifact/v1", generatedAt: new Date().toISOString(), name: packedRecord.name, packageVersion: packedRecord.version,
-    filename: packedRecord.filename, sha256: createHash("sha256").update(readFileSync(artifact)).digest("hex"), npmSha1: packedRecord.shasum,
-    npmIntegrity: packedRecord.integrity, sizeBytes: packedRecord.size, unpackedSizeBytes: packedRecord.unpackedSize,
-  };
   const installDirectory = join(temporaryDirectory, "install");
   execFileSync(npm, ["install", "--prefix", installDirectory, artifact, "--ignore-scripts", "--no-audit", "--no-fund"], { ...npmOptions, cwd: packageDirectory, stdio: "pipe" });
   installedPackageDirectory = join(installDirectory, "node_modules", "@ableton-mcp", "mcp-server");
+  const installedPackageMetadata = JSON.parse(readFileSync(join(installedPackageDirectory, "package.json"), "utf8"));
+  if (installedPackageMetadata.name !== packageMetadata.name || installedPackageMetadata.version !== packageMetadata.version || installedPackageMetadata.name !== packedRecord.name || installedPackageMetadata.version !== packedRecord.version) throw new Error("installed artifact package identity differs from the candidate source");
+  packageEvidence = {
+    version: "npm-packed-artifact/v1", generatedAt: new Date().toISOString(), name: installedPackageMetadata.name, packageVersion: installedPackageMetadata.version,
+    filename: packedRecord.filename, sha256: createHash("sha256").update(readFileSync(artifact)).digest("hex"), npmSha1: packedRecord.shasum,
+    npmIntegrity: packedRecord.integrity, sizeBytes: packedRecord.size, unpackedSizeBytes: packedRecord.unpackedSize,
+  };
   const executable = join(installedPackageDirectory, "dist", "src", "cli.js");
 
   const secretPath = join(temporaryDirectory, "journey.secret");
