@@ -659,8 +659,8 @@ const implementedTools = [
   },
   {
     name: "live_session_structure_preview",
-    description: "Preview bounded MIDI/audio track and named scene creation without mutation.",
-    inputSchema: { type: "object", properties: { tracks: { type: "array", maxItems: 16, items: { type: "object", properties: { name: { type: "string", minLength: 1, maxLength: 128 }, kind: { type: "string", enum: ["audio", "midi"] }, index: { type: "integer", minimum: 0, maximum: 1024 } }, required: ["name", "kind"], additionalProperties: false } }, scenes: { type: "array", maxItems: 32, items: { type: "object", properties: { name: { type: "string", minLength: 1, maxLength: 128 }, index: { type: "integer", minimum: 0, maximum: 1024 } }, required: ["name"], additionalProperties: false } } }, required: ["tracks", "scenes"], additionalProperties: false },
+    description: "Preview bounded MIDI/audio track and named scene creation without mutation. Track indexes address only mutable regular tracks, never return or main tracks.",
+    inputSchema: { type: "object", properties: { tracks: { type: "array", maxItems: 16, items: { type: "object", properties: { name: { type: "string", minLength: 1, maxLength: 128 }, kind: { type: "string", enum: ["audio", "midi"] }, index: { type: "integer", minimum: 0, maximum: 1024, description: "Insertion index in the regular-track collection; omitted entries default to request order." } }, required: ["name", "kind"], additionalProperties: false } }, scenes: { type: "array", maxItems: 32, items: { type: "object", properties: { name: { type: "string", minLength: 1, maxLength: 128 }, index: { type: "integer", minimum: 0, maximum: 1024, description: "Insertion index in the scene collection; omitted entries default to request order." } }, required: ["name"], additionalProperties: false } } }, required: ["tracks", "scenes"], additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   },
   {
@@ -1512,9 +1512,14 @@ export class McpHost {
       const status = this.requireConnected("session.structure"); const snapshot = await this.asyncAdapter().snapshotAsync();
       const existingNames = new Set([...snapshot.tracks.map((item) => item.name), ...snapshot.scenes.map((item) => item.name)]);
       if ([...proposed.tracks, ...proposed.scenes].some((item) => existingNames.has(item.name))) throw new Error("track or scene name already exists");
+      const regularTracks = snapshot.tracks.filter((item) => !["return", "main", "master"].includes(item.kind));
+      let availableTrackIndex = regularTracks.length;
+      for (const item of proposed.tracks) { if (item.index > availableTrackIndex) return error(id, -32602, "track index exceeds the current regular-track collection"); availableTrackIndex += 1; }
+      let availableSceneIndex = snapshot.scenes.length;
+      for (const item of proposed.scenes) { if (item.index > availableSceneIndex) return error(id, -32602, "scene index exceeds the current scene collection"); availableSceneIndex += 1; }
       const transaction: SessionStructureTransaction = {
         id: `structure_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, revision: this.structureRevision(snapshot),
-        proposed: [...proposed.tracks, ...proposed.scenes], priorTracks: snapshot.tracks.map((item, index) => ({ ref: item.ref, name: item.name, kind: item.kind, index })),
+        proposed: [...proposed.tracks, ...proposed.scenes], priorTracks: regularTracks.map((item, index) => ({ ref: item.ref, name: item.name, kind: item.kind, index })),
         priorScenes: snapshot.scenes.map((item, index) => ({ ref: item.ref, name: item.name, index })), expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed",
       };
       this.sessionStructureTransactions.set(transaction.id, transaction);

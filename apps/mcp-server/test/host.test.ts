@@ -250,6 +250,26 @@ test("previews, applies idempotently, verifies, and guardedly undoes Session str
   assert.deepEqual(simulator.snapshot().scenes.map((scene) => scene.name), ["Scene 1"]);
 });
 
+test("Session structure indexes only the mutable regular-track collection", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const originalSnapshot = simulator.snapshot.bind(simulator);
+  simulator.snapshot = () => {
+    const snapshot = originalSnapshot(); const template = snapshot.tracks[0]!;
+    snapshot.tracks.push(
+      { ...structuredClone(template), ref: "track:return-a", objectIdentity: "simulator:track:return-a", name: "Return A", kind: "return", clips: [], clipSlots: [], devices: [] },
+      { ...structuredClone(template), ref: "track:main", objectIdentity: "simulator:track:main", name: "Main", kind: "main", clips: [], clipSlots: [], devices: [] },
+    );
+    return snapshot;
+  };
+  const host = new McpHost(simulator); ready(host);
+  const invalid = await host.handleAsync({ jsonrpc: "2.0", id: 810, method: "tools/call", params: { name: "live_session_structure_preview", arguments: { tracks: [{ name: "Out of Range", kind: "midi", index: 3 }], scenes: [] } } });
+  assert.equal((invalid as any).error.code, -32602); assert.match((invalid as any).error.message, /regular-track collection/);
+  const invalidScene = await host.handleAsync({ jsonrpc: "2.0", id: 811, method: "tools/call", params: { name: "live_session_structure_preview", arguments: { tracks: [], scenes: [{ name: "Out of Range Scene", index: 2 }] } } });
+  assert.equal((invalidScene as any).error.code, -32602); assert.match((invalidScene as any).error.message, /scene collection/);
+  const valid = await host.handleAsync({ jsonrpc: "2.0", id: 812, method: "tools/call", params: { name: "live_session_structure_preview", arguments: { tracks: [{ name: "At End", kind: "midi", index: 1 }], scenes: [] } } });
+  const value = JSON.parse((valid as any).result.content[0].text); assert.equal((valid as any).result.isError, false); assert.deepEqual(value.prior.tracks.map((track: { name: string }) => track.name), ["Drums"]);
+});
+
 test("previews, applies, verifies, and undoes a purpose-specific rename", async () => {
   const simulator = new DeterministicLiveSimulator(); const host = new McpHost(simulator); ready(host);
   const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
