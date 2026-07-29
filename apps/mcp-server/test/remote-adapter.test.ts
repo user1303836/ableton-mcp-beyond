@@ -243,6 +243,20 @@ test("remote adapter authenticates a maximum 512-note canonical batch and result
   } finally { await adapter?.close(); await close(server); }
 });
 
+test("an explicit bounded deadline extends the configured default request timeout", async () => {
+  let requests = 0;
+  const server = framedServer((request, socket) => {
+    const send = () => socket.write(`${JSON.stringify(response(request.id as string, status()))}\n`);
+    if (requests++ === 0) send(); else setTimeout(send, 80);
+  });
+  const port = await listen(server); let adapter: RemoteScriptLiveAdapter | undefined;
+  try {
+    adapter = await RemoteScriptLiveAdapter.connect({ host: "127.0.0.1", port, secret, timeoutMs: 30 });
+    const started = Date.now(); const refreshed = await adapter.refreshStatusAsync({ deadlineMs: Date.now() + 500 });
+    assert.equal(refreshed.connected, true); assert.ok(Date.now() - started >= 60);
+  } finally { await adapter?.close(); await close(server); }
+});
+
 test("remote adapter closes the session on timeout and reports post-dispatch uncertainty", async () => {
   const sockets = new Set<Socket>();
   const server = framedServer((request, socket) => { sockets.add(socket); if (request.method === "status") socket.write(`${JSON.stringify(response(request.id as string, status()))}\n`); });

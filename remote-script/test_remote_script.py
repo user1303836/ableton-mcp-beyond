@@ -1062,6 +1062,15 @@ class ControlSurfaceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "restoration"): mapper.invoke("automation.envelope.delete", {"clipRef": clip_ref, "parameterRef": parameter_ref, "expectedAuthorityDigest": authority, "expectedEnvelopeRevision": read["revision"]})
         self.assertIsNotNone(clip.envelope)
 
+    def test_midi_snapshot_does_not_read_audio_only_warp_markers(self):
+        class StrictMidiClip(FakeClip):
+            is_audio_clip = False
+            @property
+            def warp_markers(self): raise RuntimeError("Warp markers are only available for Audio Clips")
+        song = FakeSong(); song.tracks[0].clip_slots[0].clip = StrictMidiClip(4.0)
+        row = LiveObjectMapper(song).snapshot()["tracks"][0]["clips"][0]
+        self.assertFalse(row["isAudio"]); self.assertEqual(row["availableAudioFields"], []); self.assertEqual(row["warpMarkers"], [])
+
     def test_audio_fields_are_discovered_and_mutated_only_when_writable(self):
         song = FakeSong(); clip = FakeCapturedAudioClip(); clip.is_recording = False; clip.pitch_coarse = 0.0; clip.pitch_fine = 0.0; clip.loop_start = 0.0; clip.loop_end = 2.0; clip.warping_mode = 1; clip.warping = True; clip.fade_in_length = 0.0; clip.fade_out_length = 0.0
         song.tracks[0].clip_slots[0].clip = clip; mapper = LiveObjectMapper(song); row = mapper.snapshot()["tracks"][0]["clips"][0]
@@ -1523,6 +1532,7 @@ class ControlSurfaceTests(unittest.TestCase):
         status = mapper.status()
         self.assertTrue(status["connected"])
         self.assertIn("session.midi_clip.create", status["capabilities"])
+        self.assertIn("session.midi_clip.delete", status["capabilities"])
         self.assertIn("session.midi_note.write", status["capabilities"])
         self.assertIn("note.add-batch", status["operations"])
         track = mapper.discover("track")["items"][0]["ref"]
@@ -1796,6 +1806,21 @@ class ControlSurfaceTests(unittest.TestCase):
             instruments = Item("instruments", [Item(f"Item {index}") for index in range(257)])
         mapper._browser = lambda: BroadBrowser()
         with self.assertRaisesRegex(ValueError, "traversal bound"): mapper.invoke("browser.search", {"category": "instruments", "query": "never-matches", "limit": 10})
+
+    def test_browser_inspect_follows_the_returned_path_without_scanning_unrelated_subtrees(self):
+        class Item:
+            def __init__(self, name, children=None): self.name = name; self.children = children or []; self.is_loadable = not bool(children); self.is_device = not bool(children)
+        class Browser:
+            @property
+            def instruments(self):
+                return Item("instruments", [
+                    Item("Before", [Item(f"Before {index}") for index in range(200)]),
+                    Item("Target Folder", [Item("Operator")]),
+                    Item("After", [Item(f"After {index}") for index in range(100)]),
+                ])
+        mapper = LiveObjectMapper(FakeSong()); mapper._browser = lambda: Browser()
+        item = mapper.invoke("browser.search", {"category": "instruments", "query": "Operator", "limit": 1})["items"][0]
+        self.assertEqual(mapper.invoke("browser.inspect", {"itemId": item["id"]}), item)
 
     def test_arrangement_duplicate_identifies_new_clip_and_move_compensates(self):
         song = FakeSong(); track = song.tracks[0]; source_slot = track.clip_slots[0]; source_slot.clip = FakeClip(4.0); source_slot.clip.name = "Session Source"

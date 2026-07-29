@@ -91,7 +91,10 @@ export class SessionMidiTransactionManager {
     return clone(result);
   }
 
-  private async getOrAbsent(adapter: AsyncLiveAdapter, reference: LiveRef, context?: LiveOperationContext): Promise<unknown> { try { return await adapter.getAsync(reference, context); } catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); if (/unknown (?:live )?ref|unknown reference|not found/i.test(message)) return undefined; throw cause; } }
+  private async getOrAbsent(adapter: AsyncLiveAdapter, reference: LiveRef, context?: LiveOperationContext): Promise<unknown> {
+    const snapshot = await adapter.snapshotAsync(context);
+    return snapshot.tracks.flatMap((track) => track.clips).find((clip) => clip.ref === reference);
+  }
 
   private async compensateApplyAsync(record: SessionMidiRecord, adapter: AsyncLiveAdapter, context?: LiveOperationContext): Promise<void> {
     if (!record.clipRef && !record.compensationArgs) return; const clipRef = record.clipRef ?? record.compensationArgs?.ref as LiveRef;

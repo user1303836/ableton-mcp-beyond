@@ -197,10 +197,12 @@ const AUDITION_TTL_MS = 30_000;
 // state propagates asynchronously at quantization boundaries; the deadline
 // must cover snapshot + dispatch + polled verification.
 const AUDITION_DEADLINE_MS = 15_000;
+// Structure ownership checks can require multiple complete real-Live snapshots
+// around one create/delete. Each step receives a fresh protocol-bounded window.
+const STRUCTURE_STEP_DEADLINE_MS = 45_000;
 // A complete MIDI transaction crosses snapshot plus two separately authorized
-// mutations and authoritative readback. Each bridge frame remains capped by
-// the adapter's 5 s timeout; this absolute bound prevents later frames from
-// inheriting only the exhausted tail of the general audition deadline.
+// mutations and authoritative readback. An explicit context may extend the
+// configured default timeout while remaining bounded by the bridge protocol.
 const SESSION_MIDI_TRANSACTION_DEADLINE_MS = 30_000;
 const MAX_AUDITION_TRANSACTIONS = 64;
 const MONITORABLE_TRACK_KINDS = new Set(["regular", "audio", "midi"]);
@@ -1498,6 +1500,14 @@ export class McpHost {
     return createHash("sha256").update(JSON.stringify(identity)).digest("hex");
   }
 
+  private sessionStructureOwnedRow(snapshot: LiveSnapshot, item: NonNullable<SessionStructureTransaction["created"]>[number]): LiveSnapshot["tracks"][number] | LiveSnapshot["scenes"][number] | undefined {
+    const rows = item.kind === "track" ? snapshot.tracks : snapshot.scenes;
+    const matches = rows.filter((row) => row.objectIdentity === item.objectIdentity);
+    if (matches.length > 1) throw new Error("transaction-owned Session structure identity is ambiguous");
+    if (matches[0] && matches[0].ref !== item.ref) throw new Error("transaction-owned Session structure shifted from its exact reference");
+    return matches[0];
+  }
+
   private sessionStructureCreatedFingerprint(snapshot: LiveSnapshot, kind: "track" | "scene", reference: LiveRef): string {
     if (kind === "track") { const track = snapshot.tracks.find((row) => row.ref === reference); if (!track) throw new Error("created track fingerprint is unavailable"); const ownedTrack = { ...track, clipSlots: (track.clipSlots ?? []).filter((slot) => slot.empty !== true || slot.clipRef != null) }; const arrangementClips = (snapshot.arrangement.clips ?? []).filter((clip) => clip.trackRef === reference || clip.parentRef === reference); return this.captureObjectFingerprint({ track: ownedTrack, arrangementClips }); }
     const scene = snapshot.scenes.find((row) => row.ref === reference); if (!scene) throw new Error("created scene fingerprint is unavailable"); const sceneRow = scene as unknown as JsonObject; const sceneIdentity = { ref: scene.ref, parentRef: sceneRow.parentRef ?? null, objectIdentity: scene.objectIdentity ?? null, name: scene.name, triggerable: sceneRow.triggerable ?? null };
@@ -1529,11 +1539,12 @@ export class McpHost {
 
   private async compensateSessionStructureAsync(transaction: SessionStructureTransaction, adapter: AsyncLiveAdapter, context: LiveOperationContext): Promise<void> {
     const created = transaction.created ?? []; transaction.compensationSteps ??=[]; transaction.recoveryMode = "compensate";
+    const boundedContext = (): LiveOperationContext => ({ ...context, deadlineMs: Date.now() + STRUCTURE_STEP_DEADLINE_MS });
     for (let index = 0; index < [...created].reverse().length; index += 1) { const item = [...created].reverse()[index]!; let step = transaction.compensationSteps[index];
-      if (!step) { const snapshot = await adapter.snapshotAsync(context); const row = item.kind === "track" ? snapshot.tracks.find((candidate) => candidate.ref === item.ref) : snapshot.scenes.find((candidate) => candidate.ref === item.ref); if (!row) continue; if (row.objectIdentity !== item.objectIdentity || this.sessionStructureCreatedFingerprint(snapshot, item.kind, item.ref) !== item.fingerprint) throw new Error("transaction-owned Session structure changed before compensation"); step = { operation: item.kind === "track" ? "track.delete" : "scene.delete", args: { ref: item.ref, expectedStructureRevision: this.structureRevision(snapshot), expectedObjectIdentity: item.objectIdentity }, completed: false }; transaction.compensationSteps[index] = step; }
-      if (!step.completed) { await adapter.invokeAsync({ operation: step.operation, args: step.args }, context); step.completed = true; }
+      if (!step) { const snapshot = await adapter.snapshotAsync(boundedContext()); const row = this.sessionStructureOwnedRow(snapshot, item); if (!row) continue; if (this.sessionStructureCreatedFingerprint(snapshot, item.kind, item.ref) !== item.fingerprint) throw new Error("transaction-owned Session structure changed before compensation"); step = { operation: item.kind === "track" ? "track.delete" : "scene.delete", args: { ref: item.ref, expectedStructureRevision: this.structureRevision(snapshot), expectedObjectIdentity: item.objectIdentity }, completed: false }; transaction.compensationSteps[index] = step; }
+      if (!step.completed) { await adapter.invokeAsync({ operation: step.operation, args: step.args }, boundedContext()); step.completed = true; }
     }
-    const after = await adapter.snapshotAsync(context); if (created.some((item) => item.kind === "track" ? after.tracks.some((row) => row.ref === item.ref) : after.scenes.some((row) => row.ref === item.ref))) throw new Error("Session-structure compensation left transaction-owned objects");
+    const after = await adapter.snapshotAsync(boundedContext()); if (created.some((item) => this.sessionStructureOwnedRow(after, item) !== undefined)) throw new Error("Session-structure compensation left transaction-owned objects");
   }
 
   private async liveSessionStructureApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject> {
@@ -1546,9 +1557,9 @@ export class McpHost {
     try {
       if (reconciliation) await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
       const status = this.requireConnected("session.structure"); if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
-      const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
-      if (reconciliation && transaction.recoveryMode === "compensate") { try { await this.compensateSessionStructureAsync(transaction, adapter, context); transaction.state = "undone"; return this.successText(id, { transactionId: transaction.id, state: "compensated", residuals: [], idempotent: false }); } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Session-structure compensation remains uncertain; inspect authoritative structure."); } }
-      const current = await adapter.snapshotAsync(context);
+      const adapter = this.asyncAdapter(); const context = (): LiveOperationContext => ({ signal, deadlineMs: Date.now() + STRUCTURE_STEP_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string });
+      if (reconciliation && transaction.recoveryMode === "compensate") { try { await this.compensateSessionStructureAsync(transaction, adapter, context()); transaction.state = "undone"; return this.successText(id, { transactionId: transaction.id, state: "compensated", residuals: [], idempotent: false }); } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Session-structure compensation remains uncertain; inspect authoritative structure."); } }
+      const current = await adapter.snapshotAsync(context());
       if (!reconciliation && this.structureRevision(current) !== transaction.revision) return this.transactionError(id, "Session structure changed since preview");
       const created: NonNullable<SessionStructureTransaction["created"]> = transaction.created ? [...transaction.created] : []; let dispatchAmbiguous = false;
       transaction.recoverySteps ??= []; transaction.recoveryMode = "apply"; transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
@@ -1556,21 +1567,21 @@ export class McpHost {
         for (let stepIndex = 0; stepIndex < transaction.proposed.length; stepIndex += 1) {
           const item = transaction.proposed[stepIndex]!; const operation = item.kind === "track" ? "track.create" : "scene.create";
           let step = transaction.recoverySteps[stepIndex];
-          if (!step) { const expectedStructureRevision = this.structureRevision(await adapter.snapshotAsync(context)); step = { operation, args: { name: item.name, ...(item.kind === "track" ? { kind: item.trackKind } : {}), index: item.index, expectedStructureRevision } }; transaction.recoverySteps[stepIndex] = step; }
+          if (!step) { const expectedStructureRevision = this.structureRevision(await adapter.snapshotAsync(context())); step = { operation, args: { name: item.name, ...(item.kind === "track" ? { kind: item.trackKind } : {}), index: item.index, expectedStructureRevision } }; transaction.recoverySteps[stepIndex] = step; }
           let result = step.result;
-          if (!result) { dispatchAmbiguous = true; result = await adapter.invokeAsync({ operation: step.operation, args: step.args }, context) as { ref: LiveRef; objectIdentity: string; name: string; index: number; createdFingerprint: string }; dispatchAmbiguous = false; }
+          if (!result) { dispatchAmbiguous = true; result = await adapter.invokeAsync({ operation: step.operation, args: step.args }, context()) as { ref: LiveRef; objectIdentity: string; name: string; index: number; createdFingerprint: string }; dispatchAmbiguous = false; }
           if (!result?.ref || typeof result.objectIdentity !== "string" || !isNonEmptyString(result.createdFingerprint, 64)) throw new Error(`Live did not return atomic created ${item.kind} ownership evidence`);
           step.result = { ref: result.ref, objectIdentity: result.objectIdentity, name: result.name, index: result.index ?? item.index, createdFingerprint: result.createdFingerprint };
           if (!created.some((entry) => entry.ref === result.ref)) created.push({ ref: result.ref, objectIdentity: result.objectIdentity, kind: item.kind, name: result.name, index: result.index ?? item.index, fingerprint: result.createdFingerprint });
-          transaction.created = created; const owned = created.find((entry) => entry.ref === result!.ref)!; const observed = await adapter.snapshotAsync(context); const row = owned.kind === "track" ? observed.tracks.find((candidate) => candidate.ref === owned.ref) : observed.scenes.find((candidate) => candidate.ref === owned.ref); if (!row || row.objectIdentity !== owned.objectIdentity || this.sessionStructureCreatedFingerprint(observed, owned.kind, owned.ref) !== owned.fingerprint) throw new Error("created Session structure changed after atomic creation");
+          transaction.created = created; const owned = created.find((entry) => entry.ref === result!.ref)!; const observed = await adapter.snapshotAsync(context()); const row = owned.kind === "track" ? observed.tracks.find((candidate) => candidate.ref === owned.ref) : observed.scenes.find((candidate) => candidate.ref === owned.ref); if (!row || row.objectIdentity !== owned.objectIdentity || this.sessionStructureCreatedFingerprint(observed, owned.kind, owned.ref) !== owned.fingerprint) throw new Error("created Session structure changed after atomic creation");
           if (result.name !== item.name) throw new Error(`Live did not confirm created ${item.kind}`);
         }
-        const verified = await adapter.snapshotAsync(context);
+        const verified = await adapter.snapshotAsync(context());
         if (!created.every((item) => (item.kind === "track" ? verified.tracks.some((track) => track.ref === item.ref && track.objectIdentity === item.objectIdentity && track.name === item.name) : verified.scenes.some((scene) => scene.ref === item.ref && scene.objectIdentity === item.objectIdentity && scene.name === item.name)) && this.sessionStructureCreatedFingerprint(verified, item.kind, item.ref) === item.fingerprint)) throw new Error("Live did not confirm unchanged atomically owned Session structure");
       } catch (cause) {
         if (dispatchAmbiguous) { transaction.created = created; transaction.recoveryMode = "apply"; throw cause; }
         transaction.created = created;
-        try { await this.compensateSessionStructureAsync(transaction, adapter, context); transaction.state = "undone"; }
+        try { await this.compensateSessionStructureAsync(transaction, adapter, context()); transaction.state = "undone"; }
         catch { transaction.state = "uncertain"; transaction.recoveryMode = "compensate"; throw new Error("Session-structure apply compensation failed; retry the exact key to reconcile cleanup"); }
         throw cause;
       }
@@ -4009,11 +4020,11 @@ export class McpHost {
       if (structure?.state === "undone" && structure.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: structure.id, state: "undone", idempotent: true });
       if (!structure || (structure.state !== "applied" && !reconciliation) || !structure.created) return this.transactionError(id, "Only an applied or exact-key uncertain Session-structure transaction can be undone");
       const status = this.requireConnected("session.structure"); if (status.epoch !== structure.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
-      const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; this.beginUndoRecovery(structure, params.idempotencyKey as string); structure.undoKey = params.idempotencyKey as string;
-      try { if (reconciliation) await this.replayUndoRecovery(structure, adapter, context); let current = await adapter.snapshotAsync(context);
-        for (const item of structure.created) { const row = item.kind === "track" ? current.tracks.find((track) => track.ref === item.ref) : current.scenes.find((scene) => scene.ref === item.ref); if (row && (row.objectIdentity !== item.objectIdentity || row.name !== item.name || this.sessionStructureCreatedFingerprint(current, item.kind, item.ref) !== item.fingerprint)) throw new Error("created Session structure was modified after apply; undo refused"); }
-        structure.state = "undoing"; for (const item of [...structure.created].reverse()) { current = await adapter.snapshotAsync(context); const present = item.kind === "track" ? current.tracks.some((track) => track.ref === item.ref) : current.scenes.some((scene) => scene.ref === item.ref); if (!present) continue; if (this.sessionStructureCreatedFingerprint(current, item.kind, item.ref) !== item.fingerprint) throw new Error("transaction-owned Session structure changed before deletion"); await this.invokeUndoRecovery(structure, adapter, item.kind === "track" ? "track.delete" : "scene.delete", { ref: item.ref, expectedStructureRevision: this.structureRevision(current), expectedObjectIdentity: item.objectIdentity }, context); }
-        const after = await adapter.snapshotAsync(context); if (structure.created.some((item) => item.kind === "track" ? after.tracks.some((track) => track.ref === item.ref) : after.scenes.some((scene) => scene.ref === item.ref))) throw new Error("Session-structure undo left transaction-owned objects"); }
+      const adapter = this.asyncAdapter(); const context = (): LiveOperationContext => ({ signal, deadlineMs: Date.now() + STRUCTURE_STEP_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }); this.beginUndoRecovery(structure, params.idempotencyKey as string); structure.undoKey = params.idempotencyKey as string;
+      try { if (reconciliation) await this.replayUndoRecovery(structure, adapter, context()); let current = await adapter.snapshotAsync(context());
+        for (const item of structure.created) { const row = this.sessionStructureOwnedRow(current, item); if (row && (row.name !== item.name || this.sessionStructureCreatedFingerprint(current, item.kind, item.ref) !== item.fingerprint)) throw new Error("created Session structure was modified after apply; undo refused"); }
+        structure.state = "undoing"; for (const item of [...structure.created].reverse()) { current = await adapter.snapshotAsync(context()); const row = this.sessionStructureOwnedRow(current, item); if (!row) continue; if (this.sessionStructureCreatedFingerprint(current, item.kind, item.ref) !== item.fingerprint) throw new Error("transaction-owned Session structure changed before deletion"); await this.invokeUndoRecovery(structure, adapter, item.kind === "track" ? "track.delete" : "scene.delete", { ref: item.ref, expectedStructureRevision: this.structureRevision(current), expectedObjectIdentity: item.objectIdentity }, context()); }
+        const after = await adapter.snapshotAsync(context()); if (structure.created.some((item) => this.sessionStructureOwnedRow(after, item) !== undefined)) throw new Error("Session-structure undo left transaction-owned objects"); }
       catch (cause) { structure.state = "uncertain"; return this.adapterToolError(id, cause, "Session-structure undo is uncertain; inspect authoritative tracks and scenes."); }
       structure.state = "undone";
       return this.successText(id, { transactionId: structure.id, state: "undone", restored: { tracks: structure.priorTracks, scenes: structure.priorScenes }, idempotent: false });

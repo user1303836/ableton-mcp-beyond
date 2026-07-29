@@ -499,7 +499,7 @@ class LiveObjectMapper:
         if operation == "clip.create":
             return any(bool(getattr(track, "has_midi_input", False)) and any(callable(getattr(slot, "create_clip", None)) for slot in self._items(getattr(track, "clip_slots", []))) for track in tracks)
         if operation == "clip.delete":
-            return any(getattr(slot, "clip", None) is not None and callable(getattr(slot, "delete_clip", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+            return any(callable(getattr(slot, "delete_clip", None)) and (getattr(slot, "clip", None) is not None or (bool(getattr(track, "has_midi_input", False)) and callable(getattr(slot, "create_clip", None)))) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
         if operation in {"note.add", "note.add-batch"}:
             existing_clip_support = any(callable(getattr(getattr(slot, "clip", None), "add_new_notes", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
             creatable_midi_slot = any(bool(getattr(track, "has_midi_input", False)) and any(callable(getattr(slot, "create_clip", None)) for slot in self._items(getattr(track, "clip_slots", []))) for track in tracks)
@@ -710,6 +710,16 @@ class LiveObjectMapper:
             value = self._read_attr(clip, name)
             return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
         is_audio = self._read_attr(clip, "is_audio_clip")
+        if is_audio is False:
+            return {
+                "isAudio": False,
+                "gain": None, "pitchCoarse": None, "pitchFine": None,
+                "warpMode": None, "warping": None,
+                "fadeInLength": None, "fadeOutLength": None,
+                "loopStart": None, "loopEnd": None, "startMarker": None, "endMarker": None,
+                "filePath": None, "availableAudioFields": [], "warpMarkers": [],
+                "warpMarkerEditingAvailable": False,
+            }
         warp_mode = self._read_attr(clip, "warping_mode")
         if isinstance(warp_mode, int) and not isinstance(warp_mode, bool):
             warp = int(warp_mode)
@@ -3205,6 +3215,9 @@ class LiveObjectMapper:
     _BROWSER_CATEGORIES = {"instruments", "audio_effects", "midi_effects", "drums", "plugins", "packs", "max_for_live", "clips"}
     _DEVICE_BROWSER_CATEGORIES = {"instruments", "audio_effects", "midi_effects", "plugins"}
 
+    def _browser_item_identity(self, path: str) -> str:
+        return f"browser-path:{hashlib.sha256(path.encode('utf-8')).hexdigest()}"
+
     def _browser_search(self, args: dict[str, Any]) -> dict[str, Any]:
         browser = self._browser()
         category = args.get("category")
@@ -3237,8 +3250,7 @@ class LiveObjectMapper:
                 if not self._items(self._read_attr(child, "children") or []) or is_device:
                     if not needle or needle in name.lower() or needle in child_path.lower():
                         if child_path in seen_ids: raise ValueError("browser item identity collision")
-                        object_identity = self._capture_object_identity(child)
-                        if len(object_identity) > 256: continue
+                        object_identity = self._browser_item_identity(child_path)
                         seen_ids.add(child_path); items.append({"id": child_path, "objectIdentity": object_identity, "name": name, "category": category_name, "path": child_path, "isDevice": is_device})
                 if not is_device:
                     walk(child, child_path, depth + 1)
@@ -3265,16 +3277,18 @@ class LiveObjectMapper:
             if len(children) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("browser child collection exceeds its traversal bound")
             for child in children:
                 traversal_count += 1
-                if traversal_count > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("browser lookup exceeds its traversal bound")
+                if traversal_count > MAX_DISCOVERY_COLLECTION_LENGTH * 7: raise ValueError("browser lookup exceeds its path traversal bound")
                 name = str(self._read_attr(child, "name") or ""); child_path = f"{path}/{name}"
+                if len(name) > 256 or len(child_path) > 256: continue
                 if child_path == item_id:
                     matches.append(child)
                     if len(matches) > 1: raise ValueError("browser item identity is ambiguous")
-                find(child, child_path, depth + 1)
+                elif item_id.startswith(f"{child_path}/"):
+                    find(child, child_path, depth + 1)
         find(self._read_attr(browser, item_category), item_category, 0)
         if len(matches) != 1: raise ValueError("browser item identity is missing or ambiguous")
         item = matches[0]; name = str(self._read_attr(item, "name") or ""); explicit_device = self._read_attr(item, "is_device"); is_device = explicit_device is True or (explicit_device is None and item_category in self._DEVICE_BROWSER_CATEGORIES and self._read_attr(item, "is_loadable") is True)
-        return item, {"id": item_id, "objectIdentity": self._capture_object_identity(item), "name": name, "category": item_category, "path": item_id, "isDevice": is_device}
+        return item, {"id": item_id, "objectIdentity": self._browser_item_identity(item_id), "name": name, "category": item_category, "path": item_id, "isDevice": is_device}
 
     def _browser_inspect(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._browser_find(args.get("itemId"))[1]

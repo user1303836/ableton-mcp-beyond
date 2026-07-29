@@ -261,7 +261,8 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
       context?.signal?.addEventListener("abort", abort, { once: true });
       const cleanupHandshake = () => { clearTimeout(timer); context?.signal?.removeEventListener("abort", abort); };
       this.helloResolve = resolve; this.helloReject = reject;
-      const timer = setTimeout(() => { socket.destroy(); reject(new Error("remote adapter connection timed out")); }, Math.max(1, Math.min(configuredTimeout, deadlineRemaining)));
+      const handshakeTimeout = context?.deadlineMs === undefined ? configuredTimeout : deadlineRemaining;
+      const timer = setTimeout(() => { socket.destroy(); reject(new Error("remote adapter connection timed out")); }, Math.max(1, handshakeTimeout));
       const disconnected = (error: Error) => { cleanupHandshake(); if (this.socket !== socket) return; this.socket = undefined; this.cached = { ...this.cached, connected: false, reason: "remote-adapter-disconnected" }; if (!this.bridgeEpoch) reject(error); this.failPending(error); };
       socket.on("data", (chunk) => { if (this.socket === socket) this.onData(chunk); });
       socket.on("error", (error) => disconnected(error));
@@ -284,7 +285,7 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
     const unsigned = { version: LOOPBACK_PROTOCOL_VERSION, id, ...fields, nonce: randomBytes(18).toString("base64url"), sequence: this.sequence, bridgeEpoch: this.bridgeEpoch, connectionChallenge: this.connectionChallenge, deadlineMs };
     const request = { ...unsigned, mac: mac(this.endpoint.secret, unsigned) };
     return new Promise((resolve, reject) => {
-      const remaining = Math.max(1, Math.min(timeoutMs, deadlineMs - Date.now()));
+      const remaining = Math.max(1, context?.deadlineMs === undefined ? timeoutMs : deadlineMs - Date.now());
       const timer = setTimeout(() => { this.cached = { ...this.cached, connected: false, reason: "remote-request-timeout" }; this.socket?.destroy(); this.failPending(new Error("remote adapter request state uncertain after dispatch timeout")); }, remaining);
       const pending: Pending = { operationId, resolve, reject, timer };
       if (context?.signal) {

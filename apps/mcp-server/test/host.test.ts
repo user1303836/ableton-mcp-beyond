@@ -314,15 +314,24 @@ test("refuses Session-structure mutation when the precondition revision changes"
   assert.match((applied as any).result.content[0].text, /changed since preview/);
 });
 
-test("routes Session-structure preview and apply through the asynchronous adapter contract", async () => {
+test("routes Session-structure steps through renewable asynchronous deadlines", async () => {
   const simulator = new DeterministicLiveSimulator();
+  const originalSnapshot = simulator.snapshotAsync.bind(simulator); const originalInvoke = simulator.invokeAsync.bind(simulator); const deadlines: number[] = []; let deletedTrackRef: LiveRef | undefined;
+  const delayed = () => new Promise<void>((resolve) => setTimeout(resolve, 2));
+  simulator.snapshotAsync = async (context?: { deadlineMs?: number }) => { if (context?.deadlineMs) deadlines.push(context.deadlineMs); await delayed(); const snapshot = await originalSnapshot(); if (deletedTrackRef) { const template = snapshot.tracks[0]!; snapshot.tracks.push({ ...structuredClone(template), ref: deletedTrackRef, objectIdentity: "simulator:return:shifted", name: "Shifted Return", kind: "return", clips: [], clipSlots: [], devices: [] }); } return snapshot; };
+  simulator.invokeAsync = async (invocation, context?: { deadlineMs?: number }) => { if (context?.deadlineMs) deadlines.push(context.deadlineMs); await delayed(); const result = await originalInvoke(invocation); if (invocation.operation === "track.delete") deletedTrackRef = invocation.args.ref as LiveRef; return result; };
   const host = new McpHost(simulator);
   ready(host);
   const preview = await host.handleAsync({ jsonrpc: "2.0", id: 86, method: "tools/call", params: { name: "live_session_structure_preview", arguments: { tracks: [{ name: "Async Bass", kind: "midi" }], scenes: [{ name: "Async Verse" }] } } });
-  const transactionId = JSON.parse((preview as any).result.content[0].text).transactionId as string;
+  const transactionId = JSON.parse((preview as any).result.content[0].text).transactionId as string; deadlines.length = 0;
   const applied = await host.handleAsync({ jsonrpc: "2.0", id: 87, method: "tools/call", params: { name: "live_session_structure_apply", arguments: { transactionId, confirmation: "apply", idempotencyKey: "async-structure-1" } } });
   assert.equal((applied as any).result.isError, false);
   assert.equal(JSON.parse((applied as any).result.content[0].text).created.length, 2);
+  assert.ok(new Set(deadlines).size >= 4, "each bounded apply step must receive a fresh deadline");
+  deadlines.length = 0;
+  const undone = await host.handleAsync({ jsonrpc: "2.0", id: 88, method: "tools/call", params: { name: "live_undo", arguments: { transactionId, confirmation: "undo", idempotencyKey: "async-structure-undo" } } });
+  assert.equal((undone as any).result.isError, false);
+  assert.ok(new Set(deadlines).size >= 4, "each bounded undo step must receive a fresh deadline");
 });
 
 test("advertises and serves static safety resources and a complete audio workflow prompt", () => {
@@ -597,7 +606,7 @@ test("asynchronous MIDI apply and undo retain a bounded transaction-wide bridge 
   const record = (context?: { deadlineMs?: number }): void => { if (context?.deadlineMs) remaining.push(context.deadlineMs - Date.now()); };
   const adapter = {
     status: () => base.status(), snapshot: () => base.snapshot(), get: (ref: LiveRef) => base.get(ref), invoke: (invocation: LiveInvocation) => base.invoke(invocation), subscribe: (listener: Parameters<LiveAdapter["subscribe"]>[0]) => base.subscribe(listener), reconnect: () => base.reconnect(),
-    snapshotAsync: async (context?: { deadlineMs?: number }) => { record(context); return base.snapshot(); }, getAsync: async (ref: LiveRef, context?: { deadlineMs?: number }) => { record(context); return base.get(ref); }, invokeAsync: async (invocation: LiveInvocation, context?: { deadlineMs?: number }) => { record(context); return base.invoke(invocation); }, reconnectAsync: async () => base.reconnect(),
+    snapshotAsync: async (context?: { deadlineMs?: number }) => { record(context); return base.snapshot(); }, getAsync: async (ref: LiveRef, context?: { deadlineMs?: number }) => { record(context); const value = base.get(ref); if (value === undefined) throw new Error("request failed"); return value; }, invokeAsync: async (invocation: LiveInvocation, context?: { deadlineMs?: number }) => { record(context); return base.invoke(invocation); }, reconnectAsync: async () => base.reconnect(),
   } as unknown as LiveAdapter;
   (base as any).state.scenes.push({ ref: "scene:scene-2", objectIdentity: "simulator:scene:scene-2", name: "Scene 2", index: 1 });
   (base as any).state.tracks[0].clipSlots.push({ ref: "clip-slot:track-1:1", parentRef: "track:track-1", objectIdentity: "simulator:clip-slot:track-1:1", sceneIndex: 1, clipRef: null, empty: true });
