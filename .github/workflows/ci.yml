@@ -2,7 +2,15 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   candidate:
@@ -14,8 +22,19 @@ jobs:
     outputs:
       artifact_sha256: ${{ steps.metadata.outputs.artifact_sha256 }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Check committed whitespace in this change
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --check "origin/${GITHUB_BASE_REF}...HEAD"
+          else
+            git diff-tree --check --no-commit-id -r HEAD
+          fi
+        working-directory: .
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -50,7 +69,7 @@ jobs:
           sha=$(shasum -a 256 "$RUNNER_TEMP/candidate/ableton-mcp-mcp-server-0.1.0.tgz" | awk '{print $1}')
           printf '{"schema":"ableton-mcp-candidate/v1","gitSha":"%s","filename":"ableton-mcp-mcp-server-0.1.0.tgz","sha256":"%s"}\n' "$GITHUB_SHA" "$sha" > "$RUNNER_TEMP/candidate/candidate-metadata.json"
           echo "artifact_sha256=$sha" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: exact-private-candidate
           path: ${{ runner.temp }}/candidate/
@@ -70,17 +89,17 @@ jobs:
       run:
         working-directory: apps/mcp-server
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: apps/mcp-server/package-lock.json
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
       - run: npm ci
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: exact-private-candidate
           path: ${{ runner.temp }}/ableton-candidate
@@ -98,7 +117,7 @@ jobs:
         env:
           CANDIDATE_DIR: ${{ runner.temp }}/ableton-candidate
         run: node scripts/verify-candidate.mjs "$CANDIDATE_DIR/ableton-mcp-mcp-server-0.1.0.tgz" "$CANDIDATE_DIR/candidate-metadata.json" | tee "$RUNNER_TEMP/candidate-verification.json"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: candidate-verification-${{ matrix.os }}-node-${{ matrix.node }}
           path: ${{ runner.temp }}/candidate-verification.json
@@ -121,8 +140,7 @@ jobs:
           npm run migrate -- --input "${{ runner.temp }}/ableton-mcp-host.json" --output "${{ runner.temp }}/ableton-mcp-v2.json" --bridge-host 127.0.0.1 --bridge-port 19765 --realtime-port 19766 --secret-file "${{ runner.temp }}/ableton-mcp-migration.secret"
           node -e "const c=require(process.argv[1]);if(c.version!==2||c.bridge.host!=='127.0.0.1')process.exit(1)" "${{ runner.temp }}/ableton-mcp-v2.json"
       - run: npm run diagnostics -- --config "${{ runner.temp }}/ableton-mcp-host.json"
-      - run: git diff --check
-        working-directory: .
+
   remote-script:
     name: Python Remote Script contract / ${{ matrix.os }}
     needs: candidate
@@ -136,11 +154,11 @@ jobs:
         shell: bash
         working-directory: remote-script
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: exact-private-candidate
           path: ${{ runner.temp }}/ableton-candidate
