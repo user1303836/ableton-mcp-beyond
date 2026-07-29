@@ -47,10 +47,11 @@ class BridgeConfigNormalizationTests(unittest.TestCase):
 
     def test_version_two_accepts_only_the_bounded_diagnostics_shape(self):
         base = {"version": 2, "server": {"command": "node", "args": []}, "bridge": {"host": "127.0.0.1", "port": 9765, "secretFile": "/tmp/secret", "timeoutMs": 5000}}
-        diagnostics = {"path": "/private/owner/bridge-diagnostics.log", "maxBytes": 256 * 1024}
+        absolute_path = str((Path(tempfile.gettempdir()) / "owner" / "bridge-diagnostics.log").resolve())
+        diagnostics = {"path": absolute_path, "maxBytes": 256 * 1024}
         normalized = _normalize_bridge_config({**base, "bridge": {**base["bridge"], "diagnostics": diagnostics}})
         self.assertEqual(normalized["diagnostics"], diagnostics)
-        for invalid in [{"path": "relative.log", "maxBytes": 256 * 1024}, {"path": "/tmp/a", "maxBytes": 1}, {"path": "/tmp/a", "maxBytes": 256 * 1024, "extra": True}, True]:
+        for invalid in [{"path": "relative.log", "maxBytes": 256 * 1024}, {"path": absolute_path, "maxBytes": 1}, {"path": absolute_path, "maxBytes": 256 * 1024, "extra": True}, True]:
             with self.assertRaises(ValueError):
                 _normalize_bridge_config({**base, "bridge": {**base["bridge"], "diagnostics": invalid}})
 
@@ -124,8 +125,11 @@ class DiagnosticsSecurityTests(unittest.TestCase):
             bounded = self._sink(path, start_writer=False)
             self.assertTrue(bounded.enabled); self.assertEqual(path.stat().st_size, 0)
             bounded.close()
+            # Patch only after replacing the Windows validator with an in-process
+            # equivalent. subprocess.capture_output also starts helper threads on
+            # Windows, and globally failing those would not exercise the writer.
             with patch("ableton_mcp_remote_script.threading.Thread.start", side_effect=RuntimeError("thread unavailable")):
-                unavailable = self._sink(path)
+                unavailable = _DiagnosticsSink(str(path), security_validator=lambda candidate: candidate == path)
             self.assertFalse(unavailable.enabled); self.assertIsNone(unavailable._fd)
 
     @unittest.skipIf(os.name == "nt", "POSIX link and FIFO contract")
@@ -154,21 +158,45 @@ class DiagnosticsSecurityTests(unittest.TestCase):
             queued.close()
             bounded = self._sink(path, start_writer=False); self.assertTrue(bounded.enabled)
             try:
-                for index in range(4000): bounded._write((index, "realtime-packet-failure", "internal-error"))
+                # One near-boundary write proves rotation without launching the
+                # Windows security verifier thousands of times.
+                self.assertIsNotNone(bounded._fd)
+                os.write(bounded._fd, b"x" * (256 * 1024 - 1))
+                bounded._write((1, "realtime-packet-failure", "internal-error"))
                 self.assertLessEqual(path.stat().st_size, 256 * 1024)
+                self.assertNotIn(b"x", path.read_bytes())
             finally: bounded.close()
 
-    def test_path_swap_and_write_failure_disable_logging_without_touching_replacement(self):
+    def test_path_or_security_drift_and_write_failure_disable_logging_without_touching_replacement(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); path = self._owner_file(directory)
-            sink = self._sink(path); self.assertTrue(sink.enabled)
-            moved = root / "moved.log"; path.rename(moved)
-            path.write_bytes(b""); path.chmod(0o600)
-            sink.record("result-contract-failure")
-            self.assertTrue(sink.flush_for_test())
-            self.assertFalse(sink.enabled)
-            self.assertEqual(path.read_bytes(), b"")
-            sink.close()
+            authority = {"valid": True}
+            validator = _diagnostics_path_safe if os.name != "nt" else lambda candidate: authority["valid"] and candidate == path
+            sink = _DiagnosticsSink(str(path), security_validator=validator); self.assertTrue(sink.enabled)
+            try:
+                if os.name == "nt":
+                    # Windows intentionally prevents renaming an open file. Model
+                    # the validator rejecting equivalent DACL/path authority drift.
+                    authority["valid"] = False
+                else:
+                    moved = root / "moved.log"; path.rename(moved)
+                    path.write_bytes(b""); path.chmod(0o600)
+                sink.record("result-contract-failure")
+                self.assertTrue(sink.flush_for_test())
+                self.assertFalse(sink.enabled)
+                self.assertEqual(path.read_bytes(), b"")
+            finally:
+                sink.close(); self.assertTrue(sink.wait_closed_for_test())
+
+            failed = self._sink(path); self.assertTrue(failed.enabled)
+            try:
+                with patch.object(failed, "_write", side_effect=OSError("injected write failure")):
+                    failed.record("capture-tick-failure")
+                    self.assertTrue(failed.flush_for_test())
+                self.assertFalse(failed.enabled)
+                self.assertEqual(path.read_bytes(), b"")
+            finally:
+                failed.close(); self.assertTrue(failed.wait_closed_for_test())
 
     @unittest.skipIf(os.name == "nt", "POSIX parent mode contract")
     def test_parent_permission_drift_disables_the_writer(self):
