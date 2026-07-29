@@ -4,7 +4,8 @@
 # Locally supplied Ableton Extensions SDK
 /extensions-sdk-1.0.0-beta.0/
 
-# Smithers run store and locally provisioned agent skills (ephemeral — never commit)
+# Smithers workflow/runtime state and locally provisioned agent skills (ephemeral — never commit)
+/.smithers/
 smithers.db
 smithers.db-shm
 smithers.db-wal
