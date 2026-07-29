@@ -81,6 +81,11 @@ test("fails auto alignment closed for an ambiguous steady envelope and supports 
   assert.equal(ambiguous.alignment.available, false);
   assert.equal(ambiguous.alignment.ambiguous, true);
   assert.match(ambiguous.alignment.reason ?? "", /variation|weak|competing/);
+  assert.equal(ambiguous.alignment.overlapSeconds, 0);
+  assert.equal(ambiguous.levelMatch.available, false);
+  assert.equal(ambiguous.levelMatch.projectGainToReferenceDb, null);
+  assert.equal(ambiguous.levelMatch.boundedSuggestedGainDb, null);
+  assert.ok(Object.values(ambiguous.deltas.projectMinusReference).every((value) => value === null));
   const manual = compareReferenceAudio({ project: { samples, sampleRate: 48_000, channels: 1 }, reference: { samples, sampleRate: 48_000, channels: 1 }, alignment: { mode: "manual", maxLagSeconds: 0.5, manualOffsetSeconds: 0 } });
   assert.equal(manual.alignment.available, true);
   assert.equal(manual.alignment.referenceOffsetSeconds, 0);

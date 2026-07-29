@@ -55,9 +55,19 @@ def _normalize_bridge_config(value: Any) -> dict[str, Any]:
     return value
 
 
+def _mode_owner_only(path: Path) -> bool:
+    """Apply POSIX mode-bit checks only where those bits carry POSIX meaning."""
+    if os.name == "nt":
+        return True
+    try:
+        return stat.S_IMODE(path.stat().st_mode) & 0o077 == 0
+    except OSError:
+        return False
+
+
 def _read_config() -> dict[str, Any]:
     reference = Path(__file__).with_name("bridge-reference.json")
-    if reference.is_symlink() or not reference.is_file() or not _owner_controlled(reference) or stat.S_IMODE(reference.stat().st_mode) & 0o077:
+    if reference.is_symlink() or not reference.is_file() or not _owner_controlled(reference) or not _mode_owner_only(reference):
         raise ValueError("bridge configuration reference is missing or unsafe")
     try:
         reference_value = json.loads(reference.read_text(encoding="utf-8"))
@@ -68,8 +78,7 @@ def _read_config() -> dict[str, Any]:
     path = Path(reference_value["config"])
     if not path.is_absolute() or path.is_symlink() or not path.is_file() or not _owner_controlled(path):
         raise ValueError("bridge configuration must be an existing regular file")
-    mode = stat.S_IMODE(path.stat().st_mode)
-    if mode & 0o077:
+    if not _mode_owner_only(path):
         raise ValueError("bridge configuration must be owner-readable")
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -85,7 +94,7 @@ def _read_config() -> dict[str, Any]:
     secret_path = Path(secret_file)
     if not secret_path.is_absolute() or secret_path.is_symlink() or not secret_path.is_file() or not _owner_controlled(secret_path):
         raise ValueError("bridge secret must be an existing regular file")
-    if stat.S_IMODE(secret_path.stat().st_mode) & 0o077:
+    if not _mode_owner_only(secret_path):
         raise ValueError("bridge secret must be owner-readable")
     secret = secret_path.read_text(encoding="utf-8")
     if secret.endswith("\n"):

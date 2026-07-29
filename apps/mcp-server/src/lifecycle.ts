@@ -83,7 +83,7 @@ export interface LifecycleOptions {
   purgeSecret?: boolean;
   allowDirtyPrivateBuild?: boolean;
   /** Test-only deterministic failure point; not exposed by the CLI. */
-  faultAt?: "after-secret" | "after-config" | "before-remote" | "after-remote" | "after-repair-install" | "retired-cleanup-blocked" | "before-receipt";
+  faultAt?: "after-secret" | "after-config" | "before-remote" | "after-remote" | "after-repair-install" | "after-rollback-config" | "retired-cleanup-blocked" | "before-receipt";
 }
 
 export interface LifecycleResult {
@@ -265,8 +265,12 @@ function verifyReleasePackage(packageRoot: string, allowDirty: boolean): { manif
   const manifestEntry = lstatSync(manifestPath);
   if (!manifestEntry.isFile() || manifestEntry.isSymbolicLink()) throw new Error("release manifest must be a regular file");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as ReleaseManifest;
-  if (manifest.schema !== "ableton-mcp-private-release/v1" || manifest.package.name !== "@ableton-mcp/mcp-server" || manifest.package.private !== true || manifest.package.license !== "UNLICENSED" || manifest.algorithm !== "sha256" || manifest.distribution.channel !== "private-local-npm-tarball" || manifest.distribution.published || manifest.distribution.signed || manifest.distribution.notarized || !ARTIFACT_SHA_PATTERN.test(manifest.protocol.registryHash) || !manifest.build?.recipe || !manifest.build?.builder?.node || !manifest.build?.builder?.npm || !manifest.build?.builder?.typescript || !ARTIFACT_SHA_PATTERN.test(manifest.build?.builder?.packageLockSha256 ?? "") || !ARTIFACT_SHA_PATTERN.test(manifest.build?.builder?.workflowSha256 ?? "") || !manifest.files || Object.keys(manifest.files).length < 10) throw new Error("release manifest policy is invalid");
+  if (manifest.schema !== "ableton-mcp-private-release/v1" || manifest.package.name !== "@ableton-mcp/mcp-server" || manifest.package.private !== true || manifest.package.license !== "UNLICENSED" || manifest.algorithm !== "sha256" || manifest.distribution.channel !== "private-local-npm-tarball" || manifest.distribution.published || manifest.distribution.signed || manifest.distribution.notarized || !ARTIFACT_SHA_PATTERN.test(manifest.protocol.registryHash) || !manifest.build?.recipe || !manifest.build?.builder?.node || !manifest.build?.builder?.npm || !manifest.build?.builder?.typescript || !ARTIFACT_SHA_PATTERN.test(manifest.build?.builder?.packageLockSha256 ?? "") || !ARTIFACT_SHA_PATTERN.test(manifest.build?.builder?.workflowSha256 ?? "") || !manifest.files || manifest.files["release-manifest.json"] !== undefined || !ARTIFACT_SHA_PATTERN.test(manifest.files["package.json"] ?? "") || Object.keys(manifest.files).length < 10) throw new Error("release manifest policy is invalid");
   if (manifest.source.dirty && !allowDirty) throw new Error("release manifest identifies a dirty source tree; only explicit private development testing may override this");
+  const expectedFiles = { "release-manifest.json": fileDigest(manifestPath), ...manifest.files }; const currentFiles = hashRegularTree(packageRoot); const expectedNames = Object.keys(expectedFiles).sort(); const currentNames = Object.keys(currentFiles).sort();
+  if (JSON.stringify(currentNames) !== JSON.stringify(expectedNames)) throw new Error("extracted package root inventory differs from the strict release manifest");
+  const expectedDirectories = new Set<string>(); for (const name of expectedNames) { const parts = name.split("/"); for (let index = 1; index < parts.length; index += 1) expectedDirectories.add(parts.slice(0, index).join("/")); }
+  const inspectDirectories = (directory: string): void => { for (const name of readdirSync(directory).sort()) { const path = join(directory, name); const entry = lstatSync(path); if (!entry.isDirectory()) continue; const relativeName = relative(packageRoot, path).split(sep).join("/"); if (!expectedDirectories.has(relativeName)) throw new Error(`extracted package root contains an unknown directory: ${relativeName}`); inspectDirectories(path); } }; inspectDirectories(packageRoot);
   for (const [name, digest] of Object.entries(manifest.files)) {
     if (name.includes("..") || name.startsWith("/") || !ARTIFACT_SHA_PATTERN.test(digest)) throw new Error("release manifest contains an unsafe file entry");
     const path = join(packageRoot, ...name.split("/"));
@@ -312,7 +316,8 @@ function verifyArtifactBinding(artifactPath: string | undefined, expectedSha256:
   const manifestBytes = tarFiles.get("package/release-manifest.json");
   if (!manifestBytes || sha256(manifestBytes) !== releaseManifestSha256) throw new Error("artifact tarball and extracted package root have different release manifests");
   const embedded = JSON.parse(manifestBytes.toString("utf8")) as ReleaseManifest;
-  const expected = ["package/package.json", "package/release-manifest.json", ...Object.keys(embedded.files).map((name) => `package/${name}`)].sort();
+  if (!ARTIFACT_SHA_PATTERN.test(embedded.files["package.json"] ?? "")) throw new Error("artifact release manifest does not bind package metadata");
+  const expected = ["package/release-manifest.json", ...Object.keys(embedded.files).map((name) => `package/${name}`)].sort();
   if (JSON.stringify([...tarFiles.keys()].sort()) !== JSON.stringify(expected)) throw new Error("artifact inventory differs from the strict embedded release manifest");
   for (const [name, digest] of Object.entries(embedded.files)) if (sha256(tarFiles.get(`package/${name}`) ?? Buffer.alloc(0)) !== digest) throw new Error(`artifact payload hash mismatch: ${name}`);
   const embeddedPackage = tarFiles.get("package/package.json");
@@ -614,12 +619,21 @@ export async function runLifecycle(options: LifecycleOptions): Promise<Lifecycle
       const verified = verifyFiles(paths.remoteScriptDirectory, receipt.previous.remoteFiles);
       if (!verified.valid) throw new Error("previous Remote Script generation failed hash verification");
       writeConfig(paths.configPath, receipt.previous.config, true);
+      fault(options, "after-rollback-config");
       const next: LifecycleReceipt = { ...receipt, status: "installed-restart-required", generation: receipt.generation + 1, packageRoot: receipt.previous.packageRoot, packageVersion: receipt.previous.packageVersion, artifactSha256: receipt.previous.artifactSha256, releaseManifestSha256: receipt.previous.releaseManifestSha256, registryHash: receipt.previous.registryHash, remoteFiles: receipt.previous.remoteFiles, config: receipt.previous.config, configSha256: fileDigest(paths.configPath), previous: { packageRoot: receipt.packageRoot, packageVersion: receipt.packageVersion, artifactSha256: receipt.artifactSha256, releaseManifestSha256: receipt.releaseManifestSha256, registryHash: receipt.registryHash, remoteBackup: failedGeneration, remoteFiles: receipt.remoteFiles, config: receipt.config, configSha256: receipt.configSha256 }, activation: { required: true, realLiveVerified: false, provenance: "unavailable", remediation: "Restart Live and run activate after rollback." }, lastAction: "rollback" };
       writeOwnerJson(paths.receiptPath, next); const journalFinalized = tryWriteOwnerJson(paths.journalPath, { version: 1, action: "rollback", state: "completed", generation: next.generation });
       result.applied = true; result.state = "completed"; result.recovery.rollbackAvailable = true; result.recovery.quarantine = failedGeneration; result.verification = { artifactSha256: next.artifactSha256, remoteScript: verified, journalFinalized }; result.instructions = [next.activation.remediation]; completeSteps(result); return result;
     } catch (error) {
-      if (existsSync(paths.remoteScriptDirectory)) renameSync(paths.remoteScriptDirectory, receipt.previous.remoteBackup);
-      if (existsSync(failedGeneration)) renameSync(failedGeneration, paths.remoteScriptDirectory);
+      const compensationErrors: unknown[] = [];
+      try {
+        if (existsSync(paths.remoteScriptDirectory)) renameSync(paths.remoteScriptDirectory, receipt.previous.remoteBackup);
+        if (existsSync(failedGeneration)) renameSync(failedGeneration, paths.remoteScriptDirectory);
+      } catch (cause) { compensationErrors.push(cause); }
+      try {
+        writeConfig(paths.configPath, receipt.config, existsSync(paths.configPath));
+        if (fileDigest(paths.configPath) !== receipt.configSha256) throw new Error("active bridge configuration was not restored exactly");
+      } catch (cause) { compensationErrors.push(cause); }
+      if (compensationErrors.length > 0) throw new AggregateError([error, ...compensationErrors], "rollback failed and active-generation compensation was incomplete");
       throw error;
     }
   }

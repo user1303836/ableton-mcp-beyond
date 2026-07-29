@@ -65,6 +65,7 @@ const remoteFiles = ["README.md", "AbletonMcpBridge/__init__.py", "AbletonMcpBri
 for (const name of remoteFiles) include(join(packageRoot, "remote-script", ...name.split("/")), "ableton-remote-script");
 for (const [, name] of documentation) include(join(docsRoot, name), "documentation");
 include(licenseDestination, "private-license");
+include(join(packageRoot, "package.json"), "package-metadata");
 
 let sourceCommit = "unavailable";
 let sourceCommitTimestamp = "unavailable";

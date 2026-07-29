@@ -66,8 +66,7 @@ export interface DiagnosticReport {
 }
 
 function validateLoopback(host: string): void {
-  const ipv4Loopback = /^127\.(?:\d{1,3}\.){2}\d{1,3}$/.test(host) && host.split(".").slice(1).every((part) => Number(part) >= 0 && Number(part) <= 255);
-  if (!(ipv4Loopback || host === "::1" || host === "localhost")) throw new Error("bridge host must be loopback");
+  if (host !== "127.0.0.1" && host !== "::1") throw new Error("bridge host must be an exact loopback address (127.0.0.1 or ::1)");
 }
 
 function validateSecretPath(path: string): void {

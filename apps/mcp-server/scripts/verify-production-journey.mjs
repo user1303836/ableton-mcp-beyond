@@ -262,7 +262,7 @@ class FakeClip:
     def create_automation_envelope(self, parameter):
         key = getattr(parameter, "name", str(id(parameter)))
         if key not in self._envelopes:
-            self._envelopes[key] = FakeEnvelope()
+            self._envelopes[key] = FakeEnvelope(); self._envelopes[key].canonical_parent = self
         return self._envelopes[key]
     def automation_envelope(self, parameter):
         return self._envelopes.get(getattr(parameter, "name", str(id(parameter))))
@@ -650,16 +650,16 @@ class EnvelopeEvent:
     // Wire-level invoke through the production registry for read-back assertions.
     const wire = wireClient(harnessPort);
     const hello = await wire.next();
-    let sequence = 1; let authorityToken;
-    if (!["realtime.stats"].includes(operation)) {
-      const preflight = { version: "ableton-loopback/v1", id: `preflight-${Math.random().toString(36).slice(2, 10)}`, method: "preflight", operation, args, nonce: `preflight-nonce-${Date.now()}`, sequence: sequence++, bridgeEpoch: hello.bridgeEpoch, connectionChallenge: hello.connectionChallenge, deadlineMs: Date.now() + 10000 };
+    let sequence = 1; let authorityToken; const readOnly = ["automation.envelope.read", "realtime.stats"].includes(operation); const transactionId = `journey-tx-${Math.random().toString(36).slice(2, 18)}`;
+    if (!readOnly) {
+      const preflight = { version: "ableton-loopback/v1", id: `preflight-${Math.random().toString(36).slice(2, 10)}`, method: "preflight", operation, args, transactionId, nonce: `preflight-nonce-${Date.now()}`, sequence: sequence++, bridgeEpoch: hello.bridgeEpoch, connectionChallenge: hello.connectionChallenge, deadlineMs: Date.now() + 10000 };
       wire.send({ ...preflight, mac: mac(secret, preflight) }); const preflighted = await wire.next();
       if (!preflighted.ok) throw new Error(`wire preflight ${operation} failed: ${preflighted.error}`);
-      const prepare = { version: "ableton-loopback/v1", id: `prepare-${Math.random().toString(36).slice(2, 10)}`, method: "prepare", operation, args, preflightToken: preflighted.result.preflightToken, confirmation: preflighted.result.confirmation, idempotencyKey: `journey-${Math.random().toString(36).slice(2, 18)}`, nonce: `prepare-nonce-${Date.now()}`, sequence: sequence++, bridgeEpoch: hello.bridgeEpoch, connectionChallenge: hello.connectionChallenge, deadlineMs: Date.now() + 10000 };
+      const prepare = { version: "ableton-loopback/v1", id: `prepare-${Math.random().toString(36).slice(2, 10)}`, method: "prepare", operation, args, transactionId, preflightToken: preflighted.result.preflightToken, confirmation: preflighted.result.confirmation, idempotencyKey: `journey-${Math.random().toString(36).slice(2, 18)}`, nonce: `prepare-nonce-${Date.now()}`, sequence: sequence++, bridgeEpoch: hello.bridgeEpoch, connectionChallenge: hello.connectionChallenge, deadlineMs: Date.now() + 10000 };
       wire.send({ ...prepare, mac: mac(secret, prepare) }); const prepared = await wire.next();
       if (!prepared.ok) throw new Error(`wire prepare ${operation} failed: ${prepared.error}`); authorityToken = prepared.result.authorityToken;
     }
-    const frame = { version: "ableton-loopback/v1", id: `env-${Math.random().toString(36).slice(2, 10)}`, method: "invoke", operation, args, ...(authorityToken ? { authorityToken } : {}), nonce: `env-nonce-${Date.now()}`, sequence, bridgeEpoch: hello.bridgeEpoch, connectionChallenge: hello.connectionChallenge, deadlineMs: Date.now() + 10000 };
+    const frame = { version: "ableton-loopback/v1", id: `env-${Math.random().toString(36).slice(2, 10)}`, method: "invoke", operation, args, ...(authorityToken ? { authorityToken, transactionId } : {}), nonce: `env-nonce-${Date.now()}`, sequence, bridgeEpoch: hello.bridgeEpoch, connectionChallenge: hello.connectionChallenge, deadlineMs: Date.now() + 10000 };
     wire.send({ ...frame, mac: mac(secret, frame) });
     const response = await wire.next();
     wire.socket.destroy();
@@ -943,7 +943,7 @@ class EnvelopeEvent:
     assert(failed.isError === true, "mapper stop failure was hidden");
     assert((await playback(client)).transport.playing === true, "failed stop falsely reported stopped state");
     await control({ command: "failStop", value: false });
-    const recovered = (await textOf(client, "live_session_audition_stop", { transactionId: preview.transactionId, confirmation: preview.stopConfirmation, idempotencyKey: "journey-stopfail-recover" })).parsed;
+    const recovered = (await textOf(client, "live_session_audition_stop", { transactionId: preview.transactionId, confirmation: preview.stopConfirmation, idempotencyKey: "journey-stopfail-stop" })).parsed;
     assert(recovered.state === "stopped", "stop did not recover after the mapper failure cleared");
   });
 
@@ -1075,7 +1075,8 @@ class EnvelopeEvent:
     const deleted = (await textOf(client, "live_note_delete_apply", { transactionId: deletePreview.transactionId, confirmation: "apply", idempotencyKey: "journey-note-delete" })).parsed;
     assert(deleted.deleted === 1 && (await textOf(client, "live_discover", { kind: "note", parent: clipRef, limit: 100 })).parsed.items.length === drumEvents.length - 1, "note was not removed");
     const undone = (await textOf(client, "live_undo", { transactionId: deletePreview.transactionId, confirmation: "undo", idempotencyKey: "journey-note-delete-undo" })).parsed;
-    assert(undone.state === "undone" && (await textOf(client, "live_discover", { kind: "note", parent: clipRef, limit: 100 })).parsed.items.length === drumEvents.length, "note-delete undo did not restore the note");
+    const afterDeleteUndo = (await textOf(client, "live_discover", { kind: "note", parent: clipRef, limit: 100 })).parsed.items;
+    assert(undone.state === "undone" && afterDeleteUndo.length === drumEvents.length, `note-delete undo did not restore the note: ${JSON.stringify({ undone, count: afterDeleteUndo.length, expected: drumEvents.length })}`);
     const drumSlots = (await textOf(client, "live_discover", { kind: "clip-slot", parent: freshTracks[0].ref })).parsed.items;
     const drumSlot = drumSlots.find((slot) => slot.clipRef === clipRef);
     const drumAuditionPreview = (await textOf(client, "live_clip_launch_preview", { slotRef: drumSlot.ref, outputSafety: { safe: true, provenance: "journey-operator-confirmed-headphones" } })).parsed;
@@ -1116,20 +1117,18 @@ class EnvelopeEvent:
     freshTracks = (await textOf(client, "live_discover", { kind: "track" })).parsed.items;
     arrangementClips = (await textOf(client, "live_discover", { kind: "arrangement-clip", parent: freshTracks[0].ref })).parsed.items;
     const movePreview = (await textOf(client, "live_clip_move_preview", { clipRef: arrangementClips[0].ref, position: 16 })).parsed;
-    console.error("movePreview:", JSON.stringify(movePreview).slice(0, 300));
-    journeyProgress("create-beat-or-song", "arrange-edit", "awaiting_confirmation", { operations: ["arrangement.clip.move", "arrangement.clip.create", "arrangement.clip.delete"], mechanism: "fixed-apply-per-preview", retainedArrangementRef: arrangementClips[0].ref });
+    journeyProgress("create-beat-or-song", "arrange-edit", "awaiting_confirmation", { operations: ["arrangement.clip.move", "arrangement.clip.create", "transaction-owned-undo"], mechanism: "fixed-apply-per-preview", retainedArrangementRef: arrangementClips[0].ref });
     journeyProgress("create-beat-or-song", "arrange-edit", "applying", { retainedArrangementRef: arrangementClips[0].ref, idempotencyKeysPresent: true });
     const moved = (await textOf(client, "live_clip_move_apply", { transactionId: movePreview.transactionId, confirmation: "apply", idempotencyKey: "journey-arr-move" })).parsed;
     assert(moved.state === "applied", "arrangement move failed");
     assert((await textOf(client, "live_discover", { kind: "arrangement-clip", parent: freshTracks[0].ref })).parsed.items[0].start === 16, "arrangement move did not land");
-    // Create + delete
+    // Create + transaction-owned cleanup (arbitrary destructive deletion is unavailable).
     const createPreview = (await textOf(client, "live_arrangement_clip_preview", { action: "create", trackRef: freshTracks[0].ref, position: 24, length: 4, name: "Journey Arranged" })).parsed;
     const created = (await textOf(client, "live_arrangement_clip_apply", { transactionId: createPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-arr-create" })).parsed;
     assert(created.state === "applied", "arrangement create failed");
     assert((await textOf(client, "live_discover", { kind: "arrangement-clip", parent: freshTracks[0].ref })).parsed.items.length === 2, "arrangement create not visible");
-    const delPreview = (await textOf(client, "live_arrangement_clip_preview", { action: "delete", clipRef: created.result.ref })).parsed;
-    const deleted = (await textOf(client, "live_arrangement_clip_apply", { transactionId: delPreview.transactionId, confirmation: "apply", idempotencyKey: "journey-arr-delete" })).parsed;
-    assert(deleted.state === "applied", "arrangement delete failed");
+    const deleted = (await textOf(client, "live_undo", { transactionId: createPreview.transactionId, confirmation: "undo", idempotencyKey: "journey-arr-create-undo" })).parsed;
+    assert(deleted.state === "undone", "transaction-owned Arrangement cleanup failed");
     const finalArrangement = (await textOf(client, "live_discover", { kind: "arrangement-clip", parent: freshTracks[0].ref })).parsed.items;
     assert(finalArrangement.length === 1 && finalArrangement[0].name === "Journey Song Notes" && finalArrangement[0].start === 16, "substantive arranged song section or temporary cleanup did not verify");
     journeyProgress("create-beat-or-song", "arrange-edit", "verifying", { retainedArrangementRef: finalArrangement[0].ref, retainedName: finalArrangement[0].name, start: finalArrangement[0].start, temporaryClipDeleted: true });

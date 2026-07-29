@@ -60,13 +60,13 @@ export interface ReferenceComparison {
     projectMinusReference: {
       integratedLoudnessLu: number | null;
       truePeakDb: number | null;
-      samplePeakDb: number;
-      rmsDb: number;
-      crestFactorDb: number;
-      dynamicRangeDb: number;
-      spectralCentroidHz: number;
-      dominantFrequencyHz: number;
-      transientDensityPerSecond: number;
+      samplePeakDb: number | null;
+      rmsDb: number | null;
+      crestFactorDb: number | null;
+      dynamicRangeDb: number | null;
+      spectralCentroidHz: number | null;
+      dominantFrequencyHz: number | null;
+      transientDensityPerSecond: number | null;
     };
   };
   project: PcmAnalysis;
@@ -301,15 +301,18 @@ export function compareReferenceAudio(input: ReferenceComparisonInput): Referenc
     }
   }
 
+  const comparisonTrusted = alignmentAvailable || mode !== "auto";
   const lagFrames = Math.round(offsetSeconds * COMPARISON_ANALYSIS_RATE);
   const aligned = alignedSlices(projectResampled, projectSource.channels, referenceResampled, referenceSource.channels, lagFrames);
-  if (aligned.frames <= 0) throw new RangeError("alignment leaves no overlapping audio");
-  const project = analyzeReconstructedPcm({ samples: aligned.project, sampleRate: COMPARISON_ANALYSIS_RATE, channels: projectSource.channels, ...(projectSource.channelLayout ? { channelLayout: projectSource.channelLayout } : {}) });
-  const reference = analyzeReconstructedPcm({ samples: aligned.reference, sampleRate: COMPARISON_ANALYSIS_RATE, channels: referenceSource.channels, ...(referenceSource.channelLayout ? { channelLayout: referenceSource.channelLayout } : {}) });
+  if (comparisonTrusted && aligned.frames <= 0) throw new RangeError("alignment leaves no overlapping audio");
+  const projectSamples = comparisonTrusted ? aligned.project : projectResampled;
+  const referenceSamples = comparisonTrusted ? aligned.reference : referenceResampled;
+  const project = analyzeReconstructedPcm({ samples: projectSamples, sampleRate: COMPARISON_ANALYSIS_RATE, channels: projectSource.channels, ...(projectSource.channelLayout ? { channelLayout: projectSource.channelLayout } : {}) });
+  const reference = analyzeReconstructedPcm({ samples: referenceSamples, sampleRate: COMPARISON_ANALYSIS_RATE, channels: referenceSource.channels, ...(referenceSource.channelLayout ? { channelLayout: referenceSource.channelLayout } : {}) });
   const projectLufs = project.standardsAudio.loudness.integratedLufs;
   const referenceLufs = reference.standardsAudio.loudness.integratedLufs;
-  const gain = finiteDifference(referenceLufs, projectLufs);
-  const levelAvailable = gain !== null;
+  const gain = comparisonTrusted ? finiteDifference(referenceLufs, projectLufs) : null;
+  const levelAvailable = comparisonTrusted && gain !== null;
   const projectTruePeak = project.standardsAudio.truePeak.aggregateDbtp;
   const referenceTruePeak = reference.standardsAudio.truePeak.aggregateDbtp;
 
@@ -329,13 +332,13 @@ export function compareReferenceAudio(input: ReferenceComparisonInput): Referenc
       correlation,
       confidence,
       ambiguous,
-      overlapSeconds: aligned.frames / COMPARISON_ANALYSIS_RATE,
+      overlapSeconds: comparisonTrusted ? aligned.frames / COMPARISON_ANALYSIS_RATE : 0,
       maxLagSeconds,
       resolutionSeconds: 1 / ALIGNMENT_RATE,
     },
     levelMatch: {
       available: levelAvailable,
-      ...(!levelAvailable ? { reason: "both aligned sources need qualifying BS.1770 integrated loudness" } : {}),
+      ...(!levelAvailable ? { reason: comparisonTrusted ? "both aligned sources need qualifying BS.1770 integrated loudness" : "automatic alignment is unavailable; choose manual or disabled alignment before comparing levels" } : {}),
       projectIntegratedLufs: projectLufs,
       referenceIntegratedLufs: referenceLufs,
       projectGainToReferenceDb: gain,
@@ -345,15 +348,15 @@ export function compareReferenceAudio(input: ReferenceComparisonInput): Referenc
     },
     deltas: {
       projectMinusReference: {
-        integratedLoudnessLu: finiteDifference(projectLufs, referenceLufs),
-        truePeakDb: finiteDifference(projectTruePeak, referenceTruePeak),
-        samplePeakDb: project.peakDbfs - reference.peakDbfs,
-        rmsDb: project.rmsDbfs - reference.rmsDbfs,
-        crestFactorDb: project.dynamics.crestFactorDb - reference.dynamics.crestFactorDb,
-        dynamicRangeDb: project.dynamics.dynamicRangeDb - reference.dynamics.dynamicRangeDb,
-        spectralCentroidHz: project.spectral.centroidHz - reference.spectral.centroidHz,
-        dominantFrequencyHz: project.spectral.dominantFrequencyHz - reference.spectral.dominantFrequencyHz,
-        transientDensityPerSecond: project.transients.densityPerSecond - reference.transients.densityPerSecond,
+        integratedLoudnessLu: comparisonTrusted ? finiteDifference(projectLufs, referenceLufs) : null,
+        truePeakDb: comparisonTrusted ? finiteDifference(projectTruePeak, referenceTruePeak) : null,
+        samplePeakDb: comparisonTrusted ? project.peakDbfs - reference.peakDbfs : null,
+        rmsDb: comparisonTrusted ? project.rmsDbfs - reference.rmsDbfs : null,
+        crestFactorDb: comparisonTrusted ? project.dynamics.crestFactorDb - reference.dynamics.crestFactorDb : null,
+        dynamicRangeDb: comparisonTrusted ? project.dynamics.dynamicRangeDb - reference.dynamics.dynamicRangeDb : null,
+        spectralCentroidHz: comparisonTrusted ? project.spectral.centroidHz - reference.spectral.centroidHz : null,
+        dominantFrequencyHz: comparisonTrusted ? project.spectral.dominantFrequencyHz - reference.spectral.dominantFrequencyHz : null,
+        transientDensityPerSecond: comparisonTrusted ? project.transients.densityPerSecond - reference.transients.densityPerSecond : null,
       },
     },
     project,

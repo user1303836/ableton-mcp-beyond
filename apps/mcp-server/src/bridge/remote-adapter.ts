@@ -14,8 +14,10 @@ const DEFAULT_TIMEOUT_MS = 5_000;
 const MAX_SEQUENCE = Number.MAX_SAFE_INTEGER;
 const LIVE_PROTOCOL = "ableton-live/v1";
 const ADAPTERS = new Set(["remote-script", "simulator", "extension", "unavailable"]);
-const EVENT_TYPES = new Set(["state", "transport", "object", "meter", "max", "osc", "reset"]);
+const EVENT_TYPES = new Set(["transport", "object", "reset"]);
 const READ_ONLY_INVOKES = new Set(["session.playback", "automation.envelope.read", "browser.search", "browser.inspect", "audio.capture.inspect", "audio.capture.status", "realtime.stats", "session.reconnect"]);
+const TRANSACTION_CREATIONS = new Set(["track.create", "scene.create", "clip.create", "clip.duplicate", "arrangement.clip.create", "browser.load", "device.insert", "session.capture-midi", "scene.capture", "locator.add"]);
+const TRANSACTION_DELETIONS = new Set(["track.delete", "scene.delete", "clip.delete", "arrangement.clip.delete", "device.delete", "locator.delete"]);
 function mutationAuthorityRequired(operation: string): boolean { return !READ_ONLY_INVOKES.has(operation); }
 const KIND_TO_WIRE: Readonly<Record<LiveDiscoveryKind, string>> = {
   set: "set", track: "track", "return-track": "return_track", "main-track": "main_track", scene: "scene",
@@ -46,8 +48,7 @@ function canonical(value: unknown, depth = 0): string {
 }
 function mac(secret: string, value: unknown): string { const encoded = canonical(value); if (Buffer.byteLength(encoded) > MAX_FRAME_BYTES) throw new Error("wire payload is too large"); return createHmac("sha256", secret).update(encoded).digest("base64url"); }
 function validEndpoint(endpoint: Endpoint): void {
-  const ipv4Loopback = /^127\.(?:\d{1,3}\.){2}\d{1,3}$/.test(endpoint.host) && endpoint.host.split(".").slice(1).every((part) => Number(part) >= 0 && Number(part) <= 255);
-  if (!(ipv4Loopback || endpoint.host === "::1") || !Number.isInteger(endpoint.port) || endpoint.port < 1 || endpoint.port > 65_535 || endpoint.secret.length < 32) throw new Error("remote script endpoint must be loopback with a strong secret");
+  if ((endpoint.host !== "127.0.0.1" && endpoint.host !== "::1") || !Number.isInteger(endpoint.port) || endpoint.port < 1 || endpoint.port > 65_535 || endpoint.secret.length < 32) throw new Error("remote script endpoint must use exact loopback address 127.0.0.1 or ::1 with a strong secret");
 }
 function validStatus(value: unknown): value is LiveStatus {
   if (!value || typeof value !== "object") return false;
@@ -97,8 +98,9 @@ function registryRequest(operationId: string, fields: Omit<RemoteBridgeRequest, 
   if (operationId === "status" || operationId === "snapshot" || operationId === "reconnect" || operationId === "session.playback") return {};
   if (operationId === "discover") return fields.args ?? {};
   if (operationId === "get") return { ref: fields.ref };
-  if (operationId === "authority.preflight") return { operation: fields.operation, argsDigest: createHash("sha256").update(canonical(fields.args ?? {})).digest("hex") };
-  if (operationId === "authority.prepare") return { operation: fields.operation, argsDigest: createHash("sha256").update(canonical(fields.args ?? {})).digest("hex"), preflightToken: fields.preflightToken, confirmation: fields.confirmation, idempotencyKey: fields.idempotencyKey };
+  if (operationId === "authority.preflight") return { operation: fields.operation, argsDigest: createHash("sha256").update(canonical(fields.args ?? {})).digest("hex"), transactionId: fields.transactionId };
+  if (operationId === "authority.prepare") return { operation: fields.operation, argsDigest: createHash("sha256").update(canonical(fields.args ?? {})).digest("hex"), transactionId: fields.transactionId, preflightToken: fields.preflightToken, confirmation: fields.confirmation, idempotencyKey: fields.idempotencyKey };
+  if (operationId === "authority.retire") return { transactionId: fields.transactionId, ...("terminal" in fields ? { terminal: fields.terminal } : {}) };
   return fields.args ?? {};
 }
 
@@ -117,6 +119,11 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
   private readonly listeners = new Set<(event: LiveEvent) => void>();
   private lastEventEpoch: number | null = null;
   private lastEventSequence = 0;
+  private reopening?: Promise<void>;
+  private explicitlyClosed = false;
+  private reconciliationPoisoned = false;
+  private activeSubscriptionArgs?: Record<string, unknown>;
+  private readonly cleanupOwnership = new Map<string, Map<string, string>>();
   private constructor(private readonly endpoint: Endpoint) { validEndpoint(endpoint); }
 
   static async connect(endpoint: Endpoint): Promise<RemoteScriptLiveAdapter> {
@@ -133,8 +140,9 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
   invoke(): never { throw new Error("remote adapter is asynchronous; use invokeAsync"); }
   subscribe(listener: (event: LiveEvent) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   reconnect(): LiveStatus { throw new Error("remote adapter is asynchronous; use reconnectAsync"); }
-  snapshotAsync(context?: LiveOperationContext): Promise<LiveSnapshot> { return this.requestAsync({ method: "snapshot" }, "snapshot", context) as Promise<LiveSnapshot>; }
+  snapshotAsync(context?: LiveOperationContext): Promise<LiveSnapshot> { return this.ensureConnectedAsync(context).then(() => this.requestAsync({ method: "snapshot" }, "snapshot", context)) as Promise<LiveSnapshot>; }
   async discoverAsync(request: LiveDiscoveryRequest, context?: LiveOperationContext): Promise<LiveDiscoveryResult> {
+    await this.ensureConnectedAsync(context);
     const wireKind = KIND_TO_WIRE[request.kind];
     if (!wireKind) throw new Error(`unsupported discovery kind: ${String(request.kind)}`);
     const args: Record<string, unknown> = { kind: wireKind };
@@ -151,38 +159,115 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
     if (!translated || translated !== request.kind) throw new Error("remote discovery returned an unexpected kind");
     return { ...(result as unknown as LiveDiscoveryResult), kind: translated };
   }
-  getAsync(ref: LiveRef, context?: LiveOperationContext): Promise<unknown> { return this.requestAsync({ method: "get", ref }, "get", context); }
+  getAsync(ref: LiveRef, context?: LiveOperationContext): Promise<unknown> { return this.ensureConnectedAsync(context).then(() => this.requestAsync({ method: "get", ref }, "get", context)); }
   async invokeAsync(invocation: LiveInvocation, context?: LiveOperationContext): Promise<unknown> {
+    await this.ensureConnectedAsync(context);
     if (!this.cached.operations?.includes(invocation.operation)) throw new Error(`remote operation is not negotiated: ${invocation.operation}`);
-    if (invocation.operation === "subscribe") return this.requestAsync({ method: "subscribe", args: invocation.args }, "subscribe", context);
-    if (!mutationAuthorityRequired(invocation.operation)) return this.requestAsync({ method: "invoke", operation: invocation.operation, args: invocation.args }, invocation.operation, context);
+    if (invocation.operation === "subscribe") {
+      const result = await this.requestAsync({ method: "subscribe", args: invocation.args }, "subscribe", context) as { subscribed?: unknown };
+      this.activeSubscriptionArgs = result.subscribed === true ? structuredClone(invocation.args) : undefined;
+      return result;
+    }
+    if (!mutationAuthorityRequired(invocation.operation)) { const result = await this.requestAsync({ method: "invoke", operation: invocation.operation, args: invocation.args }, invocation.operation, context); if (String(invocation.operation) === "session.reconnect") this.cleanupOwnership.clear(); return result; }
     const argsDigest = createHash("sha256").update(canonical(invocation.args)).digest("hex");
     const baseIdempotencyKey = context?.idempotencyKey ?? randomBytes(18).toString("base64url");
     const transactionScope = context?.transactionId ?? randomBytes(18).toString("base64url");
     if (baseIdempotencyKey.length < 8 || baseIdempotencyKey.length > 128 || transactionScope.length < 8 || transactionScope.length > 128) throw new Error("remote mutation idempotency authority is invalid");
+    const ownedCount = [...this.cleanupOwnership.values()].reduce((count, rows) => count + rows.size, 0); const reserve = invocation.operation === "session.capture-midi" ? 256 : 1;
+    if (TRANSACTION_CREATIONS.has(invocation.operation) && ownedCount + reserve > 4096) throw new Error("remote cleanup ownership ledger is full");
+    const reference = typeof invocation.args.ref === "string" ? invocation.args.ref : undefined; let ownershipToken = TRANSACTION_DELETIONS.has(invocation.operation) && reference ? this.cleanupOwnership.get(transactionScope)?.get(reference) : undefined; let consumedMoveOwnership: { transactionId: string; reference: string } | undefined;
+    if (TRANSACTION_DELETIONS.has(invocation.operation) && !ownershipToken) throw new Error("remote destructive cleanup lacks transaction-owned authority");
+    if ((invocation.operation === "clip.move" || invocation.operation === "arrangement.clip.move") && reference) {
+      const matches = [...this.cleanupOwnership.entries()].filter(([, rows]) => rows.has(reference));
+      if (matches.length > 1) throw new Error("remote transaction-owned move authority is ambiguous");
+      if (matches.length === 1) { ownershipToken = matches[0]![1].get(reference); consumedMoveOwnership = { transactionId: matches[0]![0], reference }; }
+    }
+    const ownershipFields = ownershipToken ? { ownershipToken } : {};
     const bridgeIdempotencyKey = createHash("sha256").update(`${transactionScope}\0${baseIdempotencyKey}\0${invocation.operation}\0${argsDigest}`).digest("base64url");
-    const preflight = await this.requestAsync({ method: "preflight", operation: invocation.operation, args: invocation.args }, "authority.preflight", context) as { preflightToken?: unknown; confirmation?: unknown; operation?: unknown; argsDigest?: unknown; expiresAt?: unknown };
+    const preflight = await this.requestAsync({ method: "preflight", operation: invocation.operation, args: invocation.args, transactionId: transactionScope, ...ownershipFields }, "authority.preflight", context) as { preflightToken?: unknown; confirmation?: unknown; operation?: unknown; argsDigest?: unknown; expiresAt?: unknown };
     if (typeof preflight.preflightToken !== "string" || typeof preflight.confirmation !== "string" || preflight.operation !== invocation.operation || typeof preflight.argsDigest !== "string" || typeof preflight.expiresAt !== "number" || preflight.expiresAt <= Date.now()) throw new Error("remote mutation authority preflight failed");
-    const prepared = await this.requestAsync({ method: "prepare", operation: invocation.operation, args: invocation.args, preflightToken: preflight.preflightToken, confirmation: preflight.confirmation, idempotencyKey: bridgeIdempotencyKey }, "authority.prepare", context) as { authorityToken?: unknown; operation?: unknown; argsDigest?: unknown; expiresAt?: unknown };
+    const prepared = await this.requestAsync({ method: "prepare", operation: invocation.operation, args: invocation.args, transactionId: transactionScope, preflightToken: preflight.preflightToken, confirmation: preflight.confirmation, idempotencyKey: bridgeIdempotencyKey, ...ownershipFields }, "authority.prepare", context) as { authorityToken?: unknown; operation?: unknown; argsDigest?: unknown; expiresAt?: unknown };
     if (typeof prepared.authorityToken !== "string" || prepared.operation !== invocation.operation || prepared.argsDigest !== preflight.argsDigest || typeof prepared.expiresAt !== "number" || prepared.expiresAt <= Date.now()) throw new Error("remote mutation authority preparation failed");
-    return this.requestAsync({ method: "invoke", operation: invocation.operation, args: invocation.args, authorityToken: prepared.authorityToken }, invocation.operation, context);
+    let wireResult: unknown;
+    try { wireResult = await this.requestAsync({ method: "invoke", operation: invocation.operation, args: invocation.args, authorityToken: prepared.authorityToken, transactionId: transactionScope, ...ownershipFields }, invocation.operation, context); }
+    catch (error) {
+      if (consumedMoveOwnership && reference && this.socket && !this.socket.destroyed) {
+        try {
+          const observed = await this.requestAsync({ method: "get", ref: reference as LiveRef }, "get", context) as Record<string, unknown>; const expectedIdentity = invocation.args.expectedObjectIdentity;
+          if (!observed || typeof observed !== "object" || typeof expectedIdentity !== "string" || observed.objectIdentity !== expectedIdentity) { const owned = this.cleanupOwnership.get(consumedMoveOwnership.transactionId); owned?.delete(consumedMoveOwnership.reference); if (owned?.size === 0) this.cleanupOwnership.delete(consumedMoveOwnership.transactionId); }
+        } catch {}
+      }
+      throw error;
+    }
+    if (TRANSACTION_CREATIONS.has(invocation.operation)) {
+      const result = structuredClone(wireResult) as Record<string, unknown>; const rows = invocation.operation === "session.capture-midi" ? result.clipIdentities : [result]; if (!Array.isArray(rows)) throw new Error("remote creation ownership result is malformed"); const owned = this.cleanupOwnership.get(transactionScope) ?? new Map<string, string>();
+      for (const value of rows) { if (!value || typeof value !== "object") throw new Error("remote creation ownership evidence is malformed"); const row = value as Record<string, unknown>; const reference = invocation.operation === "browser.load" ? row.deviceRef : row.ref; if (typeof reference !== "string" || typeof row.ownershipToken !== "string" || row.ownershipToken.length < 32) throw new Error("remote creation ownership token is missing"); owned.set(reference, row.ownershipToken); delete row.ownershipToken; }
+      if (owned.size > 0) this.cleanupOwnership.set(transactionScope, owned); return result;
+    }
+    if (consumedMoveOwnership) { const owned = this.cleanupOwnership.get(consumedMoveOwnership.transactionId); owned?.delete(consumedMoveOwnership.reference); if (owned?.size === 0) this.cleanupOwnership.delete(consumedMoveOwnership.transactionId); }
+    if (TRANSACTION_DELETIONS.has(invocation.operation) && reference) { const owned = this.cleanupOwnership.get(transactionScope); owned?.delete(reference); if (owned?.size === 0) this.cleanupOwnership.delete(transactionScope); }
+    return wireResult;
   }
-  reconnectAsync(context?: LiveOperationContext): Promise<LiveStatus> { return this.requestAsync({ method: "reconnect" }, "reconnect", context).then((value) => { const status = value as LiveStatus; if (!validStatus(status)) throw new Error("invalid reconnect status"); this.epoch = status.epoch; this.cached = status; return status; }); }
+  async retireTransactionAsync(transactionId: string, context?: LiveOperationContext, terminal = false): Promise<{ retired: number }> { if (transactionId.length < 8 || transactionId.length > 128) throw new Error("remote retirement transaction id is invalid"); await this.ensureConnectedAsync(context); const result = await this.requestAsync({ method: "retire", transactionId, ...(terminal ? { terminal: true } : {}) }, "authority.retire", context) as { retired: number }; if (terminal) this.cleanupOwnership.delete(transactionId); return result; }
+  reconnectAsync(context?: LiveOperationContext): Promise<LiveStatus> { return this.ensureConnectedAsync(context).then(() => this.requestAsync({ method: "reconnect" }, "reconnect", context)).then((value) => { const status = value as LiveStatus; if (!validStatus(status)) throw new Error("invalid reconnect status"); this.epoch = status.epoch; this.cached = status; this.lastEventEpoch = this.epoch; this.lastEventSequence = 0; this.cleanupOwnership.clear(); return status; }); }
   /** Re-request the mapper's current status without a reconnect; operations and
    * capabilities reflect the shape at call time (no epoch change). */
-  refreshStatusAsync(context?: LiveOperationContext): Promise<LiveStatus> { return this.requestAsync({ method: "status" }, "status", context).then((value) => { const status = value as LiveStatus; if (!validStatus(status)) throw new Error("invalid refreshed status"); this.cached = status; return status; }); }
-  async close(): Promise<void> { this.failPending(new Error("remote adapter disconnected")); this.helloReject?.(new Error("remote adapter disconnected")); this.helloResolve = undefined; this.helloReject = undefined; this.socket?.destroy(); this.socket = undefined; this.cached = { ...this.cached, connected: false, reason: "closed" }; }
+  refreshStatusAsync(context?: LiveOperationContext): Promise<LiveStatus> { return this.ensureConnectedAsync(context).then(() => this.requestAsync({ method: "status" }, "status", context)).then((value) => { const status = value as LiveStatus; if (!validStatus(status)) throw new Error("invalid refreshed status"); this.cached = status; return status; }); }
+  async close(): Promise<void> { this.explicitlyClosed = true; this.failPending(new Error("remote adapter disconnected")); this.helloReject?.(new Error("remote adapter disconnected")); this.helloResolve = undefined; this.helloReject = undefined; this.socket?.destroy(); this.socket = undefined; this.cached = { ...this.cached, connected: false, reason: "closed" }; }
 
-  private open(): Promise<void> {
+  private contextualReconnectWait(promise: Promise<void>, context?: LiveOperationContext): Promise<void> {
+    if (!context) return promise;
+    if (context.signal?.aborted) return Promise.reject(new Error("remote adapter reconnect cancelled"));
+    const deadlineMs = context.deadlineMs ?? Date.now() + (this.endpoint.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    if (!Number.isSafeInteger(deadlineMs) || deadlineMs <= Date.now() || deadlineMs > Date.now() + 60_000) return Promise.reject(new Error("remote adapter reconnect deadline is invalid or expired"));
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => { cleanup(); reject(new Error("remote adapter reconnect deadline expired")); }, Math.max(1, deadlineMs - Date.now()));
+      const abort = () => { cleanup(); reject(new Error("remote adapter reconnect cancelled")); };
+      const cleanup = () => { clearTimeout(timer); context.signal?.removeEventListener("abort", abort); };
+      context.signal?.addEventListener("abort", abort, { once: true });
+      promise.then(() => { cleanup(); resolve(); }, (error) => { cleanup(); reject(error); });
+    });
+  }
+
+  private ensureConnectedAsync(context?: LiveOperationContext): Promise<void> {
+    if (this.explicitlyClosed) return Promise.reject(new Error("remote adapter is closed"));
+    if (this.reconciliationPoisoned) return Promise.reject(new Error("remote adapter reconciliation channel is poisoned by a bridge or Live epoch change"));
+    if (this.reopening) return this.contextualReconnectWait(this.reopening, context);
+    if (this.socket && !this.socket.destroyed && this.bridgeEpoch && this.connectionChallenge) return Promise.resolve();
+    const priorBridgeEpoch = this.bridgeEpoch; const priorLiveEpoch = this.epoch;
+    this.bridgeEpoch = undefined; this.connectionChallenge = undefined; this.buffer = Buffer.alloc(0); this.sequence = 0;
+    this.reopening = (async () => {
+      await this.open();
+      const value = await this.requestAsync({ method: "status" }, "status") as LiveStatus;
+      if (!validStatus(value) || !value.connected || value.adapter !== "remote-script" || value.epoch === null) throw new Error("remote adapter recovery negotiation failed");
+      if ((priorBridgeEpoch && this.bridgeEpoch !== priorBridgeEpoch) || (priorLiveEpoch !== null && value.epoch !== priorLiveEpoch)) { this.cached = { ...this.cached, connected: false, reason: "remote-bridge-or-live-epoch-changed" }; this.reconciliationPoisoned = true; this.bridgeEpoch = undefined; this.connectionChallenge = undefined; this.socket?.destroy(); this.socket = undefined; throw new Error("remote bridge or Live epoch changed; mutation reconciliation is unavailable"); }
+      this.epoch = value.epoch; this.cached = value; this.lastEventEpoch = this.epoch; this.lastEventSequence = 0;
+      if (this.activeSubscriptionArgs) {
+        const subscribed = await this.requestAsync({ method: "subscribe", args: this.activeSubscriptionArgs }, "subscribe") as { subscribed?: unknown };
+        if (subscribed.subscribed !== true) throw new Error("remote adapter subscription restoration failed");
+      }
+    })().catch((error) => { this.cached = { ...this.cached, connected: false, reason: "remote-reconnect-failed" }; this.socket?.destroy(); this.socket = undefined; throw error; }).finally(() => { this.reopening = undefined; });
+    return this.contextualReconnectWait(this.reopening, context);
+  }
+
+  private open(context?: LiveOperationContext): Promise<void> {
     return new Promise((resolve, reject) => {
+      if (context?.signal?.aborted) { reject(new Error("remote adapter reconnect cancelled")); return; }
+      const configuredTimeout = this.endpoint.timeoutMs ?? DEFAULT_TIMEOUT_MS; const deadlineRemaining = context?.deadlineMs === undefined ? configuredTimeout : context.deadlineMs - Date.now();
+      if (!Number.isFinite(deadlineRemaining) || deadlineRemaining <= 0) { reject(new Error("remote adapter reconnect deadline expired")); return; }
       const socket = createConnection({ host: this.endpoint.host, port: this.endpoint.port });
-      this.socket = socket; socket.setNoDelay(true); this.helloResolve = resolve; this.helloReject = reject;
-      const timer = setTimeout(() => { socket.destroy(); reject(new Error("remote adapter connection timed out")); }, this.endpoint.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-      socket.on("data", (chunk) => this.onData(chunk));
-      socket.on("error", (error) => { clearTimeout(timer); if (!this.bridgeEpoch) reject(error); this.failPending(error); });
-      socket.on("close", () => { clearTimeout(timer); if (!this.bridgeEpoch) reject(new Error("remote adapter disconnected")); this.failPending(new Error("remote adapter disconnected")); });
+      this.socket = socket; socket.setNoDelay(true);
+      const abort = () => { socket.destroy(); reject(new Error("remote adapter reconnect cancelled")); };
+      context?.signal?.addEventListener("abort", abort, { once: true });
+      const cleanupHandshake = () => { clearTimeout(timer); context?.signal?.removeEventListener("abort", abort); };
+      this.helloResolve = resolve; this.helloReject = reject;
+      const timer = setTimeout(() => { socket.destroy(); reject(new Error("remote adapter connection timed out")); }, Math.max(1, Math.min(configuredTimeout, deadlineRemaining)));
+      const disconnected = (error: Error) => { cleanupHandshake(); if (this.socket !== socket) return; this.socket = undefined; this.cached = { ...this.cached, connected: false, reason: "remote-adapter-disconnected" }; if (!this.bridgeEpoch) reject(error); this.failPending(error); };
+      socket.on("data", (chunk) => { if (this.socket === socket) this.onData(chunk); });
+      socket.on("error", (error) => disconnected(error));
+      socket.on("close", () => disconnected(new Error("remote adapter disconnected")));
       const originalResolve = this.helloResolve;
-      this.helloResolve = () => { clearTimeout(timer); originalResolve?.(); };
+      this.helloResolve = () => { cleanupHandshake(); originalResolve?.(); };
     });
   }
 
@@ -200,10 +285,10 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
     const request = { ...unsigned, mac: mac(this.endpoint.secret, unsigned) };
     return new Promise((resolve, reject) => {
       const remaining = Math.max(1, Math.min(timeoutMs, deadlineMs - Date.now()));
-      const timer = setTimeout(() => { this.socket?.destroy(); this.failPending(new Error("remote adapter request state uncertain after dispatch timeout")); }, remaining);
+      const timer = setTimeout(() => { this.cached = { ...this.cached, connected: false, reason: "remote-request-timeout" }; this.socket?.destroy(); this.failPending(new Error("remote adapter request state uncertain after dispatch timeout")); }, remaining);
       const pending: Pending = { operationId, resolve, reject, timer };
       if (context?.signal) {
-        const abort = () => { this.socket?.destroy(); this.failPending(new Error("remote adapter request state uncertain after dispatch cancellation")); };
+        const abort = () => { this.cached = { ...this.cached, connected: false, reason: "remote-request-cancelled-after-dispatch" }; this.socket?.destroy(); this.failPending(new Error("remote adapter request state uncertain after dispatch cancellation")); };
         context.signal.addEventListener("abort", abort, { once: true });
         pending.abortCleanup = () => context.signal?.removeEventListener("abort", abort);
       }
@@ -247,7 +332,7 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
     }
     const pending = this.pending.get(response.id); if (!pending) throw new Error("unknown or duplicate remote response");
     this.pending.delete(response.id); clearTimeout(pending.timer); pending.abortCleanup?.();
-    if (response.ok) { try { validateLiveOperationResult(pending.operationId, response.result); if (pending.operationId === "reconnect" && validStatus(response.result)) { this.epoch = response.result.epoch; this.lastEventEpoch = this.epoch; this.lastEventSequence = 0; } pending.resolve(response.result); } catch (error) { this.cached = { ...this.cached, connected: false, reason: "registry-result-validation-failed" }; pending.reject(error); this.socket?.destroy(); } }
+    if (response.ok) { try { validateLiveOperationResult(pending.operationId, response.result); if (pending.operationId === "subscribe") { this.lastEventEpoch = this.epoch; this.lastEventSequence = 0; } if (pending.operationId === "reconnect" && validStatus(response.result)) { this.epoch = response.result.epoch; this.lastEventEpoch = this.epoch; this.lastEventSequence = 0; } pending.resolve(response.result); } catch (error) { this.cached = { ...this.cached, connected: false, reason: "registry-result-validation-failed" }; pending.reject(error); this.socket?.destroy(); } }
     else pending.reject(new Error(response.error ?? "remote request failed"));
   }
 

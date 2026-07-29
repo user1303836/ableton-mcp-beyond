@@ -60,20 +60,38 @@ function readSetXml(path: string): string {
   return xml.toString("utf8");
 }
 
+function decodeXmlAttribute(value: string): string {
+  return value.replace(/&(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);/g, (entity) => {
+    const named: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"", "&apos;": "'" };
+    if (named[entity] !== undefined) return named[entity];
+    const hexadecimal = entity.startsWith("&#x");
+    const codePoint = Number.parseInt(entity.slice(hexadecimal ? 3 : 2, -1), hexadecimal ? 16 : 10);
+    if (!Number.isSafeInteger(codePoint) || codePoint < 0 || codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)) throw new Error("Live Set contains an invalid XML path entity");
+    return String.fromCodePoint(codePoint);
+  });
+}
+
+function referencedMediaValues(xml: string): string[] {
+  const values: string[] = [];
+  for (const fileRef of xml.matchAll(/<FileRef\b[^>]*>([\s\S]*?)<\/FileRef\s*>/g)) {
+    const path = /<Path\b[^>]*\bValue="([^"]*)"/.exec(fileRef[1]!);
+    if (path?.[1]) values.push(decodeXmlAttribute(path[1]));
+  }
+  return values;
+}
+
 function parseManifest(path: string): ProjectManifest {
   const stats = statSync(path);
   const xml = readSetXml(path);
-  const tracks = (xml.match(/<Track[\s>]/g) ?? []).length;
-  const scenes = (xml.match(/<Scene[\s>]/g) ?? []).length;
-  const mediaRefs = new Set([...xml.matchAll(/<FileRef[^>]*>[\s\S]*?<Path[^>]*Value="([^"]+)"/g)].map((match) => match[1]!));
+  const tracks = (xml.match(/<(?:AudioTrack|MidiTrack|GroupTrack|ReturnTrack|MasterTrack|MainTrack)\b/g) ?? []).length;
+  const scenes = (xml.match(/<Scene\b/g) ?? []).length;
+  const mediaRefs = new Set(referencedMediaValues(xml));
   return { path, size: stats.size, mtimeMs: stats.mtimeMs, sha256: sha256File(path), tracks, scenes, mediaRefs: mediaRefs.size };
 }
 
 function referencedMediaPaths(path: string): string[] {
-  const xml = readSetXml(path);
   const paths = new Set<string>();
-  for (const match of xml.matchAll(/<FileRef[^>]*>[\s\S]*?<Path[^>]*Value="([^"]+)"/g)) {
-    const value = match[1]!;
+  for (const value of referencedMediaValues(readSetXml(path))) {
     if (isAbsolute(value) && !value.includes("\0")) paths.add(resolve(value));
   }
   return [...paths].sort().slice(0, 4096);

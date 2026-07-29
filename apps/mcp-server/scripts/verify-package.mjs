@@ -91,7 +91,7 @@ try {
   const releaseManifest = JSON.parse(readFileSync(join(installedPackageDirectory, "release-manifest.json"), "utf8"));
   if (releaseManifest.schema !== "ableton-mcp-private-release/v1" || releaseManifest.distribution?.channel !== "private-local-npm-tarball" || releaseManifest.distribution?.published !== false || releaseManifest.distribution?.signed !== false || releaseManifest.distribution?.notarized !== false || releaseManifest.algorithm !== "sha256" || !/^[a-f0-9]{64}$/.test(releaseManifest.build?.builder?.packageLockSha256 ?? "") || !/^[a-f0-9]{64}$/.test(releaseManifest.build?.builder?.workflowSha256 ?? "") || !releaseManifest.build?.builder?.node || !releaseManifest.build?.builder?.npm || !releaseManifest.build?.builder?.typescript) throw new Error("installed release manifest policy is invalid");
   const manifestNames = Object.keys(releaseManifest.files ?? {}).sort();
-  const expectedManifestNames = names.filter((name) => !["package.json", "release-manifest.json"].includes(name)).sort();
+  const expectedManifestNames = names.filter((name) => name !== "release-manifest.json").sort();
   if (JSON.stringify(manifestNames) !== JSON.stringify(expectedManifestNames)) throw new Error("release manifest does not exactly cover the packaged payload allowlist");
   for (const [name, expected] of Object.entries(releaseManifest.files)) {
     const actual = createHash("sha256").update(readFileSync(join(installedPackageDirectory, ...name.split("/")))).digest("hex");
@@ -153,13 +153,21 @@ try {
   const lifecycleCall = (action, extra = []) => JSON.parse(execFileSync(process.execPath, [lifecycleExecutable, action, ...lifecycleBase, ...extra], { encoding: "utf8" }));
   const installedLifecycle = lifecycleCall("install", ["--artifact", artifact, "--artifact-sha256", artifactSha256, "--port", String(controlPort), "--realtime-port", String(realtimePort), "--apply", "--confirm-live-stopped"]);
   if (installedLifecycle.state !== "completed" || installedLifecycle.verification?.artifactSha256 !== artifactSha256) throw new Error("installed lifecycle did not bind the exact tarball");
+  const lifecycleRemote = join(lifecycleRemoteParent, "AbletonMcpBridge");
+  const python = process.platform === "win32" ? "python.exe" : "python3";
+  const loaderOutput = execFileSync(python, ["-c", "import json; from AbletonMcpBridge import _read_config; c=_read_config(); print(json.dumps({'host':c['host'],'port':c['port'],'secretLength':len(c['secret']),'realtimePort':c.get('realtimePort')}))"], {
+    cwd: temporaryDirectory,
+    env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1", PYTHONPATH: lifecycleRemoteParent },
+    encoding: "utf8",
+  });
+  const loadedBridgeConfig = JSON.parse(loaderOutput);
+  if (loadedBridgeConfig.host !== "127.0.0.1" || loadedBridgeConfig.port !== controlPort || loadedBridgeConfig.realtimePort !== realtimePort || loadedBridgeConfig.secretLength < 32) throw new Error("installed Live loader rejected or misread the lifecycle bridge configuration");
   const migratedV2Path = join(temporaryDirectory, "migrated-v2.json");
   execFileSync(process.execPath, [join(installedPackageDirectory, "dist", "src", "migrate.js"), "--input", configPath, "--output", migratedV2Path, "--bridge-host", "127.0.0.1", "--bridge-port", String(controlPort), "--realtime-port", String(realtimePort), "--secret-file", join(lifecycleState, "bridge.secret")], { encoding: "utf8" });
   const migratedV2 = JSON.parse(readFileSync(migratedV2Path, "utf8"));
   if (migratedV2.version !== 2 || migratedV2.bridge?.host !== "127.0.0.1" || migratedV2.server?.args?.[1] !== "--config") throw new Error("installed migration CLI did not emit an exact version-2 bridge config");
   const activationLifecycle = lifecycleCall("activate");
   if (activationLifecycle.state !== "activation-required" || activationLifecycle.verification?.provenance !== "unknown") throw new Error("installed lifecycle promoted unavailable activation evidence");
-  const lifecycleRemote = join(lifecycleRemoteParent, "AbletonMcpBridge");
   writeFileSync(join(lifecycleRemote, "drift.txt"), "preserve and quarantine");
   const repairedLifecycle = lifecycleCall("repair", ["--apply"]);
   if (repairedLifecycle.state !== "completed" || repairedLifecycle.verification?.changed !== true || !repairedLifecycle.recovery?.quarantine) throw new Error("installed lifecycle repair did not quarantine drift");
@@ -220,7 +228,6 @@ try:
 except KeyboardInterrupt: pass
 finally: bridge.disconnect()
 `, { encoding: "utf8", mode: 0o600 });
-  const python = process.platform === "win32" ? "python.exe" : "python3";
   const bridgeErrorPath = join(temporaryDirectory, "bridge-smoke-stderr.log");
   bridgeProcess = spawn(python, [bridgeScript, readyPath], {
     cwd: temporaryDirectory,
@@ -254,7 +261,7 @@ finally: bridge.disconnect()
     terminateChildProcess(bridgeProcess);
     try { bridgeProcess.unref(); } catch {}
   }
-  console.log(JSON.stringify({ artifact: basename(artifact), files: names.length, installed: true, protocolSmoke: true, setupSmoke: true, migrationSmoke: true, diagnosticsSmoke: true, authenticatedBridgeSmoke: true, discoverySmoke: true, lifecycleSmoke: true, strictArtifactAllowlist: true, releaseManifestVerified: true, platform: process.platform, arch: process.arch }));
+  console.log(JSON.stringify({ artifact: basename(artifact), files: names.length, installed: true, protocolSmoke: true, setupSmoke: true, migrationSmoke: true, diagnosticsSmoke: true, installedLiveLoaderSmoke: true, authenticatedBridgeSmoke: true, discoverySmoke: true, lifecycleSmoke: true, strictArtifactAllowlist: true, releaseManifestVerified: true, platform: process.platform, arch: process.arch }));
 } finally {
   terminateChildProcess(bridgeProcess);
   removeTemporaryDirectory(temporaryDirectory);

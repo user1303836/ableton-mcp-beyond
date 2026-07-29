@@ -34,8 +34,8 @@ try {
   execFileSync(npm, ["install", "--prefix", installDirectory, artifact, "--ignore-scripts", "--no-audit", "--no-fund"], { ...npmOptions, stdio: "pipe" });
   const packageRoot = join(installDirectory, "node_modules", "@ableton-mcp", "mcp-server");
   const manifest = JSON.parse(readFileSync(join(packageRoot, "release-manifest.json"), "utf8"));
-  if (manifest.schema !== "ableton-mcp-private-release/v1" || manifest.source?.commit !== metadata.gitSha || manifest.source?.dirty !== false || manifest.distribution?.published !== false || manifest.distribution?.signed !== false || manifest.distribution?.notarized !== false || !/^[a-f0-9]{64}$/.test(manifest.build?.builder?.packageLockSha256 ?? "") || !/^[a-f0-9]{64}$/.test(manifest.build?.builder?.workflowSha256 ?? "")) throw new Error("candidate does not identify the exact clean Git SHA and private channel");
-  const inventory = walk(packageRoot).filter((name) => name !== "package.json").sort();
+  if (manifest.schema !== "ableton-mcp-private-release/v1" || manifest.source?.commit !== metadata.gitSha || manifest.source?.dirty !== false || manifest.distribution?.published !== false || manifest.distribution?.signed !== false || manifest.distribution?.notarized !== false || !/^[a-f0-9]{64}$/.test(manifest.build?.builder?.packageLockSha256 ?? "") || !/^[a-f0-9]{64}$/.test(manifest.build?.builder?.workflowSha256 ?? "") || !/^[a-f0-9]{64}$/.test(manifest.files?.["package.json"] ?? "")) throw new Error("candidate does not identify the exact clean Git SHA, package metadata, and private channel");
+  const inventory = walk(packageRoot).sort();
   const expected = ["release-manifest.json", ...Object.keys(manifest.files)].sort();
   if (JSON.stringify(inventory) !== JSON.stringify(expected)) throw new Error("installed candidate inventory differs from the strict release manifest");
   for (const [name, expectedDigest] of Object.entries(manifest.files)) {

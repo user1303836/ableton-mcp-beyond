@@ -79,6 +79,16 @@ test("migration CLI rejects repeated and partial version-2 authority options", (
   assert.equal(partial.status, 2); assert.match(partial.stderr, /usage: ableton-mcp-migrate/);
 });
 
+test("setup never ignores a standalone bridge timeout option", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ableton-mcp-setup-timeout-"));
+  const setup = resolve(dirname(fileURLToPath(import.meta.url)), "../src/setup.js");
+  const output = join(directory, "config.json");
+  const result = spawnSync(process.execPath, [setup, "--output", output, "--bridge-timeout", "1000"], { encoding: "utf8" });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /port|secret|bridge/i);
+  assert.equal(existsSync(output), false);
+});
+
 test("diagnostics report local readiness separately from unavailable external evidence", () => {
   const report = diagnostics(mkdtempSync(join(tmpdir(), "ableton-mcp-")));
   assert.equal(report.external.abletonLive, "unavailable");
@@ -138,6 +148,8 @@ test("bridge configuration and secrets are explicit and fail closed", () => {
   assert.throws(() => configForBridge("/opt/cli.js", { host: "127.0.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000, realtimePort: 43210 }), /realtime port/);
   assert.throws(() => configForBridge("/opt/cli.js", { host: "127.0.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000, inlineSecret: "forbidden" } as any), /unsupported bridge configuration fields/);
   assert.throws(() => configForBridge("/opt/cli.js", { host: "0.0.0.0", port: 43210, secretFile: secretPath, timeoutMs: 5000 }), /loopback/);
+  assert.throws(() => configForBridge("/opt/cli.js", { host: "localhost", port: 43210, secretFile: secretPath, timeoutMs: 5000 }), /exact loopback address/);
+  assert.throws(() => configForBridge("/opt/cli.js", { host: "127.0.0.2", port: 43210, secretFile: secretPath, timeoutMs: 5000 }), /exact loopback address/);
   assert.throws(() => generateSecret(8), /between 32/);
   writeFileSync(join(directory, "bad-secret"), ` ${secret}\n`);
   assert.throws(() => readSecretFile(join(directory, "bad-secret")), /secret file is invalid/);

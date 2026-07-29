@@ -13,13 +13,21 @@
  */
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { isAbsolute, relative, resolve, sep } from "node:path";
+import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 
 const cli = process.env.PHASE8_CLI;
 const tarballSha256 = process.env.PHASE8_TARBALL_SHA;
 const outputSafetyProvenance = process.env.PHASE8_OUTPUT_SAFETY_PROVENANCE;
+const expectedGitSha = process.env.PHASE8_EXPECTED_GIT_SHA;
+const expectedRegistryHash = process.env.PHASE8_EXPECTED_REGISTRY_HASH;
+const receiptPath = process.env.PHASE8_RECEIPT;
 if (!cli) throw new Error("PHASE8_CLI is required");
 if (!/^[a-f0-9]{64}$/.test(tarballSha256 ?? "")) throw new Error("PHASE8_TARBALL_SHA must be the installed artifact SHA-256");
+if (!/^[a-f0-9]{40}$/.test(expectedGitSha ?? "")) throw new Error("PHASE8_EXPECTED_GIT_SHA must be the exact candidate Git SHA");
+if (!/^[a-f0-9]{64}$/.test(expectedRegistryHash ?? "")) throw new Error("PHASE8_EXPECTED_REGISTRY_HASH must be the exact canonical registry hash");
+if (!receiptPath) throw new Error("PHASE8_RECEIPT is required");
 if (!outputSafetyProvenance || outputSafetyProvenance.length > 512) throw new Error("PHASE8_OUTPUT_SAFETY_PROVENANCE is required and must be bounded");
 
 const config = process.env.PHASE8_CONFIG ?? `${process.env.HOME}/.config/ableton-mcp/bridge-config.json`;
@@ -29,6 +37,53 @@ const sourceTrackIndex = Number(process.env.PHASE8_SOURCE_TRACK_INDEX ?? 0);
 const destinationTrackIndex = Number(process.env.PHASE8_DESTINATION_TRACK_INDEX ?? 2);
 const recordedDirectory = process.env.PHASE8_RECORDED_DIRECTORY ?? `${process.env.HOME}/Music/Ableton/User Library/Samples/Recorded`;
 if (![sourceTrackIndex, destinationTrackIndex].every((value) => Number.isInteger(value) && value >= 0 && value <= 255) || sourceTrackIndex === destinationTrackIndex) throw new Error("source/destination track indexes must be distinct bounded integers");
+
+const sha256 = (value) => createHash("sha256").update(value).digest("hex");
+const readJson = (path, label) => { try { return JSON.parse(readFileSync(path, "utf8")); } catch (cause) { throw new Error(`${label} is unreadable or invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`); } };
+const requireRegular = (path, label) => { const stat = lstatSync(path); if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`${label} must be an exact regular file`); return stat; };
+const receiptEntry = requireRegular(receiptPath, "PHASE8 receipt");
+if (process.platform !== "win32" && (receiptEntry.mode & 0o077) !== 0) throw new Error("PHASE8 receipt must be owner-only");
+const receipt = readJson(receiptPath, "PHASE8 receipt");
+const receiptPaths = [receipt.packageRoot, receipt.stateDirectory, receipt.remoteScriptsDirectory, receipt.remoteScriptDirectory, receipt.configPath, receipt.secretPath];
+const lifecycleActions = new Set(["install", "activate", "upgrade", "repair", "rollback", "uninstall", "status"]);
+if (receipt.version !== 1 || receipt.status !== "activated" || !Number.isSafeInteger(receipt.generation) || receipt.generation < 1 || receipt.platform !== process.platform || !lifecycleActions.has(receipt.lastAction) || receiptPaths.some((path) => typeof path !== "string" || !isAbsolute(path)) || !receipt.remoteFiles || typeof receipt.remoteFiles !== "object" || Array.isArray(receipt.remoteFiles) || receipt.activation?.required !== false || receipt.activation?.realLiveVerified !== true || receipt.activation?.provenance !== "real-live") throw new Error("PHASE8 receipt is not a valid activated real-Live lifecycle receipt");
+if (receipt.artifactSha256 !== tarballSha256 || receipt.registryHash !== expectedRegistryHash) throw new Error("PHASE8 receipt does not bind the expected artifact and registry");
+const packageRoot = realpathSync(receipt.packageRoot);
+const expectedCli = resolve(packageRoot, "dist/src/cli.js"); requireRegular(expectedCli, "installed CLI");
+if (realpathSync(cli) !== expectedCli) throw new Error("PHASE8_CLI is not the receipt-owned installed CLI");
+requireRegular(config, "receipt-owned active bridge configuration");
+if (realpathSync(config) !== realpathSync(receipt.configPath) || realpathSync(config) !== realpathSync(receipt.config?.server?.args?.[2] ?? "")) throw new Error("PHASE8_CONFIG is not the exact receipt-owned active bridge configuration");
+if (!/^[a-f0-9]{64}$/.test(receipt.configSha256 ?? "") || sha256(readFileSync(config)) !== receipt.configSha256) throw new Error("receipt-owned active bridge configuration bytes have drifted");
+if (realpathSync(receipt.config?.server?.args?.[0] ?? "") !== expectedCli) throw new Error("receipt server command does not launch the exact installed CLI");
+const manifestPath = resolve(packageRoot, "release-manifest.json"); requireRegular(manifestPath, "installed release manifest");
+const manifestBytes = readFileSync(manifestPath); const manifest = readJson(manifestPath, "installed release manifest");
+if (sha256(manifestBytes) !== receipt.releaseManifestSha256 || manifest.source?.commit !== expectedGitSha || manifest.source?.dirty !== false || manifest.protocol?.registryHash !== expectedRegistryHash) throw new Error("installed release manifest does not bind the exact clean Git candidate and registry");
+const expectedFiles = new Set(["release-manifest.json", ...Object.keys(manifest.files ?? {})]);
+for (const [name, digest] of Object.entries(manifest.files ?? {})) {
+  const path = resolve(packageRoot, name); if (relative(packageRoot, path).startsWith("..")) throw new Error("release manifest path escapes the package root");
+  requireRegular(path, `installed package file ${name}`); if (sha256(readFileSync(path)) !== digest) throw new Error(`installed package file drift: ${name}`);
+}
+const installedFiles = [];
+const walkInstalled = (directory) => { for (const entry of readdirSync(directory, { withFileTypes: true })) { const path = resolve(directory, entry.name); if (entry.isSymbolicLink()) throw new Error(`installed package contains a symlink: ${relative(packageRoot, path)}`); if (entry.isDirectory()) walkInstalled(path); else if (entry.isFile()) installedFiles.push(relative(packageRoot, path).split(sep).join("/")); else throw new Error(`installed package contains a special file: ${relative(packageRoot, path)}`); } };
+walkInstalled(packageRoot);
+if (installedFiles.some((name) => !expectedFiles.has(name)) || [...expectedFiles].some((name) => !installedFiles.includes(name))) throw new Error("installed package file inventory differs from the exact release manifest");
+const remoteRootEntry = lstatSync(receipt.remoteScriptDirectory); if (!remoteRootEntry.isDirectory() || remoteRootEntry.isSymbolicLink()) throw new Error("receipt-owned Remote Script root must be an exact directory");
+const packagedRemotePrefix = "remote-script/AbletonMcpBridge/";
+const packagedRemote = Object.fromEntries(Object.entries(manifest.files ?? {}).filter(([name]) => name.startsWith(packagedRemotePrefix) && manifest.roles?.[name] === "ableton-remote-script").map(([name, digest]) => [name.slice(packagedRemotePrefix.length), digest]));
+const packagedRemoteNames = Object.keys(packagedRemote).sort();
+if (JSON.stringify(packagedRemoteNames) !== JSON.stringify(["__init__.py", "ableton-live-v1.operations.json", "ableton_mcp_remote_script.py", "manifest.json"])) throw new Error("release manifest does not contain the exact installable Remote Script payload");
+const expectedRemoteDigests = {
+  ...packagedRemote,
+  "__pycache__": sha256(Buffer.alloc(0)),
+  "bridge-reference.json": sha256(`${JSON.stringify({ config: receipt.configPath })}\n`),
+};
+const receiptRemoteNames = Object.keys(receipt.remoteFiles).sort(); const expectedRemoteNames = Object.keys(expectedRemoteDigests).sort();
+if (JSON.stringify(receiptRemoteNames) !== JSON.stringify(expectedRemoteNames) || expectedRemoteNames.some((name) => receipt.remoteFiles[name] !== expectedRemoteDigests[name])) throw new Error("lifecycle receipt Remote Script hashes are not derived from the verified package and generated install files");
+const remoteScriptRoot = realpathSync(receipt.remoteScriptDirectory); const expectedRemoteFiles = new Set(expectedRemoteNames); const installedRemoteFiles = [];
+const walkRemote = (directory) => { for (const entry of readdirSync(directory, { withFileTypes: true })) { const path = resolve(directory, entry.name); const name = relative(remoteScriptRoot, path).split(sep).join("/"); if (entry.isSymbolicLink()) throw new Error(`installed Remote Script contains a symlink: ${name}`); if (entry.isDirectory()) walkRemote(path); else if (entry.isFile()) installedRemoteFiles.push(name); else throw new Error(`installed Remote Script contains a special file: ${name}`); } };
+walkRemote(remoteScriptRoot);
+if (installedRemoteFiles.some((name) => !expectedRemoteFiles.has(name)) || [...expectedRemoteFiles].some((name) => !installedRemoteFiles.includes(name))) throw new Error("installed Remote Script inventory differs from the package-derived lifecycle inventory");
+for (const [name, digest] of Object.entries(expectedRemoteDigests)) { const path = resolve(remoteScriptRoot, name); if (relative(remoteScriptRoot, path).startsWith("..")) throw new Error("Remote Script path escapes the managed root"); requireRegular(path, `installed Remote Script file ${name}`); if (sha256(readFileSync(path)) !== digest) throw new Error(`installed Remote Script differs from verified package/generated bytes: ${name}`); }
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const rawEntries = () => {
@@ -135,10 +190,11 @@ const captureSummary = (result) => ({
 });
 
 const evidence = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   generatedAt: new Date().toISOString(),
   live: { version: liveVersion, application: "Ableton Live", platform: process.platform },
-  package: { name: "@ableton-mcp/mcp-server", version: "0.1.0", installMode: "npm install from npm pack artifact", tarballSha256 },
+  package: { name: "@ableton-mcp/mcp-server", version: manifest.package.version, installMode: "receipt-owned npm pack artifact", gitSha: expectedGitSha, tarballSha256, registryHash: expectedRegistryHash, receiptPath: realpathSync(receiptPath), packageRoot, releaseManifestSha256: receipt.releaseManifestSha256, installedFileCount: installedFiles.length, remoteFileCount: Object.keys(receipt.remoteFiles ?? {}).length },
+  candidateBinding: { receiptStatus: receipt.status, lifecycleGeneration: receipt.generation, activation: receipt.activation, manifestSource: manifest.source, manifestProtocol: manifest.protocol, installedPackageInventoryExact: true, installedRemoteFilesExact: true },
   checks: {},
 };
 
@@ -148,11 +204,18 @@ let baselineVolume;
 let mixerNeedsRestore = false;
 let temporaryDeviceInserted = false;
 let temporaryDeviceRef;
+let temporaryDeviceTransactionId;
+let temporaryDeviceAuthority = null;
 let noteTransaction = null;
+let noteAuthority = null;
+let mixerAuthority = null;
 let originalNotePatches = [];
 let rawBaseline;
 try {
   await client.init();
+  const initialServer = await client.call("server_status");
+  if (initialServer.live.adapter !== "remote-script" || initialServer.live.provenance !== "real-live" || initialServer.live.registryHash !== expectedRegistryHash || !initialServer.live.capabilities.includes("audio.capture.resampling")) throw new Error("runtime Live status does not match the exact real-Live candidate binding before mutation");
+  evidence.live.status = { adapter: initialServer.live.adapter, provenance: initialServer.live.provenance, epoch: initialServer.live.epoch, registryHash: initialServer.live.registryHash, captureCapability: true, captureOperations: initialServer.live.operations.filter((operation) => operation.startsWith("audio.capture.")) };
   let playback = (await client.call("live_discover", { kind: "session-playback" })).items[0];
   if (playback.transport.playing || playback.transport.arrangementRecord || playback.transport.sessionRecord || playback.firedTargets.length || playback.playingTargets.length) {
     const expectedTargets = [...playback.firedTargets, ...playback.playingTargets].map((target) => `${target.trackRef}|${target.clipSlotRef}|${target.sceneRef}`);
@@ -172,12 +235,13 @@ try {
 
   const search = await client.call("live_browser_search", { category: "instruments", query: "Operator", limit: 5 });
   const loadPreview = await client.call("live_browser_load_preview", { itemId: search.items[0].id, trackRef: source.ref });
-  temporaryDeviceInserted = true;
-  const loadedDevice = await client.call("live_browser_load_apply", { transactionId: loadPreview.transactionId, confirmation: "apply", idempotencyKey: `phase8-device-${Date.now()}` });
-  temporaryDeviceRef = loadedDevice.deviceRef;
+  const deviceApplyKey = `phase8-device-${Date.now()}`; temporaryDeviceTransactionId = loadPreview.transactionId; temporaryDeviceInserted = true;
+  temporaryDeviceAuthority = { phase: "apply", applyTool: "live_browser_load_apply", applyArgs: { transactionId: loadPreview.transactionId, confirmation: "apply", idempotencyKey: deviceApplyKey }, undoArgs: { transactionId: loadPreview.transactionId, confirmation: "undo", idempotencyKey: `${deviceApplyKey}-undo` } };
+  const loadedDevice = await client.call(temporaryDeviceAuthority.applyTool, temporaryDeviceAuthority.applyArgs);
+  temporaryDeviceAuthority.phase = "applied"; temporaryDeviceRef = loadedDevice.deviceRef;
   tracks = (await client.call("live_discover", { kind: "track" })).items;
   const server = await client.call("server_status");
-  evidence.live.status = { adapter: server.live.adapter, provenance: server.live.provenance, epoch: server.live.epoch, registryHash: server.live.registryHash, captureCapability: server.live.capabilities.includes("audio.capture.resampling"), captureOperations: server.live.operations.filter((operation) => operation.startsWith("audio.capture.")) };
+  if (server.live.adapter !== evidence.live.status.adapter || server.live.provenance !== evidence.live.status.provenance || server.live.epoch !== evidence.live.status.epoch || server.live.registryHash !== expectedRegistryHash) throw new Error("runtime Live binding changed during initial mutation verification");
   evidence.checks.preparation = { sourceClip: "pre-existing-disposable", temporaryDevice: "Operator", destinationRoute: "operator-prepared-No Input" };
 
   const clip = tracks[sourceTrackIndex].clips[0];
@@ -185,7 +249,9 @@ try {
   const deterministicNotes = clip.notes.map((note) => ({ id: note.id, probability: 1, velocityDeviation: 0 }));
   if (deterministicNotes.length) {
     noteTransaction = await client.call("live_note_update_preview", { clipRef: clip.ref, notes: deterministicNotes });
-    await client.call("live_note_update_apply", { transactionId: noteTransaction.transactionId, confirmation: "apply", idempotencyKey: `phase8-notes-${Date.now()}` });
+    const noteApplyKey = `phase8-notes-${Date.now()}`;
+    noteAuthority = { phase: "apply", applyTool: "live_note_update_apply", applyArgs: { transactionId: noteTransaction.transactionId, confirmation: "apply", idempotencyKey: noteApplyKey }, undoArgs: { transactionId: noteTransaction.transactionId, confirmation: "undo", idempotencyKey: `${noteApplyKey}-undo` } };
+    await client.call(noteAuthority.applyTool, noteAuthority.applyArgs); noteAuthority.phase = "applied";
   }
 
   tracks = (await client.call("live_discover", { kind: "track" })).items;
@@ -208,19 +274,19 @@ try {
   const originalVolume = tracks[sourceTrackIndex].mixer.volume;
   const experimentalVolume = Math.round(originalVolume * 0.9 * 1e6) / 1e6;
   const lowerPreview = await client.call("live_mixer_preview", { trackRef: tracks[sourceTrackIndex].ref, volume: experimentalVolume });
-  mixerNeedsRestore = true;
-  await client.call("live_mixer_apply", { transactionId: lowerPreview.transactionId, confirmation: "apply", idempotencyKey: `phase8-mixer-down-${Date.now()}` });
+  const mixerApplyKey = `phase8-mixer-down-${Date.now()}`; mixerNeedsRestore = true;
+  mixerAuthority = { phase: "apply", applyTool: "live_mixer_apply", applyArgs: { transactionId: lowerPreview.transactionId, confirmation: "apply", idempotencyKey: mixerApplyKey }, undoArgs: { transactionId: lowerPreview.transactionId, confirmation: "undo", idempotencyKey: `${mixerApplyKey}-undo` } };
+  await client.call(mixerAuthority.applyTool, mixerAuthority.applyArgs); mixerAuthority.phase = "applied";
   tracks = (await client.call("live_discover", { kind: "track" })).items;
   const secondPreview = await capturePreview(client, tracks);
   const second = await captureApply(client, secondPreview, `phase8-capture-two-${Date.now()}`);
-  const restorePreview = await client.call("live_mixer_preview", { trackRef: tracks[sourceTrackIndex].ref, volume: originalVolume });
-  await client.call("live_mixer_apply", { transactionId: restorePreview.transactionId, confirmation: "apply", idempotencyKey: `phase8-mixer-restore-${Date.now()}` });
-  mixerNeedsRestore = false;
+  mixerAuthority.phase = "undo"; await client.call("live_undo", mixerAuthority.undoArgs);
+  mixerAuthority = null; mixerNeedsRestore = false;
   evidence.checks.controlledAdjustment = { previewTool: "live_mixer_preview", normalizedVolume: { before: originalVolume, experimental: experimentalVolume, restored: originalVolume }, measurementBefore: captureSummary(first), measurementAfter: captureSummary(second), integratedDeltaLu: second.analysis.standardsAudio.loudness.integratedLufs - first.analysis.standardsAudio.loudness.integratedLufs, claim: "controlled reversible intervention; normalized volume is not represented as a promised dB change" };
 
-  if (noteTransaction) {
-    await client.call("live_undo", { transactionId: noteTransaction.transactionId, confirmation: "undo", idempotencyKey: `phase8-notes-undo-${Date.now()}` });
-    noteTransaction = null;
+  if (noteAuthority) {
+    noteAuthority.phase = "undo"; await client.call("live_undo", noteAuthority.undoArgs);
+    noteAuthority = null; noteTransaction = null;
   }
 
   tracks = (await client.call("live_discover", { kind: "track" })).items;
@@ -242,6 +308,10 @@ try {
   await sleep(10_000);
   if (cancellationResponseObserved || client.child.exitCode !== null || client.child.killed) throw new Error("cancelled MCP request was not suppressed while the original packaged host remained alive");
   client.forget(pending.id);
+  temporaryDeviceAuthority.phase = "undo"; await client.call("live_undo", temporaryDeviceAuthority.undoArgs);
+  temporaryDeviceInserted = false; temporaryDeviceRef = undefined; temporaryDeviceTransactionId = undefined; temporaryDeviceAuthority = null;
+  tracks = (await client.call("live_discover", { kind: "track" })).items;
+  if (tracks[sourceTrackIndex].devices.length !== 0) throw new Error("transaction-owned temporary device cleanup was not confirmed before replacing its owning Host");
   await client.close();
 
   client = new Client("post-cancel");
@@ -279,14 +349,6 @@ try {
   evidence.checks.hostRestartWatchdog = { observed: { state: orphan.state, active: orphan.active, playbackStopped: orphan.playbackStopped, watchdogStopped: orphan.watchdogStopped, clipFileAvailable: orphan.clip?.fileAvailable === true }, recovery: recovered, finalStatus: captureStatus, playback: { playing: playback.transport.playing, arrangementRecord: playback.transport.arrangementRecord, sessionRecord: playback.transport.sessionRecord }, rawFileCount: rawEntries().length, rawBaselineUnchanged: rawUnchanged(rawBaseline) };
   if (recovered.state !== "cleaned" || recovered.cleanup?.safe !== true || (Array.isArray(recovered.cleanup?.residual) && recovered.cleanup.residual.length > 0) || captureStatus.state !== "cleaned" || captureStatus.active !== false || captureStatus.playbackStopped !== true || (Array.isArray(captureStatus.residual) && captureStatus.residual.length > 0) || !rawUnchanged(rawBaseline)) throw new Error("restart recovery failed");
 
-  tracks = (await client.call("live_discover", { kind: "track" })).items;
-  const operator = tracks[sourceTrackIndex].devices.find((device) => device.name === "Operator");
-  if (!operator) throw new Error("temporary Operator device disappeared before exact cleanup");
-  const deletePreview = await client.call("live_device_preview", { action: "delete", deviceRef: operator.ref });
-  await client.call("live_device_apply", { transactionId: deletePreview.transactionId, confirmation: "apply", idempotencyKey: `phase8-device-delete-${Date.now()}` });
-  temporaryDeviceInserted = false;
-  temporaryDeviceRef = undefined;
-
   const finalTracks = (await client.call("live_discover", { kind: "track" })).items;
   const finalPlayback = (await client.call("live_discover", { kind: "session-playback" })).items[0];
   const finalCapture = await client.call("live_audio_capture_status");
@@ -322,41 +384,35 @@ try {
         }
       } catch (cause) { cleanupFailures.push(`capture:${cause instanceof Error ? cause.message : "failed"}`); }
 
+      const finishOwnedMutation = async (authority) => {
+        if (!authority) return;
+        if (authority.phase === "apply") { await client.call(authority.applyTool, authority.applyArgs); authority.phase = "applied"; }
+        if (authority.phase === "applied") authority.phase = "undo";
+        if (authority.phase === "undo") { await client.call("live_undo", authority.undoArgs); authority.phase = "undone"; }
+      };
+      let mixerRecoveryError; let noteRecoveryError; let deviceRecoveryError;
+      if (mixerAuthority) try { await finishOwnedMutation(mixerAuthority); } catch (cause) { mixerRecoveryError = cause; }
+      if (noteAuthority) try { await finishOwnedMutation(noteAuthority); } catch (cause) { noteRecoveryError = cause; }
+      if (temporaryDeviceAuthority) try { await finishOwnedMutation(temporaryDeviceAuthority); } catch (cause) { deviceRecoveryError = cause; }
+
       let cleanupTracks = (await client.call("live_discover", { kind: "track" })).items;
       if (mixerNeedsRestore && Number.isFinite(baselineVolume)) {
-        if (cleanupTracks[sourceTrackIndex]?.mixer?.volume === baselineVolume) mixerNeedsRestore = false;
-        else {
-          try {
-            const preview = await client.call("live_mixer_preview", { trackRef: cleanupTracks[sourceTrackIndex].ref, volume: baselineVolume });
-            await client.call("live_mixer_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: `phase8-failure-volume-${Date.now()}` });
-            mixerNeedsRestore = false;
-          } catch (cause) { cleanupFailures.push(`mixer:${cause instanceof Error ? cause.message : "failed"}`); }
-        }
+        if (cleanupTracks[sourceTrackIndex]?.mixer?.volume === baselineVolume) { mixerNeedsRestore = false; mixerAuthority = null; }
+        else cleanupFailures.push(`mixer:exact apply/undo reconciliation failed${mixerRecoveryError instanceof Error ? `: ${mixerRecoveryError.message}` : ""}`);
       }
-      if (noteTransaction && originalNotePatches.length && cleanupTracks[sourceTrackIndex]?.clips?.[0]) {
-        try {
-          const preview = await client.call("live_note_update_preview", { clipRef: cleanupTracks[sourceTrackIndex].clips[0].ref, notes: originalNotePatches });
-          await client.call("live_note_update_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: `phase8-failure-notes-${Date.now()}` });
-          noteTransaction = null;
-        } catch (cause) { cleanupFailures.push(`notes:${cause instanceof Error ? cause.message : "failed"}`); }
+      if (noteAuthority && originalNotePatches.length) {
+        const currentNotes = cleanupTracks[sourceTrackIndex]?.clips?.[0]?.notes ?? [];
+        const notesRestored = originalNotePatches.every((patch) => {
+          const current = currentNotes.find((note) => note.id === patch.id);
+          return current && current.probability === patch.probability && current.velocityDeviation === patch.velocityDeviation;
+        });
+        if (notesRestored) { noteAuthority = null; noteTransaction = null; }
+        else cleanupFailures.push(`notes:exact apply/undo reconciliation failed${noteRecoveryError instanceof Error ? `: ${noteRecoveryError.message}` : ""}`);
       }
-      cleanupTracks = (await client.call("live_discover", { kind: "track" })).items;
+      const devices = cleanupTracks[sourceTrackIndex]?.devices ?? [];
       if (temporaryDeviceInserted) {
-        const devices = cleanupTracks[sourceTrackIndex]?.devices ?? [];
-        const temporary = temporaryDeviceRef
-          ? devices.find((device) => device.ref === temporaryDeviceRef)
-          : devices.length === 1 && devices[0]?.name === "Operator" ? devices[0] : undefined;
-        if (!temporary) {
-          if (devices.length === 0) { temporaryDeviceInserted = false; temporaryDeviceRef = undefined; }
-          else cleanupFailures.push("device:unidentified-device-remains-after-lost-acknowledgement");
-        } else {
-          try {
-            const preview = await client.call("live_device_preview", { action: "delete", deviceRef: temporary.ref });
-            await client.call("live_device_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: `phase8-failure-device-${Date.now()}` });
-            temporaryDeviceInserted = false;
-            temporaryDeviceRef = undefined;
-          } catch (cause) { cleanupFailures.push(`device:${cause instanceof Error ? cause.message : "failed"}`); }
-        }
+        if (devices.length === 0) { temporaryDeviceInserted = false; temporaryDeviceRef = undefined; temporaryDeviceTransactionId = undefined; temporaryDeviceAuthority = null; }
+        else cleanupFailures.push(`device:exact apply/undo reconciliation left ${devices.length} device(s)${deviceRecoveryError instanceof Error ? `: ${deviceRecoveryError.message}` : ""}`);
       }
       cleanupTracks = (await client.call("live_discover", { kind: "track" })).items;
       if (Number.isFinite(baselineVolume) && cleanupTracks[sourceTrackIndex]?.mixer?.volume !== baselineVolume) cleanupFailures.push("mixer:baseline-not-restored");

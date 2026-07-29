@@ -41,8 +41,11 @@ def _debug_trace(context: str) -> None:
     except OSError:
         pass
 
-METHODS = {"status", "snapshot", "discover", "get", "preflight", "prepare", "invoke", "subscribe", "reconnect"}
+METHODS = {"status", "snapshot", "discover", "get", "preflight", "prepare", "invoke", "subscribe", "reconnect", "retire"}
 _READ_ONLY_INVOKES = {"session.playback", "automation.envelope.read", "browser.search", "browser.inspect", "audio.capture.inspect", "audio.capture.status", "realtime.stats", "session.reconnect"}
+_TRANSACTION_CREATIONS = {"track.create", "scene.create", "clip.create", "clip.duplicate", "arrangement.clip.create", "browser.load", "device.insert", "session.capture-midi", "scene.capture", "locator.add"}
+_TRANSACTION_DELETIONS = {"track.delete", "scene.delete", "clip.delete", "arrangement.clip.delete", "device.delete", "locator.delete"}
+_OWNED_CONTENT_MUTATIONS = {"note.add", "note.add-batch", "note.update", "note.delete"}
 def _mutation_authority_required(operation: str) -> bool: return operation not in _READ_ONLY_INVOKES
 
 def _require_output_safety(args: dict[str, Any]) -> None:
@@ -90,8 +93,10 @@ def operation_registry() -> tuple[dict[str, Any], str]:
             if value is not None and (not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not -2**53 < float(value) < 2**53):
                 raise ValueError("invalid operation schema bound")
         if "object" in declared_types:
-            if not isinstance(schema.get("additionalProperties"), bool) or schema["additionalProperties"] and "maxProperties" not in schema:
+            additional = schema.get("additionalProperties")
+            if not isinstance(additional, (bool, dict)) or additional is not False and "maxProperties" not in schema:
                 raise ValueError("object schema must be bounded")
+            if isinstance(additional, dict): validate_schema(additional, depth + 1)
             properties = schema.get("properties", {})
             if not isinstance(properties, dict) or len(properties) > 64:
                 raise ValueError("invalid operation schema properties")
@@ -152,7 +157,11 @@ def validate_registry_value(schema: dict[str, Any], value: Any, path: str = "$")
         properties = schema.get("properties", {})
         for required in schema.get("required", []):
             if required not in value: raise ValueError(f"{path}.{required} is required")
-        if schema.get("additionalProperties") is False and set(value) - set(properties): raise ValueError(f"{path} contains unknown properties")
+        additional = schema.get("additionalProperties")
+        unknown = set(value) - set(properties)
+        if additional is False and unknown: raise ValueError(f"{path} contains unknown properties")
+        if isinstance(additional, dict):
+            for key in unknown: validate_registry_value(additional, value[key], f"{path}.{key}")
         for key, child in properties.items():
             if key in value: validate_registry_value(child, value[key], f"{path}.{key}")
 
@@ -237,20 +246,21 @@ class AuthenticatedRemoteScript:
     def _operation_contract(self, request: dict[str, Any]) -> tuple[str, Any]:
         method = request["method"]
         if method in {"status", "snapshot", "reconnect"}: return method, {}
+        if method == "retire": return "authority.retire", {"transactionId": request.get("transactionId"), **({"terminal": request["terminal"]} if "terminal" in request else {})}
         if method == "discover":
             args = dict(request.get("args", {}))
             return ("session.playback", {}) if args.get("kind") == "session_playback" else ("discover", args)
         if method == "get": return "get", {"ref": request.get("ref")}
         if method in {"preflight", "prepare"}:
             args = dict(request.get("args", {})); operation = str(request.get("operation")); digest = hashlib.sha256(self._bounded_canonical(args).encode("utf-8")).hexdigest()
-            if method == "preflight": return "authority.preflight", {"operation": operation, "argsDigest": digest}
-            return "authority.prepare", {"operation": operation, "argsDigest": digest, "preflightToken": request.get("preflightToken"), "confirmation": request.get("confirmation"), "idempotencyKey": request.get("idempotencyKey")}
+            if method == "preflight": return "authority.preflight", {"operation": operation, "argsDigest": digest, "transactionId": request.get("transactionId")}
+            return "authority.prepare", {"operation": operation, "argsDigest": digest, "transactionId": request.get("transactionId"), "preflightToken": request.get("preflightToken"), "confirmation": request.get("confirmation"), "idempotencyKey": request.get("idempotencyKey")}
         if method == "invoke": return str(request.get("operation")), dict(request.get("args", {}))
         return method, dict(request.get("args", {}))
 
     def dispatch(self, request: dict[str, Any]) -> dict[str, Any]:
         required = {"version", "id", "method", "nonce", "sequence", "bridgeEpoch", "connectionChallenge", "deadlineMs", "mac"}
-        optional = {"ref", "property", "value", "operation", "args", "preflightToken", "confirmation", "idempotencyKey", "authorityToken"}
+        optional = {"ref", "property", "value", "operation", "args", "preflightToken", "confirmation", "idempotencyKey", "authorityToken", "transactionId", "ownershipToken", "terminal"}
         if not isinstance(request, dict) or set(request) - required - optional or not required <= set(request):
             return self._error("invalid", "invalid request")
         unsigned = {key: value for key, value in request.items() if key != "mac"}
@@ -265,7 +275,10 @@ class AuthenticatedRemoteScript:
             or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", request["id"])
             or request["method"] not in METHODS
             or (request["method"] == "prepare" and (not isinstance(request.get("preflightToken"), str) or not 24 <= len(request["preflightToken"]) <= 128 or not isinstance(request.get("confirmation"), str) or not 24 <= len(request["confirmation"]) <= 128 or not isinstance(request.get("idempotencyKey"), str) or not 8 <= len(request["idempotencyKey"]) <= 128))
-            or (request["method"] == "invoke" and _mutation_authority_required(str(request.get("operation"))) and (not isinstance(request.get("authorityToken"), str) or not 24 <= len(request["authorityToken"]) <= 128))
+            or (request["method"] in {"preflight", "prepare"} and (not isinstance(request.get("transactionId"), str) or not 8 <= len(request["transactionId"]) <= 128))
+            or (request["method"] == "invoke" and _mutation_authority_required(str(request.get("operation"))) and (not isinstance(request.get("authorityToken"), str) or not 24 <= len(request["authorityToken"]) <= 128 or not isinstance(request.get("transactionId"), str) or not 8 <= len(request["transactionId"]) <= 128))
+            or ("ownershipToken" in request and (not isinstance(request["ownershipToken"], str) or not 32 <= len(request["ownershipToken"]) <= 128))
+            or (request["method"] == "retire" and (not isinstance(request.get("transactionId"), str) or not 8 <= len(request["transactionId"]) <= 128 or ("terminal" in request and not isinstance(request["terminal"], bool))))
             or not isinstance(request["nonce"], str)
             or not isinstance(request["sequence"], int) or isinstance(request["sequence"], bool)
             or not 1 <= request["sequence"] <= (2**53 - 1)
@@ -324,20 +337,16 @@ class ReferenceRegistry:
         self._cursor_key = secrets.token_bytes(32)
         self._objects: dict[str, Any] = {}
         self._revisions: dict[str, int] = {}
-        self._object_keys: dict[tuple[str, int], str] = {}
 
     def reset(self) -> None:
         self.epoch = secrets.randbelow(2**53 - 1) + 1
         self._cursor_key = secrets.token_bytes(32)
         self._objects.clear()
         self._revisions.clear()
-        self._object_keys.clear()
 
     def put(self, kind: str, obj: Any, key: str) -> str:
-        # Live hands out fresh proxy objects per read and CPython recycles
-        # id() values, so a setdefault memo keyed by id() aliases stale keys
-        # onto unrelated objects. Always re-assert the traversal-derived key.
-        self._object_keys[(kind, id(obj))] = key
+        # Live hands out fresh proxy objects per read, so always re-assert the
+        # traversal-derived key rather than memoizing by Python proxy identity.
         reference = f"{self.epoch}:{kind}:{key}"
         self._objects[reference] = obj
         self._revisions.setdefault(reference, 1)
@@ -361,14 +370,18 @@ class ReferenceRegistry:
         self.get(reference)
         self._objects.pop(reference, None)
         self._revisions.pop(reference, None)
-        suffix = reference.rsplit(":", 1)[-1]
-        for identity, key in list(self._object_keys.items()):
-            if key == suffix:
-                self._object_keys.pop(identity, None)
+
+    def checkpoint(self) -> tuple[dict[str, Any], dict[str, int]]:
+        return dict(self._objects), dict(self._revisions)
+
+    def restore(self, checkpoint: tuple[dict[str, Any], dict[str, int]]) -> None:
+        self._objects, self._revisions = dict(checkpoint[0]), dict(checkpoint[1])
 
 
 class LiveObjectMapper:
     """Small, version-tolerant Live object mapper used only on Live's main thread."""
+
+    _bounded_canonical = staticmethod(AuthenticatedRemoteScript._bounded_canonical)
 
     def __init__(self, song: Any, registry: ReferenceRegistry | None = None, provenance: str = "fake-live"):
         if provenance not in {"fake-live", "real-live"}:
@@ -377,6 +390,7 @@ class LiveObjectMapper:
         self.refs = registry or ReferenceRegistry()
         self.provenance = provenance
         self._capture_state: dict[str, Any] | None = None
+        self._owned_cleanup_tokens: dict[str, dict[str, Any]] = {}
 
     def status(self) -> dict[str, Any]:
         registry, registry_hash = operation_registry()
@@ -401,7 +415,7 @@ class LiveObjectMapper:
         if operation == "session.playback":
             return True
         if operation == "subscribe":
-            return True
+            return bool(_supported_event_types(self.song) - {"reset"})
         if operation == "transport.set":
             return callable(getattr(self.song, "stop_playing", None)) or hasattr(self.song, "current_song_time")
         if operation == "session.clip-launch":
@@ -411,12 +425,12 @@ class LiveObjectMapper:
         if operation == "tempo.set":
             return isinstance(self._read_attr(self.song, "tempo"), (int, float))
         if operation == "session.capture-midi":
-            return callable(getattr(self.song, "capture_midi", None))
+            return callable(getattr(self.song, "capture_midi", None)) and not any(getattr(slot, "clip", None) is not None for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
         if operation == "scene.capture":
             return callable(getattr(self.song, "capture_and_insert_scene", None))
-        if operation == "clip.duplicate":
-            session = any(getattr(slot, "clip", None) is not None and callable(getattr(slot, "duplicate_clip_to", None)) for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
-            arrangement = any(getattr(slot, "clip", None) is not None and callable(getattr(track, "duplicate_clip_to_arrangement", None)) for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation in {"clip.duplicate", "clip.move"}:
+            session = any(getattr(slot, "clip", None) is not None and callable(getattr(slot, "duplicate_clip_to", None)) and (operation != "clip.move" or callable(getattr(slot, "delete_clip", None))) for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
+            arrangement = operation == "clip.duplicate" and any(getattr(slot, "clip", None) is not None and callable(getattr(track, "duplicate_clip_to_arrangement", None)) for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
             return session or arrangement
         if operation == "arrangement.clip.create":
             return any(callable(getattr(track, "create_midi_clip", None)) for track in self._items(getattr(self.song, "tracks", [])))
@@ -552,15 +566,15 @@ class LiveObjectMapper:
     def _locator_items(self) -> list[dict[str, Any]]:
         if not self._locator_supported():
             return []
-        result = []
-        for index, locator in enumerate(self._items(getattr(self.song, "cue_points", []))):
+        result = []; native_locators = self._items(getattr(self.song, "cue_points", []))
+        if len(native_locators) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("locator collection exceeds its complete-state bound")
+        for index, locator in enumerate(native_locators):
             position = getattr(locator, "time", getattr(locator, "position", None))
-            if not isinstance(position, (int, float)) or not math.isfinite(float(position)):
-                continue
+            if not isinstance(position, (int, float)) or isinstance(position, bool) or not math.isfinite(float(position)): raise ValueError("locator collection contains an unreadable item")
             name = getattr(locator, "name", "")
             reference = self.refs.put("locator", locator, str(index))
-            result.append({"ref": reference, "name": str(name), "position": float(position)})
-        return sorted(result, key=lambda item: (item["position"], item["name"], item["ref"]))
+            result.append({"ref": reference, "objectIdentity": self._capture_object_identity(locator), "name": str(name), "position": float(position)})
+        return result
 
     def _track_kind(self, track: Any) -> str:
         """Read Live's track class without treating a missing property as truth."""
@@ -705,68 +719,91 @@ class LiveObjectMapper:
             "filePath": str(file_path) if isinstance(file_path, str) and file_path else None,
         }
         values["availableAudioFields"] = [field for field in ("gain", "pitchCoarse", "pitchFine", "warpMode", "warping", "fadeInLength", "fadeOutLength", "loopStart", "loopEnd") if values.get(field) is not None]
-        markers = self._items(self._read_attr(clip, "warp_markers") or [])
-        values["warpMarkers"] = [{"beatTime": float(self._read_attr(marker, "beat_time")), "sampleTime": float(self._read_attr(marker, "sample_time"))} for marker in markers[:256] if isinstance(self._read_attr(marker, "beat_time"), (int, float)) and isinstance(self._read_attr(marker, "sample_time"), (int, float))]
+        try:
+            markers = list(getattr(clip, "warp_markers", None) or [])
+        except Exception as error:
+            raise ValueError("complete warp-marker collection is unreadable") from error
+        if len(markers) > 256:
+            raise ValueError("complete warp-marker content exceeds its authoritative bound")
+        marker_rows = []
+        for marker in markers:
+            beat_time = self._read_attr(marker, "beat_time"); sample_time = self._read_attr(marker, "sample_time")
+            if not all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) for value in (beat_time, sample_time)):
+                raise ValueError("complete warp-marker content is unreadable")
+            marker_rows.append({"beatTime": float(beat_time), "sampleTime": float(sample_time)})
+        values["warpMarkers"] = marker_rows
         values["warpMarkerEditingAvailable"] = False
         return values
+
+    def _clip_content_fingerprint(self, clip: Any) -> str:
+        length = self._read_attr(clip, "length")
+        if not isinstance(length, (int, float)) or isinstance(length, bool) or not math.isfinite(float(length)) or float(length) < 0: raise ValueError("clip content length is unavailable")
+        notes = [{key: value for key, value in note.items() if key != "id"} for note in self._read_notes(clip)]; notes.sort(key=self._bounded_canonical)
+        if len(self._items(self._read_attr(clip, "warp_markers") or [])) > 256: raise ValueError("complete warp-marker content exceeds its authoritative move bound")
+        row = {"name": str(self._read_attr(clip, "name") or ""), "length": float(length), "kind": "midi" if callable(getattr(clip, "add_new_notes", None)) else "audio", "notes": notes, "audio": self._audio_fields(clip)}
+        return hashlib.sha256(self._bounded_canonical(row).encode("utf-8")).hexdigest()
+
+    def _arrangement_clip_row(self, track: Any, clip: Any, track_index: int, clip_index: int) -> dict[str, Any]:
+        track_ref = self.refs.put("track", track, str(track_index)); reference = self.refs.put("arrangement_clip", clip, f"{track_index}:{clip_index}"); notes = self._read_notes(clip)
+        return {"ref": reference, "objectIdentity": self._capture_object_identity(clip), "parentRef": track_ref, "trackRef": track_ref, "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": float(getattr(clip, "start_time", getattr(clip, "start", 0.0)) or 0.0), "length": float(getattr(clip, "length", 0.0) or 0.0), "notes": notes, "notesRevision": hashlib.sha256(self._bounded_canonical(notes).encode("utf-8")).hexdigest(), **self._audio_fields(clip)}
 
     def _arrangement_clip_items(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         song_level = self._items(getattr(self.song, "arrangement_clips", []))
         if song_level:
             for index, clip in enumerate(song_level):
-                reference = self.refs.put("arrangement_clip", clip, str(index))
+                reference = self.refs.put("arrangement_clip", clip, str(index)); notes = self._read_notes(clip)
                 rows.append({
                     "ref": reference,
+                    "objectIdentity": self._capture_object_identity(clip),
                     "parentRef": self.refs.put("set", self.song, "song"),
                     "trackRef": None,
                     "name": str(getattr(clip, "name", "")),
                     "kind": "midi" if hasattr(clip, "add_new_notes") else "audio",
                     "start": float(getattr(clip, "start_time", getattr(clip, "start", 0.0)) or 0.0),
                     "length": float(getattr(clip, "length", 0.0) or 0.0),
+                    "notes": notes,
+                    "notesRevision": hashlib.sha256(self._bounded_canonical(notes).encode("utf-8")).hexdigest(),
                     **self._audio_fields(clip),
                 })
             return rows
         for track_index, track in enumerate(self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", []))):
             track_ref = self.refs.put("track", track, str(track_index))
             for clip_index, clip in enumerate(self._items(self._read_attr(track, "arrangement_clips") or [])):
-                reference = self.refs.put("arrangement_clip", clip, f"{track_index}:{clip_index}")
-                rows.append({
-                    "ref": reference,
-                    "parentRef": track_ref,
-                    "trackRef": track_ref,
-                    "name": str(getattr(clip, "name", "")),
-                    "kind": "midi" if hasattr(clip, "add_new_notes") else "audio",
-                    "start": float(getattr(clip, "start_time", getattr(clip, "start", 0.0)) or 0.0),
-                    "length": float(getattr(clip, "length", 0.0) or 0.0),
-                    **self._audio_fields(clip),
-                })
+                rows.append(self._arrangement_clip_row(track, clip, track_index, clip_index))
         return rows
 
     def _device_items(self, track: Any, track_index: int) -> list[dict[str, Any]]:
         devices = self._items(getattr(track, "devices", getattr(track, "device_chain", [])))
-        rows: list[dict[str, Any]] = []
-        track_ref = self.refs.put("track", track, str(track_index))
+        if len(devices) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("device collection exceeds its bound")
+        rows: list[dict[str, Any]] = []; track_ref = self.refs.put("track", track, str(track_index)); traversal: dict[str, Any] = {"count": 0, "seen": set()}
         for index, device in enumerate(devices):
             device_ref = self.refs.put("device", device, f"{track_index}:{index}")
-            rows.append(self._device_row(device, device_ref, track_ref, track_index, f"{track_index}:{index}", index))
+            rows.append(self._device_row(device, device_ref, track_ref, track_index, f"{track_index}:{index}", index, traversal, 0))
         return rows
 
     def _flatten_device_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        flattened: list[dict[str, Any]] = []
-        def visit(device: dict[str, Any]) -> None:
-            flattened.append(device)
+        flattened: list[dict[str, Any]] = []; seen: set[str] = set()
+        def visit(device: dict[str, Any], depth: int = 0) -> None:
+            reference = str(device.get("ref", ""))
+            if depth > 32 or not reference or reference in seen or len(flattened) >= MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("device row hierarchy is cyclic, ambiguous, or exceeds its bound")
+            seen.add(reference); flattened.append(device)
             for chain in device.get("chains", []):
-                for nested in chain.get("devices", []): visit(nested)
+                for nested in chain.get("devices", []): visit(nested, depth + 1)
             for pad in device.get("drumPads", []):
                 for chain in pad.get("chains", []):
-                    for nested in chain.get("devices", []): visit(nested)
+                    for nested in chain.get("devices", []): visit(nested, depth + 1)
         for row in rows: visit(row)
-        return flattened[:MAX_DISCOVERY_COLLECTION_LENGTH]
+        return flattened
 
-    def _device_row(self, device: Any, device_ref: str, track_ref: str, track_index: int, path: str, index: int) -> dict[str, Any]:
-        parameters: list[dict[str, Any]] = []
-        for parameter_index, parameter in enumerate(self._items(getattr(device, "parameters", []))[:MAX_DISCOVERY_COLLECTION_LENGTH]):
+    def _device_row(self, device: Any, device_ref: str, track_ref: str, track_index: int, path: str, index: int, traversal: dict[str, Any], depth: int) -> dict[str, Any]:
+        identity = self._capture_object_identity(device); seen = traversal["seen"]
+        if depth > 32 or identity in seen: raise ValueError("device hierarchy is cyclic or identity-ambiguous")
+        seen.add(identity); traversal["count"] += 1
+        if traversal["count"] > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("device hierarchy exceeds its traversal bound")
+        parameters: list[dict[str, Any]] = []; native_parameters = self._items(getattr(device, "parameters", []))
+        if len(native_parameters) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("device parameter collection exceeds its complete-state bound")
+        for parameter_index, parameter in enumerate(native_parameters):
             minimum = self._read_attr(parameter, "min", "min_value")
             maximum = self._read_attr(parameter, "max", "max_value")
             value = self._read_attr(parameter, "value")
@@ -807,23 +844,26 @@ class LiveObjectMapper:
             "parameters": parameters,
         }
         if row["canHaveChains"] is True:
-            row["chains"] = self._chain_rows(device, device_ref, track_index, path)
+            row["chains"] = self._chain_rows(device, device_ref, track_index, path, traversal, depth)
             row["chainSelector"] = self._read_attr(device, "chain_selector")
             macros = self._items(self._read_attr(device, "macros") or [])
+            if len(macros) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("device macro collection exceeds its bound")
             row["macros"] = [{"ref": self.refs.put("parameter", macro, f"{device_ref}:macro:{macro_index}"), "objectIdentity": self._capture_object_identity(macro), "name": str(self._read_attr(macro, "name") or f"Macro {macro_index + 1}"), "value": self._read_attr(macro, "value")} for macro_index, macro in enumerate(macros)]
             row["variationCount"] = len(self._items(self._read_attr(device, "variations") or []))
         if row["canHaveDrumPads"] is True:
-            row["drumPads"] = self._drum_pad_rows(device, device_ref, track_index, path)
+            row["drumPads"] = self._drum_pad_rows(device, device_ref, track_index, path, traversal, depth)
         return row
 
-    def _chain_rows(self, parent: Any, parent_ref: str, track_index: int, path: str) -> list[dict[str, Any]]:
-        rows: list[dict[str, Any]] = []
-        for chain_index, chain in enumerate(self._items(self._read_attr(parent, "chains") or [])):
+    def _chain_rows(self, parent: Any, parent_ref: str, track_index: int, path: str, traversal: dict[str, Any], depth: int) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []; chains = self._items(self._read_attr(parent, "chains") or [])
+        if len(chains) > MAX_WIRE_ARRAY_LENGTH: raise ValueError("device chain collection exceeds its wire bound")
+        for chain_index, chain in enumerate(chains):
             chain_ref = self.refs.put("chain", chain, f"{path}:{chain_index}")
-            chain_devices: list[dict[str, Any]] = []
-            for device_index, device in enumerate(self._items(self._read_attr(chain, "devices") or [])):
+            chain_devices: list[dict[str, Any]] = []; devices = self._items(self._read_attr(chain, "devices") or [])
+            if len(devices) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("chain device collection exceeds its bound")
+            for device_index, device in enumerate(devices):
                 nested_ref = self.refs.put("device", device, f"{path}:{chain_index}:{device_index}")
-                chain_devices.append(self._device_row(device, nested_ref, chain_ref, track_index, f"{path}:{chain_index}:{device_index}", device_index))
+                chain_devices.append(self._device_row(device, nested_ref, chain_ref, track_index, f"{path}:{chain_index}:{device_index}", device_index, traversal, depth + 1))
             mute = self._read_attr(chain, "mute")
             solo = self._read_attr(chain, "solo")
             rows.append({
@@ -835,9 +875,10 @@ class LiveObjectMapper:
             })
         return rows
 
-    def _drum_pad_rows(self, device: Any, device_ref: str, track_index: int, path: str) -> list[dict[str, Any]]:
+    def _drum_pad_rows(self, device: Any, device_ref: str, track_index: int, path: str, traversal: dict[str, Any], depth: int) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         pads = self._items(self._read_attr(device, "visible_drum_pads") or self._read_attr(device, "drum_pads") or [])
+        if len(pads) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("drum-pad collection exceeds its bound")
         for pad_index, pad in enumerate(pads):
             pad_ref = self.refs.put("drum_pad", pad, f"{path}:{pad_index}")
             mute = self._read_attr(pad, "mute")
@@ -845,7 +886,7 @@ class LiveObjectMapper:
                 "ref": pad_ref, "parentRef": device_ref, "index": pad_index,
                 "name": str(self._read_attr(pad, "name") or f"Pad {pad_index + 1}"),
                 "mute": bool(mute) if isinstance(mute, bool) else None,
-                "chains": self._chain_rows(pad, pad_ref, track_index, f"{path}:{pad_index}"),
+                "chains": self._chain_rows(pad, pad_ref, track_index, f"{path}:{pad_index}", traversal, depth),
             })
         return rows
 
@@ -855,6 +896,10 @@ class LiveObjectMapper:
             return list(value or [])
         except (TypeError, AttributeError):
             return []
+
+    def _all_track_objects(self) -> list[Any]:
+        tracks = self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", [])); main = getattr(self.song, "master_track", getattr(self.song, "main_track", None))
+        return tracks + ([main] if main is not None else [])
 
     @staticmethod
     def _read_attr(obj: Any, *names: str) -> Any:
@@ -871,7 +916,7 @@ class LiveObjectMapper:
 
     def snapshot(self) -> dict[str, Any]:
         set_ref = self.refs.put("set", self.song, "song")
-        set_row: dict[str, Any] = {"ref": set_ref, "name": str(getattr(self.song, "name", "Live Set"))}
+        set_row: dict[str, Any] = {"ref": set_ref, "objectIdentity": self._capture_object_identity(self.song), "name": str(getattr(self.song, "name", "Live Set"))}
         file_path = getattr(self.song, "file_path", None)
         if isinstance(file_path, str) and file_path:
             set_row["filePath"] = file_path
@@ -895,23 +940,18 @@ class LiveObjectMapper:
             set_row["loop"] = loop_row
         # Song exposes regular/group, return, and main tracks separately; the
         # authoritative collection determines kind rather than shape heuristics.
-        track_kinds: dict[int, str] = {}
-        tracks = []
+        track_entries: list[tuple[Any, str]] = []
         for track in self._items(getattr(self.song, "tracks", [])):
-            track_kinds[id(track)] = self._track_kind(track) if self._track_kind(track) == "group" else "regular"
-            tracks.append(track)
+            track_entries.append((track, self._track_kind(track) if self._track_kind(track) == "group" else "regular"))
         for track in self._items(getattr(self.song, "return_tracks", [])):
-            track_kinds[id(track)] = "return"
-            tracks.append(track)
+            track_entries.append((track, "return"))
         main_track = getattr(self.song, "master_track", getattr(self.song, "main_track", None))
         if main_track is not None:
-            track_kinds[id(main_track)] = "main"
-            tracks.append(main_track)
+            track_entries.append((main_track, "main"))
         scenes = self._items(getattr(self.song, "scenes", []))
         track_rows = []
-        for index, track in enumerate(tracks):
+        for index, (track, track_kind) in enumerate(track_entries):
             track_ref = self.refs.put("track", track, str(index))
-            track_kind = track_kinds.get(id(track), self._track_kind(track))
             slots = self._items(getattr(track, "clip_slots", []))
             clips = []
             slot_rows = []
@@ -923,7 +963,7 @@ class LiveObjectMapper:
                     continue
                 clip_ref = self.refs.put("clip", clip, f"{index}:{slot_index}")
                 notes = self._read_notes(clip)
-                clips.append({"ref": clip_ref, "parentRef": slot_ref, "objectIdentity": self._capture_object_identity(clip), "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": slot_index * 4, "length": float(getattr(clip, "length", 0.0)), "notes": notes, **self._audio_fields(clip)})
+                clips.append({"ref": clip_ref, "parentRef": slot_ref, "objectIdentity": self._capture_object_identity(clip), "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": slot_index * 4, "length": float(getattr(clip, "length", 0.0)), "notes": notes, "notesRevision": hashlib.sha256(self._bounded_canonical(notes).encode("utf-8")).hexdigest(), **self._audio_fields(clip)})
                 slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "objectIdentity": self._capture_object_identity(slot), "sceneIndex": slot_index, "clipRef": clip_ref, "empty": False})
             armed_value = self._read_attr(track, "arm", "armed")
             track_rows.append({
@@ -940,7 +980,7 @@ class LiveObjectMapper:
             })
         scene_rows = [{"ref": self.refs.put("scene", scene, str(i)), "parentRef": self.refs.put("set", self.song, "song"), "objectIdentity": self._capture_object_identity(scene), "name": str(getattr(scene, "name", f"Scene {i + 1}")), "index": i, "triggerable": callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None))} for i, scene in enumerate(scenes)]
         locators = self._locator_items()
-        return {"set": set_row, "tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators, "clips": self._arrangement_clip_items()}, "playback": self._playback(track_rows, scene_rows), "epoch": self.refs.epoch}
+        return {"set": set_row, "tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators, "locatorRevision": hashlib.sha256(self._bounded_canonical(locators).encode("utf-8")).hexdigest(), "clips": self._arrangement_clip_items()}, "playback": self._playback(track_rows, scene_rows), "epoch": self.refs.epoch}
 
     def _read_notes(self, clip: Any) -> list[dict[str, Any]]:
         if self._read_attr(clip, "is_audio_clip") is True:
@@ -949,13 +989,14 @@ class LiveObjectMapper:
             if hasattr(clip, "get_all_notes_extended"):
                 raw = list(clip.get_all_notes_extended())
             elif hasattr(clip, "get_notes"):
-                raw = clip.get_notes(0, 0, 4096, 128)
+                length = self._read_attr(clip, "length")
+                if not isinstance(length, (int, float)) or isinstance(length, bool) or not math.isfinite(float(length)) or not 0 <= float(length) <= 1_000_000_000: raise ValueError("complete MIDI note range is unavailable")
+                raw = list(clip.get_notes(0, 0.0, float(length), 128))
             else:
-                raw = []
-        except (AttributeError, RuntimeError, TypeError, ValueError):
-            # Several Live shapes publish MIDI-note methods on audio clips but
-            # raise when called. Audio clips truthfully have no MIDI notes.
-            raw = []
+                raise ValueError("complete MIDI note enumeration is unavailable")
+        except (AttributeError, RuntimeError, TypeError) as error:
+            raise ValueError("complete MIDI note enumeration failed") from error
+        if len(raw) > MAX_WIRE_ARRAY_LENGTH: raise ValueError("MIDI note collection exceeds its authoritative bound")
         rows: list[dict[str, Any]] = []
         for item in self._items(raw):
             if isinstance(item, dict):
@@ -974,38 +1015,40 @@ class LiveObjectMapper:
                 value = item.get(field) if isinstance(item, dict) else getattr(item, attr, None)
                 row[field] = convert(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else (bool(value) if field == "mute" and isinstance(value, bool) else None)
             rows.append(row)
-        return rows[:MAX_WIRE_ARRAY_LENGTH]
-        return []
+        return rows
 
     def get(self, reference: str) -> Any:
         if not isinstance(reference, str):
             raise ValueError("object reference is required")
         obj = self.refs.get(reference)
         if obj is None:
-            raise ValueError("object reference is stale or unknown")
+            raise ValueError("unknown live ref")
         kind = reference.split(":", 2)[1] if reference.count(":") >= 2 else ""
+        result = None
         if kind == "set":
-            return self.snapshot()["set"]
-        if kind == "clip":
-            return next((clip for track in self.snapshot()["tracks"] for clip in track["clips"] if clip["ref"] == reference), None)
-        if kind in {"device", "parameter"}:
+            result = self.snapshot()["set"]
+        elif kind == "clip":
+            result = next((clip for track in self.snapshot()["tracks"] for clip in track["clips"] if clip["ref"] == reference), None)
+        elif kind == "arrangement_clip":
+            result = next((clip for clip in self._arrangement_clip_items() if clip["ref"] == reference), None)
+        elif kind in {"device", "parameter"}:
             for track in self.snapshot()["tracks"]:
                 for device in self._flatten_device_rows(track.get("devices", [])):
                     if device["ref"] == reference:
-                        return device
-                    for parameter in device["parameters"]:
-                        if parameter["ref"] == reference:
-                            return parameter
-            return None
-        if kind == "locator":
-            return next((item for item in self._locator_items() if item["ref"] == reference), None)
-        if kind == "scene":
-            scenes = self._items(getattr(self.song, "scenes", []))
-            return {"ref": reference, "name": str(getattr(obj, "name", "")), "index": scenes.index(obj)}
-        if kind == "track":
-            tracks = self._items(getattr(self.song, "tracks", []))
-            return next(row for row in self.snapshot()["tracks"] if row["ref"] == reference) if obj in tracks else None
-        return None
+                        result = device; break
+                    result = next((parameter for parameter in device["parameters"] if parameter["ref"] == reference), None)
+                    if result is not None: break
+                if result is not None: break
+        elif kind == "locator":
+            result = next((item for item in self._locator_items() if item["ref"] == reference), None)
+        elif kind == "scene":
+            result = next((row for row in self.snapshot()["scenes"] if row["ref"] == reference), None)
+        elif kind == "track":
+            identity = self._capture_object_identity(obj); tracks = self._all_track_objects(); matches = [candidate for candidate in tracks if self._capture_same_object(candidate, obj, identity)]
+            if len(matches) == 1: result = next((row for row in self.snapshot()["tracks"] if row["ref"] == reference and row.get("objectIdentity") == identity), None)
+        if result is None:
+            raise ValueError("unknown live ref")
+        return result
 
     def _set_parameter_value(self, reference: str, value: Any) -> dict[str, Any]:
         parameter = self.refs.get(reference)
@@ -1022,9 +1065,20 @@ class LiveObjectMapper:
             raise ValueError("parameter value is outside authoritative bounds")
         if quantization > 0 and abs((float(value) - float(minimum)) / quantization - round((float(value) - float(minimum)) / quantization)) > 1e-9:
             raise ValueError("parameter value does not match authoritative quantization")
-        parameter.value = float(value)
+        prior_value = self._read_attr(parameter, "value")
+        if not isinstance(prior_value, (int, float)) or isinstance(prior_value, bool) or not math.isfinite(float(prior_value)): raise ValueError("parameter prior value is unavailable")
+        target_value = float(value); setter_error: BaseException | None = None
+        try: parameter.value = target_value
+        except BaseException as error: setter_error = error
+        observed = self._read_attr(parameter, "value")
+        if setter_error is not None or not isinstance(observed, (int, float)) or isinstance(observed, bool) or float(observed) != target_value:
+            try: parameter.value = float(prior_value)
+            except BaseException: pass
+            restored = self._read_attr(parameter, "value")
+            if not isinstance(restored, (int, float)) or float(restored) != float(prior_value): raise ValueError("parameter mutation failed and exact rollback failed") from setter_error
+            raise ValueError("parameter mutation was not confirmed") from setter_error
         revision = self.refs.touch(reference)
-        return {"changed": True, "ref": reference, "property": "value", "value": float(parameter.value), "revision": revision}
+        return {"changed": True, "ref": reference, "property": "value", "value": float(observed), "revision": revision}
 
     def discover(self, kind: str, limit: int = 100, cursor: str | None = None, parent: str | None = None, filters: dict[str, Any] | None = None, requested_fields: list[str] | None = None, traversal_budget: int = 1000) -> dict[str, Any]:
         supported = {"set", "song", "track", "group_track", "return_track", "main_track", "scene", "clip_slot", "clip", "session_clip", "arrangement_clip", "note", "locator", "device", "parameter", "selection", "routing_choice", "session_playback"}
@@ -1039,7 +1093,9 @@ class LiveObjectMapper:
             raise ValueError("traversal budget is invalid")
         if parent is not None and not isinstance(parent, str):
             raise ValueError("parent reference is invalid")
-        if filters is not None and (not isinstance(filters, dict) or len(filters) > 16 or any(not isinstance(key, str) for key in filters)):
+        def valid_filter_value(value: Any) -> bool:
+            return value is None or isinstance(value, bool) or isinstance(value, str) and len(value) <= 256 or isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and abs(float(value)) <= 2**53 - 1
+        if filters is not None and (not isinstance(filters, dict) or len(filters) > 16 or any(not isinstance(key, str) or not key or len(key) > 64 or not valid_filter_value(value) for key, value in filters.items())):
             raise ValueError("discovery filters are invalid")
         if requested_fields is not None and (not isinstance(requested_fields, list) or len(requested_fields) > 32 or any(not isinstance(field, str) or not field for field in requested_fields)):
             raise ValueError("requested fields are invalid")
@@ -1061,10 +1117,10 @@ class LiveObjectMapper:
         elif kind == "session_playback": items = [snapshot["playback"]]
         elif kind == "selection":
             view = getattr(self.song, "view", None); selected_track = getattr(view, "selected_track", None); selected_scene = getattr(view, "selected_scene", None); highlighted_slot = getattr(view, "highlighted_clip_slot", None)
-            track_objects = self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", [])) + ([getattr(self.song, "master_track")] if getattr(self.song, "master_track", None) is not None else [])
-            track_ref = snapshot["tracks"][track_objects.index(selected_track)]["ref"] if selected_track in track_objects and track_objects.index(selected_track) < len(snapshot["tracks"]) else None
-            scene_objects = self._items(getattr(self.song, "scenes", [])); scene_ref = snapshot["scenes"][scene_objects.index(selected_scene)]["ref"] if selected_scene in scene_objects else None
-            slot_ref = next((slot["ref"] for track in snapshot["tracks"] for slot in track.get("clipSlots", []) if self.refs.get(slot["ref"]) is highlighted_slot), None) if highlighted_slot is not None else None
+            track_objects = self._all_track_objects()
+            track_index = self._capture_index(track_objects, selected_track); track_ref = snapshot["tracks"][track_index]["ref"] if track_index is not None and track_index < len(snapshot["tracks"]) else None
+            scene_objects = self._items(getattr(self.song, "scenes", [])); scene_index = self._capture_index(scene_objects, selected_scene); scene_ref = snapshot["scenes"][scene_index]["ref"] if scene_index is not None and scene_index < len(snapshot["scenes"]) else None
+            highlighted_identity = self._capture_object_identity(highlighted_slot) if highlighted_slot is not None else None; slot_matches = [slot["ref"] for track in snapshot["tracks"] for slot in track.get("clipSlots", []) if highlighted_identity is not None and self._capture_same_object(self.refs.get(slot["ref"]), highlighted_slot, highlighted_identity)]; slot_ref = slot_matches[0] if len(slot_matches) == 1 else None
             items = [{"ref": f"{self.refs.epoch}:selection:current", "parentRef": set_row["ref"], "selectedRef": track_ref or scene_ref or slot_ref, "selectedTrackRef": track_ref, "selectedSceneRef": scene_ref, "highlightedClipSlotRef": slot_ref}]
         else:
             # Routing choices are track-scoped Live objects. Enumerating a
@@ -1079,7 +1135,8 @@ class LiveObjectMapper:
             tracks = self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", []))
             main_track = getattr(self.song, "master_track", getattr(self.song, "main_track", None))
             if main_track is not None: tracks.append(main_track)
-            track_index = tracks.index(track) if track in tracks else 0
+            track_index = self._capture_index(tracks, track)
+            if track_index is None: raise ValueError("routing-choice parent is stale")
             items = []
             groups = (
                 ("input-type", "available_input_routing_types"),
@@ -1163,6 +1220,17 @@ class LiveObjectMapper:
             if slot is None or slot.get("sceneIndex") != scene_index or not slot.get("clipRef"):
                 raise ValueError("eligible target is not an authoritative clip slot with a clip")
 
+    def _audition_authority_revision(self, snapshot: dict[str, Any], reference: str, scene_index: int, eligible: set[str]) -> str:
+        scenes = snapshot.get("scenes", [])
+        if not 0 <= scene_index < len(scenes): raise ValueError("audition scene is not authoritative")
+        scene = scenes[scene_index]; tracks = {track.get("ref"): track for track in snapshot.get("tracks", [])}; targets = []
+        for key in sorted(eligible):
+            track_ref, slot_ref, scene_ref = key.split("|"); track = tracks.get(track_ref); slot = next((item for item in (track or {}).get("clipSlots", []) if item.get("ref") == slot_ref), None); clip = next((item for item in (track or {}).get("clips", []) if slot and item.get("ref") == slot.get("clipRef")), None)
+            if track is None or slot is None or clip is None or scene_ref != reference: raise ValueError("audition target hierarchy is incomplete")
+            targets.append({"trackRef": track_ref, "trackIdentity": track.get("objectIdentity"), "slotRef": slot_ref, "slotIdentity": slot.get("objectIdentity"), "sceneRef": scene.get("ref"), "sceneIdentity": scene.get("objectIdentity"), "clipRef": clip.get("ref"), "clipIdentity": clip.get("objectIdentity")})
+        authority = {"set": {"ref": snapshot.get("set", {}).get("ref"), "objectIdentity": snapshot.get("set", {}).get("objectIdentity")}, "scene": {"ref": scene.get("ref"), "objectIdentity": scene.get("objectIdentity"), "index": scene.get("index")}, "targets": targets}
+        return hashlib.sha256(self._bounded_canonical(authority).encode("utf-8")).hexdigest()
+
     def _stop_playback(self) -> None:
         stop_all = getattr(self.song, "stop_all_clips", None)
         stop_transport = getattr(self.song, "stop_playing", None)
@@ -1183,6 +1251,7 @@ class LiveObjectMapper:
         scene_index = args.get("sceneIndex")
         playback_revision = args.get("playbackRevision")
         eligible = args.get("eligibleTargets")
+        expected_set_identity = args.get("expectedSetIdentity"); expected_authority = args.get("expectedAuthorityRevision")
         if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:scene:"):
             raise ValueError("scene reference is stale or invalid")
         if not isinstance(set_name, str) or not 1 <= len(set_name) <= 256:
@@ -1197,7 +1266,7 @@ class LiveObjectMapper:
             raise ValueError("eligible targets are invalid")
         eligible_keys = set(eligible)
         snapshot = self.snapshot()
-        if snapshot["set"].get("name") != set_name:
+        if snapshot["set"].get("name") != set_name or not isinstance(expected_set_identity, str) or not hmac.compare_digest(str(snapshot["set"].get("objectIdentity", "")), expected_set_identity):
             raise ValueError("disposable Set identity does not match")
         scenes = snapshot["scenes"]
         if not 0 <= scene_index < len(scenes):
@@ -1209,6 +1278,7 @@ class LiveObjectMapper:
         if snapshot["playback"].get("revision") != playback_revision:
             raise ValueError("playback state changed since preview")
         self._check_eligible_targets(snapshot, reference, scene_index, eligible_keys)
+        if not isinstance(expected_authority, str) or not hmac.compare_digest(self._audition_authority_revision(snapshot, reference, scene_index, eligible_keys), expected_authority): raise ValueError("audition identity hierarchy changed since preview")
         scene = self.refs.get(reference)
         fire = getattr(scene, "fire", getattr(scene, "launch", None))
         if not callable(fire):
@@ -1223,6 +1293,7 @@ class LiveObjectMapper:
         reference = args.get("ref")
         set_name = args.get("setName")
         eligible = args.get("eligibleTargets")
+        expected_set_identity = args.get("expectedSetIdentity"); expected_authority = args.get("expectedAuthorityRevision")
         if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:scene:"):
             raise ValueError("scene reference is stale or invalid")
         if not isinstance(set_name, str) or not 1 <= len(set_name) <= 256:
@@ -1231,13 +1302,17 @@ class LiveObjectMapper:
             raise ValueError("eligible targets are invalid")
         eligible_keys = set(eligible)
         snapshot = self.snapshot()
-        if snapshot["set"].get("name") != set_name:
+        if snapshot["set"].get("name") != set_name or not isinstance(expected_set_identity, str) or not hmac.compare_digest(str(snapshot["set"].get("objectIdentity", "")), expected_set_identity):
             raise ValueError("disposable Set identity does not match")
+        scene_row = next((item for item in snapshot.get("scenes", []) if item.get("ref") == reference), None)
+        if scene_row is None or not isinstance(expected_authority, str) or not hmac.compare_digest(self._audition_authority_revision(snapshot, reference, int(scene_row.get("index", -1)), eligible_keys), expected_authority): raise ValueError("audition identity hierarchy changed; owned stop refused")
         active = self._active_targets(snapshot["playback"])
-        if any(self._target_key(target) not in eligible_keys or target.get("sceneRef") != reference for target in active):
-            raise ValueError("external or unknown playback is active; owned stop refused")
-        self._stop_playback()
-        return {"stopped": True}
+        if any(self._target_key(target) not in eligible_keys or target.get("sceneRef") != reference for target in active): raise ValueError("external or unknown playback is active; owned stop refused")
+        if not active:
+            transport = snapshot["playback"].get("transport", {})
+            if transport.get("playing") is True or transport.get("arrangementRecord") is True or transport.get("sessionRecord") is True: raise ValueError("unrelated transport or recording is active; owned stop refused")
+            return {"stopped": True}
+        self._stop_playback(); return {"stopped": True}
 
     def _guarded_emergency_stop(self, args: dict[str, Any]) -> dict[str, Any]:
         expected, expected_recording = args.get("expectedTargets"), args.get("expectedRecording")
@@ -1257,17 +1332,32 @@ class LiveObjectMapper:
         if isinstance(self._read_attr(self.song, "record_mode"), bool): self.song.record_mode = False
         return {"stopped": True, "stoppedTargets": sorted(active_keys), "recordingStopped": True}
 
+    def _guard_note_clip(self, args: dict[str, Any]) -> Any:
+        reference = str(args.get("ref")); self.snapshot(); authority = self._session_clip_authority(reference)
+        expected_authority = args.get("expectedClipAuthority"); expected_revision = args.get("expectedNotesRevision")
+        if not isinstance(expected_authority, dict) or not hmac.compare_digest(self._bounded_canonical(authority), self._bounded_canonical(expected_authority)):
+            raise ValueError("note clip hierarchy identity changed since preview")
+        clip = self.refs.get(reference); current_revision = hashlib.sha256(self._bounded_canonical(self._read_notes(clip)).encode("utf-8")).hexdigest()
+        if not isinstance(expected_revision, str) or not hmac.compare_digest(current_revision, expected_revision):
+            raise ValueError("clip notes changed since preview")
+        return clip
+
     def _note_update(self, args: dict[str, Any]) -> dict[str, Any]:
-        clip = self.refs.get(str(args["ref"]))
+        clip = self._guard_note_clip(args)
         patches = args.get("notes")
         if not isinstance(patches, list) or not 1 <= len(patches) <= 512:
             raise ValueError("note patches are invalid")
         if not callable(getattr(clip, "get_notes_extended", None)) or not callable(getattr(clip, "apply_note_modifications", None)) or not callable(getattr(clip, "get_all_notes_extended", None)):
             raise ValueError("note modification is unavailable on this Live shape")
-        extended = clip.get_notes_extended(0, 128, 0, 4096)
+        extended = list(clip.get_all_notes_extended())
+        if len(extended) > MAX_WIRE_ARRAY_LENGTH: raise ValueError("MIDI note collection exceeds its authoritative bound")
         by_id = {}
         for candidate in extended:
-            by_id[int(candidate.note_id)] = candidate
+            note_id = getattr(candidate, "note_id", None)
+            if not isinstance(note_id, int) or isinstance(note_id, bool) or int(note_id) in by_id: raise ValueError("stable unique note ids are required for exact update")
+            by_id[int(note_id)] = candidate
+        before_rows = self._read_notes(clip); before_by_id = {row["id"]: dict(row) for row in before_rows}
+        if len(before_by_id) != len(before_rows) or any(note_id is None for note_id in before_by_id): raise ValueError("complete stable note identity is unavailable")
         targets: list[tuple[Any, dict[str, Any]]] = []
         seen: set[int] = set()
         for patch in patches:
@@ -1296,54 +1386,83 @@ class LiveObjectMapper:
             target = by_id.get(patch["id"])
             if target is None:
                 raise ValueError("note id is not present in the clip")
+            prior = before_by_id.get(patch["id"]); final_start = float(patch.get("start", prior["start"] if prior else -1)); final_duration = float(patch.get("duration", prior["duration"] if prior else -1)); clip_length = self._read_attr(clip, "length")
+            if prior is None or not isinstance(clip_length, (int, float)) or final_start + final_duration > float(clip_length): raise ValueError("note patch exceeds the exact clip length")
             seen.add(patch["id"])
             targets.append((target, patch))
+        expected_by_id = {note_id: dict(row) for note_id, row in before_by_id.items()}; field_attributes = {"pitch": "pitch", "start": "start_time", "duration": "duration", "velocity": "velocity", "mute": "mute", "probability": "probability", "velocityDeviation": "velocity_deviation", "releaseVelocity": "release_velocity"}
         for target, patch in targets:
-            if "pitch" in patch: target.pitch = int(patch["pitch"])
-            if "start" in patch: target.start_time = float(patch["start"])
-            if "duration" in patch: target.duration = float(patch["duration"])
-            if "velocity" in patch: target.velocity = float(patch["velocity"])
-            if "mute" in patch: target.mute = bool(patch["mute"])
-            if "probability" in patch: target.probability = float(patch["probability"])
-            if "velocityDeviation" in patch: target.velocity_deviation = float(patch["velocityDeviation"])
-            if "releaseVelocity" in patch: target.release_velocity = float(patch["releaseVelocity"])
-        clip.apply_note_modifications(extended)
-        after = {int(candidate.note_id): candidate for candidate in clip.get_all_notes_extended()}
-        for target, patch in targets:
-            current = after.get(int(target.note_id))
-            if current is None:
-                raise ValueError("note update was not confirmed")
-            if "pitch" in patch and int(current.pitch) != int(patch["pitch"]): raise ValueError("note update was not confirmed")
-            if "start" in patch and abs(float(current.start_time) - float(patch["start"])) > 0.01: raise ValueError("note update was not confirmed")
-            if "duration" in patch and abs(float(current.duration) - float(patch["duration"])) > 0.01: raise ValueError("note update was not confirmed")
-            if "velocity" in patch and abs(float(current.velocity) - float(patch["velocity"])) > 0.51: raise ValueError("note update was not confirmed")
-            if "mute" in patch and bool(current.mute) is not bool(patch["mute"]): raise ValueError("note update was not confirmed")
-            if "probability" in patch and abs(float(current.probability) - float(patch["probability"])) > 0.01: raise ValueError("note update was not confirmed")
-            if "velocityDeviation" in patch and abs(float(current.velocity_deviation) - float(patch["velocityDeviation"])) > 0.51: raise ValueError("note update was not confirmed")
-            if "releaseVelocity" in patch and abs(float(current.release_velocity) - float(patch["releaseVelocity"])) > 0.51: raise ValueError("note update was not confirmed")
+            expected = expected_by_id[patch["id"]]
+            for field, attribute in field_attributes.items():
+                if field not in patch: continue
+                value = bool(patch[field]) if field == "mute" else int(patch[field]) if field == "pitch" else float(patch[field]); setattr(target, attribute, value)
+                expected[field] = int(value) if field == "velocity" and float(value).is_integer() else value
+        canonical_rows = lambda rows: self._bounded_canonical(sorted(rows, key=lambda row: int(row["id"])))
+        try:
+            clip.apply_note_modifications(extended); after_rows = self._read_notes(clip)
+            if canonical_rows(after_rows) != canonical_rows(list(expected_by_id.values())): raise ValueError("note update did not produce the exact complete expected state")
+        except BaseException as error:
+            rollback_failed = False
+            try:
+                current = list(clip.get_all_notes_extended()); current_by_id = {int(candidate.note_id): candidate for candidate in current}
+                if len(current_by_id) != len(before_by_id) or set(current_by_id) != set(before_by_id): raise ValueError("note identity set changed")
+                for note_id, prior in before_by_id.items():
+                    candidate = current_by_id[int(note_id)]
+                    for field, attribute in field_attributes.items():
+                        value = prior.get(field)
+                        if value is not None: setattr(candidate, attribute, value)
+                clip.apply_note_modifications(current)
+                if canonical_rows(self._read_notes(clip)) != canonical_rows(before_rows): rollback_failed = True
+            except BaseException: rollback_failed = True
+            if rollback_failed: raise ValueError("note update failed and exact rollback failed") from error
+            raise
         return {"updated": len(targets)}
 
     def _note_delete(self, args: dict[str, Any]) -> dict[str, Any]:
-        clip = self.refs.get(str(args["ref"]))
+        clip = self._guard_note_clip(args)
         note_ids = args.get("noteIds")
         if not isinstance(note_ids, list) or not 1 <= len(note_ids) <= 512 or len(set(note_ids)) != len(note_ids) or not all(isinstance(item, int) and not isinstance(item, bool) and item >= 0 for item in note_ids):
             raise ValueError("note ids are invalid")
         if not callable(getattr(clip, "remove_notes_by_id", None)):
             raise ValueError("note deletion is unavailable on this Live shape")
-        existing = {int(candidate.note_id) for candidate in clip.get_all_notes_extended()}
-        if any(note_id not in existing for note_id in note_ids):
-            raise ValueError("note id is not present in the clip")
-        clip.remove_notes_by_id(note_ids)
-        after = {int(candidate.note_id) for candidate in clip.get_all_notes_extended()}
-        if any(note_id in after for note_id in note_ids):
-            raise ValueError("note deletion was not confirmed")
-        return {"deleted": len(note_ids)}
+        before_rows = self._read_notes(clip); existing = {int(row["id"]) for row in before_rows if isinstance(row.get("id"), int)}
+        if len(existing) != len(before_rows) or any(note_id not in existing for note_id in note_ids): raise ValueError("complete stable note identity is required for deletion")
+        expected_rows = [row for row in before_rows if row["id"] not in set(note_ids)]; canonical_rows = lambda rows: self._bounded_canonical(sorted(rows, key=lambda row: int(row["id"]))); operation_error: BaseException | None = None
+        try: clip.remove_notes_by_id(note_ids)
+        except BaseException as error: operation_error = error
+        try: after_rows = self._read_notes(clip)
+        except BaseException as error:
+            if operation_error is None: operation_error = error
+            after_rows = []
+        if canonical_rows(after_rows) == canonical_rows(expected_rows): return {"deleted": len(note_ids)}
+        rollback_failed = False
+        try:
+            content = lambda row: {key: row.get(key) for key in ("pitch", "start", "duration", "velocity", "channel", "mute", "probability", "velocityDeviation", "releaseVelocity")}; remaining = [content(row) for row in after_rows]; missing: list[dict[str, Any]] = []
+            for prior in before_rows:
+                prior_content = content(prior); match = next((index for index, candidate in enumerate(remaining) if self._bounded_canonical(candidate) == self._bounded_canonical(prior_content)), None)
+                if match is None: missing.append(prior)
+                else: remaining.pop(match)
+            if remaining: raise ValueError("native deletion changed content outside its exact targets")
+            if missing:
+                try: spec_class = getattr(__import__("Live.Clip", fromlist=["MidiNoteSpecification"]), "MidiNoteSpecification", None)
+                except Exception: spec_class = None
+                if spec_class is not None:
+                    additions = [spec_class(row["pitch"], float(row["start"]), float(row["duration"]), float(row["velocity"]), bool(row.get("mute", False)), float(row.get("probability") if row.get("probability") is not None else 1.0), float(row.get("velocityDeviation") if row.get("velocityDeviation") is not None else 0.0), float(row.get("releaseVelocity") if row.get("releaseVelocity") is not None else 64.0)) for row in missing]
+                else:
+                    additions = [{"pitch": row["pitch"], "start_time": float(row["start"]), "duration": float(row["duration"]), "velocity": row["velocity"], "channel": row.get("channel", 1), "mute": bool(row.get("mute", False)), "probability": float(row.get("probability") if row.get("probability") is not None else 1.0), "velocity_deviation": float(row.get("velocityDeviation") if row.get("velocityDeviation") is not None else 0.0), "release_velocity": float(row.get("releaseVelocity") if row.get("releaseVelocity") is not None else 64.0)} for row in missing]
+                clip.add_new_notes(additions)
+            restored = self._read_notes(clip); restored_ids = [row.get("id") for row in restored]
+            if len(restored_ids) != len(set(restored_ids)) or any(not isinstance(note_id, int) for note_id in restored_ids) or self._bounded_canonical(sorted([content(row) for row in restored], key=self._bounded_canonical)) != self._bounded_canonical(sorted([content(row) for row in before_rows], key=self._bounded_canonical)): rollback_failed = True
+        except BaseException: rollback_failed = True
+        failure = operation_error or ValueError("note deletion did not produce the exact complete expected state")
+        if rollback_failed: raise ValueError("note deletion failed and exact content rollback failed") from failure
+        raise failure
 
     def _transport_set(self, args: dict[str, Any]) -> dict[str, Any]:
-        expected = args.get("expectedRevision")
-        if not isinstance(expected, str) or not 1 <= len(expected) <= 256:
-            raise ValueError("expected revision is required")
-        allowed = {"position", "loopEnabled", "loopStart", "loopLength", "metronome", "punchIn", "punchOut", "countIn", "expectedRevision"}
+        expected = args.get("expectedRevision"); set_ref = args.get("setRef"); expected_identity = args.get("expectedObjectIdentity"); set_target = self.refs.get(set_ref) if isinstance(set_ref, str) else None
+        if not isinstance(expected, str) or not 1 <= len(expected) <= 256 or not isinstance(set_ref, str) or not isinstance(expected_identity, str) or not self._capture_same_object(set_target, self.song, expected_identity) or not hmac.compare_digest(self._capture_object_identity(self.song), expected_identity):
+            raise ValueError("transport Set identity or revision authority is invalid")
+        allowed = {"position", "loopEnabled", "loopStart", "loopLength", "metronome", "punchIn", "punchOut", "countIn", "expectedRevision", "setRef", "expectedObjectIdentity"}
         if set(args) - allowed:
             raise ValueError("transport fields are invalid")
         playback = self._playback()
@@ -1376,48 +1495,39 @@ class LiveObjectMapper:
         count_in = number("countIn", 1000)
         if loop_length is not None and loop_length <= 0:
             raise ValueError("loopLength is invalid")
-        if position is not None:
-            self.song.current_song_time = position
-        if loop_enabled is not None:
-            self.song.loop = loop_enabled
-        if loop_start is not None:
-            self.song.loop_start = loop_start
-        if loop_length is not None:
-            self.song.loop_length = loop_length
-        if metronome is not None:
-            self.song.metronome = metronome
-        if punch_in is not None:
-            self.song.punch_in = punch_in
-        if punch_out is not None:
-            self.song.punch_out = punch_out
-        if count_in is not None:
-            self.song.count_in_duration = count_in
-        transport = self._transport_dict()
-        loop = transport["loop"]
-        after_revision = self._playback()["revision"]
-        checks = []
-        # Position changes are applied asynchronously by Live (the playhead
-        # lands on a later tick), so the mapper cannot verify position
-        # synchronously; the host verifies it through fresh playback reads.
-        if position is not None and not isinstance(transport["position"], (int, float)):
-            checks.append(False)
-        if loop_enabled is not None:
-            checks.append(loop["enabled"] is loop_enabled)
-        if loop_start is not None:
-            checks.append(isinstance(loop["start"], (int, float)) and abs(loop["start"] - loop_start) < 0.26)
-        if loop_length is not None:
-            checks.append(isinstance(loop["length"], (int, float)) and abs(loop["length"] - loop_length) < 0.26)
-        if metronome is not None:
-            checks.append(transport["metronome"] is metronome)
-        if punch_in is not None:
-            checks.append(transport["punchIn"] is punch_in)
-        if punch_out is not None:
-            checks.append(transport["punchOut"] is punch_out)
-        if count_in is not None:
-            checks.append(isinstance(transport["countIn"], (int, float)) and abs(transport["countIn"] - count_in) < 0.26)
-        if not all(checks):
-            _debug_trace(f"transport.set postcondition: position={position} transport={transport!r} checks={checks!r}")
-            raise ValueError("transport change was not confirmed by fresh state")
+        proposed = [("current_song_time", position), ("loop", loop_enabled), ("loop_start", loop_start), ("loop_length", loop_length), ("metronome", metronome), ("punch_in", punch_in), ("punch_out", punch_out), ("count_in_duration", count_in)]; assignments = []
+        for attribute, value in proposed:
+            if value is None: continue
+            prior = self._read_attr(self.song, attribute)
+            if not isinstance(prior, (int, float, bool)) or isinstance(prior, bool) != isinstance(value, bool): raise ValueError(f"transport {attribute} prior state is unavailable")
+            assignments.append((attribute, value, prior))
+        try:
+            applied = []
+            for attribute, value, prior in assignments:
+                applied.append((attribute, prior)); setattr(self.song, attribute, value)
+            transport = self._transport_dict(); loop = transport["loop"]; checks = []
+            # Every requested field is synchronously exact here; Host also
+            # performs fresh position readback to account for later playhead motion.
+            if position is not None: checks.append(isinstance(transport["position"], (int, float)) and float(transport["position"]) == position)
+            if loop_enabled is not None: checks.append(loop["enabled"] is loop_enabled)
+            if loop_start is not None: checks.append(isinstance(loop["start"], (int, float)) and float(loop["start"]) == loop_start)
+            if loop_length is not None: checks.append(isinstance(loop["length"], (int, float)) and float(loop["length"]) == loop_length)
+            if metronome is not None: checks.append(transport["metronome"] is metronome)
+            if punch_in is not None: checks.append(transport["punchIn"] is punch_in)
+            if punch_out is not None: checks.append(transport["punchOut"] is punch_out)
+            if count_in is not None: checks.append(isinstance(transport["countIn"], (int, float)) and float(transport["countIn"]) == count_in)
+            if not all(checks): raise ValueError("transport change was not confirmed by fresh state")
+            after_revision = self._playback()["revision"]
+        except BaseException as error:
+            rollback_failed = False
+            for attribute, prior in reversed(locals().get("applied", [])):
+                try: setattr(self.song, attribute, prior)
+                except BaseException: pass
+                restored = self._read_attr(self.song, attribute)
+                if isinstance(prior, bool): rollback_failed = rollback_failed or restored is not prior
+                elif not isinstance(restored, (int, float)) or float(restored) != float(prior): rollback_failed = True
+            if rollback_failed: raise ValueError("transport mutation failed and exact rollback failed") from error
+            raise
         return {"changed": True, "revision": after_revision}
 
     def _guarded_session_target(self, args: dict[str, Any], operation: str) -> tuple[str, str, str, str, int]:
@@ -1461,13 +1571,23 @@ class LiveObjectMapper:
         return {"stopped": True}
 
     def _tempo_set(self, args: dict[str, Any]) -> dict[str, Any]:
-        reference, value, expected = args.get("ref"), args.get("value"), args.get("expectedTempo")
-        if not isinstance(reference, str) or not isinstance(value, (int, float)) or isinstance(value, bool) or not isinstance(expected, (int, float)) or isinstance(expected, bool):
+        reference, value, expected, expected_identity = args.get("ref"), args.get("value"), args.get("expectedTempo"), args.get("expectedObjectIdentity")
+        if not isinstance(reference, str) or not isinstance(value, (int, float)) or isinstance(value, bool) or not isinstance(expected, (int, float)) or isinstance(expected, bool) or not isinstance(expected_identity, str):
             raise ValueError("tempo authority is invalid")
-        if self.refs.get(reference) is not self.song or not math.isclose(float(self._read_attr(self.song, "tempo")), float(expected), rel_tol=0, abs_tol=1e-9):
-            raise ValueError("tempo changed since preview")
-        self.song.tempo = float(value)
-        return {"changed": True, "tempo": float(self.song.tempo), "revision": self.refs.touch(reference)}
+        if not self._capture_same_object(self.refs.get(reference), self.song, expected_identity) or not hmac.compare_digest(self._capture_object_identity(self.song), expected_identity) or float(self._read_attr(self.song, "tempo")) != float(expected):
+            raise ValueError("Set identity or tempo changed since preview")
+        if not math.isfinite(float(value)) or not 20 <= float(value) <= 999: raise ValueError("tempo value is outside authoritative bounds")
+        setter_error: BaseException | None = None
+        try: self.song.tempo = float(value)
+        except BaseException as error: setter_error = error
+        observed = self._read_attr(self.song, "tempo")
+        if setter_error is not None or not isinstance(observed, (int, float)) or float(observed) != float(value):
+            try: self.song.tempo = float(expected)
+            except BaseException: pass
+            restored = self._read_attr(self.song, "tempo")
+            if not isinstance(restored, (int, float)) or float(restored) != float(expected): raise ValueError("tempo mutation failed and exact rollback failed") from setter_error
+            raise ValueError("tempo mutation was not confirmed") from setter_error
+        return {"changed": True, "tempo": float(observed), "revision": self.refs.touch(reference)}
 
     def _clip_launch(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")
@@ -1500,7 +1620,17 @@ class LiveObjectMapper:
             stop()
         return {"stopped": True}
 
-    def _capture_midi(self) -> dict[str, Any]:
+    def _capture_authority_revision(self) -> str:
+        snapshot = self.snapshot(); tracks = []
+        for track in snapshot.get("tracks", []):
+            slots = [{key: slot.get(key) for key in ("ref", "objectIdentity", "sceneIndex", "clipRef", "empty")} for slot in track.get("clipSlots", [])]
+            tracks.append({"ref": track.get("ref"), "objectIdentity": track.get("objectIdentity"), "slots": slots, "clips": track.get("clips", [])})
+        authority = {"tracks": tracks, "scenes": [{"ref": scene.get("ref"), "objectIdentity": scene.get("objectIdentity"), "name": scene.get("name"), "index": scene.get("index")} for scene in snapshot.get("scenes", [])], "playbackRevision": snapshot.get("playback", {}).get("revision")}
+        return hashlib.sha256(self._bounded_canonical(authority).encode("utf-8")).hexdigest()
+
+    def _capture_midi(self, args: dict[str, Any]) -> dict[str, Any]:
+        expected = args.get("expectedStateRevision")
+        if not isinstance(expected, str) or not hmac.compare_digest(self._capture_authority_revision(), expected): raise ValueError("Session state changed since capture preview")
         capture = getattr(self.song, "capture_midi", None)
         if not callable(capture):
             raise ValueError("MIDI capture is unavailable")
@@ -1512,29 +1642,116 @@ class LiveObjectMapper:
                         filled.add((track_index, slot_index))
             return filled
         before = occupied()
-        capture()
-        captured: list[str] = []; identities: list[dict[str, str]] = []
-        for track_index, track in enumerate(self._items(getattr(self.song, "tracks", []))):
-            for slot_index, slot in enumerate(self._items(getattr(track, "clip_slots", []))):
-                clip = getattr(slot, "clip", None)
-                if clip is not None and (track_index, slot_index) not in before:
-                    reference = self.refs.put("clip", clip, f"{track_index}:{slot_index}"); captured.append(reference); identities.append({"ref": reference, "objectIdentity": self._capture_object_identity(clip)})
-        return {"captured": bool(captured), "clips": captured, "clipIdentities": identities}
+        if before: raise ValueError("MIDI capture requires globally empty Session slots for exact cleanup isolation")
+        before_objects: dict[tuple[int, int], str] = {}; checkpoint = self.refs.checkpoint(); capture_error: BaseException | None = None
+        try: capture()
+        except BaseException as error: capture_error = error
+        created_slots = [(track_index, slot_index, slot, getattr(slot, "clip", None)) for track_index, track in enumerate(self._items(getattr(self.song, "tracks", []))) for slot_index, slot in enumerate(self._items(getattr(track, "clip_slots", []))) if getattr(slot, "clip", None) is not None and (track_index, slot_index) not in before]
+        try:
+            if capture_error is not None: raise capture_error
+            if len(created_slots) > 256: raise ValueError("MIDI capture created too many clips")
+            captured: list[str] = []; identities: list[dict[str, str]] = []
+            for track_index, slot_index, _, clip in created_slots:
+                reference = self.refs.put("clip", clip, f"{track_index}:{slot_index}"); captured.append(reference); identities.append({"ref": reference, "objectIdentity": self._capture_object_identity(clip), "createdFingerprint": self._mapped_fingerprint(reference)})
+            current_existing = {(track_index, slot_index): self._capture_object_identity(getattr(slot, "clip")) for track_index, track in enumerate(self._items(getattr(self.song, "tracks", []))) for slot_index, slot in enumerate(self._items(getattr(track, "clip_slots", []))) if (track_index, slot_index) in before and getattr(slot, "clip", None) is not None}
+            if current_existing != before_objects: raise ValueError("MIDI capture changed pre-existing clips")
+            return {"captured": bool(captured), "clips": captured, "clipIdentities": identities}
+        except BaseException as error:
+            rollback_failed = False
+            for _, _, slot, clip in created_slots:
+                current = getattr(slot, "clip", None); identity = self._capture_object_identity(clip)
+                if current is not None and self._capture_same_object(current, clip, identity):
+                    deleter = getattr(slot, "delete_clip", None)
+                    if not callable(deleter): rollback_failed = True
+                    else:
+                        try: deleter()
+                        except BaseException: pass
+            if occupied() != before: rollback_failed = True
+            if rollback_failed: raise ValueError("MIDI capture failed and exact transaction-owned cleanup failed") from error
+            self.refs.restore(checkpoint); raise
 
-    def _scene_capture(self) -> dict[str, Any]:
+    def _scene_capture(self, args: dict[str, Any]) -> dict[str, Any]:
+        expected = args.get("expectedStateRevision")
+        if not isinstance(expected, str) or not hmac.compare_digest(self._capture_authority_revision(), expected): raise ValueError("Session state changed since capture preview")
         capture = getattr(self.song, "capture_and_insert_scene", None)
         if not callable(capture):
             raise ValueError("scene capture is unavailable")
-        before_scenes = self._items(getattr(self.song, "scenes", [])); before_identities = {self._capture_object_identity(scene) for scene in before_scenes}
-        capture()
-        after_scenes = self._items(getattr(self.song, "scenes", []))
-        created = [(index, scene, self._capture_object_identity(scene)) for index, scene in enumerate(after_scenes) if self._capture_object_identity(scene) not in before_identities]
-        if len(after_scenes) != len(before_scenes) + 1 or len(created) != 1:
-            raise ValueError("scene capture did not produce one identity-distinct scene")
-        inserted, scene, identity = created[0]
-        return {"captured": True, "ref": self.refs.put("scene", scene, str(inserted)), "objectIdentity": identity}
+        before_scenes = self._items(getattr(self.song, "scenes", [])); before_identity_order = [self._capture_object_identity(scene) for scene in before_scenes]; before_identities = set(before_identity_order); baseline_topology = self._creation_topology(); checkpoint = self.refs.checkpoint(); capture_error: BaseException | None = None
+        try: capture()
+        except BaseException as error: capture_error = error
+        try:
+            after_scenes = self._items(getattr(self.song, "scenes", [])); created = [(index, scene, self._capture_object_identity(scene)) for index, scene in enumerate(after_scenes) if self._capture_object_identity(scene) not in before_identities]
+            if capture_error is not None: raise capture_error
+            if len(after_scenes) != len(before_scenes) + 1 or len(created) != 1: raise ValueError("scene capture did not produce one identity-distinct scene")
+            inserted, scene, identity = created[0]
+            if self._owned_positional_conflict("scene", inserted): raise ValueError("scene capture would shift active transaction-owned reference authority")
+            expected_identity_order = list(before_identity_order); expected_identity_order.insert(inserted, identity)
+            if [self._capture_object_identity(candidate) for candidate in after_scenes] != expected_identity_order: raise ValueError("scene capture reordered pre-existing scenes")
+            created_ref = self.refs.put("scene", scene, str(inserted)); fingerprint = self._ownership_fingerprint(created_ref)
+            return {"captured": True, "ref": created_ref, "objectIdentity": identity, "createdFingerprint": fingerprint}
+        except BaseException as error:
+            rollback_failed = False; deleter = getattr(self.song, "delete_scene", None); current = self._items(getattr(self.song, "scenes", [])); owned = [(index, scene) for index, scene in enumerate(current) if self._capture_object_identity(scene) not in before_identities]
+            if owned and not callable(deleter): rollback_failed = True
+            if callable(deleter):
+                for index, _ in reversed(owned):
+                    try: deleter(index)
+                    except BaseException: pass
+            if [self._capture_object_identity(scene) for scene in self._items(getattr(self.song, "scenes", []))] != before_identity_order or self._creation_topology() != baseline_topology: rollback_failed = True
+            if rollback_failed: raise ValueError("scene capture failed and exact transaction-owned cleanup failed") from error
+            self.refs.restore(checkpoint); raise
 
-    def invoke(self, operation: str, args: dict[str, Any]) -> Any:
+    def invoke(self, operation: str, args: dict[str, Any], transaction_id: str | None = None, ownership_token: str | None = None) -> Any:
+        enforce_ownership = transaction_id is not None or self.provenance == "real-live"
+        if enforce_ownership and operation in _TRANSACTION_CREATIONS.union(_TRANSACTION_DELETIONS) and (not isinstance(transaction_id, str) or not 8 <= len(transaction_id) <= 128): raise ValueError("mutation transaction identity is required")
+        if enforce_ownership and operation in _TRANSACTION_CREATIONS:
+            reserve = 256 if operation == "session.capture-midi" else 1
+            if len(self._owned_cleanup_tokens) + reserve > 4096: raise ValueError("transaction-owned cleanup ledger is full")
+        if enforce_ownership and operation in _TRANSACTION_DELETIONS: self._require_cleanup_ownership(operation, args, str(transaction_id), ownership_token)
+        consumed_move_ownership: str | None = None
+        if enforce_ownership and operation in {"clip.move", "arrangement.clip.move"} and isinstance(args.get("ref"), str):
+            active = [(token, row) for token, row in self._owned_cleanup_tokens.items() if row.get("ref") == args["ref"] and row.get("deleted") is not True]
+            if len(active) > 1: raise ValueError("transaction-owned move authority is ambiguous")
+            if active:
+                token, row = active[0]
+                if (ownership_token is not None and ownership_token != token) or not hmac.compare_digest(self._ownership_fingerprint(args["ref"]), row["fingerprint"]): raise ValueError("transaction-owned move lacks exact cleanup-authority consumption")
+                consumed_move_ownership = token
+        creation_rollback: tuple[str, tuple[dict[str, Any], dict[str, int]], dict[str, dict[str, Any]]] | None = None
+        if enforce_ownership and operation in _TRANSACTION_CREATIONS: creation_rollback = (self._creation_topology(), self.refs.checkpoint(), {token: dict(row) for token, row in self._owned_cleanup_tokens.items()})
+        owned_content = None
+        if enforce_ownership and operation in _OWNED_CONTENT_MUTATIONS and isinstance(args.get("ref"), str):
+            matches = [row for row in self._owned_cleanup_tokens.values() if row.get("transactionId") == transaction_id and row.get("ref") == args["ref"] and row.get("deleted") is not True]
+            if len(matches) > 1: raise ValueError("transaction-owned content authority is ambiguous")
+            if matches:
+                owned_content = matches[0]
+                if not hmac.compare_digest(self._ownership_fingerprint(args["ref"]), owned_content["fingerprint"]): raise ValueError("transaction-owned content changed before mutation")
+        try:
+            result = self._invoke_operation(operation, args)
+            if owned_content is not None: owned_content["fingerprint"] = self._ownership_fingerprint(str(args["ref"]))
+        except BaseException:
+            if owned_content is not None:
+                try: owned_content["fingerprint"] = self._ownership_fingerprint(str(args["ref"]))
+                except BaseException: pass
+            if consumed_move_ownership is not None:
+                row = self._owned_cleanup_tokens.get(consumed_move_ownership)
+                try:
+                    if row is None or not hmac.compare_digest(self._ownership_fingerprint(str(args["ref"])), row["fingerprint"]): self._owned_cleanup_tokens.pop(consumed_move_ownership, None)
+                except BaseException: self._owned_cleanup_tokens.pop(consumed_move_ownership, None)
+            raise
+        if enforce_ownership and operation in _TRANSACTION_CREATIONS:
+            try: result = self._attach_cleanup_ownership(operation, result, str(transaction_id))
+            except BaseException as error:
+                if creation_rollback is None: raise
+                baseline, checkpoint, ownership_checkpoint = creation_rollback
+                try: self._rollback_unattached_creation(operation, result, args, baseline, checkpoint)
+                except BaseException as cleanup_error: raise ValueError("creation ownership attachment failed and exact physical cleanup failed") from cleanup_error
+                self._owned_cleanup_tokens = ownership_checkpoint
+                raise error
+        if consumed_move_ownership is not None: self._owned_cleanup_tokens.pop(consumed_move_ownership, None)
+        if enforce_ownership and operation in _TRANSACTION_DELETIONS and isinstance(ownership_token, str): self._owned_cleanup_tokens[ownership_token]["deleted"] = True
+        if operation == "session.reconnect": self._owned_cleanup_tokens.clear()
+        return result
+
+    def _invoke_operation(self, operation: str, args: dict[str, Any]) -> Any:
         if operation in {"session.audition-launch", "session.clip-launch", "audio.capture.start"}: _require_output_safety(args)
         if operation == "session.audition-launch":
             return self._guarded_audition_launch(args)
@@ -1551,13 +1768,15 @@ class LiveObjectMapper:
         if operation == "tempo.set":
             return self._tempo_set(args)
         if operation == "session.capture-midi":
-            return self._capture_midi()
+            return self._capture_midi(args)
         if operation == "note.update":
             return self._note_update(args)
         if operation == "note.delete":
             return self._note_delete(args)
         if operation == "clip.duplicate":
             return self._clip_duplicate(args)
+        if operation == "clip.move":
+            return self._clip_duplicate(args, True)
         if operation == "arrangement.clip.create":
             return self._arrangement_clip_create(args)
         if operation == "arrangement.clip.delete":
@@ -1611,7 +1830,7 @@ class LiveObjectMapper:
         if operation == "recording.arrangement":
             return self._recording_arrangement(args)
         if operation == "scene.capture":
-            return self._scene_capture()
+            return self._scene_capture(args)
         if operation == "session.playback":
             return self._playback()
         if operation == "session.discover":
@@ -1637,36 +1856,132 @@ class LiveObjectMapper:
             return self._rename(operation, args)
         if operation == "device.parameter.set":
             reference, expected = str(args.get("ref")), args.get("expectedRevision")
+            authority = self._realtime_parameter_authority(reference)
+            expected_authority = {
+                "ref": reference,
+                "parameterIdentity": args.get("expectedObjectIdentity"),
+                "ownerRef": args.get("expectedOwnerRef"),
+                "ownerIdentity": args.get("expectedOwnerIdentity"),
+                "trackRef": args.get("expectedTrackRef"),
+                "trackIdentity": args.get("expectedTrackIdentity"),
+                "siblings": args.get("expectedSiblings"),
+            }
+            if any(not isinstance(expected_authority[key], str) for key in ("parameterIdentity", "ownerRef", "ownerIdentity", "trackRef", "trackIdentity")) or not isinstance(expected_authority["siblings"], list) or not hmac.compare_digest(self._bounded_canonical(authority), self._bounded_canonical(expected_authority)):
+                raise ValueError("parameter identity or hierarchy changed since preview")
             if not isinstance(expected, int) or isinstance(expected, bool) or self.refs.revision(reference) != expected:
                 raise ValueError("parameter revision changed since preview")
             return self._set_parameter_value(reference, args.get("value"))
         raise ValueError("live operation unavailable")
 
+    def _rename_authority_revision(self, kind: str, reference: str) -> str:
+        if kind in {"track", "scene"}: return self._structure_revision()
+        if kind == "locator": return hashlib.sha256(self._bounded_canonical(self._locator_items()).encode("utf-8")).hexdigest()
+        if kind == "clip":
+            authority = self._session_clip_authority(reference) if reference.startswith(f"{self.refs.epoch}:clip:") else {"expectedObjectIdentity": self.get(reference).get("objectIdentity"), "expectedAuthorityRevision": self._arrangement_clip_authority_revision(reference)}
+            return hashlib.sha256(self._bounded_canonical(authority).encode("utf-8")).hexdigest()
+        if kind == "device":
+            snapshot = self.snapshot()
+            def visit(values: Any, owner_ref: str, owner_identity: str, track: dict[str, Any]) -> dict[str, Any] | None:
+                if not isinstance(values, list): return None
+                siblings = [{"ref": item.get("ref"), "objectIdentity": item.get("objectIdentity")} for item in values if isinstance(item, dict)]
+                for item in values:
+                    if not isinstance(item, dict): continue
+                    if item.get("ref") == reference: return {"ref": item.get("ref"), "objectIdentity": item.get("objectIdentity"), "trackRef": track.get("ref"), "trackIdentity": track.get("objectIdentity"), "ownerRef": owner_ref, "ownerIdentity": owner_identity, "siblings": siblings}
+                    for chain in item.get("chains", []):
+                        found = visit(chain.get("devices", []), chain.get("ref"), chain.get("objectIdentity"), track)
+                        if found is not None: return found
+                    for pad in item.get("drumPads", []):
+                        for chain in pad.get("chains", []):
+                            found = visit(chain.get("devices", []), chain.get("ref"), chain.get("objectIdentity"), track)
+                            if found is not None: return found
+                return None
+            for track in snapshot.get("tracks", []):
+                found = visit(track.get("devices", []), track.get("ref"), track.get("objectIdentity"), track)
+                if found is not None: return hashlib.sha256(self._bounded_canonical(found).encode("utf-8")).hexdigest()
+            raise ValueError("device rename hierarchy is unavailable")
+        raise ValueError("rename authority kind is unsupported")
+
     def _rename(self, operation: str, args: dict[str, Any]) -> dict[str, Any]:
-        reference, name, expected_name = args.get("ref"), args.get("name"), args.get("expectedName")
+        reference, name, expected_name, expected_identity = args.get("ref"), args.get("name"), args.get("expectedName"), args.get("expectedObjectIdentity")
         kind = operation.split(".", 1)[0]
-        if not isinstance(reference, str) or f":{kind}:" not in reference or not isinstance(name, str) or not 1 <= len(name) <= 256 or not isinstance(expected_name, str):
+        if not isinstance(reference, str) or f":{kind}:" not in reference or not isinstance(name, str) or not 1 <= len(name) <= 256 or not isinstance(expected_name, str) or not isinstance(expected_identity, str):
             raise ValueError("rename authority is invalid")
+        authoritative = self.get(reference)
+        if not isinstance(authoritative, dict) or authoritative.get("ref") != reference or not hmac.compare_digest(str(authoritative.get("objectIdentity", "")), expected_identity):
+            raise ValueError("rename target identity changed since preview")
+        expected_authority = args.get("expectedAuthorityRevision")
+        if not isinstance(expected_authority, str) or not hmac.compare_digest(self._rename_authority_revision(kind, reference), expected_authority): raise ValueError("rename hierarchy changed since preview")
         target = self.refs.get(reference)
         if not hasattr(target, "name") or str(getattr(target, "name", "")) != expected_name:
             raise ValueError("rename target changed since preview")
-        if kind == "track" and target not in self._items(getattr(self.song, "tracks", [])): raise ValueError("rename track is stale")
-        if kind == "scene" and target not in self._items(getattr(self.song, "scenes", [])): raise ValueError("rename scene is stale")
-        if kind == "locator" and target not in self._items(getattr(self.song, "cue_points", [])): raise ValueError("rename locator is stale")
+        if kind == "track":
+            tracks = self._all_track_objects()
+            if sum(1 for candidate in tracks if self._capture_same_object(candidate, target, expected_identity)) != 1: raise ValueError("rename track is stale or ambiguous")
+        if kind == "scene" and sum(1 for candidate in self._items(getattr(self.song, "scenes", [])) if self._capture_same_object(candidate, target, expected_identity)) != 1: raise ValueError("rename scene is stale or ambiguous")
+        if kind == "locator" and sum(1 for candidate in self._items(getattr(self.song, "cue_points", [])) if self._capture_same_object(candidate, target, expected_identity)) != 1: raise ValueError("rename locator is stale or ambiguous")
         if kind == "clip":
-            current_clips = [getattr(slot, "clip", None) for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", []))] + [item for item in self._items(getattr(self.song, "arrangement_clips", []))]
-            if target not in current_clips: raise ValueError("rename clip is stale")
+            arrangement_rows = self._arrangement_clip_items(); current_clips = [getattr(slot, "clip", None) for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", []))] + [self.refs.get(row["ref"]) for row in arrangement_rows]
+            if sum(1 for candidate in current_clips if self._capture_same_object(candidate, target, expected_identity)) != 1: raise ValueError("rename clip is stale or ambiguous")
         if kind == "device":
-            current_refs = {device["ref"] for track in self.snapshot()["tracks"] for device in self._flatten_device_rows(track.get("devices", []))}
-            if reference not in current_refs: raise ValueError("rename device is stale")
-        target.name = name
-        if str(getattr(target, "name", "")) != name: raise ValueError("rename postcondition was not confirmed")
+            matching_rows = [device for track in self.snapshot()["tracks"] for device in self._flatten_device_rows(track.get("devices", [])) if device.get("objectIdentity") == expected_identity]
+            if len(matching_rows) != 1 or matching_rows[0].get("ref") != reference: raise ValueError("rename device is stale or ambiguous")
+        rename_error: BaseException | None = None
+        try: target.name = name
+        except BaseException as error: rename_error = error
+        if rename_error is not None or str(getattr(target, "name", "")) != name:
+            try: target.name = expected_name
+            except BaseException: pass
+            if str(getattr(target, "name", "")) != expected_name: raise ValueError("rename failed and exact rollback failed") from rename_error
+            raise ValueError("rename postcondition was not confirmed") from rename_error
         return {"renamed": reference, "name": name}
 
     def _structure_revision(self) -> str:
         snapshot = self.snapshot()
-        identity = {"tracks": [[item["ref"], item["name"], item["kind"], index] for index, item in enumerate(snapshot["tracks"])], "scenes": [[item["ref"], item["name"], index] for index, item in enumerate(snapshot["scenes"])]}
+        identity = {"tracks": [[item["ref"], item.get("objectIdentity"), item["name"], item["kind"], index] for index, item in enumerate(snapshot["tracks"])], "scenes": [[item["ref"], item.get("objectIdentity"), item["name"], index] for index, item in enumerate(snapshot["scenes"])]}
         return hashlib.sha256(json.dumps(identity, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+    def _owned_positional_conflict(self, axis: str, index: int, strict: bool = False, exclude_token: str | None = None) -> bool:
+        for token, row in self._owned_cleanup_tokens.items():
+            if token == exclude_token or row.get("deleted") is True: continue
+            reference = str(row.get("ref", "")); parts = reference.split(":")
+            if len(parts) < 3 or parts[0] != str(self.refs.epoch): continue
+            kind, path = parts[1], parts[2:]; position: int | None = None
+            if axis == "track" and kind in {"track", "clip", "arrangement_clip", "device"} and path and path[0].isdigit(): position = int(path[0])
+            if axis == "scene" and kind == "scene" and path and path[0].isdigit(): position = int(path[0])
+            if axis == "scene" and kind == "clip" and len(path) >= 2 and path[1].isdigit(): position = int(path[1])
+            if position is not None and (position > index if strict else position >= index): return True
+        return False
+
+    def _structure_create_atomic(self, kind: str, index: int, name: str, creator: Callable[[int], Any]) -> dict[str, Any]:
+        attribute = "tracks" if kind == "track" else "scenes"; before = self._items(getattr(self.song, attribute, [])); before_identities = [self._capture_object_identity(item) for item in before]; baseline_topology = self._creation_topology()
+        if len(set(before_identities)) != len(before_identities): raise ValueError(f"{kind} collection identity is ambiguous")
+        checkpoint = self.refs.checkpoint(); creation_error: BaseException | None = None
+        try: creator(index)
+        except BaseException as error: creation_error = error
+        after = self._items(getattr(self.song, attribute, [])); created = [(position, item, self._capture_object_identity(item)) for position, item in enumerate(after) if self._capture_object_identity(item) not in set(before_identities)]
+        try:
+            if creation_error is not None: raise creation_error
+            if len(after) != len(before) + 1 or len(created) != 1 or created[0][0] != index: raise ValueError(f"{kind} creation did not produce one exact identity-distinct object")
+            position, item, identity = created[0]; expected_identity_order = list(before_identities); expected_identity_order.insert(position, identity)
+            if [self._capture_object_identity(candidate) for candidate in after] != expected_identity_order: raise ValueError(f"{kind} creation reordered pre-existing objects")
+            if hasattr(item, "name"): item.name = name
+            if str(getattr(item, "name", name)) != name: raise ValueError(f"{kind} creation name was not confirmed")
+            reference = self.refs.put(kind, item, str(position)); fingerprint = self._ownership_fingerprint(reference)
+            return {"ref": reference, "objectIdentity": identity, "name": str(getattr(item, "name", name)), "index": position, "createdFingerprint": fingerprint}
+        except BaseException as error:
+            rollback_failed = False; deleter = getattr(self.song, "delete_track" if kind == "track" else "delete_scene", None)
+            current = self._items(getattr(self.song, attribute, [])); new_rows = [(position, item) for position, item in enumerate(current) if self._capture_object_identity(item) not in set(before_identities)]
+            if new_rows and not callable(deleter): rollback_failed = True
+            if callable(deleter):
+                for position, _ in reversed(new_rows):
+                    try: deleter(position)
+                    except BaseException: pass
+            if [self._capture_object_identity(item) for item in self._items(getattr(self.song, attribute, []))] != before_identities or self._creation_topology() != baseline_topology: rollback_failed = True
+            if rollback_failed:
+                try: self.snapshot()
+                except BaseException: pass
+                raise ValueError(f"{kind} creation failed and exact rollback failed") from error
+            self.refs.restore(checkpoint); raise
 
     def _structure_mutate(self, operation: str, args: dict[str, Any]) -> dict[str, Any]:
         expected_revision = args.get("expectedStructureRevision")
@@ -1680,26 +1995,20 @@ class LiveObjectMapper:
             if any(str(getattr(track, "name", "")) == name for track in tracks): raise ValueError("track name already exists")
             if index is None: index = len(tracks)
             if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index <= len(tracks): raise ValueError("track index is invalid")
+            if self._owned_positional_conflict("track", index): raise ValueError("track insertion would shift active transaction-owned reference authority")
             creator = getattr(self.song, "create_midi_track" if kind == "midi" else "create_audio_track", None)
             if not callable(creator): raise ValueError("track creation is unavailable")
-            track = creator(index)
-            if hasattr(track, "name"): track.name = name
-            if track is None: track = self._items(getattr(self.song, "tracks", []))[index]
-            ref = self.refs.put("track", track, str(index))
-            return {"ref": ref, "objectIdentity": self._capture_object_identity(track), "name": str(getattr(track, "name", name)), "kind": kind, "index": index}
+            return {**self._structure_create_atomic("track", index, name, creator), "kind": kind}
         if operation == "scene.create":
             name, index = args.get("name"), args.get("index")
             scenes = self._items(getattr(self.song, "scenes", []))
             if not isinstance(name, str) or not 1 <= len(name) <= 128 or any(str(getattr(scene, "name", "")) == name for scene in scenes): raise ValueError("scene name is invalid or already exists")
             if index is None: index = len(scenes)
             if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index <= len(scenes): raise ValueError("scene index is invalid")
+            if self._owned_positional_conflict("scene", index): raise ValueError("scene insertion would shift active transaction-owned reference authority")
             creator = getattr(self.song, "create_scene", None)
             if not callable(creator): raise ValueError("scene creation is unavailable")
-            scene = creator(index)
-            if scene is None: scene = self._items(getattr(self.song, "scenes", []))[index]
-            if hasattr(scene, "name"): scene.name = name
-            ref = self.refs.put("scene", scene, str(index))
-            return {"ref": ref, "objectIdentity": self._capture_object_identity(scene), "name": str(getattr(scene, "name", name)), "index": index}
+            return self._structure_create_atomic("scene", index, name, creator)
         reference = args.get("ref")
         if not isinstance(reference, str): raise ValueError("object reference is required")
         kind = "track" if operation == "track.delete" else "scene"
@@ -1711,23 +2020,38 @@ class LiveObjectMapper:
         if not hmac.compare_digest(expected_identity, self._capture_object_identity(obj)): raise ValueError("Session object identity changed; deletion refused")
         deleter = getattr(self.song, "delete_track" if operation == "track.delete" else "delete_scene", None)
         if not callable(deleter): raise ValueError("object deletion is unavailable")
-        before = len(collection); deleter(index); after = self._items(getattr(self.song, "tracks" if kind == "track" else "scenes", []))
-        if len(after) != before - 1 or any(self._capture_object_identity(item) == expected_identity for item in after): raise ValueError("Session object deletion was not confirmed")
+        before_identity_order = [self._capture_object_identity(item) for item in collection]; expected_identity_order = list(before_identity_order); expected_identity_order.pop(index); deletion_error: BaseException | None = None
+        try: deleter(index)
+        except BaseException as error: deletion_error = error
+        after = self._items(getattr(self.song, "tracks" if kind == "track" else "scenes", [])); after_identity_order = [self._capture_object_identity(item) for item in after]
+        if after_identity_order != expected_identity_order: raise ValueError("Session object deletion did not preserve exact remaining sibling order") from deletion_error
         self.refs.delete(reference)
         return {"deleted": reference}
 
     def _locator_mutate(self, args: dict[str, Any], delete: bool) -> dict[str, Any]:
         if not self._locator_supported():
             raise ValueError("Arrangement locators are unavailable")
+        current_items = self._locator_items(); current_revision = hashlib.sha256(self._bounded_canonical(current_items).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedCollectionRevision"), str) or not hmac.compare_digest(current_revision, args["expectedCollectionRevision"]):
+            raise ValueError("locator collection changed since preview")
         if delete:
             reference = args.get("ref")
             if not isinstance(reference, str):
                 raise ValueError("locator reference is required")
             locator = self.refs.get(reference)
+            expected_identity = args.get("expectedObjectIdentity")
+            if not isinstance(expected_identity, str) or not hmac.compare_digest(self._capture_object_identity(locator), expected_identity):
+                raise ValueError("locator identity changed; deletion refused")
             position = getattr(locator, "time", getattr(locator, "position", None))
             if not isinstance(position, (int, float)) or not math.isfinite(float(position)):
                 raise ValueError("locator position is invalid")
-            self.song.set_or_delete_cue(float(position))
+            native_before = self._items(getattr(self.song, "cue_points", [])); native_matches = [index for index, candidate in enumerate(native_before) if self._capture_same_object(candidate, locator, expected_identity)]
+            if len(native_matches) != 1: raise ValueError("locator native hierarchy is ambiguous")
+            expected_native_order = [self._capture_object_identity(candidate) for candidate in native_before]; expected_native_order.pop(native_matches[0]); expected_rows = [{key: row.get(key) for key in ("objectIdentity", "name", "position")} for row in current_items if row.get("ref") != reference]; deletion_error: BaseException | None = None
+            try: self.song.set_or_delete_cue(float(position))
+            except BaseException as error: deletion_error = error
+            native_after_order = [self._capture_object_identity(candidate) for candidate in self._items(getattr(self.song, "cue_points", []))]; after_items = self._locator_items(); after_rows = [{key: row.get(key) for key in ("objectIdentity", "name", "position")} for row in after_items]
+            if native_after_order != expected_native_order or self._bounded_canonical(after_rows) != self._bounded_canonical(expected_rows): raise ValueError("locator deletion was not confirmed exactly") from deletion_error
             self.refs.delete(reference)
             return {"deleted": reference}
         name = args.get("name")
@@ -1736,29 +2060,44 @@ class LiveObjectMapper:
             raise ValueError("locator name or position is invalid")
         if any(item["name"] == name or item["position"] == float(position) for item in self._locator_items()):
             raise ValueError("locator target collides with existing state")
-        before = self._locator_items()
-        self.song.set_or_delete_cue(float(position))
-        after = self._locator_items()
-        created = [item for item in after if item["ref"] not in {old["ref"] for old in before} and item["position"] == float(position)]
-        if len(created) != 1:
-            raise RuntimeError("Live did not confirm locator creation")
-        locator = self.refs.get(created[0]["ref"])
-        if hasattr(locator, "name"):
-            locator.name = name
-        return {"ref": created[0]["ref"], "name": name, "position": float(position)}
+        before = self._locator_items(); before_identities = [row["objectIdentity"] for row in before]; checkpoint = self.refs.checkpoint(); mutation_error: BaseException | None = None
+        try: self.song.set_or_delete_cue(float(position))
+        except BaseException as error: mutation_error = error
+        try:
+            after = self._locator_items(); created = [item for item in after if item.get("objectIdentity") not in set(before_identities)]
+            if mutation_error is not None: raise mutation_error
+            if len(after) != len(before) + 1 or len(created) != 1 or created[0]["position"] != float(position): raise RuntimeError("Live did not confirm one identity-distinct locator creation")
+            locator = self.refs.get(created[0]["ref"])
+            if hasattr(locator, "name"): locator.name = name
+            if str(getattr(locator, "name", "")) != name: raise ValueError("locator name was not confirmed")
+            return {"ref": created[0]["ref"], "objectIdentity": self._capture_object_identity(locator), "name": name, "position": float(position), "createdFingerprint": self._ownership_fingerprint(created[0]["ref"])}
+        except BaseException as error:
+            rollback_failed = False; current = self._locator_items(); owned = [row for row in current if row.get("objectIdentity") not in set(before_identities)]
+            for row in owned:
+                try: self.song.set_or_delete_cue(float(row["position"]))
+                except BaseException: pass
+            restored = self._locator_items()
+            if self._bounded_canonical([{key: row.get(key) for key in ("objectIdentity", "name", "position")} for row in restored]) != self._bounded_canonical([{key: row.get(key) for key in ("objectIdentity", "name", "position")} for row in before]): rollback_failed = True
+            if rollback_failed: raise ValueError("locator creation failed and exact rollback failed") from error
+            self.refs.restore(checkpoint); raise
 
     def _mutate(self, operation: str, args: dict[str, Any]) -> Any:
         if operation == "clip.create":
-            track = self.refs.get(str(args["trackRef"]))
+            track_ref = str(args["trackRef"]); self.snapshot(); track = self.refs.get(track_ref)
             if not bool(getattr(track, "has_midi_input", False)):
                 raise ValueError("target track is not MIDI-capable")
-            slots = self._items(getattr(track, "clip_slots", []))
+            slots = self._items(getattr(track, "clip_slots", [])); scenes = self._items(getattr(self.song, "scenes", []))
             if not isinstance(args.get("sceneIndex"), int) or isinstance(args["sceneIndex"], bool):
                 raise ValueError("scene index is invalid")
             index = args["sceneIndex"]
-            if not 0 <= index < len(slots):
+            if not 0 <= index < len(slots) or index >= len(scenes):
                 raise ValueError("scene index is invalid")
-            slot = slots[index]
+            slot = slots[index]; scene = scenes[index]; track_index = self._capture_index(self._items(getattr(self.song, "tracks", [])), track)
+            if track_index is None or track_ref != f"{self.refs.epoch}:track:{track_index}": raise ValueError("clip creation track hierarchy is stale")
+            current_authority = {"trackIdentity": self._capture_object_identity(track), "slotRef": self.refs.put("clip_slot", slot, f"{track_index}:{index}"), "slotIdentity": self._capture_object_identity(slot), "sceneRef": self.refs.put("scene", scene, str(index)), "sceneIdentity": self._capture_object_identity(scene)}
+            expected_authority = {"trackIdentity": args.get("expectedTrackIdentity"), "slotRef": args.get("expectedSlotRef"), "slotIdentity": args.get("expectedSlotIdentity"), "sceneRef": args.get("expectedSceneRef"), "sceneIdentity": args.get("expectedSceneIdentity")}
+            if not all(isinstance(value, str) for value in expected_authority.values()) or not hmac.compare_digest(self._bounded_canonical(current_authority), self._bounded_canonical(expected_authority)):
+                raise ValueError("clip creation target identity changed since preview")
             if getattr(slot, "clip", None) is not None:
                 raise ValueError("session slot is occupied")
             length = args.get("length")
@@ -1767,24 +2106,38 @@ class LiveObjectMapper:
             name = args.get("name")
             if not isinstance(name, str) or not 1 <= len(name) <= 256:
                 raise ValueError("clip name is invalid")
-            clip = slot.create_clip(float(length))
-            if hasattr(clip, "name"):
-                clip.name = name
-            all_tracks = self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", []))
-            main_track = getattr(self.song, "master_track", getattr(self.song, "main_track", None))
-            if main_track is not None:
-                all_tracks.append(main_track)
-            track_index = all_tracks.index(track) if track in all_tracks else 0
-            return {"ref": self.refs.put("clip", clip, f"{track_index}:{index}"), "name": getattr(clip, "name", ""), "length": float(getattr(clip, "length", length))}
+            checkpoint = self.refs.checkpoint()
+            try:
+                clip = slot.create_clip(float(length)); clip = clip if clip is not None else getattr(slot, "clip", None)
+                if clip is None: raise ValueError("clip creation was not confirmed")
+                if hasattr(clip, "name"): clip.name = name
+                if str(getattr(clip, "name", "")) != name or not isinstance(self._read_attr(clip, "length"), (int, float)) or float(self._read_attr(clip, "length")) != float(length): raise ValueError("clip creation name or length was not confirmed")
+                created_ref = self.refs.put("clip", clip, f"{track_index}:{index}"); created_identity = self._capture_object_identity(clip); fingerprint = self._mapped_fingerprint(created_ref)
+                return {"ref": created_ref, "objectIdentity": created_identity, "name": getattr(clip, "name", ""), "length": float(getattr(clip, "length", length)), "createdFingerprint": fingerprint}
+            except BaseException as error:
+                rollback_failed = False; current = getattr(slot, "clip", None); deleter = getattr(slot, "delete_clip", None)
+                if current is not None:
+                    if not callable(deleter): rollback_failed = True
+                    else:
+                        try: deleter()
+                        except BaseException: pass
+                if getattr(slot, "clip", None) is not None: rollback_failed = True
+                if rollback_failed: raise ValueError("clip creation failed and exact transaction-owned cleanup failed") from error
+                self.refs.restore(checkpoint); raise
         if operation == "clip.delete":
-            _, slot, _, _ = self._clip_location(str(args["ref"])); clip = getattr(slot, "clip", None)
+            authority = self._session_clip_authority(str(args["ref"])); _, slot, _, _ = self._clip_location(str(args["ref"])); clip = getattr(slot, "clip", None)
             if clip is None or not callable(getattr(slot, "delete_clip", None)):
                 raise ValueError("clip reference is not deletable")
-            expected_identity = args.get("expectedObjectIdentity")
-            if expected_identity is not None and (not isinstance(expected_identity, str) or not hmac.compare_digest(expected_identity, self._capture_object_identity(clip))):
-                raise ValueError("clip object identity changed; deletion refused")
-            slot.delete_clip()
-            return {"deleted": args["ref"]}
+            expected = {key: args.get(key) for key in authority}
+            if not all(isinstance(value, str) for value in expected.values()) or not hmac.compare_digest(self._bounded_canonical(authority), self._bounded_canonical(expected)):
+                raise ValueError("clip hierarchy identity changed; deletion refused")
+            deletion_error: BaseException | None = None
+            try: slot.delete_clip()
+            except BaseException as error: deletion_error = error
+            current = getattr(slot, "clip", None); clip_identity = self._capture_object_identity(clip)
+            if current is not None and self._capture_same_object(current, clip, clip_identity): raise ValueError("clip deletion was not confirmed") from deletion_error
+            if current is not None: raise ValueError("clip slot changed unexpectedly during deletion") from deletion_error
+            self.refs.delete(str(args["ref"])); return {"deleted": args["ref"]}
         clip = self.refs.get(str(args["ref"]))
         if operation == "note.add-batch":
             if not isinstance(args.get("notes"), list) or not 1 <= len(args["notes"]) <= 512:
@@ -1814,6 +2167,21 @@ class LiveObjectMapper:
             raise ValueError("clip reference slot is stale")
         return tracks[track_index], slots[slot_index], track_index, slot_index
 
+    def _session_clip_authority(self, reference: str) -> dict[str, str]:
+        track, slot, track_index, slot_index = self._clip_location(reference)
+        clip = getattr(slot, "clip", None); scenes = self._items(getattr(self.song, "scenes", []))
+        if clip is None or slot_index >= len(scenes): raise ValueError("clip hierarchy is stale")
+        scene = scenes[slot_index]
+        return {
+            "expectedObjectIdentity": self._capture_object_identity(clip),
+            "expectedTrackRef": self.refs.put("track", track, str(track_index)),
+            "expectedTrackIdentity": self._capture_object_identity(track),
+            "expectedSlotRef": self.refs.put("clip_slot", slot, f"{track_index}:{slot_index}"),
+            "expectedSlotIdentity": self._capture_object_identity(slot),
+            "expectedSceneRef": self.refs.put("scene", scene, str(slot_index)),
+            "expectedSceneIdentity": self._capture_object_identity(scene),
+        }
+
     def _arrangement_location(self, reference: str) -> tuple[Any, Any, int, int]:
         """Resolve an arrangement-clip reference to (track, clip, track_index,
         clip_index) through its traversal key."""
@@ -1833,68 +2201,235 @@ class LiveObjectMapper:
             raise ValueError("arrangement clip is stale")
         return tracks[track_index], clips[clip_index], track_index, clip_index
 
-    def _clip_duplicate(self, args: dict[str, Any]) -> dict[str, Any]:
+    def _arrangement_collection_revision(self, track: Any, track_index: int) -> str:
+        clips = self._items(self._read_attr(track, "arrangement_clips") or []); siblings = [{"ref": self.refs.put("arrangement_clip", clip, f"{track_index}:{index}"), "objectIdentity": self._capture_object_identity(clip)} for index, clip in enumerate(clips)]
+        if len(siblings) > 256: raise ValueError("Arrangement clip collection exceeds authority bound")
+        return hashlib.sha256(self._bounded_canonical(siblings).encode("utf-8")).hexdigest()
+
+    def _arrangement_clip_authority_revision(self, reference: str) -> str:
+        owner, clip, track_index, _ = self._arrangement_location(reference); owner_ref = self.refs.put("track", owner, str(track_index)); clips = self._items(self._read_attr(owner, "arrangement_clips") or [])
+        siblings = [{"ref": self.refs.put("arrangement_clip", item, f"{track_index}:{index}"), "objectIdentity": self._capture_object_identity(item)} for index, item in enumerate(clips)]
+        if len(siblings) > 256: raise ValueError("Arrangement clip collection exceeds authority bound")
+        authority = {"clip": {"ref": reference, "objectIdentity": self._capture_object_identity(clip)}, "owner": {"ref": owner_ref, "objectIdentity": self._capture_object_identity(owner)}, "siblings": siblings}
+        return hashlib.sha256(self._bounded_canonical(authority).encode("utf-8")).hexdigest()
+
+    def _mapped_fingerprint(self, reference: str) -> str:
+        row = self.get(reference)
+        if not isinstance(row, dict): raise ValueError("created object fingerprint is unavailable")
+        return hashlib.sha256(self._bounded_canonical(row).encode("utf-8")).hexdigest()
+
+    def _ownership_fingerprint(self, reference: str) -> str:
+        if not reference.startswith(f"{self.refs.epoch}:"): raise ValueError("created object reference is malformed")
+        snapshot = self.snapshot()
+        if f":track:" in reference:
+            track = next((row for row in snapshot["tracks"] if row["ref"] == reference), None)
+            if track is None: raise ValueError("created track fingerprint is unavailable")
+            owned_track = {**track, "clipSlots": [slot for slot in track.get("clipSlots", []) if slot.get("empty") is not True or slot.get("clipRef") is not None]}; arrangement_clips = [clip for clip in snapshot.get("arrangement", {}).get("clips", []) if clip.get("trackRef") == reference or clip.get("parentRef") == reference]
+            return hashlib.sha256(self._bounded_canonical({"track": owned_track, "arrangementClips": arrangement_clips}).encode("utf-8")).hexdigest()
+        if f":scene:" not in reference: return self._mapped_fingerprint(reference)
+        scene = next((row for row in snapshot["scenes"] if row["ref"] == reference), None)
+        if scene is None: raise ValueError("created scene fingerprint is unavailable")
+        scene_identity = {key: scene.get(key) for key in ("ref", "parentRef", "objectIdentity", "name", "triggerable")}; contents = []
+        for track in snapshot["tracks"]:
+            slot = next((row for row in track.get("clipSlots", []) if row.get("sceneIndex") == scene["index"]), None); clip = next((row for row in track.get("clips", []) if slot is not None and row.get("ref") == slot.get("clipRef")), None); owned_slot = {key: slot.get(key) for key in ("ref", "parentRef", "trackRef", "objectIdentity", "clipRef", "empty")} if slot is not None else None
+            contents.append({"trackRef": track.get("ref"), "trackIdentity": track.get("objectIdentity"), "slot": owned_slot, "clip": clip})
+        return hashlib.sha256(self._bounded_canonical({"scene": scene_identity, "contents": contents}).encode("utf-8")).hexdigest()
+
+    def _creation_topology(self) -> str:
+        tracks = self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", [])); main_track = getattr(self.song, "master_track", getattr(self.song, "main_track", None)); tracks += [main_track] if main_track is not None else []; scenes = self._items(getattr(self.song, "scenes", [])); rows = []
+        for track in tracks:
+            slots = self._items(getattr(track, "clip_slots", [])); rows.append({"identity": self._capture_object_identity(track), "slots": [{"identity": self._capture_object_identity(slot), "clip": self._capture_object_identity(getattr(slot, "clip")) if getattr(slot, "clip", None) is not None else None} for slot in slots], "arrangement": [self._capture_object_identity(clip) for clip in self._items(self._read_attr(track, "arrangement_clips") or [])], "devices": [self._capture_object_identity(device) for device in self._items(getattr(track, "devices", []))]})
+        topology = {"tracks": rows, "scenes": [self._capture_object_identity(scene) for scene in scenes], "locators": [self._capture_object_identity(locator) for locator in self._items(getattr(self.song, "cue_points", []))]}
+        return self._bounded_canonical(topology)
+
+    def _rollback_unattached_creation(self, operation: str, result: Any, args: dict[str, Any], baseline: str, checkpoint: tuple[dict[str, Any], dict[str, int]]) -> None:
+        rows = result.get("clipIdentities") if operation == "session.capture-midi" and isinstance(result, dict) else [result]
+        if not isinstance(rows, list): raise ValueError("unattached creation rows are unavailable")
+        normalized: list[tuple[str, str, str]] = []
+        for row in rows:
+            if not isinstance(row, dict): raise ValueError("unattached creation row is unavailable")
+            reference = row.get("deviceRef") if operation == "browser.load" else row.get("ref"); identity = row.get("deviceObjectIdentity") if operation == "browser.load" else row.get("objectIdentity"); fingerprint = row.get("createdFingerprint")
+            if not isinstance(reference, str) or not isinstance(identity, str) or not isinstance(fingerprint, str) or not hmac.compare_digest(self._ownership_fingerprint(reference), fingerprint): raise ValueError("unattached creation identity or fingerprint changed")
+            normalized.append((reference, identity, fingerprint))
+        for reference, identity, _ in reversed(normalized):
+            kind = reference.split(":", 2)[1] if reference.count(":") >= 2 else ""; deletion_error: BaseException | None = None
+            try:
+                if kind == "track":
+                    collection = self._items(getattr(self.song, "tracks", [])); matches = [index for index, item in enumerate(collection) if self._capture_object_identity(item) == identity]
+                    if len(matches) != 1 or not callable(getattr(self.song, "delete_track", None)): raise ValueError("unattached track is not exactly deletable")
+                    self.song.delete_track(matches[0])
+                elif kind == "scene":
+                    collection = self._items(getattr(self.song, "scenes", [])); matches = [index for index, item in enumerate(collection) if self._capture_object_identity(item) == identity]
+                    if len(matches) != 1 or not callable(getattr(self.song, "delete_scene", None)): raise ValueError("unattached scene is not exactly deletable")
+                    self.song.delete_scene(matches[0])
+                elif kind == "clip":
+                    _, slot, _, _ = self._clip_location(reference); current = getattr(slot, "clip", None)
+                    if current is None or not self._capture_same_object(current, self.refs.get(reference), identity) or not callable(getattr(slot, "delete_clip", None)): raise ValueError("unattached Session clip is not exactly deletable")
+                    slot.delete_clip()
+                elif kind == "arrangement_clip":
+                    owner, clip, _, _ = self._arrangement_location(reference)
+                    if self._capture_object_identity(clip) != identity or not callable(getattr(owner, "delete_clip", None)): raise ValueError("unattached Arrangement clip is not exactly deletable")
+                    owner.delete_clip(clip)
+                elif kind == "device":
+                    track_ref = (result.get("parentTrackRef") or args.get("trackRef")) if operation == "browser.load" and isinstance(result, dict) else args.get("trackRef"); track = self.refs.get(str(track_ref)); devices = self._items(getattr(track, "devices", [])); matches = [index for index, device in enumerate(devices) if self._capture_object_identity(device) == identity]
+                    if len(matches) != 1 or not callable(getattr(track, "delete_device", None)): raise ValueError("unattached device is not exactly deletable")
+                    track.delete_device(matches[0])
+                elif kind == "locator":
+                    locator = self.refs.get(reference); position = self._read_attr(locator, "time", "position")
+                    if self._capture_object_identity(locator) != identity or not isinstance(position, (int, float)) or not callable(getattr(self.song, "set_or_delete_cue", None)): raise ValueError("unattached locator is not exactly deletable")
+                    self.song.set_or_delete_cue(float(position))
+                else: raise ValueError("unattached creation kind is unsupported")
+            except BaseException as error: deletion_error = error
+            if deletion_error is not None:
+                # A Live deleter may apply and then raise; the exact global
+                # topology check below is the acknowledgement-loss authority.
+                pass
+        if self._creation_topology() != baseline: raise ValueError("unattached creation cleanup did not restore exact topology")
+        self.refs.restore(checkpoint)
+
+    def _attach_cleanup_ownership(self, operation: str, result: Any, transaction_id: str) -> Any:
+        rows = result.get("clipIdentities") if operation == "session.capture-midi" and isinstance(result, dict) else [result]
+        if not isinstance(rows, list): raise ValueError("created-object ownership result is malformed")
+        normalized = []
+        for row in rows:
+            if not isinstance(row, dict): raise ValueError("created-object ownership evidence is incomplete")
+            reference = row.get("deviceRef") if operation == "browser.load" else row.get("ref"); identity = row.get("deviceObjectIdentity") if operation == "browser.load" else row.get("objectIdentity"); fingerprint = row.get("createdFingerprint")
+            if not isinstance(reference, str) or not isinstance(identity, str) or not isinstance(fingerprint, str) or not re.fullmatch(r"[a-f0-9]{64}", fingerprint): raise ValueError("created-object ownership evidence is incomplete")
+            normalized.append((row, reference, identity, fingerprint))
+        if len(self._owned_cleanup_tokens) + len(normalized) > 4096: raise ValueError("transaction-owned cleanup ledger is full")
+        for row, reference, identity, fingerprint in normalized:
+            token = secrets.token_urlsafe(32); self._owned_cleanup_tokens[token] = {"transactionId": transaction_id, "ref": reference, "objectIdentity": identity, "fingerprint": fingerprint}; row["ownershipToken"] = token
+        return result
+
+    def _require_cleanup_ownership(self, operation: str, args: dict[str, Any], transaction_id: str, ownership_token: str | None) -> None:
+        reference, expected_identity = args.get("ref"), args.get("expectedObjectIdentity")
+        record = self._owned_cleanup_tokens.get(str(ownership_token)) if isinstance(ownership_token, str) else None
+        if record is None or record.get("transactionId") != transaction_id or record.get("ref") != reference or record.get("objectIdentity") != expected_identity: raise ValueError("destructive cleanup lacks exact transaction-owned authority")
+        if record.get("deleted") is True: return
+        if not hmac.compare_digest(self._ownership_fingerprint(str(reference)), record["fingerprint"]): raise ValueError("transaction-owned object changed after creation; cleanup refused")
+        if operation in {"track.delete", "scene.delete"}:
+            target_text = str(reference).rsplit(":", 1)[-1]
+            if not target_text.isdigit(): raise ValueError("transaction-owned structure reference is malformed")
+            axis = "track" if operation == "track.delete" else "scene"
+            if self._owned_positional_conflict(axis, int(target_text), strict=True, exclude_token=ownership_token): raise ValueError("transaction-owned structure cleanup must proceed from the highest positional authority")
+
+    def retire_transaction_ownership(self, transaction_id: str, terminal: bool = False) -> None:
+        for token, row in list(self._owned_cleanup_tokens.items()):
+            if row.get("transactionId") == transaction_id and (terminal or row.get("deleted") is True): self._owned_cleanup_tokens.pop(token, None)
+
+    def _clip_duplicate(self, args: dict[str, Any], delete_source: bool = False) -> dict[str, Any]:
         reference = args.get("ref")
-        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:"):
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:clip:"):
             raise ValueError("clip reference is stale or invalid")
-        clip = self.refs.get(reference)
+        self.snapshot(); authority = self._session_clip_authority(reference)
+        expected_source = {key: args.get(key) for key in authority}
+        if not all(isinstance(value, str) for value in expected_source.values()) or not hmac.compare_digest(self._bounded_canonical(authority), self._bounded_canonical(expected_source)):
+            raise ValueError("clip duplication source identity changed since preview")
+        expected_content = args.get("expectedContentFingerprint")
+        if not isinstance(expected_content, str) or not re.fullmatch(r"[a-f0-9]{64}", expected_content) or not hmac.compare_digest(self._mapped_fingerprint(reference), expected_content):
+            raise ValueError("clip content changed since preview")
+        owner, source_slot, track_index, _ = self._clip_location(reference); clip = getattr(source_slot, "clip", None)
+        if clip is None: raise ValueError("clip duplication source is stale")
+        source_content_fingerprint = self._clip_content_fingerprint(clip)
         arrangement_position = args.get("arrangementPosition")
+        if delete_source and arrangement_position is not None: raise ValueError("Session clip move cannot target the Arrangement")
         if arrangement_position is not None:
             if not isinstance(arrangement_position, (int, float)) or isinstance(arrangement_position, bool) or not math.isfinite(float(arrangement_position)) or float(arrangement_position) < 0:
                 raise ValueError("arrangement position is invalid")
-            owner, source_slot, _, _ = self._clip_location(reference)
-            clip = getattr(source_slot, "clip", None)
-            if clip is None:
-                raise ValueError("only Session clips can duplicate to the Arrangement")
             duplicate = getattr(owner, "duplicate_clip_to_arrangement", None)
-            if not callable(duplicate):
-                raise ValueError("arrangement duplication is unavailable")
-            owner, source_slot, track_index, _ = self._clip_location(reference)
-            clip = getattr(source_slot, "clip", None)
-            if clip is None:
-                raise ValueError("only Session clips can duplicate to the Arrangement")
-            duplicate = getattr(owner, "duplicate_clip_to_arrangement", None)
-            if not callable(duplicate):
-                raise ValueError("arrangement duplication is unavailable")
-            duplicate(clip, float(arrangement_position))
-            clips_after = self._items(self._read_attr(owner, "arrangement_clips") or [])
-            created = next((candidate for candidate in clips_after if abs(float(getattr(candidate, "start_time", -1)) - float(arrangement_position)) < 0.01), None)
-            if created is None:
-                raise ValueError("arrangement duplication was not confirmed")
-            clip_index = clips_after.index(created)
-            return {"ref": self.refs.put("arrangement_clip", created, f"{track_index}:{clip_index}"), "name": str(getattr(created, "name", ""))}
-        target_track_ref = args.get("targetTrackRef")
-        target_scene_index = args.get("targetSceneIndex")
+            if not callable(duplicate): raise ValueError("arrangement duplication is unavailable")
+            expected_collection = args.get("expectedTargetCollectionRevision"); current_collection = self._arrangement_collection_revision(owner, track_index)
+            if not isinstance(expected_collection, str) or not hmac.compare_digest(current_collection, expected_collection): raise ValueError("Arrangement target collection changed since preview")
+            clips_before = self._items(self._read_attr(owner, "arrangement_clips") or []); before_identity_order = [self._capture_object_identity(item) for item in clips_before]; before_identities = set(before_identity_order); checkpoint = self.refs.checkpoint()
+            try:
+                duplicate(clip, float(arrangement_position)); clips_after = self._items(self._read_attr(owner, "arrangement_clips") or []); created_rows = [(index, candidate) for index, candidate in enumerate(clips_after) if self._capture_object_identity(candidate) not in before_identities]
+                if len(clips_after) != len(clips_before) + 1 or len(created_rows) != 1: raise ValueError("arrangement duplication did not produce one identity-distinct clip")
+                clip_index, created = created_rows[0]; created_identity = self._capture_object_identity(created); expected_identity_order = list(before_identity_order); expected_identity_order.insert(clip_index, created_identity)
+                if [self._capture_object_identity(candidate) for candidate in clips_after] != expected_identity_order: raise ValueError("Arrangement duplication reordered pre-existing clips")
+                actual_start = self._read_attr(created, "start_time", "start")
+                if self._clip_content_fingerprint(created) != source_content_fingerprint or not isinstance(actual_start, (int, float)) or float(actual_start) != float(arrangement_position): raise ValueError("Arrangement duplication did not preserve exact clip content and position")
+                created_ref = self.refs.put("arrangement_clip", created, f"{track_index}:{clip_index}"); fingerprint = self._mapped_fingerprint(created_ref)
+                return {"ref": created_ref, "objectIdentity": created_identity, "name": str(getattr(created, "name", "")), "createdFingerprint": fingerprint}
+            except BaseException as error:
+                rollback_failed = False; deleter = getattr(owner, "delete_clip", None); current = self._items(self._read_attr(owner, "arrangement_clips") or []); owned = [candidate for candidate in current if self._capture_object_identity(candidate) not in before_identities]
+                if owned and not callable(deleter): rollback_failed = True
+                if callable(deleter):
+                    for candidate in owned:
+                        try: deleter(candidate)
+                        except BaseException: pass
+                if [self._capture_object_identity(item) for item in self._items(self._read_attr(owner, "arrangement_clips") or [])] != before_identity_order: rollback_failed = True
+                if rollback_failed: raise ValueError("arrangement duplication failed and exact cleanup failed") from error
+                self.refs.restore(checkpoint); raise
+        if args.get("expectedTargetCollectionRevision") is not None: raise ValueError("Session duplication cannot carry Arrangement collection authority")
+        target_track_ref = args.get("targetTrackRef"); target_scene_index = args.get("targetSceneIndex")
         if not isinstance(target_track_ref, str) or not target_track_ref.startswith(f"{self.refs.epoch}:track:"):
             raise ValueError("target track reference is required for Session duplication")
         if not isinstance(target_scene_index, int) or isinstance(target_scene_index, bool) or not 0 <= target_scene_index <= 10000:
             raise ValueError("target scene index is invalid")
-        target_track = self.refs.get(target_track_ref)
-        slots = self._items(getattr(target_track, "clip_slots", []))
-        if target_scene_index >= len(slots):
-            raise ValueError("target scene index is invalid")
-        target_slot = slots[target_scene_index]
-        if getattr(target_slot, "clip", None) is not None:
-            raise ValueError("target Session slot is occupied")
-        _, source_slot, _, _ = self._clip_location(reference)
-        clip = getattr(source_slot, "clip", None)
-        if clip is None:
-            raise ValueError("only Session clips can duplicate to a Session slot")
+        target_track = self.refs.get(target_track_ref); slots = self._items(getattr(target_track, "clip_slots", [])); scenes = self._items(getattr(self.song, "scenes", []))
+        if target_scene_index >= len(slots) or target_scene_index >= len(scenes): raise ValueError("target scene index is invalid")
+        target_slot = slots[target_scene_index]; target_scene = scenes[target_scene_index]; target_track_index = self._capture_index(self._items(getattr(self.song, "tracks", [])), target_track)
+        if target_track_index is None: raise ValueError("target Session track hierarchy is stale")
+        current_target = {"expectedTargetTrackIdentity": self._capture_object_identity(target_track), "expectedTargetSlotRef": self.refs.put("clip_slot", target_slot, f"{target_track_index}:{target_scene_index}"), "expectedTargetSlotIdentity": self._capture_object_identity(target_slot), "expectedTargetSceneRef": self.refs.put("scene", target_scene, str(target_scene_index)), "expectedTargetSceneIdentity": self._capture_object_identity(target_scene)}
+        expected_target = {key: args.get(key) for key in current_target}
+        if not all(isinstance(value, str) for value in expected_target.values()) or not hmac.compare_digest(self._bounded_canonical(current_target), self._bounded_canonical(expected_target)):
+            raise ValueError("clip duplication target identity changed since preview")
+        if getattr(target_slot, "clip", None) is not None: raise ValueError("target Session slot is occupied")
         duplicate = getattr(source_slot, "duplicate_clip_to", None)
-        if not callable(duplicate):
-            raise ValueError("Session duplication is unavailable")
-        duplicate(target_slot)
-        created = getattr(target_slot, "clip", None)
-        if created is None:
-            raise ValueError("Session duplication was not confirmed")
-        track_index = self._items(getattr(self.song, "tracks", [])).index(target_track)
-        return {"ref": self.refs.put("clip", created, f"{track_index}:{target_scene_index}"), "name": str(getattr(created, "name", ""))}
+        if not callable(duplicate): raise ValueError("Session duplication is unavailable")
+        checkpoint = self.refs.checkpoint()
+        try:
+            duplicate(target_slot); created = getattr(target_slot, "clip", None)
+            if created is None: raise ValueError("Session duplication was not confirmed")
+            if self._clip_content_fingerprint(created) != source_content_fingerprint: raise ValueError("Session duplication did not preserve exact clip content")
+            created_identity = self._capture_object_identity(created); created_ref = self.refs.put("clip", created, f"{target_track_index}:{target_scene_index}"); fingerprint = self._mapped_fingerprint(created_ref)
+        except BaseException as error:
+            rollback_failed = False; cleanup = getattr(target_slot, "delete_clip", None)
+            if getattr(target_slot, "clip", None) is not None:
+                if not callable(cleanup): rollback_failed = True
+                else:
+                    try: cleanup()
+                    except BaseException: pass
+            if getattr(target_slot, "clip", None) is not None: rollback_failed = True
+            if rollback_failed: raise ValueError("Session duplication failed and exact cleanup failed") from error
+            self.refs.restore(checkpoint); raise
+        if delete_source:
+            deleter = getattr(source_slot, "delete_clip", None)
+            if not callable(deleter):
+                cleanup = getattr(target_slot, "delete_clip", None); rollback_failed = False
+                if not callable(cleanup): rollback_failed = True
+                else:
+                    try: cleanup()
+                    except BaseException: pass
+                if getattr(target_slot, "clip", None) is not None: rollback_failed = True
+                if rollback_failed: raise ValueError("Session move source deletion is unavailable and destination cleanup failed")
+                self.refs.restore(checkpoint); raise ValueError("Session move source deletion is unavailable")
+            deletion_error: BaseException | None = None
+            try: deleter()
+            except BaseException as error: deletion_error = error
+            source_after = getattr(source_slot, "clip", None); source_identity = str(args.get("expectedObjectIdentity"))
+            if source_after is not None and self._capture_same_object(source_after, clip, source_identity):
+                cleanup = getattr(target_slot, "delete_clip", None); target_after = getattr(target_slot, "clip", None)
+                if callable(cleanup) and target_after is not None and self._capture_same_object(target_after, created, created_identity):
+                    try: cleanup()
+                    except BaseException: pass
+                residual = getattr(target_slot, "clip", None)
+                if residual is not None or not self._capture_same_object(getattr(source_slot, "clip", None), clip, source_identity): raise ValueError("Session move source deletion failed and exact destination cleanup failed") from deletion_error
+                self.refs.restore(checkpoint); raise ValueError("Session move source deletion failed") from deletion_error
+            if source_after is not None or not self._capture_same_object(getattr(target_slot, "clip", None), created, created_identity): raise ValueError("Session move produced an invalid final hierarchy") from deletion_error
+        return {"ref": created_ref, "objectIdentity": created_identity, "name": str(getattr(created, "name", "")), "createdFingerprint": fingerprint}
 
     def _arrangement_clip_create(self, args: dict[str, Any]) -> dict[str, Any]:
         track_ref = args.get("trackRef")
         if not isinstance(track_ref, str) or not track_ref.startswith(f"{self.refs.epoch}:track:"):
             raise ValueError("track reference is stale or invalid")
-        track = self.refs.get(track_ref)
+        self.snapshot(); track = self.refs.get(track_ref)
+        expected_track_identity = args.get("expectedTrackIdentity"); track_index = self._capture_index(self._items(getattr(self.song, "tracks", [])), track, expected_track_identity if isinstance(expected_track_identity, str) else None)
+        if track_index is None or track_ref != f"{self.refs.epoch}:track:{track_index}": raise ValueError("arrangement clip target track hierarchy is stale")
+        if not isinstance(expected_track_identity, str) or not hmac.compare_digest(self._capture_object_identity(track), expected_track_identity):
+            raise ValueError("arrangement clip target track identity changed since preview")
+        expected_collection = args.get("expectedCollectionRevision")
+        if not isinstance(expected_collection, str) or not hmac.compare_digest(self._arrangement_collection_revision(track, track_index), expected_collection): raise ValueError("Arrangement clip collection changed since preview")
         position = args.get("position")
         length = args.get("length")
         name = args.get("name")
@@ -1907,147 +2442,164 @@ class LiveObjectMapper:
         creator = getattr(track, "create_midi_clip", None)
         if not callable(creator):
             raise ValueError("arrangement clip creation is unavailable")
-        before = len(self._items(self._read_attr(track, "arrangement_clips") or []))
-        clip = creator(float(position), float(length))
-        if clip is None:
-            raise ValueError("arrangement clip creation failed")
-        if hasattr(clip, "name"):
-            clip.name = name
-        clips = self._items(self._read_attr(track, "arrangement_clips") or [])
-        if len(clips) <= before:
-            raise ValueError("arrangement clip creation was not confirmed")
-        track_index = self._items(getattr(self.song, "tracks", [])).index(track)
-        clip_index = clips.index(clip) if clip in clips else len(clips) - 1
-        return {"ref": self.refs.put("arrangement_clip", clip, f"{track_index}:{clip_index}"), "name": str(getattr(clip, "name", "")), "start": float(getattr(clip, "start_time", position)), "length": float(getattr(clip, "length", length))}
+        before_clips = self._items(self._read_attr(track, "arrangement_clips") or []); before_identity_order = [self._capture_object_identity(item) for item in before_clips]; before_identities = set(before_identity_order); checkpoint = self.refs.checkpoint()
+        try:
+            clip = creator(float(position), float(length)); clips = self._items(self._read_attr(track, "arrangement_clips") or []); created_rows = [(index, candidate) for index, candidate in enumerate(clips) if self._capture_object_identity(candidate) not in before_identities]
+            if clip is None or len(clips) != len(before_clips) + 1 or len(created_rows) != 1: raise ValueError("arrangement clip creation did not produce one identity-distinct clip")
+            clip_index, created = created_rows[0]; created_identity = self._capture_object_identity(created); expected_identity_order = list(before_identity_order); expected_identity_order.insert(clip_index, created_identity)
+            if [self._capture_object_identity(candidate) for candidate in clips] != expected_identity_order: raise ValueError("arrangement clip creation reordered pre-existing clips")
+            if not self._capture_same_object(created, clip, self._capture_object_identity(clip)): raise ValueError("arrangement clip creator returned a different object")
+            if hasattr(created, "name"): created.name = name
+            actual_start = self._read_attr(created, "start_time"); actual_length = self._read_attr(created, "length")
+            if str(getattr(created, "name", "")) != name or not isinstance(actual_start, (int, float)) or not isinstance(actual_length, (int, float)) or float(actual_start) != float(position) or float(actual_length) != float(length): raise ValueError("arrangement clip requested name, position, or length was not confirmed")
+            created_ref = self.refs.put("arrangement_clip", created, f"{track_index}:{clip_index}"); created_identity = self._capture_object_identity(created); fingerprint = self._mapped_fingerprint(created_ref)
+            return {"ref": created_ref, "objectIdentity": created_identity, "name": str(getattr(created, "name", "")), "start": float(getattr(created, "start_time", position)), "length": float(getattr(created, "length", length)), "createdFingerprint": fingerprint}
+        except BaseException as error:
+            rollback_failed = False; deleter = getattr(track, "delete_clip", None); current = self._items(self._read_attr(track, "arrangement_clips") or []); owned = [candidate for candidate in current if self._capture_object_identity(candidate) not in before_identities]
+            if owned and not callable(deleter): rollback_failed = True
+            if callable(deleter):
+                for candidate in owned:
+                    try: deleter(candidate)
+                    except BaseException: pass
+            if [self._capture_object_identity(item) for item in self._items(self._read_attr(track, "arrangement_clips") or [])] != before_identity_order: rollback_failed = True
+            if rollback_failed: raise ValueError("arrangement clip creation failed and exact cleanup failed") from error
+            self.refs.restore(checkpoint); raise
 
     def _arrangement_clip_delete(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")
         if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:arrangement_clip:"):
             raise ValueError("arrangement clip reference is stale or invalid")
+        current = self.get(reference); expected_identity = args.get("expectedObjectIdentity"); expected_authority = args.get("expectedAuthorityRevision")
+        if not isinstance(current, dict) or not isinstance(expected_identity, str) or not hmac.compare_digest(str(current.get("objectIdentity", "")), expected_identity):
+            raise ValueError("arrangement clip identity changed; deletion refused")
         key = ":".join(reference.split(":")[2:])
-        if ":" not in key:
-            # Song-level arrangement collection (non-track-parented shapes).
-            if not key.isdigit():
-                raise ValueError("arrangement clip reference is malformed")
-            clips = self._items(getattr(self.song, "arrangement_clips", []))
-            index = int(key)
-            if not 0 <= index < len(clips):
-                raise ValueError("arrangement clip is stale")
-            deleter = getattr(self.song, "delete_clip", None)
-            if not callable(deleter):
-                raise ValueError("arrangement clip deletion is unavailable")
-            deleter(clips[index])
-            return {"deleted": reference}
-        owner, clip, _, _ = self._arrangement_location(reference)
+        if ":" not in key: raise ValueError("song-level Arrangement clip mutation is unavailable without track hierarchy authority")
+        if not isinstance(expected_authority, str) or not hmac.compare_digest(self._arrangement_clip_authority_revision(reference), expected_authority): raise ValueError("Arrangement clip hierarchy changed; deletion refused")
+        owner, clip, _, clip_index = self._arrangement_location(reference)
         deleter = getattr(owner, "delete_clip", None)
         if not callable(deleter):
             raise ValueError("arrangement clip deletion is unavailable")
-        before = len(self._items(self._read_attr(owner, "arrangement_clips") or []))
-        deleter(clip)
-        if len(self._items(self._read_attr(owner, "arrangement_clips") or [])) >= before:
-            raise ValueError("arrangement clip deletion was not confirmed")
-        return {"deleted": reference}
+        before_identity_order = [self._capture_object_identity(candidate) for candidate in self._items(self._read_attr(owner, "arrangement_clips") or [])]; expected_order = list(before_identity_order); expected_order.pop(clip_index); deletion_error: BaseException | None = None
+        try: deleter(clip)
+        except BaseException as error: deletion_error = error
+        if [self._capture_object_identity(candidate) for candidate in self._items(self._read_attr(owner, "arrangement_clips") or [])] != expected_order: raise ValueError("arrangement clip deletion did not preserve exact remaining sibling order") from deletion_error
+        self.refs.delete(reference); return {"deleted": reference}
 
     def _arrangement_clip_move(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")
         if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:arrangement_clip:"):
             raise ValueError("arrangement clip reference is stale or invalid")
+        current = self.get(reference); expected_identity = args.get("expectedObjectIdentity"); expected_authority = args.get("expectedAuthorityRevision")
+        if not isinstance(current, dict) or not isinstance(expected_identity, str) or not hmac.compare_digest(str(current.get("objectIdentity", "")), expected_identity):
+            raise ValueError("arrangement clip identity changed; move refused")
+        if not isinstance(expected_authority, str) or not hmac.compare_digest(self._arrangement_clip_authority_revision(reference), expected_authority): raise ValueError("Arrangement clip hierarchy changed; move refused")
+        expected_content = args.get("expectedContentFingerprint")
+        if not isinstance(expected_content, str) or not re.fullmatch(r"[a-f0-9]{64}", expected_content) or not hmac.compare_digest(self._mapped_fingerprint(reference), expected_content): raise ValueError("Arrangement clip content changed; move refused")
         clip = self.refs.get(reference)
         position = args.get("position")
         if not isinstance(position, (int, float)) or isinstance(position, bool) or not math.isfinite(float(position)) or float(position) < 0:
             raise ValueError("position is invalid")
         # start_time is read-only in Live; a move composes duplicate+delete
         # atomically on the main thread and reports the new clip identity.
-        owner, clip, track_index, _ = self._arrangement_location(reference)
+        owner, clip, track_index, source_index = self._arrangement_location(reference); source_content_fingerprint = self._clip_content_fingerprint(clip)
         duplicate = getattr(owner, "duplicate_clip_to_arrangement", None)
         deleter = getattr(owner, "delete_clip", None)
         if not callable(duplicate) or not callable(deleter):
             raise ValueError("arrangement clip move is unavailable")
-        before = len(self._items(self._read_attr(owner, "arrangement_clips") or []))
-        duplicate(clip, float(position))
-        clips_after = self._items(self._read_attr(owner, "arrangement_clips") or [])
-        if len(clips_after) <= before:
-            raise ValueError("arrangement clip move duplication was not confirmed")
-        created = clips_after[-1] if abs(float(getattr(clips_after[-1], "start_time", -1)) - float(position)) < 0.01 else next((candidate for candidate in clips_after if abs(float(getattr(candidate, "start_time", -1)) - float(position)) < 0.01), None)
-        if created is None:
-            raise ValueError("arrangement clip move duplication was not confirmed")
-        deleter(clip)
-        remaining = self._items(self._read_attr(owner, "arrangement_clips") or [])
-        if len(remaining) >= len(clips_after):
-            raise ValueError("arrangement clip move source delete was not confirmed")
-        created_index = remaining.index(created)
-        return {"ref": self.refs.put("arrangement_clip", created, f"{track_index}:{created_index}"), "start": float(getattr(created, "start_time", position))}
+        before_clips = self._items(self._read_attr(owner, "arrangement_clips") or []); before_identity_order = [self._capture_object_identity(item) for item in before_clips]; before_identities = set(before_identity_order); checkpoint = self.refs.checkpoint()
+        try:
+            duplicate(clip, float(position)); clips_after = self._items(self._read_attr(owner, "arrangement_clips") or []); created_rows = [(index, candidate) for index, candidate in enumerate(clips_after) if self._capture_object_identity(candidate) not in before_identities]
+            if len(clips_after) != len(before_clips) + 1 or len(created_rows) != 1: raise ValueError("arrangement clip move did not produce one identity-distinct duplicate")
+            created_pre_index, created = created_rows[0]; actual_start = self._read_attr(created, "start_time", "start")
+            if self._clip_content_fingerprint(created) != source_content_fingerprint or not isinstance(actual_start, (int, float)) or float(actual_start) != float(position): raise ValueError("Arrangement move did not preserve exact clip content and requested position")
+            created_identity = self._capture_object_identity(created); final_index = created_pre_index - 1 if source_index < created_pre_index else created_pre_index; projected_row = self._arrangement_clip_row(owner, created, track_index, final_index); created_ref = projected_row["ref"]; fingerprint = hashlib.sha256(self._bounded_canonical(projected_row).encode("utf-8")).hexdigest()
+        except BaseException as error:
+            rollback_failed = False; current = self._items(self._read_attr(owner, "arrangement_clips") or []); owned = [candidate for candidate in current if self._capture_object_identity(candidate) not in before_identities]
+            for candidate in owned:
+                try: deleter(candidate)
+                except BaseException: pass
+            if [self._capture_object_identity(item) for item in self._items(self._read_attr(owner, "arrangement_clips") or [])] != before_identity_order: rollback_failed = True
+            if rollback_failed: raise ValueError("Arrangement move preparation failed and exact cleanup failed") from error
+            self.refs.restore(checkpoint); raise
+        deletion_error: BaseException | None = None
+        try: deleter(clip)
+        except BaseException as error: deletion_error = error
+        remaining = self._items(self._read_attr(owner, "arrangement_clips") or []); source_matches = [candidate for candidate in remaining if self._capture_same_object(candidate, clip, expected_identity)]; created_matches = [candidate for candidate in remaining if self._capture_same_object(candidate, created, created_identity)]
+        if source_matches:
+            rollback_failed = len(source_matches) != 1 or len(created_matches) != 1
+            if len(created_matches) == 1:
+                try: deleter(created_matches[0])
+                except BaseException: pass
+            if [self._capture_object_identity(item) for item in self._items(self._read_attr(owner, "arrangement_clips") or [])] != before_identity_order: rollback_failed = True
+            if rollback_failed: raise ValueError("Arrangement clip move source deletion failed and exact destination cleanup failed") from deletion_error
+            self.refs.restore(checkpoint); raise ValueError("Arrangement clip move source deletion failed") from deletion_error
+        if len(created_matches) != 1 or len(remaining) != len(before_clips): raise ValueError("Arrangement clip move produced an invalid final hierarchy") from deletion_error
+        created_current = created_matches[0]
+        if created_current is None: raise ValueError("Arrangement clip move destination disappeared")
+        created_index = self._capture_index(remaining, created_current, created_identity)
+        if created_index is None or created_index != final_index: raise ValueError("Arrangement clip move destination identity is ambiguous")
+        return {"ref": created_ref, "objectIdentity": created_identity, "start": float(getattr(created_current, "start_time", position)), "createdFingerprint": fingerprint}
 
     def _audio_clip_set(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")
         if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:"):
             raise ValueError("clip reference is stale or invalid")
+        current = self.get(reference); expected_identity = args.get("expectedObjectIdentity"); expected_authority = args.get("expectedAuthorityRevision"); expected_state = args.get("expectedStateRevision")
+        if not isinstance(current, dict) or not isinstance(expected_identity, str) or not hmac.compare_digest(str(current.get("objectIdentity", "")), expected_identity):
+            raise ValueError("audio clip identity changed since preview")
+        if reference.startswith(f"{self.refs.epoch}:clip:"): authority_revision = hashlib.sha256(self._bounded_canonical(self._session_clip_authority(reference)).encode("utf-8")).hexdigest()
+        elif reference.startswith(f"{self.refs.epoch}:arrangement_clip:"): authority_revision = self._arrangement_clip_authority_revision(reference)
+        else: raise ValueError("audio clip hierarchy is unavailable")
+        fields = ("gain", "pitchCoarse", "pitchFine", "loopStart", "loopEnd", "warpMode", "warping", "fadeInLength", "fadeOutLength"); state_revision = hashlib.sha256(self._bounded_canonical({field: current.get(field) for field in fields}).encode("utf-8")).hexdigest()
+        if not isinstance(expected_authority, str) or not hmac.compare_digest(authority_revision, expected_authority) or not isinstance(expected_state, str) or not hmac.compare_digest(state_revision, expected_state): raise ValueError("audio clip hierarchy or state changed since preview")
         clip = self.refs.get(reference)
         if self._read_attr(clip, "is_audio_clip") is not True:
             raise ValueError("audio properties require an audio clip")
-        allowed = {"ref", "gain", "pitchCoarse", "pitchFine", "loopStart", "loopEnd", "warpMode", "warping", "fadeInLength", "fadeOutLength"}
+        allowed = {"ref", "gain", "pitchCoarse", "pitchFine", "loopStart", "loopEnd", "warpMode", "warping", "fadeInLength", "fadeOutLength", "expectedObjectIdentity", "expectedAuthorityRevision", "expectedStateRevision"}
         if set(args) - allowed:
             raise ValueError("audio clip fields are invalid")
-        def assign(attribute: str, value: Any) -> None:
-            if self._read_attr(clip, attribute) is None: raise ValueError(f"{attribute} is unavailable on this audio clip")
-            try: setattr(clip, attribute, value)
-            except Exception as error: raise ValueError(f"{attribute} is not writable on this audio clip") from error
-        applied: dict[str, Any] = {}
-        if "gain" in args:
-            value = args["gain"]
-            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not 0 <= float(value) <= 1000000:
-                raise ValueError("gain is invalid")
-            assign("gain", float(value))
-            applied["gain"] = float(value)
-        if "pitchCoarse" in args:
-            value = args["pitchCoarse"]
-            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not -48 <= float(value) <= 48:
-                raise ValueError("pitchCoarse is invalid")
-            assign("pitch_coarse", float(value))
-            applied["pitchCoarse"] = float(value)
-        if "pitchFine" in args:
-            value = args["pitchFine"]
-            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not -50 <= float(value) <= 50:
-                raise ValueError("pitchFine is invalid")
-            assign("pitch_fine", float(value))
-            applied["pitchFine"] = float(value)
-        if "loopStart" in args:
-            value = args["loopStart"]
-            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or float(value) < 0:
-                raise ValueError("loopStart is invalid")
-            assign("loop_start", float(value))
-            applied["loopStart"] = float(value)
-        if "loopEnd" in args:
-            value = args["loopEnd"]
-            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or float(value) < 0:
-                raise ValueError("loopEnd is invalid")
-            assign("loop_end", float(value))
-            applied["loopEnd"] = float(value)
+        proposals: list[tuple[str, str, Any]] = []
+        numeric = (("gain", "gain", 0, 1000000), ("pitchCoarse", "pitch_coarse", -48, 48), ("pitchFine", "pitch_fine", -50, 50), ("loopStart", "loop_start", 0, float("inf")), ("loopEnd", "loop_end", 0, float("inf")), ("fadeInLength", "fade_in_length", 0, float("inf")), ("fadeOutLength", "fade_out_length", 0, float("inf")))
+        for field, attribute, minimum, maximum in numeric:
+            if field in args:
+                value = args[field]
+                if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not minimum <= float(value) <= maximum: raise ValueError(f"{field} is invalid")
+                proposals.append((field, attribute, float(value)))
         if "warpMode" in args:
             value = args["warpMode"]
-            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 16:
-                raise ValueError("warpMode is invalid")
-            assign("warping_mode", value)
-            applied["warpMode"] = value
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 16: raise ValueError("warpMode is invalid")
+            proposals.append(("warpMode", "warping_mode", value))
         if "warping" in args:
             value = args["warping"]
             if not isinstance(value, bool): raise ValueError("warping is invalid")
-            assign("warping", value); applied["warping"] = value
-        for field, attribute in (("fadeInLength", "fade_in_length"), ("fadeOutLength", "fade_out_length")):
-            if field in args:
-                value = args[field]
-                if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or float(value) < 0: raise ValueError(f"{field} is invalid")
-                assign(attribute, float(value)); applied[field] = float(value)
-        fields = self._audio_fields(clip)
-        checks = []
-        for key, value in applied.items():
-            if key == "warpMode" or isinstance(value, bool):
-                checks.append(fields.get(key) == value)
-            else:
-                current = fields.get(key)
-                checks.append(isinstance(current, (int, float)) and abs(current - value) < 0.01)
-        if not applied or not all(checks):
-            raise ValueError("audio clip change was not confirmed")
+            proposals.append(("warping", "warping", value))
+        if not proposals: raise ValueError("audio clip mutation has no fields")
+        final_loop_start = args.get("loopStart", current.get("loopStart")); final_loop_end = args.get("loopEnd", current.get("loopEnd"))
+        if isinstance(final_loop_start, (int, float)) and isinstance(final_loop_end, (int, float)) and float(final_loop_start) > float(final_loop_end): raise ValueError("audio clip loopStart must not exceed loopEnd")
+        for _, attribute, _ in proposals:
+            if self._read_attr(clip, attribute) is None: raise ValueError(f"{attribute} is unavailable on this audio clip")
+        if "loopStart" in args and "loopEnd" in args:
+            current_end = self._read_attr(clip, "loop_end"); new_start = float(args["loopStart"])
+            if isinstance(current_end, (int, float)) and new_start > float(current_end): proposals.sort(key=lambda item: 0 if item[0] == "loopEnd" else 1)
+        assignments = [(field, attribute, value, self._read_attr(clip, attribute)) for field, attribute, value in proposals]
+        applied = {field: value for field, _, value, _ in assignments}
+        try:
+            for _, attribute, value, _ in assignments: setattr(clip, attribute, value)
+            observed = self._audio_fields(clip); checks = []
+            for key, value in applied.items():
+                if key == "warpMode" or isinstance(value, bool): checks.append(observed.get(key) == value)
+                else:
+                    observed_value = observed.get(key); checks.append(isinstance(observed_value, (int, float)) and float(observed_value) == float(value))
+            if not all(checks): raise ValueError("audio clip change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for _, attribute, _, prior in reversed(assignments):
+                try: setattr(clip, attribute, prior)
+                except BaseException: rollback_failed = True
+            restored = self._audio_fields(clip)
+            if any(self._bounded_canonical(restored.get(field)) != self._bounded_canonical(current.get(field)) for field, _, _, _ in assignments): rollback_failed = True
+            if rollback_failed: raise ValueError("audio clip change failed and exact rollback failed") from error
+            raise
         revision = self.refs.touch(reference)
         return {"changed": True, "revision": revision}
 
@@ -2092,7 +2644,7 @@ class LiveObjectMapper:
             if len(parts) < 3 or not parts[1].isdigit():
                 raise ValueError("mixer parameter reference is malformed")
             track_index = int(parts[1])
-            tracks = self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", [])) + ([getattr(self.song, "master_track", None)] if getattr(self.song, "master_track", None) is not None else [])
+            tracks = self._all_track_objects()
             if not 0 <= track_index < len(tracks):
                 raise ValueError("mixer parameter track is stale")
             mixer = self._read_attr(tracks[track_index], "mixer_device")
@@ -2115,7 +2667,7 @@ class LiveObjectMapper:
         track, traversal path, and ordered parameter siblings. Recomputing this
         descriptor on every Live-thread packet invalidates stale topology."""
         target = self._resolve_parameter(reference); target_identity = self._capture_object_identity(target)
-        tracks = self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", [])) + ([getattr(self.song, "master_track", None)] if getattr(self.song, "master_track", None) is not None else [])
+        tracks = self._all_track_objects()
         budget = [0]
         def consume(amount: int = 1) -> None:
             budget[0] += amount
@@ -2137,15 +2689,17 @@ class LiveObjectMapper:
             consume(len(mixer_siblings))
             for sibling, (_, parameter) in zip(mixer_siblings, mixer_parameters):
                 if sibling["ref"] == reference and self._capture_same_object(parameter, target, target_identity): return descriptor(sibling["ref"], parameter, track_ref, track, track_ref, track, mixer_siblings)
-            seen: set[int] = set()
+            seen: set[str] = set()
             def visit(owner: Any, path: str) -> dict[str, Any] | None:
-                if id(owner) in seen: return None
-                seen.add(id(owner)); devices = self._items(self._read_attr(owner, "devices", "device_chain") or [])
+                owner_identity = self._capture_object_identity(owner)
+                if owner_identity in seen: return None
+                seen.add(owner_identity); devices = self._items(self._read_attr(owner, "devices", "device_chain") or [])
                 if len(devices) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("realtime device collection exceeds its bound")
                 for device_index, device in enumerate(devices):
                     consume(); device_path = f"{path}:{device_index}"; device_ref = self.refs.put("device", device, device_path)
-                    parameters: list[tuple[int, Any]] = []
-                    for parameter_index, parameter in enumerate(self._items(self._read_attr(device, "parameters") or [])[:MAX_DISCOVERY_COLLECTION_LENGTH]):
+                    parameters: list[tuple[int, Any]] = []; native_parameters = self._items(self._read_attr(device, "parameters") or [])
+                    if len(native_parameters) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("realtime device parameter collection exceeds its complete-state bound")
+                    for parameter_index, parameter in enumerate(native_parameters):
                         numeric = (self._read_attr(parameter, "min", "min_value"), self._read_attr(parameter, "max", "max_value"), self._read_attr(parameter, "value"))
                         if all(isinstance(item, (int, float)) and not isinstance(item, bool) and math.isfinite(float(item)) for item in numeric): parameters.append((parameter_index, parameter))
                     macros = self._items(self._read_attr(device, "macros") or []) if self._read_attr(device, "can_have_chains") is True else []
@@ -2177,11 +2731,33 @@ class LiveObjectMapper:
         reference = args.get("ref")
         if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:track:"):
             raise ValueError("track reference is stale or invalid")
+        self.snapshot()
         track = self.refs.get(reference)
         mixer = self._read_attr(track, "mixer_device")
         if mixer is None:
             raise ValueError("mixer is unavailable")
-        allowed = {"ref", "volume", "pan", "mute", "solo", "cueVolume", "sends"}
+        expected_track_identity = args.get("expectedObjectIdentity")
+        expected_volume_identity = args.get("expectedVolumeIdentity")
+        expected_pan_identity = args.get("expectedPanIdentity")
+        expected_cue_identity = args.get("expectedCueIdentity")
+        expected_send_identities = args.get("expectedSendIdentities")
+        identity = lambda parameter: self._capture_object_identity(parameter) if parameter is not None else None
+        send_parameters = self._items(self._read_attr(mixer, "sends") or [])
+        current_authority = {
+            "track": self._capture_object_identity(track),
+            "volume": identity(self._read_attr(mixer, "volume")),
+            "pan": identity(self._read_attr(mixer, "panning")),
+            "cue": identity(self._read_attr(mixer, "cue_volume")),
+            "sends": [identity(parameter) for parameter in send_parameters],
+        }
+        expected_authority = {"track": expected_track_identity, "volume": expected_volume_identity, "pan": expected_pan_identity, "cue": expected_cue_identity, "sends": expected_send_identities}
+        if not isinstance(expected_track_identity, str) or expected_volume_identity is not None and not isinstance(expected_volume_identity, str) or expected_pan_identity is not None and not isinstance(expected_pan_identity, str) or expected_cue_identity is not None and not isinstance(expected_cue_identity, str) or not isinstance(expected_send_identities, list) or not hmac.compare_digest(self._bounded_canonical(current_authority), self._bounded_canonical(expected_authority)):
+            raise ValueError("mixer track or parameter identity changed since preview")
+        tracks = self._all_track_objects(); track_index = self._capture_index(tracks, track, expected_track_identity)
+        if track_index is None or reference != f"{self.refs.epoch}:track:{track_index}": raise ValueError("mixer track hierarchy is stale or ambiguous")
+        before_row = self._mixer_row(track, track_index); state = {field: before_row.get(field) for field in ("volume", "pan", "mute", "solo", "cueVolume", "sends")}; expected_state = args.get("expectedStateRevision"); state_revision = hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()
+        if not isinstance(expected_state, str) or not hmac.compare_digest(state_revision, expected_state): raise ValueError("mixer state changed since preview")
+        allowed = {"ref", "volume", "pan", "mute", "solo", "cueVolume", "sends", "expectedObjectIdentity", "expectedVolumeIdentity", "expectedPanIdentity", "expectedCueIdentity", "expectedSendIdentities", "expectedStateRevision"}
         if set(args) - allowed:
             raise ValueError("mixer fields are invalid")
 
@@ -2213,35 +2789,35 @@ class LiveObjectMapper:
             send_params = self._items(self._read_attr(mixer, "sends") or [])
             if not isinstance(sends, list) or len(sends) > len(send_params) or not all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 1 for value in sends):
                 raise ValueError("sends are invalid")
-        if volume is not None:
-            self._read_attr(mixer, "volume").value = volume
-        if pan is not None:
-            self._read_attr(mixer, "panning").value = pan
-        if cue is not None:
-            self._read_attr(mixer, "cue_volume").value = cue
-        if mute is not None:
-            track.mute = mute
-        if solo is not None:
-            track.solo = solo
+        assignments: list[tuple[Any, str, Any, Any]] = []
+        if volume is not None: assignments.append((self._read_attr(mixer, "volume"), "value", volume, self._read_attr(self._read_attr(mixer, "volume"), "value")))
+        if pan is not None: assignments.append((self._read_attr(mixer, "panning"), "value", pan, self._read_attr(self._read_attr(mixer, "panning"), "value")))
+        if cue is not None: assignments.append((self._read_attr(mixer, "cue_volume"), "value", cue, self._read_attr(self._read_attr(mixer, "cue_volume"), "value")))
+        if mute is not None: assignments.append((track, "mute", mute, self._read_attr(track, "mute")))
+        if solo is not None: assignments.append((track, "solo", solo, self._read_attr(track, "solo")))
+        send_params = self._items(self._read_attr(mixer, "sends") or [])
         if sends is not None:
-            for send_index, value in enumerate(sends):
-                self._items(self._read_attr(mixer, "sends") or [])[send_index].value = float(value)
-        row = self._mixer_row(track, self._items(getattr(self.song, "tracks", [])).index(track) if track in self._items(getattr(self.song, "tracks", [])) else 0)
-        checks = []
-        if volume is not None:
-            checks.append(isinstance(row["volume"], (int, float)) and abs(row["volume"] - volume) < 0.01)
-        if pan is not None:
-            checks.append(isinstance(row["pan"], (int, float)) and abs(row["pan"] - pan) < 0.01)
-        if cue is not None:
-            checks.append(isinstance(row["cueVolume"], (int, float)) and abs(row["cueVolume"] - cue) < 0.01)
-        if mute is not None:
-            checks.append(row["mute"] is mute)
-        if solo is not None:
-            checks.append(row["solo"] is solo)
-        if sends is not None:
-            checks.append(all(isinstance(row["sends"][i], (int, float)) and abs(row["sends"][i] - float(value)) < 0.01 for i, value in enumerate(sends)))
-        if not all(checks):
-            raise ValueError("mixer change was not confirmed by fresh state")
+            for send_index, value in enumerate(sends): assignments.append((send_params[send_index], "value", float(value), self._read_attr(send_params[send_index], "value")))
+        if not assignments: raise ValueError("mixer mutation has no fields")
+        try:
+            for owner, name, value, _ in assignments: setattr(owner, name, value)
+            row = self._mixer_row(track, track_index); checks = []
+            if volume is not None: checks.append(isinstance(row["volume"], (int, float)) and float(row["volume"]) == volume)
+            if pan is not None: checks.append(isinstance(row["pan"], (int, float)) and float(row["pan"]) == pan)
+            if cue is not None: checks.append(isinstance(row["cueVolume"], (int, float)) and float(row["cueVolume"]) == cue)
+            if mute is not None: checks.append(row["mute"] is mute)
+            if solo is not None: checks.append(row["solo"] is solo)
+            if sends is not None: checks.append(all(isinstance(row["sends"][i], (int, float)) and float(row["sends"][i]) == float(value) for i, value in enumerate(sends)))
+            if not all(checks): raise ValueError("mixer change was not confirmed by fresh state")
+        except BaseException as error:
+            rollback_failed = False
+            for owner, name, _, prior in reversed(assignments):
+                try: setattr(owner, name, prior)
+                except BaseException: rollback_failed = True
+            restored = self._mixer_row(track, track_index); restored_state = {field: restored.get(field) for field in ("volume", "pan", "mute", "solo", "cueVolume", "sends")}
+            if self._bounded_canonical(restored_state) != self._bounded_canonical(state): rollback_failed = True
+            if rollback_failed: raise ValueError("mixer change failed and exact rollback failed") from error
+            raise
         revision = self.refs.touch(reference)
         return {"changed": True, "revision": revision}
 
@@ -2263,88 +2839,149 @@ class LiveObjectMapper:
         return clip, envelope
 
     def _envelope_points(self, envelope: Any, limit: int = 512) -> list[dict[str, Any]]:
-        clip = getattr(envelope, "canonical_parent", None)
-        window = float(getattr(clip, "length", 0.0) or 0.0) + 4.0 if clip is not None else 4096.0
-        window = min(max(window, 4.0), 4096.0)
-        events = envelope.events_in_range(0.0, window) if callable(getattr(envelope, "events_in_range", None)) else []
+        clip = getattr(envelope, "canonical_parent", None); length = self._read_attr(clip, "length") if clip is not None else None
+        if not isinstance(length, (int, float)) or isinstance(length, bool) or not math.isfinite(float(length)) or not 0 <= float(length) <= 100000: raise ValueError("complete automation envelope range is unavailable or exceeds its bound")
+        window = float(length) + 4.0
+        reader = getattr(envelope, "events_in_range", None)
+        if not callable(reader): raise ValueError("complete automation envelope event enumeration is unavailable")
+        events = list(reader(0.0, window))
+        if len(events) > limit: raise ValueError("automation envelope exceeds its authoritative point bound")
         points: list[dict[str, Any]] = []
-        for event in list(events)[:limit]:
-            time_value = getattr(event, "time", None)
-            value = getattr(event, "value", None)
-            if isinstance(time_value, (int, float)) and isinstance(value, (int, float)) and math.isfinite(float(time_value)) and math.isfinite(float(value)):
-                points.append({"time": float(time_value), "value": float(value)})
+        for event in events:
+            time_value = getattr(event, "time", None); value = getattr(event, "value", None)
+            if not isinstance(time_value, (int, float)) or isinstance(time_value, bool) or not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(time_value)) or not math.isfinite(float(value)): raise ValueError("automation envelope contains an unreadable event")
+            points.append({"time": float(time_value), "value": float(value)})
         return points
+
+    def _envelope_event_class(self) -> Any:
+        try: event_class = getattr(__import__("Live.Envelope", fromlist=["EnvelopeEvent"]), "EnvelopeEvent", None)
+        except Exception: event_class = None
+        if event_class is None:
+            class _Event:
+                def __init__(self, time: float, value: float): self.time = time; self.value = value
+            event_class = _Event
+        return event_class
+
+    def _restore_envelope_state(self, clip: Any, parameter: Any, existed: bool, points: list[dict[str, Any]], mode: str = "clear-recreate") -> None:
+        reader = getattr(clip, "automation_envelope", None); clearer = getattr(clip, "clear_envelope", None); creator = getattr(clip, "create_automation_envelope", None)
+        if not callable(reader) or not callable(clearer): raise ValueError("automation rollback is unavailable")
+        current = reader(parameter)
+        if not existed:
+            if current is not None: clearer(parameter)
+            if reader(parameter) is not None: raise ValueError("automation envelope cleanup was not confirmed")
+            return
+        if mode == "clear-recreate":
+            if not callable(creator): raise ValueError("automation envelope recreation is unavailable")
+            if current is not None: clearer(parameter)
+            current = creator(parameter)
+        elif mode == "range-reset":
+            if current is None:
+                if not callable(creator): raise ValueError("automation envelope recreation is unavailable")
+                current = creator(parameter)
+            else:
+                delete = getattr(current, "delete_events_in_range", None); clip_length = self._read_attr(clip, "length")
+                if not callable(delete) or not isinstance(clip_length, (int, float)): raise ValueError("automation point reset is unavailable")
+                delete(0.0, float(clip_length) + 4.0)
+        else: raise ValueError("automation rollback mode is invalid")
+        create = getattr(current, "create_event", None)
+        if current is None or not callable(create): raise ValueError("automation point restoration is unavailable")
+        event_class = self._envelope_event_class()
+        for point in points: create(event_class(point["time"], point["value"]))
+        restored = reader(parameter)
+        if restored is None or self._bounded_canonical(self._envelope_points(restored)) != self._bounded_canonical(points): raise ValueError("automation point restoration was not confirmed")
 
     def _envelope_read(self, args: dict[str, Any]) -> dict[str, Any]:
         _, envelope = self._envelope(str(args["clipRef"]), str(args["parameterRef"]))
-        return {"available": True, "exists": envelope is not None, "points": self._envelope_points(envelope) if envelope is not None else []}
+        result = {"available": True, "exists": envelope is not None, "points": self._envelope_points(envelope) if envelope is not None else []}
+        result["revision"] = hashlib.sha256(self._bounded_canonical({"exists": result["exists"], "points": result["points"]}).encode("utf-8")).hexdigest()
+        return result
+
+    def _envelope_authority_digest(self, clip_ref: str, parameter_ref: str) -> str:
+        authority = {"clip": self._session_clip_authority(clip_ref), "parameter": self._realtime_parameter_authority(parameter_ref)}
+        return hashlib.sha256(self._bounded_canonical(authority).encode("utf-8")).hexdigest()
+
+    def _guard_envelope_mutation(self, args: dict[str, Any]) -> None:
+        clip_ref, parameter_ref = str(args.get("clipRef")), str(args.get("parameterRef"))
+        self.snapshot(); authority_digest = self._envelope_authority_digest(clip_ref, parameter_ref); current = self._envelope_read({"clipRef": clip_ref, "parameterRef": parameter_ref})
+        if not isinstance(args.get("expectedAuthorityDigest"), str) or not hmac.compare_digest(authority_digest, args["expectedAuthorityDigest"]):
+            raise ValueError("automation clip or parameter identity changed since preview")
+        if not isinstance(args.get("expectedEnvelopeRevision"), str) or not hmac.compare_digest(current["revision"], args["expectedEnvelopeRevision"]):
+            raise ValueError("automation envelope changed since preview")
 
     def _envelope_create(self, args: dict[str, Any]) -> dict[str, Any]:
-        _, envelope = self._envelope(str(args["clipRef"]), str(args["parameterRef"]), create=True)
-        if envelope is None:
-            raise ValueError("envelope creation was not confirmed")
+        self._guard_envelope_mutation(args); clip, envelope = self._envelope(str(args["clipRef"]), str(args["parameterRef"])); parameter = self._resolve_parameter(str(args["parameterRef"])); clearer = getattr(clip, "clear_envelope", None)
+        if envelope is not None: raise ValueError("automation envelope already exists")
+        if not callable(clearer): raise ValueError("envelope creation cannot guarantee exact rollback")
+        try:
+            creator = getattr(clip, "create_automation_envelope", None)
+            if not callable(creator) or creator(parameter) is None or getattr(clip, "automation_envelope", lambda _parameter: None)(parameter) is None: raise ValueError("envelope creation was not confirmed")
+        except BaseException as error:
+            try: self._restore_envelope_state(clip, parameter, False, [])
+            except BaseException as rollback_error: raise ValueError("envelope creation failed and exact rollback failed") from rollback_error
+            raise
         return {"created": True}
 
     def _envelope_delete(self, args: dict[str, Any]) -> dict[str, Any]:
-        clip, envelope = self._envelope(str(args["clipRef"]), str(args["parameterRef"]))
-        if envelope is None:
-            raise ValueError("envelope does not exist")
-        parameter = self._resolve_parameter(str(args["parameterRef"]))
-        clearer = getattr(clip, "clear_envelope", None)
-        if not callable(clearer):
-            raise ValueError("envelope deletion is unavailable")
-        clearer(parameter)
-        if getattr(clip, "automation_envelope", lambda _p: None)(parameter) is not None:
-            raise ValueError("envelope deletion was not confirmed")
+        self._guard_envelope_mutation(args); clip, envelope = self._envelope(str(args["clipRef"]), str(args["parameterRef"]))
+        if envelope is None: raise ValueError("envelope does not exist")
+        parameter = self._resolve_parameter(str(args["parameterRef"])); clearer = getattr(clip, "clear_envelope", None); creator = getattr(clip, "create_automation_envelope", None); prior_points = self._envelope_points(envelope)
+        if not callable(clearer) or not callable(creator) or not callable(getattr(envelope, "create_event", None)) or not callable(getattr(envelope, "delete_events_in_range", None)): raise ValueError("envelope deletion cannot guarantee exact restoration")
+        try:
+            clearer(parameter)
+            if getattr(clip, "automation_envelope", lambda _p: None)(parameter) is not None: raise ValueError("envelope deletion was not confirmed")
+        except BaseException as error:
+            try: self._restore_envelope_state(clip, parameter, True, prior_points, "range-reset")
+            except BaseException as rollback_error: raise ValueError("envelope deletion failed and exact rollback failed") from rollback_error
+            raise
         return {"deleted": True}
 
     def _envelope_point_insert(self, args: dict[str, Any]) -> dict[str, Any]:
-        points = args.get("points")
-        if not isinstance(points, list) or not 1 <= len(points) <= 512:
-            raise ValueError("points are invalid")
+        self._guard_envelope_mutation(args); points = args.get("points")
+        if not isinstance(points, list) or not 1 <= len(points) <= 512: raise ValueError("points are invalid")
+        clip, prior_envelope = self._envelope(str(args["clipRef"]), str(args["parameterRef"])); parameter = self._resolve_parameter(str(args["parameterRef"])); clip_length = self._read_attr(clip, "length"); minimum = self._read_attr(parameter, "min", "min_value"); maximum = self._read_attr(parameter, "max", "max_value")
+        if not isinstance(clip_length, (int, float)) or isinstance(clip_length, bool) or not math.isfinite(float(clip_length)) or float(clip_length) <= 0 or not isinstance(minimum, (int, float)) or not isinstance(maximum, (int, float)): raise ValueError("automation bounds are unavailable")
         for point in points:
-            if not isinstance(point, dict) or set(point) != {"time", "value"} or not isinstance(point["time"], (int, float)) or isinstance(point["time"], bool) or not math.isfinite(float(point["time"])) or not 0 <= float(point["time"]) <= 1_000_000_000 or not isinstance(point["value"], (int, float)) or isinstance(point["value"], bool) or not math.isfinite(float(point["value"])) or not -1_000_000 <= float(point["value"]) <= 1_000_000:
-                raise ValueError("points are invalid")
-        _, envelope = self._envelope(str(args["clipRef"]), str(args["parameterRef"]), create=True)
-        if envelope is None:
-            raise ValueError("envelope creation was not confirmed")
-        try:
-            event_class = getattr(__import__("Live.Envelope", fromlist=["EnvelopeEvent"]), "EnvelopeEvent", None)
-        except Exception:
-            event_class = None
+            if not isinstance(point, dict) or set(point) != {"time", "value"} or not isinstance(point["time"], (int, float)) or isinstance(point["time"], bool) or not math.isfinite(float(point["time"])) or not 0 <= float(point["time"]) <= float(clip_length) or not isinstance(point["value"], (int, float)) or isinstance(point["value"], bool) or not math.isfinite(float(point["value"])) or not float(minimum) <= float(point["value"]) <= float(maximum): raise ValueError("points are outside the exact clip or parameter bounds")
+        try: event_class = getattr(__import__("Live.Envelope", fromlist=["EnvelopeEvent"]), "EnvelopeEvent", None)
+        except Exception: event_class = None
         if event_class is None:
-            # Duck-typed event for fakes and shapes without Live's event class.
             class _Event:
-                def __init__(self, time: float, value: float):
-                    self.time = time
-                    self.value = value
+                def __init__(self, time: float, value: float): self.time = time; self.value = value
             event_class = _Event
-        before = len(self._envelope_points(envelope, 1024))
-        for point in points:
-            envelope.create_event(event_class(float(point["time"]), float(point["value"])))
-        after = len(self._envelope_points(envelope, 1024))
-        if after < before + len(points):
-            raise ValueError("envelope point insert was not confirmed")
+        events = [event_class(float(point["time"]), float(point["value"])) for point in points]; before_points = self._envelope_points(prior_envelope) if prior_envelope is not None else []; prior_exists = prior_envelope is not None; clearer = getattr(clip, "clear_envelope", None); creator = getattr(clip, "create_automation_envelope", None)
+        if not callable(clearer) or not callable(creator) or prior_envelope is not None and not callable(getattr(prior_envelope, "create_event", None)): raise ValueError("automation insertion cannot guarantee exact rollback on this Live shape")
+        envelope = prior_envelope
+        try:
+            if envelope is None:
+                _, envelope = self._envelope(str(args["clipRef"]), str(args["parameterRef"]), create=True)
+            if envelope is None or not callable(getattr(envelope, "create_event", None)): raise ValueError("envelope creation was not confirmed")
+            for event in events: envelope.create_event(event)
+            after_points = self._envelope_points(envelope); expected_points = before_points + [{"time": float(point["time"]), "value": float(point["value"])} for point in points]; normalize = lambda rows: sorted(rows, key=lambda row: (row["time"], row["value"]))
+            if self._bounded_canonical(normalize(after_points)) != self._bounded_canonical(normalize(expected_points)): raise ValueError("envelope point insert did not produce the exact requested state")
+        except BaseException as error:
+            try: self._restore_envelope_state(clip, parameter, prior_exists, before_points, "clear-recreate")
+            except BaseException as rollback_error: raise ValueError("automation point insertion failed and exact rollback failed") from rollback_error
+            raise
         return {"inserted": len(points)}
 
     def _envelope_point_delete(self, args: dict[str, Any]) -> dict[str, Any]:
-        from_time = args.get("from")
-        to_time = args.get("to")
-        if not isinstance(from_time, (int, float)) or isinstance(from_time, bool) or not math.isfinite(float(from_time)) or float(from_time) < 0:
-            raise ValueError("from is invalid")
-        if not isinstance(to_time, (int, float)) or isinstance(to_time, bool) or not math.isfinite(float(to_time)) or float(to_time) <= float(from_time):
-            raise ValueError("to is invalid")
-        _, envelope = self._envelope(str(args["clipRef"]), str(args["parameterRef"]))
-        if envelope is None:
-            raise ValueError("envelope does not exist")
-        if not callable(getattr(envelope, "delete_events_in_range", None)):
-            raise ValueError("envelope point deletion is unavailable")
-        before = len(self._envelope_points(envelope, 1024))
-        envelope.delete_events_in_range(float(from_time), float(to_time))
-        after = len(self._envelope_points(envelope, 1024))
-        return {"deleted": before - after}
+        self._guard_envelope_mutation(args); from_time, to_time = args.get("from"), args.get("to")
+        if not isinstance(from_time, (int, float)) or isinstance(from_time, bool) or not math.isfinite(float(from_time)) or float(from_time) < 0: raise ValueError("from is invalid")
+        if not isinstance(to_time, (int, float)) or isinstance(to_time, bool) or not math.isfinite(float(to_time)) or float(to_time) <= float(from_time): raise ValueError("to is invalid")
+        clip, envelope = self._envelope(str(args["clipRef"]), str(args["parameterRef"])); parameter = self._resolve_parameter(str(args["parameterRef"]))
+        if envelope is None or not callable(getattr(envelope, "delete_events_in_range", None)) or not callable(getattr(envelope, "create_event", None)) or not callable(getattr(clip, "clear_envelope", None)) or not callable(getattr(clip, "create_automation_envelope", None)): raise ValueError("envelope point deletion cannot guarantee exact rollback")
+        before_points = self._envelope_points(envelope); expected = [point for point in before_points if not float(from_time) <= point["time"] < float(to_time)]
+        if len(expected) == len(before_points): raise ValueError("automation delete range contains no authoritative points")
+        try:
+            envelope.delete_events_in_range(float(from_time), float(to_time)); after_points = self._envelope_points(envelope)
+            if self._bounded_canonical(after_points) != self._bounded_canonical(expected): raise ValueError("automation point deletion changed unexpected points")
+        except BaseException as error:
+            try: self._restore_envelope_state(clip, parameter, True, before_points)
+            except BaseException as rollback_error: raise ValueError("automation point deletion failed and exact rollback failed") from rollback_error
+            raise
+        return {"deleted": len(before_points) - len(expected)}
 
-    def _device_location(self, reference: str, expected_identity: str | None = None, expected_owner_ref: str | None = None, expected_owner_identity: str | None = None, expected_siblings: Any = None) -> tuple[Any, Any, int, int, str]:
+    def _device_location(self, reference: str, expected_identity: str | None = None, expected_owner_ref: str | None = None, expected_owner_identity: str | None = None, expected_siblings: Any = None, expected_track_ref: str | None = None, expected_track_identity: str | None = None) -> tuple[Any, Any, int, int, str]:
         """Resolve a discovered device to its exact track/chain owner without
         trusting a parseable traversal key or Live proxy object identity."""
         if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:"):
@@ -2356,15 +2993,33 @@ class LiveObjectMapper:
         if not isinstance(expected_siblings, list) or len(expected_siblings) > MAX_DISCOVERY_COLLECTION_LENGTH or any(not isinstance(item, dict) or set(item) != {"ref", "objectIdentity"} or not isinstance(item["ref"], str) or not isinstance(item["objectIdentity"], str) for item in expected_siblings):
             raise ValueError("device sibling identity fence is invalid")
         expected_siblings_canonical = AuthenticatedRemoteScript._bounded_canonical(expected_siblings)
-        tracks = self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", []))
-        def locate(owner: Any, owner_ref: str, path: str, track_index: int, seen: set[int]) -> tuple[Any, Any, int, int, str] | None:
-            if id(owner) in seen: return None
-            seen.add(id(owner)); devices = self._items(self._read_attr(owner, "devices") or [])
+        tracks = self._all_track_objects()
+        target_occurrences = 0; traversed = 0; counted_owners: set[str] = set()
+        def count(owner: Any) -> None:
+            nonlocal target_occurrences, traversed
+            owner_identity = self._capture_object_identity(owner)
+            if owner_identity in counted_owners: raise ValueError("device hierarchy is cyclic or identity-ambiguous")
+            counted_owners.add(owner_identity); devices = self._items(self._read_attr(owner, "devices") or [])
+            if len(devices) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("device sibling collection exceeds the authoritative bound")
+            for device in devices:
+                traversed += 1
+                if traversed > 1024: raise ValueError("device hierarchy traversal exceeds its bound")
+                if self._capture_object_identity(device) == target_identity: target_occurrences += 1
+                for chain in self._items(self._read_attr(device, "chains") or []): count(chain)
+                for pad in self._items(self._read_attr(device, "visible_drum_pads") or self._read_attr(device, "drum_pads") or []):
+                    for chain in self._items(self._read_attr(pad, "chains") or []): count(chain)
+        for current_track in tracks: count(current_track)
+        if target_occurrences != 1: raise ValueError("device target identity is stale or ambiguous")
+        def locate(owner: Any, owner_ref: str, path: str, track_index: int, seen: set[str]) -> tuple[Any, Any, int, int, str] | None:
+            owner_identity = self._capture_object_identity(owner)
+            if owner_identity in seen: return None
+            seen.add(owner_identity); devices = self._items(self._read_attr(owner, "devices") or [])
             if len(devices) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("device sibling collection exceeds the authoritative bound")
             current_siblings = [{"ref": self.refs.put("device", candidate, f"{path}:{candidate_index}"), "objectIdentity": self._capture_object_identity(candidate)} for candidate_index, candidate in enumerate(devices)]
             for device_index, device in enumerate(devices):
                 device_path = f"{path}:{device_index}"
                 if self._capture_same_object(device, target, target_identity):
+                    if current_siblings[device_index]["ref"] != reference: continue
                     owner_identity = self._capture_object_identity(owner)
                     if not hmac.compare_digest(owner_ref, expected_owner_ref) or not hmac.compare_digest(owner_identity, expected_owner_identity) or not hmac.compare_digest(AuthenticatedRemoteScript._bounded_canonical(current_siblings), expected_siblings_canonical): raise ValueError("device owner or siblings changed since preview")
                     return owner, device, track_index, device_index, owner_ref
@@ -2382,14 +3037,27 @@ class LiveObjectMapper:
         for track_index, track in enumerate(tracks):
             track_ref = self.refs.put("track", track, str(track_index))
             found = locate(track, track_ref, str(track_index), track_index, set())
-            if found is not None: return found
+            if found is not None:
+                if not isinstance(expected_track_ref, str) or not isinstance(expected_track_identity, str) or not hmac.compare_digest(track_ref, expected_track_ref) or not hmac.compare_digest(self._capture_object_identity(track), expected_track_identity): raise ValueError("device containing track identity changed since preview")
+                return found
         raise ValueError("device owner is stale or unavailable")
+
+    def _top_level_device_authority(self, track: Any, track_ref: str) -> dict[str, Any]:
+        tracks = self._all_track_objects()
+        track_identity = self._capture_object_identity(track); matches = [(index, candidate) for index, candidate in enumerate(tracks) if self._capture_same_object(candidate, track, track_identity)]
+        if len(matches) != 1: raise ValueError("device target track is stale")
+        track_index, track = matches[0]; devices = self._items(getattr(track, "devices", []))
+        if len(devices) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("device sibling collection exceeds its bound")
+        return {"expectedTrackIdentity": self._capture_object_identity(track), "expectedSiblings": [{"ref": self.refs.put("device", device, f"{track_index}:{index}"), "objectIdentity": self._capture_object_identity(device)} for index, device in enumerate(devices)]}
 
     def _device_insert(self, args: dict[str, Any]) -> dict[str, Any]:
         track_ref = args.get("trackRef")
         if not isinstance(track_ref, str) or not track_ref.startswith(f"{self.refs.epoch}:track:"):
             raise ValueError("track reference is stale or invalid")
-        track = self.refs.get(track_ref)
+        self.snapshot(); track = self.refs.get(track_ref)
+        authority = self._top_level_device_authority(track, track_ref); expected_authority = {"expectedTrackIdentity": args.get("expectedTrackIdentity"), "expectedSiblings": args.get("expectedSiblings")}
+        if not hmac.compare_digest(self._bounded_canonical(authority), self._bounded_canonical(expected_authority)):
+            raise ValueError("device insertion target changed since preview")
         name = args.get("deviceName")
         if not isinstance(name, str) or not 1 <= len(name) <= 256:
             raise ValueError("device name is invalid")
@@ -2399,78 +3067,119 @@ class LiveObjectMapper:
         inserter = getattr(track, "insert_device", None)
         if not callable(inserter):
             raise ValueError("device insertion is unavailable")
-        before = len(self._items(getattr(track, "devices", [])))
+        all_tracks = self._all_track_objects(); track_index = self._capture_index(all_tracks, track, str(args.get("expectedTrackIdentity")))
+        if track_index is None or track_ref != f"{self.refs.epoch}:track:{track_index}": raise ValueError("device insertion track hierarchy is stale")
+        before_devices = self._items(getattr(track, "devices", []))
+        if before_devices: raise ValueError("device insertion requires an empty exact owner so cleanup cannot affect siblings")
+        before_identity_order = [self._capture_object_identity(device) for device in before_devices]; before_identities = set(before_identity_order); checkpoint = self.refs.checkpoint(); expected_position = len(before_devices) if index is None or index == -1 else index
+        if expected_position > len(before_devices): raise ValueError("device insertion index exceeds the exact sibling boundary")
         try:
-            inserter(name, -1 if index is None else index)
-        except Exception as error:
-            raise ValueError("device name is not loadable on this Live shape") from error
-        devices = self._items(getattr(track, "devices", []))
-        if len(devices) <= before:
-            raise ValueError("device insertion was not confirmed")
-        position = len(devices) - 1 if index is None or index < 0 or index >= len(devices) else index
-        device = devices[position]
-        return {"ref": self.refs.put("device", device, f"{self._items(getattr(self.song, 'tracks', [])).index(track)}:{position}"), "name": str(self._read_attr(device, "name") or name), "index": position}
+            inserter(name, -1 if index is None else index); devices = self._items(getattr(track, "devices", [])); created = [(position, device) for position, device in enumerate(devices) if self._capture_object_identity(device) not in before_identities]
+            if len(devices) != len(before_devices) + 1 or len(created) != 1: raise ValueError("device insertion did not produce one identity-distinct device")
+            position, device = created[0]; final_identity_order = [self._capture_object_identity(candidate) for candidate in devices]; expected_identity_order = list(before_identity_order); device_identity = self._capture_object_identity(device); expected_identity_order.insert(expected_position, device_identity)
+            if position != expected_position or final_identity_order != expected_identity_order or str(self._read_attr(device, "name") or "") != name: raise ValueError("device insertion did not confirm the exact requested name, index, and siblings")
+            created_ref = self.refs.put("device", device, f"{track_index}:{position}"); fingerprint = self._mapped_fingerprint(created_ref)
+            return {"ref": created_ref, "objectIdentity": device_identity, "name": name, "index": position, "createdFingerprint": fingerprint}
+        except BaseException as error:
+            rollback_failed = False; deleter = getattr(track, "delete_device", None); current = self._items(getattr(track, "devices", [])); owned = [(position, device) for position, device in enumerate(current) if self._capture_object_identity(device) not in before_identities]
+            if owned and not callable(deleter): rollback_failed = True
+            if callable(deleter):
+                for position, _ in reversed(owned):
+                    try: deleter(position)
+                    except BaseException: pass
+            if [self._capture_object_identity(device) for device in self._items(getattr(track, "devices", []))] != before_identity_order: rollback_failed = True
+            if rollback_failed: raise ValueError("device insertion failed and exact transaction-owned cleanup failed") from error
+            self.refs.restore(checkpoint); raise
 
     def _device_delete(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")
-        owner, device, _, _, _ = self._device_location(str(reference), args.get("expectedObjectIdentity"), args.get("expectedOwnerRef"), args.get("expectedOwnerIdentity"), args.get("expectedSiblings"))
+        owner, device, _, _, _ = self._device_location(str(reference), args.get("expectedObjectIdentity"), args.get("expectedOwnerRef"), args.get("expectedOwnerIdentity"), args.get("expectedSiblings"), args.get("expectedTrackRef"), args.get("expectedTrackIdentity"))
         deleter = getattr(owner, "delete_device", None)
         if not callable(deleter):
             raise ValueError("device deletion is unavailable")
         devices_before = self._items(getattr(owner, "devices", []))
-        index = devices_before.index(device)
-        deleter(index)
-        if len(self._items(getattr(owner, "devices", []))) >= len(devices_before):
-            raise ValueError("device deletion was not confirmed")
-        return {"deleted": reference}
+        if len(devices_before) != 1: raise ValueError("transaction-owned device cleanup requires the target to be the sole sibling")
+        index = self._capture_index(devices_before, device, str(args.get("expectedObjectIdentity")))
+        if index is None: raise ValueError("device deletion target identity is stale or ambiguous")
+        before_identity_order = [self._capture_object_identity(candidate) for candidate in devices_before]; expected_order = list(before_identity_order); expected_order.pop(index); deletion_error: BaseException | None = None
+        try: deleter(index)
+        except BaseException as error: deletion_error = error
+        if [self._capture_object_identity(candidate) for candidate in self._items(getattr(owner, "devices", []))] != expected_order: raise ValueError("device deletion did not preserve the exact authorized siblings") from deletion_error
+        self.refs.delete(str(reference)); return {"deleted": reference}
 
     def _device_enable(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")
         enabled = args.get("enabled")
         if not isinstance(enabled, bool):
             raise ValueError("enabled must be boolean")
-        _, device, _, _, _ = self._device_location(str(reference), args.get("expectedObjectIdentity"), args.get("expectedOwnerRef"), args.get("expectedOwnerIdentity"), args.get("expectedSiblings"))
+        _, device, _, _, _ = self._device_location(str(reference), args.get("expectedObjectIdentity"), args.get("expectedOwnerRef"), args.get("expectedOwnerIdentity"), args.get("expectedSiblings"), args.get("expectedTrackRef"), args.get("expectedTrackIdentity"))
+        current_enabled = self._read_attr(device, "is_active", "is_enabled", "enabled"); expected_state = args.get("expectedStateRevision"); state_revision = hashlib.sha256(self._bounded_canonical({"enabled": current_enabled if isinstance(current_enabled, bool) else None}).encode("utf-8")).hexdigest()
+        if not isinstance(expected_state, str) or not hmac.compare_digest(state_revision, expected_state): raise ValueError("device enable state changed since preview")
         for attribute in ("is_active", "is_enabled", "enabled"):
             current = self._read_attr(device, attribute)
             if not isinstance(current, bool): continue
             if current is enabled:
-                revision = self.refs.touch(reference)
-                return {"changed": True, "enabled": enabled, "revision": revision}
+                revision = self.refs.touch(reference); return {"changed": True, "enabled": enabled, "revision": revision}
+            setter_error: BaseException | None = None
             try: setattr(device, attribute, enabled)
-            except Exception: continue
-            if self._read_attr(device, attribute) is enabled:
-                revision = self.refs.touch(reference)
-                return {"changed": True, "enabled": enabled, "revision": revision}
+            except BaseException as error: setter_error = error
+            observed = self._read_attr(device, attribute)
+            authoritative_enabled = self._read_attr(device, "is_active", "is_enabled", "enabled")
+            if setter_error is None and observed is enabled and authoritative_enabled is enabled:
+                revision = self.refs.touch(reference); return {"changed": True, "enabled": enabled, "revision": revision}
+            if observed is not current:
+                try: setattr(device, attribute, current)
+                except BaseException: pass
+                if self._read_attr(device, attribute) is not current: raise ValueError("device enable failed and exact rollback failed") from setter_error
         # Enable state commonly lives on the "Device On" parameter.
         for parameter in self._items(getattr(device, "parameters", [])):
-            name = str(self._read_attr(parameter, "name") or "")
-            if name.lower() in {"device on", "on"} or name.lower().startswith("device on"):
-                minimum = self._read_attr(parameter, "min", "min_value")
-                maximum = self._read_attr(parameter, "max", "max_value")
+            parameter_name = str(self._read_attr(parameter, "name") or "")
+            if parameter_name.lower() in {"device on", "on"} or parameter_name.lower().startswith("device on"):
+                minimum = self._read_attr(parameter, "min", "min_value"); maximum = self._read_attr(parameter, "max", "max_value"); prior_value = self._read_attr(parameter, "value")
                 target = float(maximum if enabled else minimum) if isinstance(minimum, (int, float)) and isinstance(maximum, (int, float)) else (1.0 if enabled else 0.0)
-                parameter.value = target
-                current = self._read_attr(parameter, "value")
-                if isinstance(current, (int, float)) and abs(float(current) - target) < 0.01:
-                    revision = self.refs.touch(reference)
-                    return {"changed": True, "enabled": enabled, "revision": revision}
+                setter_error: BaseException | None = None
+                try: parameter.value = target
+                except BaseException as error: setter_error = error
+                observed = self._read_attr(parameter, "value")
+                authoritative_enabled = self._read_attr(device, "is_active", "is_enabled", "enabled")
+                if setter_error is None and isinstance(observed, (int, float)) and float(observed) == target and (not isinstance(authoritative_enabled, bool) or authoritative_enabled is enabled):
+                    revision = self.refs.touch(reference); return {"changed": True, "enabled": enabled, "revision": revision}
+                if isinstance(prior_value, (int, float)) and observed != prior_value:
+                    try: parameter.value = prior_value
+                    except BaseException: pass
+                    restored = self._read_attr(parameter, "value")
+                    if not isinstance(restored, (int, float)) or float(restored) != float(prior_value): raise ValueError("device enable failed and exact rollback failed") from setter_error
+        if self._read_attr(device, "is_active", "is_enabled", "enabled") is not current_enabled: raise ValueError("device enable failed and exact authoritative rollback failed")
         raise ValueError("device enable is unavailable")
 
     def _device_move(self, args: dict[str, Any]) -> dict[str, Any]:
-        reference = args.get("ref")
-        index = args.get("index")
-        if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index <= 256:
-            raise ValueError("device index is invalid")
-        owner, device, _, current, _ = self._device_location(str(reference), args.get("expectedObjectIdentity"), args.get("expectedOwnerRef"), args.get("expectedOwnerIdentity"), args.get("expectedSiblings"))
-        if index == current:
-            return {"ref": reference, "index": index}
+        reference = args.get("ref"); index = args.get("index")
+        if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index <= 256: raise ValueError("device index is invalid")
+        owner, device, _, current, owner_ref = self._device_location(str(reference), args.get("expectedObjectIdentity"), args.get("expectedOwnerRef"), args.get("expectedOwnerIdentity"), args.get("expectedSiblings"), args.get("expectedTrackRef"), args.get("expectedTrackIdentity"))
+        devices_before = self._items(getattr(owner, "devices", [])); expected_identity = str(args.get("expectedObjectIdentity"))
+        if index >= len(devices_before): raise ValueError("device index is outside the exact sibling collection")
+        if index == current: return {"ref": reference, "objectIdentity": self._capture_object_identity(device), "index": index}
         mover = getattr(owner, "move_device", None)
-        if not callable(mover):
-            raise ValueError("device move is unavailable")
-        mover(current, index)
-        devices = self._items(getattr(owner, "devices", [])); expected_identity = str(args.get("expectedObjectIdentity"))
-        if index >= len(devices) or not self._capture_same_object(devices[index], device, expected_identity):
-            raise ValueError("device move was not confirmed")
-        return {"ref": reference, "index": index}
+        if not callable(mover): raise ValueError("device move is unavailable")
+        before_identities = [self._capture_object_identity(candidate) for candidate in devices_before]
+        try:
+            mover(current, index)
+            devices = self._items(getattr(owner, "devices", []))
+            if len(devices) != len(devices_before) or index >= len(devices) or not self._capture_same_object(devices[index], device, expected_identity): raise ValueError("device move was not confirmed")
+            after_identities = [self._capture_object_identity(candidate) for candidate in devices]
+            expected_order = list(before_identities); moved_identity = expected_order.pop(current); expected_order.insert(index, moved_identity)
+            if after_identities != expected_order: raise ValueError("device move changed an unexpected sibling")
+        except BaseException as error:
+            rollback_failed = False; current_devices = self._items(getattr(owner, "devices", [])); moved_index = self._capture_index(current_devices, device, expected_identity)
+            if moved_index is None: rollback_failed = True
+            elif moved_index != current:
+                try: mover(moved_index, current)
+                except BaseException: rollback_failed = True
+            if [self._capture_object_identity(candidate) for candidate in self._items(getattr(owner, "devices", []))] != before_identities: rollback_failed = True
+            if rollback_failed: raise ValueError("device move failed and exact rollback failed") from error
+            raise
+        owner_path = ":".join(owner_ref.split(":")[2:]); new_ref = self.refs.put("device", device, f"{owner_path}:{index}")
+        return {"ref": new_ref, "objectIdentity": expected_identity, "index": index}
 
     def _browser(self) -> Any:
         try:
@@ -2498,23 +3207,29 @@ class LiveObjectMapper:
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
             raise ValueError("browser limit is invalid")
         needle = query.strip().lower() if isinstance(query, str) else ""
-        items: list[dict[str, Any]] = []; seen_ids: set[str] = set()
+        items: list[dict[str, Any]] = []; seen_ids: set[str] = set(); traversal_count = 0
 
         def walk(node: Any, path: str, depth: int) -> None:
+            nonlocal traversal_count
             if len(items) >= limit or depth > 6:
                 return
             children = self._items(self._read_attr(node, "children") or [])
+            if len(children) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("browser child collection exceeds its traversal bound")
             for child in children:
-                if len(items) >= limit:
-                    return
+                traversal_count += 1
+                if traversal_count > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("browser search exceeds its traversal bound")
+                if len(items) >= limit: return
                 name = str(self._read_attr(child, "name") or "")
                 child_path = f"{path}/{name}"
+                if len(name) > 256 or len(child_path) > 256: continue
                 explicit_device = self._read_attr(child, "is_device"); is_loadable = self._read_attr(child, "is_loadable") is True
                 is_device = explicit_device is True or (explicit_device is None and category_name in self._DEVICE_BROWSER_CATEGORIES and is_loadable)
                 if not self._items(self._read_attr(child, "children") or []) or is_device:
                     if not needle or needle in name.lower() or needle in child_path.lower():
                         if child_path in seen_ids: raise ValueError("browser item identity collision")
-                        seen_ids.add(child_path); items.append({"id": child_path, "name": name, "category": category_name, "path": child_path, "isDevice": is_device})
+                        object_identity = self._capture_object_identity(child)
+                        if len(object_identity) > 256: continue
+                        seen_ids.add(child_path); items.append({"id": child_path, "objectIdentity": object_identity, "name": name, "category": category_name, "path": child_path, "isDevice": is_device})
                 if not is_device:
                     walk(child, child_path, depth + 1)
 
@@ -2532,54 +3247,106 @@ class LiveObjectMapper:
             raise ValueError("browser item id is invalid")
         browser = self._browser(); item_category = item_id.split("/", 1)[0] if "/" in item_id else ""
         if item_category not in self._BROWSER_CATEGORIES: raise ValueError("browser item id is invalid")
-        matches: list[Any] = []
+        matches: list[Any] = []; traversal_count = 0
         def find(node: Any, path: str, depth: int) -> None:
+            nonlocal traversal_count
             if depth > 6: return
-            for child in self._items(self._read_attr(node, "children") or []):
+            children = self._items(self._read_attr(node, "children") or [])
+            if len(children) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("browser child collection exceeds its traversal bound")
+            for child in children:
+                traversal_count += 1
+                if traversal_count > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("browser lookup exceeds its traversal bound")
                 name = str(self._read_attr(child, "name") or ""); child_path = f"{path}/{name}"
-                if child_path == item_id: matches.append(child)
+                if child_path == item_id:
+                    matches.append(child)
+                    if len(matches) > 1: raise ValueError("browser item identity is ambiguous")
                 find(child, child_path, depth + 1)
         find(self._read_attr(browser, item_category), item_category, 0)
         if len(matches) != 1: raise ValueError("browser item identity is missing or ambiguous")
         item = matches[0]; name = str(self._read_attr(item, "name") or ""); explicit_device = self._read_attr(item, "is_device"); is_device = explicit_device is True or (explicit_device is None and item_category in self._DEVICE_BROWSER_CATEGORIES and self._read_attr(item, "is_loadable") is True)
-        return item, {"id": item_id, "name": name, "category": item_category, "path": item_id, "isDevice": is_device}
+        return item, {"id": item_id, "objectIdentity": self._capture_object_identity(item), "name": name, "category": item_category, "path": item_id, "isDevice": is_device}
 
     def _browser_inspect(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._browser_find(args.get("itemId"))[1]
 
     def _browser_load(self, args: dict[str, Any]) -> dict[str, Any]:
         item, metadata = self._browser_find(args.get("itemId")); track_ref = args.get("trackRef")
-        if metadata["isDevice"] is not True or args.get("expectedName") != metadata["name"]:
-            raise ValueError("browser item is not an exact loadable device")
+        if metadata["isDevice"] is not True or args.get("expectedName") != metadata["name"] or not isinstance(args.get("expectedItemIdentity"), str) or not hmac.compare_digest(metadata["objectIdentity"], args["expectedItemIdentity"]):
+            raise ValueError("browser item identity is not an exact loadable device")
         browser = self._browser()
         loader = getattr(browser, "load_item", None)
         if not callable(loader):
             raise ValueError("browser loading is unavailable")
         if not isinstance(track_ref, str) or not track_ref.startswith(f"{self.refs.epoch}:track:"):
             raise ValueError("an exact regular-track reference is required")
-        track = self.refs.get(track_ref); regular_tracks = self._items(getattr(self.song, "tracks", []))
-        if track not in regular_tracks:
-            raise ValueError("browser loading is limited to regular Set tracks")
+        self.snapshot(); track = self.refs.get(track_ref); regular_tracks = self._items(getattr(self.song, "tracks", [])); track_identity = self._capture_object_identity(track); track_matches = [(index, candidate) for index, candidate in enumerate(regular_tracks) if self._capture_same_object(candidate, track, track_identity)]
+        if len(track_matches) != 1:
+            raise ValueError("browser loading is limited to one exact regular Set track")
+        track_index, track = track_matches[0]
+        if track_ref != f"{self.refs.epoch}:track:{track_index}": raise ValueError("browser target track reference is stale")
+        authority = self._top_level_device_authority(track, track_ref)
+        expected_authority = {"expectedTrackIdentity": args.get("expectedTrackIdentity"), "expectedSiblings": args.get("expectedSiblings")}
+        if not hmac.compare_digest(self._bounded_canonical(authority), self._bounded_canonical(expected_authority)):
+            raise ValueError("browser target track or devices changed since preview")
         view = getattr(self.song, "view", None)
         if view is None or not hasattr(view, "selected_track"):
             raise ValueError("track-targeted browser loading is unavailable")
-        previous_selection = getattr(view, "selected_track", None); before_devices = self._items(getattr(track, "devices", []))
+        previous_selection = getattr(view, "selected_track", None); previous_identity = self._capture_object_identity(previous_selection) if previous_selection is not None else None; before_devices = self._items(getattr(track, "devices", []))
+        if before_devices: raise ValueError("Browser loading requires an empty exact device owner so cleanup cannot affect siblings")
+        before_identities = [self._capture_object_identity(prior) for prior in before_devices]
+        if len(set(before_identities)) != len(before_identities): raise ValueError("browser target device identities are ambiguous")
+        registry_checkpoint = self.refs.checkpoint()
+        failure: BaseException | None = None
         try:
             view.selected_track = track
-            if getattr(view, "selected_track", None) is not track: raise ValueError("target-track selection was not confirmed")
+            if not self._capture_same_object(getattr(view, "selected_track", None), track, track_identity): raise ValueError("target-track selection was not confirmed")
             loader(item)
-        finally:
+        except BaseException as error: failure = error
+        try:
+            view.selected_track = previous_selection; restored_selection = getattr(view, "selected_track", None)
+            if (previous_selection is None and restored_selection is not None) or (previous_selection is not None and not self._capture_same_object(restored_selection, previous_selection, str(previous_identity))): raise ValueError("selection restoration was not confirmed")
+        except BaseException as error:
+            if failure is None: failure = ValueError("browser load selection restoration failed")
+        devices = self._items(getattr(track, "devices", [])); created = [(index, candidate) for index, candidate in enumerate(devices) if self._capture_object_identity(candidate) not in set(before_identities)]
+        shape_valid = len(devices) == len(before_devices) + 1 and len(created) == 1 and [self._capture_object_identity(candidate) for candidate in devices if self._capture_object_identity(candidate) in set(before_identities)] == before_identities
+        if failure is not None or not shape_valid:
+            rollback_failed = False; deleter = getattr(track, "delete_device", None)
+            if created and not callable(deleter): rollback_failed = True
+            if callable(deleter):
+                for _, candidate in reversed(created):
+                    candidate_identity = self._capture_object_identity(candidate); current_devices = self._items(getattr(track, "devices", [])); candidate_index = self._capture_index(current_devices, candidate, candidate_identity)
+                    if candidate_index is None: rollback_failed = True; continue
+                    try: deleter(candidate_index)
+                    except BaseException: pass
+            if [self._capture_object_identity(candidate) for candidate in self._items(getattr(track, "devices", []))] != before_identities: rollback_failed = True
             try:
-                view.selected_track = previous_selection
-                if getattr(view, "selected_track", None) is not previous_selection: raise ValueError("selection restoration was not confirmed")
-            except Exception as error: raise ValueError("browser load selection restoration failed") from error
-        devices = self._items(getattr(track, "devices", []))
-        if len(devices) != len(before_devices) + 1:
-            raise ValueError("browser load was not confirmed as one device on the target track")
-        created = [candidate for candidate in devices if all(candidate is not prior for prior in before_devices)]
-        if len(created) != 1: raise ValueError("browser load device identity is ambiguous")
-        device = created[0]; device_index = devices.index(device); track_index = regular_tracks.index(track)
-        return {"loaded": True, "deviceRef": self.refs.put("device", device, f"{track_index}:{device_index}")}
+                view.selected_track = previous_selection; restored_selection = getattr(view, "selected_track", None)
+                if (previous_selection is None and restored_selection is not None) or (previous_selection is not None and not self._capture_same_object(restored_selection, previous_selection, str(previous_identity))): rollback_failed = True
+            except BaseException: rollback_failed = True
+            cause = failure or ValueError("browser load did not produce one identity-distinct device on the target track")
+            if rollback_failed:
+                try: self.snapshot()
+                except BaseException: pass
+                raise ValueError("browser load failed and exact transaction-owned cleanup failed") from cause
+            self.refs.restore(registry_checkpoint)
+            raise ValueError("browser load failed without a residual device") from cause
+        device_index, device = created[0]; created_ref: str | None = None
+        try:
+            created_ref = self.refs.put("device", device, f"{track_index}:{device_index}"); device_identity = self._capture_object_identity(device); fingerprint = self._mapped_fingerprint(created_ref)
+        except BaseException as error:
+            rollback_failed = False; deleter = getattr(track, "delete_device", None); current_devices = self._items(getattr(track, "devices", [])); current_index = self._capture_index(current_devices, device, self._capture_object_identity(device))
+            if not callable(deleter) or current_index is None: rollback_failed = True
+            else:
+                try: deleter(current_index)
+                except BaseException: pass
+            if [self._capture_object_identity(candidate) for candidate in self._items(getattr(track, "devices", []))] != before_identities: rollback_failed = True
+            if rollback_failed:
+                try: self.snapshot()
+                except BaseException: pass
+                raise ValueError("browser load result mapping failed and exact transaction-owned cleanup failed") from error
+            self.refs.restore(registry_checkpoint)
+            raise ValueError("browser load result mapping failed without a residual device") from error
+        return {"loaded": True, "deviceRef": created_ref, "deviceObjectIdentity": device_identity, "createdFingerprint": fingerprint}
 
     @staticmethod
     def _capture_object_identity(value: Any) -> str:
@@ -2602,7 +3369,14 @@ class LiveObjectMapper:
 
     @classmethod
     def _capture_same_object(cls, current: Any, expected: Any, identity: str) -> bool:
-        return current is expected or (current is not None and cls._capture_object_identity(current) == identity)
+        return current is not None and expected is not None and cls._capture_object_identity(current) == identity
+
+    @classmethod
+    def _capture_index(cls, items: list[Any], expected: Any, identity: str | None = None) -> int | None:
+        if expected is None: return None
+        expected_identity = identity or cls._capture_object_identity(expected)
+        matches = [index for index, candidate in enumerate(items) if cls._capture_same_object(candidate, expected, expected_identity)]
+        return matches[0] if len(matches) == 1 else None
 
     @staticmethod
     def _capture_route_label(value: Any) -> str | None:
@@ -2627,11 +3401,12 @@ class LiveObjectMapper:
         return value if value is not None else self._read_attr(track, "current_input_routing")
 
     def _capture_resampling_choice(self, track: Any) -> Any:
+        matches = []
         for candidate in self._items(self._read_attr(track, "available_input_routing_types") or []):
             labels = [self._capture_route_label(candidate), str(getattr(candidate, "name", "")), str(getattr(candidate, "display_name", ""))]
-            if any(isinstance(label, str) and label.casefold() == "resampling" for label in labels):
-                return candidate
-        raise ValueError("the destination track does not expose an exact Resampling input")
+            if any(isinstance(label, str) and label.casefold() == "resampling" for label in labels): matches.append(candidate)
+        if len(matches) != 1: raise ValueError("the destination track does not expose one exact unambiguous Resampling input")
+        return matches[0]
 
     def _capture_shape_supported(self) -> bool:
         if not callable(getattr(self.song, "stop_playing", None)):
@@ -2959,7 +3734,7 @@ class LiveObjectMapper:
             playback_stopped = self._capture_playback_stopped(playback)
         destination_slot = state["_destinationSlot"]
         clip = getattr(destination_slot, "clip", None)
-        owned_recording = clip is not None and state.get("_ownedClipIdentity") and self._capture_same_object(clip, state.get("_ownedClip"), state["_ownedClipIdentity"]) and self._read_attr(clip, "is_recording") is True
+        owned_recording = clip is not None and state.get("_ownedClipIdentity") and self._capture_same_object(clip, state.get("_ownedClip"), state["_ownedClipIdentity"]) and self._read_attr(clip, "is_recording") is not False
         # Failed/unverified stop is not terminal authority. Retry when either
         # playback or the exact owned recording remains active.
         if state.get("state") in {"stopped", "captured", "failed"} and (not playback_stopped or owned_recording):
@@ -3003,7 +3778,7 @@ class LiveObjectMapper:
         # Live can expose the newly recorded clip proxy before its properties
         # are readable and before file_path is assigned. Treat that as pending
         # finalization, not capture failure; the host polls this bounded state.
-        if self._read_attr(clip, "is_recording") is True:
+        if self._read_attr(clip, "is_recording") is not False:
             return
         name = self._read_attr(clip, "name")
         length = self._read_attr(clip, "length")
@@ -3022,8 +3797,9 @@ class LiveObjectMapper:
             return {"active": False, "playbackStopped": True, "state": "idle", "residual": []}
         playback = self._playback()
         playback_stopped = self._capture_playback_stopped(playback)
-        owned_clip = getattr(state.get("_destinationSlot"), "clip", None)
-        recording = self._read_attr(owned_clip, "is_recording") is True if owned_clip is not None else False
+        current_clip = getattr(state.get("_destinationSlot"), "clip", None); owned_clip = state.get("_ownedClip"); owned_identity = state.get("_ownedClipIdentity")
+        current_is_owned = current_clip is not None and owned_clip is not None and isinstance(owned_identity, str) and self._capture_same_object(current_clip, owned_clip, owned_identity)
+        recording = self._read_attr(current_clip, "is_recording") is not False if current_is_owned else False
         output = {
             "active": state.get("state") in {"starting", "active"} or not playback_stopped or recording,
             "unsafe": not playback_stopped or recording or state.get("state") == "failed",
@@ -3072,19 +3848,22 @@ class LiveObjectMapper:
             raise ValueError("capture cleanup authority is invalid")
         if state.get("state") == "active":
             raise ValueError("active capture must be stopped before cleanup")
-        self._capture_refresh()
-        if self._capture_status().get("playbackStopped") is not True:
-            raise ValueError("capture playback must be authoritatively stopped before cleanup")
+        self._capture_refresh(); capture_status = self._capture_status()
+        if capture_status.get("playbackStopped") is not True or capture_status.get("active") is not False:
+            raise ValueError("capture playback and owned recording must be authoritatively stopped before cleanup")
         if args.get("expectedClipRef") != state.get("clipRef"):
             raise ValueError("capture cleanup clip identity is stale or inexact")
         slot = state["_destinationSlot"]
         clip = getattr(slot, "clip", None)
         if clip is None or not state.get("_ownedClipIdentity") or not self._capture_same_object(clip, state.get("_ownedClip"), state["_ownedClipIdentity"]) or not callable(getattr(slot, "delete_clip", None)):
             raise ValueError("transaction-owned capture clip identity is unavailable for cleanup")
-        file_path = (state.get("clip") or {}).get("filePath")
-        slot.delete_clip()
-        if getattr(slot, "clip", None) is not None:
-            raise ValueError("capture clip cleanup was not confirmed")
+        file_path = (state.get("clip") or {}).get("filePath"); deletion_error: BaseException | None = None
+        try: slot.delete_clip()
+        except BaseException as error: deletion_error = error
+        if getattr(slot, "clip", None) is not None: raise ValueError("capture clip cleanup was not confirmed") from deletion_error
+        clip_reference = str(state.get("clipRef"))
+        try: self.refs.delete(clip_reference)
+        except (KeyError, ValueError): raise ValueError("capture cleanup reference retirement failed") from deletion_error
         state["state"] = "cleaned"
         state["token"] = None
         state.pop("clip", None)
@@ -3132,18 +3911,47 @@ class LiveObjectMapper:
     def _routing_choice(self, track: Any, available_name: str, label: str) -> Any:
         if label is None:
             return None
+        matches = []
         for candidate in self._items(self._read_attr(track, available_name) or []):
             candidate_label = candidate.get("display_name") or candidate.get("name") if isinstance(candidate, dict) else getattr(candidate, "display_name", None) or getattr(candidate, "name", "")
-            if str(candidate_label) == label:
-                return candidate
-        raise ValueError(f"routing choice is unavailable: {label}")
+            if str(candidate_label) == label: matches.append(candidate)
+        if len(matches) != 1: raise ValueError(f"routing choice is unavailable or ambiguous: {label}")
+        return matches[0]
+
+    def _routing_would_cycle(self, target: Any, args: dict[str, Any]) -> bool:
+        tracks = self._items(getattr(self.song, "tracks", [])) + self._items(getattr(self.song, "return_tracks", []))
+        main = getattr(self.song, "master_track", getattr(self.song, "main_track", None))
+        if main is not None: tracks.append(main)
+        names: dict[str, list[int]] = {}
+        for index, track in enumerate(tracks): names.setdefault(str(self._read_attr(track, "name") or ""), []).append(index)
+        edges: dict[int, set[int]] = {index: set() for index in range(len(tracks))}
+        for index, track in enumerate(tracks):
+            output = args.get("outputType") if self._capture_same_object(track, target, self._capture_object_identity(target)) and "outputType" in args else self._capture_route_label(self._read_attr(track, "output_routing_type", "current_output_routing"))
+            if isinstance(output, str): edges[index].update(names.get(output, []))
+            input_route = args.get("inputType") if self._capture_same_object(track, target, self._capture_object_identity(target)) and "inputType" in args else self._capture_route_label(self._read_attr(track, "input_routing_type", "current_input_routing"))
+            if isinstance(input_route, str):
+                for source in names.get(input_route, []): edges[source].add(index)
+        visiting: set[int] = set(); visited: set[int] = set()
+        def cycle(index: int) -> bool:
+            if index in visiting: return True
+            if index in visited: return False
+            visiting.add(index)
+            if any(cycle(destination) for destination in edges[index]): return True
+            visiting.remove(index); visited.add(index); return False
+        return any(cycle(index) for index in edges)
 
     def _routing_set(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")
         if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:track:"):
             raise ValueError("track reference is stale or invalid")
+        self.snapshot()
         track = self.refs.get(reference)
-        allowed = {"ref", "inputType", "inputSubRouting", "outputType", "outputSubRouting", "arm", "monitoring"}
+        expected_identity = args.get("expectedObjectIdentity"); tracks = self._all_track_objects(); track_index = self._capture_index(tracks, track, expected_identity if isinstance(expected_identity, str) else None)
+        if not isinstance(expected_identity, str) or track_index is None or reference != f"{self.refs.epoch}:track:{track_index}" or not hmac.compare_digest(self._capture_object_identity(track), expected_identity):
+            raise ValueError("routing track identity changed since preview")
+        routing_before = self._routing_row(track); state = {"inputType": routing_before.get("inputType"), "inputSubRouting": routing_before.get("inputSubRouting"), "outputType": routing_before.get("outputType"), "outputSubRouting": routing_before.get("outputSubRouting"), "arm": self._read_attr(track, "arm"), "monitoring": self._monitoring_state(self._read_attr(track, "current_monitoring_state"))}; expected_state = args.get("expectedStateRevision"); state_revision = hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()
+        if not isinstance(expected_state, str) or not hmac.compare_digest(state_revision, expected_state): raise ValueError("routing state changed since preview")
+        allowed = {"ref", "inputType", "inputSubRouting", "outputType", "outputSubRouting", "arm", "monitoring", "expectedObjectIdentity", "expectedStateRevision"}
         if set(args) - allowed:
             raise ValueError("routing fields are invalid")
         for field in ("inputType", "inputSubRouting", "outputType", "outputSubRouting"):
@@ -3156,58 +3964,69 @@ class LiveObjectMapper:
         monitoring = args.get("monitoring")
         if monitoring is not None and monitoring not in {"in", "auto", "off"}:
             raise ValueError("monitoring is invalid")
-        # Feedback-sensitive guard: refuse routes that point a track's output
-        # at itself or at a track that currently routes its output here.
-        output_type = args.get("outputType")
-        if isinstance(output_type, str) and output_type:
-            own_name = str(self._read_attr(track, "name") or "")
-            if output_type == own_name or output_type == str(self._read_attr(track, "current_input_routing") and getattr(self._read_attr(track, "current_input_routing"), "name", "") or ""):
-                raise ValueError("routing would create a feedback loop")
-        changes: list[tuple[str, Any]] = []
-        if args.get("inputType") is not None:
-            changes.append(("input_routing_type", self._routing_choice(track, "available_input_routing_types", args["inputType"])))
-        if args.get("inputSubRouting") is not None:
-            changes.append(("input_sub_routing", self._routing_choice(track, "available_input_routing_channels", args["inputSubRouting"])))
-        if args.get("outputType") is not None:
-            changes.append(("output_routing_type", self._routing_choice(track, "available_output_routing_types", args["outputType"])))
-        if args.get("outputSubRouting") is not None:
-            changes.append(("output_sub_routing", self._routing_choice(track, "available_output_routing_channels", args["outputSubRouting"])))
-        for name, value in changes:
-            if value is not None:
-                setattr(track, name, value)
-        if arm is not None:
-            if self._read_attr(track, "can_be_armed") is not True:
-                raise ValueError("track cannot be armed")
-            track.arm = arm
-        if monitoring is not None:
-            current = self._read_attr(track, "current_monitoring_state")
-            states = self._items(self._read_attr(track, "monitoring_states") or [])
-            target = {"in": 0, "auto": 1, "off": 2}[monitoring]
-            if isinstance(current, int) and states:
-                track.current_monitoring_state = target
-            elif isinstance(current, int):
-                track.current_monitoring_state = target
-            else:
-                raise ValueError("monitoring control is unavailable on this track")
-        row = self._routing_row(track)
-        checks = []
-        if args.get("inputType") is not None:
-            checks.append(row["inputType"] == args["inputType"])
-        if args.get("outputType") is not None:
-            checks.append(row["outputType"] == args["outputType"])
-        if arm is not None:
-            checks.append(self._read_attr(track, "arm") is arm)
-        if monitoring is not None:
-            checks.append(self._monitoring_state(self._read_attr(track, "current_monitoring_state")) == monitoring)
-        if not all(checks):
-            raise ValueError("routing change was not confirmed by fresh state")
+        # Refuse any direct or transitive track routing cycle before the first
+        # Live mutation; label ambiguity is treated conservatively as every
+        # matching track edge rather than guessed away.
+        if self._routing_would_cycle(track, args):
+            raise ValueError("routing would create a direct or transitive feedback loop")
+        def route_group(direction: str) -> dict[str, Any] | None:
+            type_field, channel_field = f"{direction}Type", f"{direction}SubRouting"; type_attribute, channel_attribute = f"{direction}_routing_type", f"{direction}_routing_channel"; available_types, available_channels = f"available_{direction}_routing_types", f"available_{direction}_routing_channels"
+            if args.get(type_field) is None and args.get(channel_field) is None: return None
+            return {"direction": direction, "proposed": {key: args[key] for key in (type_field, channel_field) if key in args}, "typeAttribute": type_attribute, "channelAttribute": channel_attribute, "availableTypes": available_types, "availableChannels": available_channels, "typeLabel": args.get(type_field), "channelLabel": args.get(channel_field), "priorType": self._read_attr(track, type_attribute), "priorChannel": self._read_attr(track, channel_attribute)}
+        route_groups = [group for group in (route_group("input"), route_group("output")) if group is not None]
+        if len(route_groups) == 2:
+            safe_order = None
+            for order in (route_groups, list(reversed(route_groups))):
+                staged: dict[str, Any] = {}; safe = True
+                for group in order:
+                    staged.update(group["proposed"])
+                    if self._routing_would_cycle(track, staged): safe = False; break
+                if safe: safe_order = order; break
+            if safe_order is None: raise ValueError("routing cannot transition without a transient feedback loop")
+            route_groups = safe_order
+        if arm is not None and self._read_attr(track, "can_be_armed") is not True: raise ValueError("track cannot be armed")
+        if monitoring is not None and not isinstance(self._read_attr(track, "current_monitoring_state"), int): raise ValueError("monitoring control is unavailable on this track")
+        extra_assignments: list[tuple[Any, str, Any, Any]] = []
+        if arm is not None: extra_assignments.append((track, "arm", arm, self._read_attr(track, "arm")))
+        if monitoring is not None: extra_assignments.append((track, "current_monitoring_state", {"in": 0, "auto": 1, "off": 2}[monitoring], self._read_attr(track, "current_monitoring_state")))
+        applied_groups: list[dict[str, Any]] = []
+        try:
+            for group in route_groups:
+                applied_groups.append(group)
+                if group["typeLabel"] is not None:
+                    route_type = self._routing_choice(track, group["availableTypes"], group["typeLabel"]); setattr(track, group["typeAttribute"], route_type)
+                if group["channelLabel"] is not None:
+                    channel = self._routing_choice(track, group["availableChannels"], group["channelLabel"]); setattr(track, group["channelAttribute"], channel)
+            for owner, name, value, _ in extra_assignments: setattr(owner, name, value)
+            row = self._routing_row(track); checks = []
+            if args.get("inputType") is not None: checks.append(row["inputType"] == args["inputType"])
+            if args.get("inputSubRouting") is not None: checks.append(row["inputSubRouting"] == args["inputSubRouting"])
+            if args.get("outputType") is not None: checks.append(row["outputType"] == args["outputType"])
+            if args.get("outputSubRouting") is not None: checks.append(row["outputSubRouting"] == args["outputSubRouting"])
+            if arm is not None: checks.append(self._read_attr(track, "arm") is arm)
+            if monitoring is not None: checks.append(self._monitoring_state(self._read_attr(track, "current_monitoring_state")) == monitoring)
+            if not all(checks): raise ValueError("routing change was not confirmed by fresh state")
+        except BaseException as error:
+            rollback_failed = False
+            for owner, name, _, prior in reversed(extra_assignments):
+                try: setattr(owner, name, prior)
+                except BaseException: rollback_failed = True
+            for group in reversed(applied_groups):
+                try:
+                    if group["typeLabel"] is not None: setattr(track, group["typeAttribute"], group["priorType"])
+                    setattr(track, group["channelAttribute"], group["priorChannel"])
+                except BaseException: rollback_failed = True
+            restored_routing = self._routing_row(track); restored_state = {"inputType": restored_routing.get("inputType"), "inputSubRouting": restored_routing.get("inputSubRouting"), "outputType": restored_routing.get("outputType"), "outputSubRouting": restored_routing.get("outputSubRouting"), "arm": self._read_attr(track, "arm"), "monitoring": self._monitoring_state(self._read_attr(track, "current_monitoring_state"))}
+            if self._bounded_canonical(restored_state) != self._bounded_canonical(state): rollback_failed = True
+            if rollback_failed: raise ValueError("routing change failed and exact rollback failed") from error
+            raise
         revision = self.refs.touch(reference)
         return {"changed": True, "revision": revision}
 
     def _recording_authority(self, args: dict[str, Any], lane: str) -> str:
         action = args.get("action")
         expected_session, expected_arrangement = args.get("expectedSessionRecord"), args.get("expectedArrangementRecord")
-        destination_ref, output_safety = args.get("destinationTrackRef"), args.get("outputSafety")
+        destination_ref, destination_identity, output_safety = args.get("destinationTrackRef"), args.get("destinationTrackIdentity"), args.get("outputSafety")
         if action not in {"start", "stop"} or not isinstance(expected_session, bool) or not isinstance(expected_arrangement, bool):
             raise ValueError("recording authority is invalid")
         current_session, current_arrangement = self._read_attr(self.song, "session_record"), self._read_attr(self.song, "record_mode")
@@ -3217,18 +4036,21 @@ class LiveObjectMapper:
             raise ValueError("recording state changed since preview")
         if not isinstance(output_safety, dict) or output_safety.get("safe") is not True or not isinstance(output_safety.get("provenance"), str) or output_safety.get("provenance") in {"", "unknown", "simulator"}:
             raise ValueError("authoritative output safety is required")
+        self.snapshot(); tracks = self._items(getattr(self.song, "tracks", [])); destination = None
         if destination_ref is not None:
-            if not isinstance(destination_ref, str):
-                raise ValueError("recording destination is invalid")
-            destination = self.refs.get(destination_ref)
-            if destination not in self._items(getattr(self.song, "tracks", [])):
-                raise ValueError("recording destination is stale or foreign")
-        elif action == "start":
-            raise ValueError("recording start requires an exact destination track")
+            if not isinstance(destination_ref, str) or not isinstance(destination_identity, str):
+                raise ValueError("recording destination identity is invalid")
+            referenced = self.refs.get(destination_ref); matches = [candidate for candidate in tracks if self._capture_same_object(candidate, referenced, destination_identity)]
+            if not hmac.compare_digest(self._capture_object_identity(referenced), destination_identity) or len(matches) != 1:
+                raise ValueError("recording destination identity is stale, foreign, or ambiguous")
+            destination = matches[0]
+        elif action == "start" or destination_identity is not None:
+            raise ValueError("recording start requires an exact destination track identity")
         if action == "start":
-            armed_tracks = [track for track in self._items(getattr(self.song, "tracks", [])) if self._read_attr(track, "arm") is True]
-            if self._read_attr(destination, "arm") is not True or armed_tracks != [destination]:
-                raise ValueError("recording destination must be the only armed track")
+            armed_tracks = [track for track in tracks if self._read_attr(track, "arm") is True]
+            armed_matches = [track for track in armed_tracks if self._capture_same_object(track, destination, str(destination_identity))]
+            if destination is None or self._read_attr(destination, "arm") is not True or len(armed_tracks) != 1 or len(armed_matches) != 1:
+                raise ValueError("recording destination must be the only unambiguous armed track")
         if lane == "session" and action == "start" and current_session:
             raise ValueError("Session recording is already active")
         if lane == "arrangement" and action == "start" and current_arrangement:
@@ -3274,62 +4096,66 @@ class LiveObjectMapper:
         return note
 
     def _note_add_batch(self, args: dict[str, Any]) -> dict[str, Any]:
-        clip = self.refs.get(str(args["ref"]))
+        clip = self._guard_note_clip(args)
         values = args.get("notes")
         if not isinstance(values, list) or not 1 <= len(values) <= 512:
             raise ValueError("note batch is invalid")
-        notes = [self._validated_note(clip, value) for value in values]
+        notes = [self._validated_note(clip, value) for value in values]; prior_rows = self._read_notes(clip)
+        if len(prior_rows) + len(notes) > MAX_WIRE_ARRAY_LENGTH: raise ValueError("note batch would exceed the authoritative clip-note bound")
         prior_candidates = list(clip.get_all_notes_extended()) if hasattr(clip, "get_all_notes_extended") else []
         prior_ids = {int(candidate.note_id) for candidate in prior_candidates if isinstance(getattr(candidate, "note_id", None), int) and not isinstance(candidate.note_id, bool)}
         try:
             spec_class = getattr(__import__("Live.Clip", fromlist=["MidiNoteSpecification"]), "MidiNoteSpecification", None)
         except Exception:
             spec_class = None
-        if spec_class is not None:
-            specifications = [spec_class(
-                note["pitch"], float(note["start"]), float(note["duration"]), float(note["velocity"]),
-                bool(note.get("mute", False)), float(note.get("probability", 1.0)),
-                float(note.get("velocityDeviation", 0.0)), float(note.get("releaseVelocity", 64.0)),
-            ) for note in notes]
-            clip.add_new_notes(specifications)
-        elif hasattr(clip, "set_notes"):
-            if any(any(note.get(field) is not None for field in ("probability", "velocityDeviation", "releaseVelocity", "mute")) for note in notes):
-                raise ValueError("advanced note fields are unavailable on this Live shape")
-            if hasattr(clip, "get_all_notes_extended"):
-                existing = [(int(item.pitch), float(item.start_time), float(item.duration), int(item.velocity), bool(item.mute)) for item in clip.get_all_notes_extended()]
-            else:
-                existing = [tuple(item) for item in clip.get_notes(0, 0, 4096, 128)]
-            existing.extend((note["pitch"], float(note["start"]), float(note["duration"]), note["velocity"], False) for note in notes)
-            clip.set_notes(tuple(existing))
-        else:
-            clip.add_new_notes([{
-                "pitch": note["pitch"], "start_time": float(note["start"]), "duration": float(note["duration"]),
-                "velocity": note["velocity"], "mute": bool(note.get("mute", False)), "channel": note["channel"],
-                "probability": float(note.get("probability", 1.0)), "velocityDeviation": float(note.get("velocityDeviation", 0.0)),
-                "releaseVelocity": float(note.get("releaseVelocity", 64.0)),
-            } for note in notes])
+        if spec_class is None and hasattr(clip, "set_notes"): raise ValueError("legacy set_notes replacement is refused because additive completeness cannot be proven")
+        prior_row_ids = [row.get("id") for row in prior_rows]
+        if not callable(getattr(clip, "remove_notes_by_id", None)) or any(not isinstance(note_id, int) for note_id in prior_row_ids) or len(set(prior_row_ids)) != len(prior_row_ids): raise ValueError("complete unique stable note identity and exact additive rollback are required")
         note_ids: list[int | None] = []
-        candidates = list(clip.get_all_notes_extended()) if hasattr(clip, "get_all_notes_extended") else []
-        used: set[int] = set(prior_ids)
-        for note in notes:
-            note_id = None
-            for candidate in candidates:
-                raw_id = getattr(candidate, "note_id", None)
-                if not isinstance(raw_id, int) or isinstance(raw_id, bool):
-                    continue
-                candidate_id = int(raw_id)
-                if candidate_id not in used and int(candidate.pitch) == note["pitch"] and abs(float(candidate.start_time) - float(note["start"])) < 1e-6 and abs(float(candidate.duration) - float(note["duration"])) < 1e-6:
-                    note_id = candidate_id; used.add(candidate_id); break
-            note_ids.append(note_id)
-        return {"added": len(notes), "noteIds": note_ids}
+        try:
+            if spec_class is not None:
+                specifications = [spec_class(note["pitch"], float(note["start"]), float(note["duration"]), float(note["velocity"]), bool(note.get("mute", False)), float(note.get("probability", 1.0)), float(note.get("velocityDeviation", 0.0)), float(note.get("releaseVelocity", 64.0))) for note in notes]; clip.add_new_notes(specifications)
+            elif hasattr(clip, "set_notes"): raise ValueError("legacy set_notes replacement is refused because additive completeness cannot be proven")
+            else:
+                clip.add_new_notes([{"pitch": note["pitch"], "start_time": float(note["start"]), "duration": float(note["duration"]), "velocity": note["velocity"], "mute": bool(note.get("mute", False)), "channel": note["channel"], "probability": float(note.get("probability", 1.0)), "velocityDeviation": float(note.get("velocityDeviation", 0.0)), "velocity_deviation": float(note.get("velocityDeviation", 0.0)), "releaseVelocity": float(note.get("releaseVelocity", 64.0)), "release_velocity": float(note.get("releaseVelocity", 64.0))} for note in notes])
+            after_rows = self._read_notes(clip); content = lambda row: {"pitch": int(row.get("pitch", 0)), "start": float(row.get("start", row.get("start_time", 0))), "duration": float(row.get("duration", 0)), "velocity": row.get("velocity", 0), "channel": int(row.get("channel", 1)), "mute": bool(row.get("mute", False)), "probability": float(row.get("probability", 1.0) if row.get("probability") is not None else 1.0), "velocityDeviation": float(row.get("velocityDeviation", 0.0) if row.get("velocityDeviation") is not None else 0.0), "releaseVelocity": float(row.get("releaseVelocity", 64.0) if row.get("releaseVelocity") is not None else 64.0)}; canonical_content = lambda rows: self._bounded_canonical(sorted([content(row) for row in rows], key=lambda row: self._bounded_canonical(row)))
+            unmatched = [row for row in after_rows if isinstance(row.get("id"), int) and row["id"] not in prior_ids]
+            for note in notes:
+                expected_note = content(note); match = next((index for index, row in enumerate(unmatched) if self._bounded_canonical(content(row)) == self._bounded_canonical(expected_note)), None)
+                if match is None: note_ids.append(None)
+                else: note_ids.append(int(unmatched[match]["id"])); unmatched.pop(match)
+            expected_content = canonical_content(prior_rows + notes)
+            after_ids = [row.get("id") for row in after_rows]
+            if len(after_rows) != len(prior_rows) + len(notes) or any(not isinstance(note_id, int) for note_id in after_ids) or len(set(after_ids)) != len(after_ids) or any(note_id is None for note_id in note_ids) or canonical_content(after_rows) != expected_content: raise ValueError("note batch did not produce the exact complete expected state")
+            notes_revision = hashlib.sha256(self._bounded_canonical(after_rows).encode("utf-8")).hexdigest()
+            return {"added": len(notes), "noteIds": note_ids, "notesRevision": notes_revision}
+        except BaseException as error:
+            rollback_failed = False
+            try:
+                current_rows = self._read_notes(clip); new_ids = [row["id"] for row in current_rows if isinstance(row.get("id"), int) and row["id"] not in prior_ids]
+                if new_ids:
+                    remover = getattr(clip, "remove_notes_by_id", None)
+                    if not callable(remover): raise ValueError("new-note removal is unavailable")
+                    remover(new_ids)
+                if self._bounded_canonical(self._read_notes(clip)) != self._bounded_canonical(prior_rows): rollback_failed = True
+            except BaseException: rollback_failed = True
+            if rollback_failed: raise ValueError("note batch failed and exact rollback failed") from error
+            raise
 
     def _note_add(self, args: dict[str, Any]) -> dict[str, Any]:
-        result = self._note_add_batch({"ref": args.get("ref"), "notes": [args.get("note")]})
+        result = self._note_add_batch({"ref": args.get("ref"), "notes": [args.get("note")], "expectedClipAuthority": args.get("expectedClipAuthority"), "expectedNotesRevision": args.get("expectedNotesRevision")})
         return {"added": True, "noteId": result["noteIds"][0]}
 
 
 MAX_PENDING_EVENTS = 256
-_EVENT_TYPES = {"state", "transport", "object", "meter", "max", "osc", "reset"}
+_EVENT_TYPES = {"transport", "object", "reset"}
+
+
+def _supported_event_types(song: Any) -> set[str]:
+    supported = {"reset"}
+    if any(callable(getattr(song, f"add_{name}_listener", None)) for name in ("is_playing", "record_mode", "session_record")): supported.add("transport")
+    if any(callable(getattr(song, f"add_{name}_listener", None)) for name in ("tracks", "scenes")): supported.add("object")
+    return supported
 
 
 class _Subscription:
@@ -3341,9 +4167,10 @@ class _Subscription:
         self.epoch = mapper.refs.epoch
         self.events: deque[dict[str, Any]] = deque(maxlen=MAX_PENDING_EVENTS)
         self.dropped = 0
-        self.sequence = 0
+        self.sequence = 1
         self._lock = threading.Lock()
         self._registrations: list[tuple[Any, str, Callable[[], Any]]] = []
+        self.events.append({"epoch": self.epoch, "sequence": self.sequence, "type": "reset", "payload": {"subscription": True, "resnapshot": True}})
         self._register(mapper)
 
     def _register(self, mapper: "LiveObjectMapper") -> None:
@@ -3375,18 +4202,21 @@ class _Subscription:
             if current_epoch != self.epoch:
                 self.epoch = current_epoch; self.sequence = 1; self.events.clear(); self.dropped = 0
                 self.events.append({"epoch": self.epoch, "sequence": self.sequence, "type": "reset", "payload": {"reconnect": True, "resnapshot": True}})
-            self.sequence += 1
-            event: dict[str, Any] = {"epoch": self.epoch, "sequence": self.sequence, "type": event_type, "payload": payload}
+            event: dict[str, Any] = {"epoch": self.epoch, "type": event_type, "payload": payload}
             if ref is not None:
                 event["ref"] = ref
-            # Coalesce adjacent same-kind events so a burst cannot flood the queue.
+            # A replaced event was never delivered, so retain its sequence and
+            # do not misreport ordinary coalescing as continuity loss.
             if self.events and self.events[-1]["type"] == event_type and self.events[-1].get("ref") == event.get("ref"):
-                self.dropped += 1
-                event["coalesced"] = self.dropped
+                previous = self.events[-1]
+                event["sequence"] = previous["sequence"]
+                event["coalesced"] = int(previous.get("coalesced", 0)) + 1
                 self.events[-1] = event
             elif len(self.events) >= MAX_PENDING_EVENTS:
                 self.dropped += 1
             else:
+                self.sequence += 1
+                event["sequence"] = self.sequence
                 self.events.append(event)
 
     def drain(self) -> list[dict[str, Any]]:
@@ -3813,7 +4643,7 @@ class _RealtimePlane:
     @staticmethod
     def _verify_parameter(parameter: Any, expected: float) -> None:
         observed = getattr(parameter, "value", None)
-        if not isinstance(observed, (int, float)) or isinstance(observed, bool) or not math.isfinite(float(observed)) or abs(float(observed) - expected) > 1e-6:
+        if not isinstance(observed, (int, float)) or isinstance(observed, bool) or not math.isfinite(float(observed)) or float(observed) != expected:
             raise ValueError("realtime parameter write was not confirmed")
 
     def _realtime_parameter_set(self, reference: str, value: float, expected_authority: str) -> None:
@@ -3821,10 +4651,12 @@ class _RealtimePlane:
         try:
             parameter.value = value
             self._verify_parameter(parameter, value)
-        except BaseException:
+        except BaseException as error:
             try: parameter.value = prior
             except BaseException: pass
-            raise
+            try: self._verify_parameter(parameter, prior)
+            except BaseException as rollback_error: raise ValueError("realtime parameter write failed and exact rollback failed") from rollback_error
+            raise error
 
     def _realtime_xy_set(self, x_reference: str, x: float, y_reference: str, y: float, x_authority: str, y_authority: str) -> None:
         x_parameter, x_prior = self._parameter_target(x_reference, x, x_authority)
@@ -3834,12 +4666,18 @@ class _RealtimePlane:
             y_parameter.value = y
             self._verify_parameter(x_parameter, x)
             self._verify_parameter(y_parameter, y)
-        except BaseException:
+        except BaseException as error:
             try: x_parameter.value = x_prior
             except BaseException: pass
             try: y_parameter.value = y_prior
             except BaseException: pass
-            raise
+            rollback_failed = False
+            try: self._verify_parameter(x_parameter, x_prior)
+            except BaseException: rollback_failed = True
+            try: self._verify_parameter(y_parameter, y_prior)
+            except BaseException: rollback_failed = True
+            if rollback_failed: raise ValueError("realtime XY write failed and exact rollback failed") from error
+            raise error
 
 
 class _DispatchToken:
@@ -3850,7 +4688,7 @@ class _DispatchToken:
 
     def claim(self) -> bool:
         with self._lock:
-            if self.state != "queued" or int(time.time() * 1000) > self.deadline_ms:
+            if self.state != "queued" or int(time.time() * 1000) >= self.deadline_ms:
                 if self.state == "queued": self.state = "cancelled"
                 return False
             self.state = "running"
@@ -4007,8 +4845,10 @@ def _authority_state_digest(mapper: LiveObjectMapper, args: dict[str, Any], oper
     playback_transport = dict(playback.get("transport", {})); playback_transport.pop("position", None)
     playback = {**playback, "transport": playback_transport}
     song_state = {key: mapper._read_attr(mapper.song, key) for key in ("tempo", "loop", "loop_start", "loop_length", "is_playing", "record_mode", "session_record")}
-    locators = [{key: row.get(key) for key in ("ref", "name", "position")} for row in mapper._locator_items()[:256]]
-    arrangement = [{key: row.get(key) for key in ("ref", "trackRef", "name", "start", "length")} for row in mapper._arrangement_clip_items()[:256]]
+    locator_items = mapper._locator_items(); arrangement_items = mapper._arrangement_clip_items()
+    if len(locator_items) > 256 or len(arrangement_items) > 256: raise ValueError("mutation authority collection exceeds its complete-state bound")
+    locators = [{key: row.get(key) for key in ("ref", "name", "position")} for row in locator_items]
+    arrangement = [{key: row.get(key) for key in ("ref", "trackRef", "name", "start", "length")} for row in arrangement_items]
     identity = {"epoch": mapper.refs.epoch, "structure": mapper._structure_revision(), "song": song_state, "playback": playback, "locators": locators, "arrangement": arrangement, "references": observed}
     return hashlib.sha256(AuthenticatedRemoteScript._bounded_canonical(identity).encode("utf-8")).hexdigest()
 
@@ -4053,6 +4893,9 @@ class AbletonMcpBridge:
         self._workers: set[threading.Thread] = set()
         self._secret_value = secret
         self._executed_mutations: dict[str, dict[str, Any]] = {}
+        self._pending_mutations: dict[str, dict[str, Any]] = {}
+        self._retired_mutation_keys: dict[str, int] = {}
+        self._finalized_transactions: set[str] = set()
         self._executed_lock = threading.Lock()
         self._thread = threading.Thread(target=self._accept, name="AbletonMcpBridge", daemon=True)
         self._thread.start()
@@ -4105,10 +4948,11 @@ class AbletonMcpBridge:
         if existing is not None:
             existing.close()
             holder["subscription"] = None
+        supported = _supported_event_types(self.mapper.song)
         if types is None:
-            types = sorted(_EVENT_TYPES)
-        if not isinstance(types, list) or len(types) > 16 or any(not isinstance(item, str) or item not in _EVENT_TYPES for item in types):
-            raise ValueError("subscription types are invalid")
+            types = sorted(supported)
+        if not isinstance(types, list) or len(types) > 3 or len(set(types)) != len(types) or any(not isinstance(item, str) or item not in supported for item in types):
+            raise ValueError("subscription types are invalid or unavailable on this Live shape")
         if not types:
             return {"subscribed": False, "subscriptionId": "none"}
         holder["subscription"] = _Subscription(self.mapper, set(types))
@@ -4119,55 +4963,121 @@ class AbletonMcpBridge:
             return self.queue.submit(lambda: self._subscribe_main(request, holder), deadline_ms=request.get("deadlineMs"))
         if method == "preflight":
             def preflight() -> dict[str, Any]:
-                operation = str(request["operation"]); args = dict(request.get("args", {})); now = int(time.time() * 1000); preflights = holder.setdefault("preflights", {})
+                operation = str(request["operation"]); args = dict(request.get("args", {})); transaction_id = request.get("transactionId"); ownership_token = request.get("ownershipToken"); now = int(time.time() * 1000); preflights = holder.setdefault("preflights", {})
+                if not isinstance(transaction_id, str) or not 8 <= len(transaction_id) <= 128: raise ValueError("mutation transaction identity is required")
+                if operation in _TRANSACTION_DELETIONS: self.mapper._require_cleanup_ownership(operation, args, transaction_id, ownership_token)
                 for key, row in list(preflights.items()):
                     if row["expiresAt"] <= now: preflights.pop(key, None)
                 if len(preflights) >= 64: raise ValueError("too many pending mutation preflights")
                 args_digest = hashlib.sha256(AuthenticatedRemoteScript._bounded_canonical(args).encode("utf-8")).hexdigest(); state_digest = _authority_state_digest(self.mapper, args, operation)
                 token = secrets.token_urlsafe(24); confirmation = secrets.token_urlsafe(24); expires_at = now + 10000
-                preflights[token] = {"operation": operation, "argsDigest": args_digest, "stateDigest": state_digest, "confirmation": confirmation, "expiresAt": expires_at}
+                preflights[token] = {"operation": operation, "argsDigest": args_digest, "stateDigest": state_digest, "confirmation": confirmation, "transactionId": transaction_id, "ownershipToken": ownership_token, "expiresAt": expires_at}
                 return {"preflightToken": token, "confirmation": confirmation, "operation": operation, "argsDigest": args_digest, "stateDigest": state_digest, "impact": "mutates-live", "expiresAt": expires_at}
             return self.queue.submit(preflight, deadline_ms=request.get("deadlineMs"))
         if method == "prepare":
             def prepare() -> dict[str, Any]:
-                operation = str(request["operation"]); args = dict(request.get("args", {})); now = int(time.time() * 1000); preflight_token = str(request["preflightToken"])
+                operation = str(request["operation"]); args = dict(request.get("args", {})); transaction_id = request.get("transactionId"); ownership_token = request.get("ownershipToken"); now = int(time.time() * 1000); preflight_token = str(request["preflightToken"])
+                if not isinstance(transaction_id, str) or not 8 <= len(transaction_id) <= 128: raise ValueError("mutation transaction identity is required")
                 preflight_row = holder.setdefault("preflights", {}).pop(preflight_token, None); authorities = holder.setdefault("authorities", {})
                 for key, row in list(authorities.items()):
                     if row["expiresAt"] <= now: authorities.pop(key, None)
                 args_digest = hashlib.sha256(AuthenticatedRemoteScript._bounded_canonical(args).encode("utf-8")).hexdigest(); state_digest = _authority_state_digest(self.mapper, args, operation)
-                if preflight_row is None or preflight_row["expiresAt"] <= now or preflight_row["operation"] != operation or preflight_row["argsDigest"] != args_digest or preflight_row["stateDigest"] != state_digest or not hmac.compare_digest(preflight_row["confirmation"], str(request["confirmation"])):
+                if preflight_row is None or preflight_row["expiresAt"] <= now or preflight_row["operation"] != operation or preflight_row["argsDigest"] != args_digest or preflight_row["stateDigest"] != state_digest or preflight_row["transactionId"] != transaction_id or preflight_row.get("ownershipToken") != ownership_token or not hmac.compare_digest(preflight_row["confirmation"], str(request["confirmation"])):
                     raise ValueError("missing, expired, stale, or mismatched mutation preflight")
                 if len(authorities) >= 64: raise ValueError("too many pending mutation authorities")
                 token = secrets.token_urlsafe(24); expires_at = now + 10000
-                authorities[token] = {"operation": operation, "argsDigest": args_digest, "stateDigest": state_digest, "expiresAt": expires_at, "idempotencyKey": request["idempotencyKey"]}
+                authorities[token] = {"operation": operation, "argsDigest": args_digest, "stateDigest": state_digest, "transactionId": transaction_id, "ownershipToken": ownership_token, "expiresAt": expires_at, "idempotencyKey": request["idempotencyKey"]}
                 return {"authorityToken": token, "operation": operation, "argsDigest": args_digest, "stateDigest": state_digest, "expiresAt": expires_at}
             return self.queue.submit(prepare, deadline_ms=request.get("deadlineMs"))
         if method == "invoke" and _mutation_authority_required(str(request.get("operation"))):
             token = str(request.get("authorityToken", "")); authority = holder.setdefault("authorities", {}).pop(token, None); now = int(time.time() * 1000)
             args = dict(request.get("args", {})); digest = hashlib.sha256(AuthenticatedRemoteScript._bounded_canonical(args).encode("utf-8")).hexdigest()
-            if authority is None or authority["expiresAt"] <= now or authority["operation"] != request.get("operation") or authority["argsDigest"] != digest:
+            transaction_id = request.get("transactionId")
+            if authority is None or authority["expiresAt"] <= now or authority["operation"] != request.get("operation") or authority["argsDigest"] != digest or authority["transactionId"] != transaction_id or authority.get("ownershipToken") != request.get("ownershipToken"):
                 raise ValueError("missing, expired, or mismatched mutation authority")
+            if not isinstance(transaction_id, str): raise ValueError("mutation transaction identity is required")
             idempotency_key = authority["idempotencyKey"]
+            with self._executed_lock:
+                retired = getattr(self, "_retired_mutation_keys", None)
+                if retired is None: retired = self._retired_mutation_keys = {}
+                pending = getattr(self, "_pending_mutations", None)
+                if pending is None: pending = self._pending_mutations = {}
+                for key, expires_at in list(retired.items()):
+                    if expires_at <= now: retired.pop(key, None)
+                for key, row in list(pending.items()):
+                    if row["expiresAt"] <= now: pending.pop(key, None)
+                finalized = getattr(self, "_finalized_transactions", set())
+                if transaction_id in finalized: raise ValueError("transaction recovery authority has been terminally finalized")
+                if idempotency_key in retired: raise ValueError("mutation replay authority has been retired")
+                prior_pending = pending.get(idempotency_key)
+                if prior_pending is not None and (prior_pending["transactionId"] != transaction_id or prior_pending["operation"] != request.get("operation") or prior_pending["argsDigest"] != digest): raise ValueError("idempotency key conflicts with a pending mutation")
+                if prior_pending is None:
+                    if len(pending) >= 256: raise ValueError("pending mutation ledger is full")
+                    pending[idempotency_key] = {"transactionId": transaction_id, "operation": request.get("operation"), "argsDigest": digest, "count": 1, "expiresAt": int(request.get("deadlineMs", now + 60000))}
+                else:
+                    prior_pending["count"] += 1; prior_pending["expiresAt"] = max(prior_pending["expiresAt"], int(request.get("deadlineMs", now + 60000)))
             def replay_or_apply(apply: Callable[[], Any]) -> Any:
                 with self._executed_lock:
+                    retired = getattr(self, "_retired_mutation_keys", {}); finalized = getattr(self, "_finalized_transactions", set())
+                    if transaction_id in finalized: raise ValueError("transaction recovery authority has been terminally finalized")
+                    if idempotency_key in retired: raise ValueError("mutation replay authority has been retired")
                     prior = self._executed_mutations.get(idempotency_key)
                     if prior is not None:
-                        if prior["operation"] != request.get("operation") or prior["argsDigest"] != digest: raise ValueError("idempotency key conflicts with an executed mutation")
+                        if prior["operation"] != request.get("operation") or prior["argsDigest"] != digest or prior.get("transactionId") != transaction_id: raise ValueError("idempotency key conflicts with an executed mutation")
                         return prior["result"]
                     if len(self._executed_mutations) >= 256: raise ValueError("executed mutation ledger is full; reconnect after authoritative recovery")
-                    result = apply(); self._executed_mutations[idempotency_key] = {"operation": request["operation"], "argsDigest": digest, "result": result}; return result
+                    result = apply(); self._executed_mutations[idempotency_key] = {"operation": request["operation"], "argsDigest": digest, "transactionId": transaction_id, "result": result}; return result
             def invoke_authorized() -> Any:
-                operation = str(request["operation"])
-                if _authority_state_digest(self.mapper, args, operation) != authority["stateDigest"]: raise ValueError("Live state changed after mutation authority preparation")
-                if operation in {"realtime.arm", "realtime.disarm"}: return replay_or_apply(lambda: self._realtime_op(operation, args))
-                return replay_or_apply(lambda: self.mapper.invoke(operation, args))
+                try:
+                    operation = str(request["operation"])
+                    if _authority_state_digest(self.mapper, args, operation) != authority["stateDigest"]: raise ValueError("Live state changed after mutation authority preparation")
+                    if operation in {"realtime.arm", "realtime.disarm"}: return replay_or_apply(lambda: self._realtime_op(operation, args))
+                    return replay_or_apply(lambda: self.mapper.invoke(operation, args, transaction_id, request.get("ownershipToken")))
+                finally:
+                    with self._executed_lock:
+                        pending = getattr(self, "_pending_mutations", {}); row = pending.get(idempotency_key)
+                        if row is not None and row.get("transactionId") == transaction_id and row.get("operation") == request.get("operation") and row.get("argsDigest") == digest:
+                            row["count"] -= 1
+                            if row["count"] <= 0: pending.pop(idempotency_key, None)
             return self.queue.submit(invoke_authorized, deadline_ms=request.get("deadlineMs"))
         if method == "invoke" and request.get("operation") == "realtime.stats":
             return self._realtime_op(request["operation"], request.get("args", {}))
+        if method == "retire":
+            transaction_id = str(request["transactionId"])
+            def retire() -> dict[str, int]:
+                # The Live-thread queue is also the transaction-ledger barrier:
+                # retirement must run after every earlier accepted mutation so
+                # a disconnected callback cannot apply after authority retires.
+                terminal = request.get("terminal") is True
+                if terminal:
+                    playback = self.mapper._playback(); transport = playback.get("transport", {}); realtime = self._realtime.stats()
+                    if transport.get("playing") is not False or transport.get("arrangementRecord") is not False or transport.get("sessionRecord") is not False or playback.get("firedTargets") or playback.get("playingTargets") or realtime.get("armed") is not False or realtime.get("pending") != 0: raise ValueError("terminal recovery finalization requires stopped playback, recording, and realtime authority")
+                with self._executed_lock:
+                    now = int(time.time() * 1000); retired = getattr(self, "_retired_mutation_keys", None)
+                    if retired is None: retired = self._retired_mutation_keys = {}
+                    pending = getattr(self, "_pending_mutations", None)
+                    if pending is None: pending = self._pending_mutations = {}
+                    for key, expires_at in list(retired.items()):
+                        if expires_at <= now: retired.pop(key, None)
+                    for key, row in list(pending.items()):
+                        if row["expiresAt"] <= now: pending.pop(key, None)
+                    keys = [key for key, row in self._executed_mutations.items() if row.get("transactionId") == transaction_id]
+                    pending_keys = [key for key, row in pending.items() if row.get("transactionId") == transaction_id]
+                    retiring = set(keys + pending_keys)
+                    if len(set(retired).union(retiring)) > 4096: raise ValueError("retired mutation ledger is full; reconnect after authoritative recovery")
+                    finalized = getattr(self, "_finalized_transactions", None)
+                    if finalized is None: finalized = self._finalized_transactions = set()
+                    if terminal and transaction_id not in finalized and len(finalized) >= 4096: raise ValueError("finalized transaction ledger is full; reconnect after authoritative recovery")
+                    for key in keys: self._executed_mutations.pop(key, None)
+                    for key in retiring: retired[key] = now + 60000
+                    if terminal: finalized.add(transaction_id)
+                    if getattr(self, "mapper", None) is not None: self.mapper.retire_transaction_ownership(transaction_id, terminal)
+                return {"retired": len(keys)}
+            return self.queue.submit(retire, deadline_ms=request.get("deadlineMs"))
         if method == "reconnect":
             def reconnect() -> Any:
                 result = self._dispatch_main_for(method, request, self.mapper)
-                with self._executed_lock: self._executed_mutations.clear()
+                with self._executed_lock: self._executed_mutations.clear(); self._pending_mutations.clear(); self._retired_mutation_keys.clear(); self._finalized_transactions.clear()
                 return result
             return self.queue.submit(reconnect, deadline_ms=request.get("deadlineMs"))
         return self.queue.submit(lambda: self._dispatch_main_for(method, request, self.mapper), deadline_ms=request.get("deadlineMs"))

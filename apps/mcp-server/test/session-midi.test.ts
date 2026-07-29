@@ -8,6 +8,12 @@ const request = { trackRef: "track:track-1" as const, sceneIndex: 1, name: "Boun
   { pitch: 38, start: 1, duration: 0.25, velocity: 90, channel: 1 },
 ] };
 
+function midiSimulator(): DeterministicLiveSimulator {
+  const simulator = new DeterministicLiveSimulator(); const state = (simulator as any).state;
+  for (let index = 1; index <= 3; index += 1) { state.scenes.push({ ref: `scene:scene-${index + 1}`, objectIdentity: `simulator:scene:scene-${index + 1}`, name: `Scene ${index + 1}`, index }); state.tracks[0].clipSlots.push({ ref: `clip-slot:track-1:${index}`, parentRef: state.tracks[0].ref, objectIdentity: `simulator:clip-slot:track-1:${index}`, sceneIndex: index, clipRef: null, empty: true }); }
+  return simulator;
+}
+
 function asynchronous(simulator: DeterministicLiveSimulator, operations: string[] = []): AsyncLiveAdapter {
   return {
     status: () => simulator.status(), snapshot: () => simulator.snapshot(), get: (ref) => simulator.get(ref), invoke: (value) => simulator.invoke(value), subscribe: (listener) => simulator.subscribe(listener), reconnect: () => simulator.reconnect(),
@@ -16,7 +22,7 @@ function asynchronous(simulator: DeterministicLiveSimulator, operations: string[
 }
 
 test("creates, verifies, idempotently replays, discovers, and exactly undoes a Session MIDI clip", () => {
-  const simulator = new DeterministicLiveSimulator();
+  const simulator = midiSimulator();
   const manager = new SessionMidiTransactionManager(simulator);
   assert.throws(() => manager.preview({ ...request, notes: [{ ...request.notes[0], pitch: 128 }] }), /invalid MIDI note/);
   const preview = manager.preview(request);
@@ -34,8 +40,38 @@ test("creates, verifies, idempotently replays, discovers, and exactly undoes a S
   assert.equal(undone.state, "undone"); assert.equal((manager.undo(preview.transactionId, "undo", "undo-1") as any).idempotent, true);
 });
 
+test("asynchronous MIDI undo reconciles a lost deletion acknowledgement with the exact key", async () => {
+  const simulator = midiSimulator(); const adapter = asynchronous(simulator); const original = adapter.invokeAsync.bind(adapter); let cached: unknown; let deletes = 0;
+  adapter.invokeAsync = async (invocation, context) => { if (invocation.operation !== "clip.delete") return original(invocation, context); if (deletes === 0) { deletes += 1; cached = await original(invocation, context); throw new Error("remote adapter request state uncertain after dispatch timeout"); } return cached; };
+  const manager = new SessionMidiTransactionManager(adapter); const preview = await manager.previewAsync(request); await manager.applyAsync(preview.transactionId, "apply", "midi-recovery-apply", { deadlineMs: Date.now() + 5000, idempotencyKey: "midi-recovery-apply", transactionId: preview.transactionId });
+  await assert.rejects(manager.undoAsync(preview.transactionId, "undo", "midi-recovery-undo", { deadlineMs: Date.now() + 5000, idempotencyKey: "midi-recovery-undo", transactionId: preview.transactionId }), /uncertain/);
+  await assert.rejects(manager.undoAsync(preview.transactionId, "undo", "midi-wrong-key", { deadlineMs: Date.now() + 5000, idempotencyKey: "midi-wrong-key", transactionId: preview.transactionId }), /exact-key|applied/);
+  const reconciled = await manager.undoAsync(preview.transactionId, "undo", "midi-recovery-undo", { deadlineMs: Date.now() + 5000, idempotencyKey: "midi-recovery-undo", transactionId: preview.transactionId }) as any; assert.equal(reconciled.state, "undone"); assert.equal(deletes, 1);
+});
+
+test("MIDI apply compensation with a lost acknowledgement reconciles without a residual clip", async () => {
+  const simulator = midiSimulator(); const adapter = asynchronous(simulator); const original = adapter.invokeAsync.bind(adapter); let cachedDelete: unknown; let deletes = 0;
+  adapter.invokeAsync = async (invocation, context) => { if (invocation.operation === "note.add-batch") { const result = await original(invocation, context) as any; return { ...result, added: 0 }; } if (invocation.operation === "clip.delete") { if (deletes === 0) { deletes += 1; cachedDelete = await original(invocation, context); throw new Error("remote adapter request state uncertain after dispatch timeout"); } return cachedDelete; } return original(invocation, context); };
+  const manager = new SessionMidiTransactionManager(adapter); const preview = await manager.previewAsync(request); await assert.rejects(manager.applyAsync(preview.transactionId, "apply", "midi-compensate-key", { deadlineMs: Date.now() + 5000, idempotencyKey: "midi-compensate-key", transactionId: preview.transactionId }), /compensation failed/);
+  const reconciled = await manager.applyAsync(preview.transactionId, "apply", "midi-compensate-key", { deadlineMs: Date.now() + 5000, idempotencyKey: "midi-compensate-key", transactionId: preview.transactionId }) as any; assert.equal(reconciled.state, "compensated"); assert.equal(deletes, 1); assert.equal(simulator.snapshot().tracks[0]?.clipSlots?.[1]?.empty, true);
+});
+
+test("MIDI compensation refuses a transaction clip modified after lost note acknowledgement", async () => {
+  const simulator = midiSimulator(); const adapter = asynchronous(simulator); const original = adapter.invokeAsync.bind(adapter); let cached: unknown; let cachedCreate: unknown; let noteCalls = 0; let deletes = 0;
+  adapter.invokeAsync = async (invocation, context) => { if (invocation.operation === "clip.delete") deletes += 1; if (invocation.operation === "clip.create") { if (cachedCreate !== undefined) return cachedCreate; cachedCreate = await original(invocation, context); return cachedCreate; } if (invocation.operation !== "note.add-batch") return original(invocation, context); noteCalls += 1; if (cached !== undefined) return cached; cached = await original(invocation, context); throw new Error("remote adapter request state uncertain after dispatch timeout"); };
+  const manager = new SessionMidiTransactionManager(adapter); const preview = await manager.previewAsync(request); await assert.rejects(manager.applyAsync(preview.transactionId, "apply", "midi-note-lost-ack", { deadlineMs: Date.now() + 5000, idempotencyKey: "midi-note-lost-ack", transactionId: preview.transactionId }), /uncertain/);
+  const owned = (simulator as any).state.tracks[0].clips.find((clip: any) => clip.start === request.sceneIndex * 4); owned.notes[0].probability = 0.25; owned.notesRevision = "f".repeat(64);
+  await assert.rejects(manager.applyAsync(preview.transactionId, "apply", "midi-note-lost-ack", { deadlineMs: Date.now() + 5000, idempotencyKey: "midi-note-lost-ack", transactionId: preview.transactionId }), /compensation failed/);
+  assert.equal(noteCalls, 2); assert.equal(deletes, 0); assert.equal((simulator as any).state.tracks[0].clips.includes(owned), true); assert.equal(owned.notes[0].probability, 0.25);
+});
+
+test("asynchronous MIDI creation supports an intentionally empty note list", async () => {
+  const simulator = midiSimulator(); const manager = new SessionMidiTransactionManager(asynchronous(simulator)); const preview = await manager.previewAsync({ ...request, name: "Empty MIDI", notes: [] }); const applied = await manager.applyAsync(preview.transactionId, "apply", "empty-midi-apply") as any;
+  assert.equal(applied.state, "applied"); assert.deepEqual(applied.notes, []); assert.equal((simulator.get(applied.clipRef) as any).notes.length, 0); assert.equal((await manager.undoAsync(preview.transactionId, "undo", "empty-midi-undo") as any).state, "undone");
+});
+
 test("bounded MIDI retention never evicts an applied transaction needed for recovery", () => {
-  const simulator = new DeterministicLiveSimulator(); const manager = new SessionMidiTransactionManager(simulator);
+  const simulator = midiSimulator(); const manager = new SessionMidiTransactionManager(simulator);
   const protectedPreview = manager.preview(request);
   manager.apply(protectedPreview.transactionId, "apply", "protected-apply");
   const spare = { ...request, sceneIndex: 2, name: "Spare" };
@@ -45,7 +81,7 @@ test("bounded MIDI retention never evicts an applied transaction needed for reco
 });
 
 test("expired applied MIDI records retain recovery authority until safely undone", () => {
-  const simulator = new DeterministicLiveSimulator(); const manager = new SessionMidiTransactionManager(simulator);
+  const simulator = midiSimulator(); const manager = new SessionMidiTransactionManager(simulator);
   const preview = manager.preview(request); manager.apply(preview.transactionId, "apply", "terminal-apply");
   ((manager as any).records.get(preview.transactionId) as { expiresAt: number }).expiresAt = 0;
   manager.preview({ ...request, sceneIndex: 2, name: "Replacement" });
@@ -56,7 +92,7 @@ test("expired applied MIDI records retain recovery authority until safely undone
 });
 
 test("expressive batch verification compensates when an adapter drops requested fields", async () => {
-  const simulator = new DeterministicLiveSimulator();
+  const simulator = midiSimulator();
   const base = asynchronous(simulator);
   const adapter: AsyncLiveAdapter = {
     ...base,
@@ -66,13 +102,13 @@ test("expressive batch verification compensates when an adapter drops requested 
   };
   const manager = new SessionMidiTransactionManager(adapter);
   const preview = await manager.previewAsync({ ...request, notes: [{ ...request.notes[0], probability: 0.5, velocityDeviation: 8, releaseVelocity: 32, mute: true }] });
-  await assert.rejects(manager.applyAsync(preview.transactionId, "apply", "lossy-batch"), /confirm MIDI clip contents/);
+  await assert.rejects(manager.applyAsync(preview.transactionId, "apply", "lossy-batch"), /confirm exact MIDI clip contents/);
   assert.equal(simulator.snapshot().tracks[0]!.clips.some((clip) => clip.start === request.sceneIndex * 4), false);
 });
 
 test("supports the asynchronous guarded Session MIDI lifecycle and async pagination", async () => {
   const operations: string[] = [];
-  const adapter = asynchronous(new DeterministicLiveSimulator(), operations);
+  const adapter = asynchronous(midiSimulator(), operations);
   const manager = new SessionMidiTransactionManager(adapter);
   const preview = await manager.previewAsync(request);
   const applied = await manager.applyAsync(preview.transactionId, "apply", "async-apply") as any;

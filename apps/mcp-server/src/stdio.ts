@@ -50,7 +50,7 @@ export async function serveStdio(input: Readable, output: Writable, handler: Rec
   const maxQueuedWrites = maxPending * 4;
   const framer = new NdjsonFramer();
   const controllers = new Map<string, AbortController>();
-  const pending = new Map<number, Promise<string | null>>();
+  const pending = new Map<number, { id: string | number; task: Promise<string | null> }>();
   let nextSequence = 0;
   let nextWrite = 0;
   let active = 0;
@@ -69,12 +69,25 @@ export async function serveStdio(input: Readable, output: Writable, handler: Rec
   };
   const writeRaw = async (value: string): Promise<void> => {
     if (output.destroyed) throw new Error("output unavailable");
-    if (!output.write(`${value}\n`)) await new Promise<void>((resolve, reject) => {
-      const onDrain = (): void => { cleanup(); resolve(); };
-      const onError = (cause: Error): void => { cleanup(); reject(cause); };
-      const onClose = (): void => { cleanup(); reject(new Error("output closed")); };
+    await new Promise<void>((resolve, reject) => {
+      let callbackComplete = false;
+      let drainComplete = false;
+      let writeReturned = false;
+      let settled = false;
       const cleanup = (): void => { output.off("drain", onDrain); output.off("error", onError); output.off("close", onClose); };
-      output.once("drain", onDrain); output.once("error", onError); output.once("close", onClose);
+      const fail = (cause: Error): void => { if (settled) return; settled = true; cleanup(); reject(cause); };
+      const finish = (): void => { if (!settled && writeReturned && callbackComplete && drainComplete) { settled = true; cleanup(); resolve(); } };
+      const onDrain = (): void => { drainComplete = true; finish(); };
+      const onError = (cause: Error): void => fail(cause);
+      const onClose = (): void => fail(new Error("output closed"));
+      output.once("error", onError); output.once("close", onClose);
+      try {
+        const accepted = output.write(`${value}\n`, (cause?: Error | null) => { if (cause) return; callbackComplete = true; finish(); });
+        writeReturned = true;
+        drainComplete = accepted;
+        if (!accepted) output.once("drain", onDrain);
+        finish();
+      } catch (cause) { fail(cause instanceof Error ? cause : new Error("output write failed")); }
     });
   };
   let queuedWrites = 0;
@@ -86,8 +99,21 @@ export async function serveStdio(input: Readable, output: Writable, handler: Rec
     writeTail = result.catch(() => undefined);
     return result;
   };
-  options.notifier?.(write);
+  const failOutput = (cause: unknown): void => {
+    if (closed) return;
+    closed = true;
+    const reason = cause instanceof Error ? cause : new Error("output unavailable");
+    for (const controller of controllers.values()) controller.abort(reason);
+    if (!input.destroyed) input.destroy();
+    if (!output.destroyed) output.destroy();
+  };
+  const notify = async (value: string): Promise<void> => {
+    try { await write(value); }
+    catch (cause) { failOutput(cause); throw cause; }
+  };
+  options.notifier?.(notify);
   const process = async (event: FrameEvent): Promise<void> => {
+    if (closed) return;
     if (event.type === "error") {
       const oversized = event.message === "oversized";
       await write(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: oversized ? -32600 : -32700, message: oversized ? "Message exceeds size limit" : "Parse error" } }));
@@ -113,50 +139,61 @@ export async function serveStdio(input: Readable, output: Writable, handler: Rec
       // a following cancellation can still abort its matching in-flight work
       // even while stdout is backpressured.
       try {
-        void write(JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32000, message: "Server is busy; retry after in-flight work completes" } })).catch(() => { closed = true; for (const controller of controllers.values()) controller.abort(new Error("output unavailable")); });
-      } catch {
+        void write(JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32000, message: "Server is busy; retry after in-flight work completes" } })).catch(failOutput);
+      } catch (cause) {
         // A peer that supplies more response-producing requests than the
         // bounded output queue can hold loses the connection's work
         // authority immediately; no mutation may remain stranded behind it.
-        closed = true; for (const controller of controllers.values()) controller.abort(new Error("bounded output queue saturated")); output.destroy(); input.destroy();
+        failOutput(cause);
       }
       return;
     }
     const key = requestKey(id)!;
-    const controller = new AbortController();
-    controllers.set(key, controller);
     const sequence = nextSequence++;
-    const task = (async (): Promise<string | null> => {
-      await acquire();
-      try {
-        if (controller.signal.aborted) return null;
-        const result = await (handler.length >= 2 ? (handler as (record: string, context: RecordContext) => string | null | Promise<string | null>)(event.value, { requestId: id, signal: controller.signal }) : handler(event.value));
-        return controller.signal.aborted ? null : result;
-      } finally {
-        release();
-        controllers.delete(key);
-      }
-    })();
-    pending.set(sequence, task);
+    if (controllers.has(key)) {
+      pending.set(sequence, { id, task: Promise.resolve(JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32600, message: "Duplicate in-flight request identifier" } })) });
+    } else {
+      const controller = new AbortController();
+      controllers.set(key, controller);
+      const task = (async (): Promise<string | null> => {
+        await acquire();
+        try {
+          if (controller.signal.aborted) return null;
+          const result = await (handler.length >= 2 ? (handler as (record: string, context: RecordContext) => string | null | Promise<string | null>)(event.value, { requestId: id, signal: controller.signal }) : handler(event.value));
+          return controller.signal.aborted ? null : result;
+        } catch {
+          return JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32603, message: "Internal error" } });
+        } finally {
+          release();
+          if (controllers.get(key) === controller) controllers.delete(key);
+        }
+      })();
+      pending.set(sequence, { id, task });
+    }
     const flush = async (): Promise<void> => {
       while (pending.has(nextWrite)) {
         const current = pending.get(nextWrite)!;
-        let result: string | null;
-        try { result = await current; }
-        catch { result = JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32603, message: "Internal error" } }); }
+        const result = await current.task;
         pending.delete(nextWrite++);
         if (!closed && result !== null) await write(result);
       }
     };
-    if (!flushPromise) flushPromise = flush().finally(() => { flushPromise = undefined; });
-    void flushPromise;
+    const scheduleFlush = (): void => {
+      if (flushPromise) return;
+      flushPromise = flush().finally(() => {
+        flushPromise = undefined;
+        if (!closed && pending.has(nextWrite)) scheduleFlush();
+      });
+      void flushPromise.catch(failOutput);
+    };
+    scheduleFlush();
   };
   try {
     for await (const chunk of input) {
       for (const event of framer.push(Buffer.from(chunk as Uint8Array))) await process(event);
     }
     for (const event of framer.end()) await process(event);
-    await Promise.all(pending.values());
+    await Promise.all([...pending.values()].map((entry) => entry.task));
     if (flushPromise) await flushPromise;
     await writeTail;
   } finally {

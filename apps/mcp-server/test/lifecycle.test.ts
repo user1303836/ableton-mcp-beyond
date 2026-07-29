@@ -16,7 +16,7 @@ const artifacts = new Map<string, { path: string; sha256: string }>();
 
 function createArtifact(path: string, manifest: Buffer, packageRoot: string, extras: Record<string, string> = {}): void {
   const parsed = JSON.parse(manifest.toString("utf8"));
-  const names = ["package/package.json", "package/release-manifest.json", ...Object.keys(parsed.files).map((name) => `package/${name}`), ...Object.keys(extras)].sort();
+  const names = [...new Set(["package/package.json", "package/release-manifest.json", ...Object.keys(parsed.files).map((name) => `package/${name}`), ...Object.keys(extras)])].sort();
   const chunks: Buffer[] = [];
   for (const name of names) {
     const content = name in extras ? Buffer.from(extras[name]!) : name === "package/release-manifest.json" ? manifest : readFileSync(join(packageRoot, name.slice("package/".length)));
@@ -32,7 +32,9 @@ function createArtifact(path: string, manifest: Buffer, packageRoot: string, ext
 
 function fixturePackage(root: string, version: string, marker: string): string {
   const packageRoot = join(root, `candidate ${version} ü`);
+  const packageMetadata = `${JSON.stringify({ name: "@ableton-mcp/mcp-server", version, private: true, license: "UNLICENSED", type: "module" })}\n`;
   const files = new Map<string, string>([
+    ["package.json", packageMetadata],
     ["dist/src/cli.js", `#!/usr/bin/env node\n// ${marker}\n`],
     ["remote-script/AbletonMcpBridge/__init__.py", "def create_instance(c_instance):\n    return None\n"],
     ["remote-script/AbletonMcpBridge/ableton_mcp_remote_script.py", `class AbletonMcpBridge:\n    marker = ${JSON.stringify(marker)}\n`],
@@ -43,7 +45,6 @@ function fixturePackage(root: string, version: string, marker: string): string {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, content);
   }
-  writeFileSync(join(packageRoot, "package.json"), `${JSON.stringify({ name: "@ableton-mcp/mcp-server", version, private: true, license: "UNLICENSED", type: "module" })}\n`);
   const manifest = {
     schema: "ableton-mcp-private-release/v1",
     package: { name: "@ableton-mcp/mcp-server", version, license: "UNLICENSED", private: true },
@@ -120,6 +121,8 @@ test("lifecycle plan is non-mutating and consequential actions require explicit 
     const evilArtifact = join(root, "candidate-with-extra.tgz");
     createArtifact(evilArtifact, readFileSync(join(packageRoot, "release-manifest.json")), packageRoot, { "package/evil.js": "not allowlisted" });
     await assert.rejects(runLifecycle({ ...options, artifactPath: evilArtifact, artifactSha256: sha(readFileSync(evilArtifact)) }), /inventory differs/);
+    const unknownPackageFile = join(packageRoot, "unknown.txt"); writeFileSync(unknownPackageFile, "drift"); await assert.rejects(runLifecycle(options), /root inventory differs/); rmSync(unknownPackageFile);
+    const unknownPackageDirectory = join(packageRoot, "unknown-empty"); mkdirSync(unknownPackageDirectory); await assert.rejects(runLifecycle(options), /unknown directory/); rmSync(unknownPackageDirectory, { recursive: true });
     const plan = await runLifecycle(options);
     assert.equal(plan.state, "planned");
     assert.equal(existsSync(options.stateDirectory), false);
@@ -261,6 +264,11 @@ test("upgrades, retains an exact generation, rolls back, and survives failed upg
     assert.equal(upgraded.recovery.rollbackAvailable, true);
     assert.equal(receipt(options).packageVersion, "2.0.0");
     assert.match(readFileSync(join(options.remoteScriptsDirectory, "AbletonMcpBridge", "ableton_mcp_remote_script.py"), "utf8"), /two/);
+    const beforeFailedRollback = receipt(options);
+    await assert.rejects(runLifecycle({ ...options, action: "rollback", packageRoot: packageTwo, faultAt: "after-rollback-config" }), /injected lifecycle failure/);
+    assert.equal(receipt(options).packageVersion, "2.0.0");
+    assert.match(readFileSync(join(options.remoteScriptsDirectory, "AbletonMcpBridge", "ableton_mcp_remote_script.py"), "utf8"), /two/);
+    assert.deepEqual(JSON.parse(readFileSync(beforeFailedRollback.configPath, "utf8")), beforeFailedRollback.config);
     const rolledBack = await runLifecycle({ ...options, action: "rollback", packageRoot: packageTwo });
     assert.equal(rolledBack.state, "completed");
     assert.equal(receipt(options).packageVersion, "1.0.0");

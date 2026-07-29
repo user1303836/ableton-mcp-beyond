@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 export interface LiveRegistryOperation {
   id: string;
-  method: "status" | "snapshot" | "discover" | "get" | "preflight" | "prepare" | "invoke" | "subscribe" | "reconnect";
+  method: "status" | "snapshot" | "discover" | "get" | "preflight" | "prepare" | "invoke" | "subscribe" | "reconnect" | "retire";
   request: Record<string, unknown>;
   result: Record<string, unknown>;
 }
@@ -50,8 +50,9 @@ export function loadLiveRegistry(): LiveRegistry {
     if (typeof value.minItems === "number" && typeof value.maxItems === "number" && value.minItems > value.maxItems) throw new Error("array bounds are invalid");
     if (value.maxProperties !== undefined && !types.includes("object")) throw new Error("object bound on non-object schema");
     if (types.includes("object")) {
-      if (value.additionalProperties === undefined || typeof value.additionalProperties !== "boolean") throw new Error("object schema must bound additional properties");
-      if (value.additionalProperties === true && value.maxProperties === undefined) throw new Error("additional properties must be bounded");
+      if (value.additionalProperties === undefined || (typeof value.additionalProperties !== "boolean" && (typeof value.additionalProperties !== "object" || value.additionalProperties === null || Array.isArray(value.additionalProperties)))) throw new Error("object schema must bound additional properties");
+      if (value.additionalProperties !== false && value.maxProperties === undefined) throw new Error("additional properties must be bounded");
+      if (typeof value.additionalProperties === "object") validateSchema(value.additionalProperties, depth + 1);
       if (value.properties !== undefined && (!value.properties || typeof value.properties !== "object" || Array.isArray(value.properties) || Object.keys(value.properties as object).length > 64)) throw new Error("object properties are invalid");
       if (value.required !== undefined && (!Array.isArray(value.required) || value.required.length > 64 || value.required.some((item) => typeof item !== "string"))) throw new Error("required fields are invalid");
       for (const child of Object.values((value.properties ?? {}) as Record<string, unknown>)) validateSchema(child, depth + 1);
@@ -64,7 +65,7 @@ export function loadLiveRegistry(): LiveRegistry {
     if (value.const !== undefined && (typeof value.const === "object" || typeof value.const === "function")) throw new Error("const is invalid");
   };
   for (const operation of parsed.operations) {
-    if (!operation || !["status", "snapshot", "discover", "get", "preflight", "prepare", "invoke", "subscribe", "reconnect"].includes(operation.method) || !operation.request || !operation.result) throw new Error(`invalid registry operation: ${operation?.id ?? "unknown"}`);
+    if (!operation || !["status", "snapshot", "discover", "get", "preflight", "prepare", "invoke", "subscribe", "reconnect", "retire"].includes(operation.method) || !operation.request || !operation.result) throw new Error(`invalid registry operation: ${operation?.id ?? "unknown"}`);
     validateSchema(operation.request);
     validateSchema(operation.result);
   }
@@ -114,7 +115,11 @@ export function validateRegistryValue(schema: Record<string, unknown>, value: un
     if (typeof schema.maxProperties === "number" && Object.keys(object).length > schema.maxProperties) throw new Error(`${path} exceeds registry property bound`);
     const properties = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
     for (const required of (schema.required ?? []) as string[]) if (!(required in object)) throw new Error(`${path}.${required} is required by registry`);
-    if (schema.additionalProperties === false) for (const key of Object.keys(object)) if (!(key in properties)) throw new Error(`${path}.${key} is not allowed by registry`);
+    if (schema.additionalProperties === false) {
+      for (const key of Object.keys(object)) if (!(key in properties)) throw new Error(`${path}.${key} is not allowed by registry`);
+    } else if (typeof schema.additionalProperties === "object") {
+      for (const key of Object.keys(object)) if (!(key in properties)) validateRegistryValue(schema.additionalProperties as Record<string, unknown>, object[key], `${path}.${key}`);
+    }
     for (const [key, child] of Object.entries(properties)) if (key in object) validateRegistryValue(child, object[key], `${path}.${key}`);
   }
 }
