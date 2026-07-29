@@ -1389,7 +1389,8 @@ class ControlSurfaceTests(unittest.TestCase):
         # Stopping again with no active playback is an idempotent no-op.
         self.assertEqual(mapper.invoke("session.audition-stop", stop_args), {"stopped": True})
         # External playback outside the owned target set refuses the owned stop.
-        mapper.invoke("session.audition-launch", launch)
+        _, relaunch = self._audition_args(mapper)
+        mapper.invoke("session.audition-launch", relaunch)
         scene2 = FakeScene("Scene 2")
         mapper.song.scenes.append(scene2)
         mapper.song.tracks[0].clip_slots.append(FakeSlot())
@@ -1814,6 +1815,39 @@ class ControlSurfaceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "source deletion failed"):
             mapper.invoke("arrangement.clip.move", move_args)
         self.assertEqual(len(track.arrangement_clips), before); self.assertIn(source_object, track.arrangement_clips)
+
+    def test_transport_revision_rejects_observed_aba_state(self):
+        song = FakeSong()
+        song.loop = False
+        song.loop_start = 0.0
+        song.loop_length = 4.0
+        song.current_song_time = 0.0
+        song.metronome = False
+        song.punch_in = False
+        song.punch_out = False
+        song.count_in_duration = 0
+        mapper = LiveObjectMapper(song)
+        snapshot = mapper.snapshot()
+        set_row = snapshot["set"]
+
+        def set_metronome(value, revision):
+            return mapper.invoke("transport.set", {
+                "setRef": set_row["ref"],
+                "expectedObjectIdentity": set_row["objectIdentity"],
+                "expectedRevision": revision,
+                "metronome": value,
+            })
+
+        initial_revision = snapshot["playback"]["revision"]
+        first_true = set_metronome(True, initial_revision)["revision"]
+        intervening_false = set_metronome(False, first_true)["revision"]
+        current_true = set_metronome(True, intervening_false)["revision"]
+        self.assertNotEqual(first_true, current_true)
+        self.assertEqual(current_true, mapper.snapshot()["playback"]["revision"])
+        with self.assertRaisesRegex(ValueError, "changed since preview"):
+            set_metronome(False, first_true)
+        self.assertTrue(song.metronome)
+        set_metronome(False, current_true)
 
     def test_wrong_device_delete_and_late_transport_failure_never_report_partial_success(self):
         song = FakeSong(); target, sibling = FakeDevice(), FakeDevice(); target.name = "Target"; sibling.name = "Sibling"; song.tracks[0].devices = [target, sibling]; song.tracks[0].delete_device = lambda _index: song.tracks[0].devices.pop(1); mapper = LiveObjectMapper(song); track = mapper.snapshot()["tracks"][0]; device = track["devices"][0]; siblings = [{"ref": row["ref"], "objectIdentity": row["objectIdentity"]} for row in track["devices"]]

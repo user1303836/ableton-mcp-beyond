@@ -391,6 +391,8 @@ class LiveObjectMapper:
         self.provenance = provenance
         self._capture_state: dict[str, Any] | None = None
         self._owned_cleanup_tokens: dict[str, dict[str, Any]] = {}
+        self._playback_state_digest: str | None = None
+        self._playback_revision_counter = 0
 
     def status(self) -> dict[str, Any]:
         registry, registry_hash = operation_registry()
@@ -671,7 +673,13 @@ class LiveObjectMapper:
         # postcondition instead of revision; it is not a fencing input.
         revision_transport = {key: value for key, value in transport.items() if key != "position"}
         revision_payload = {"transport": revision_transport, "firedTargets": fired, "playingTargets": playing}
-        revision = f"{self.refs.epoch}:playback:{hashlib.sha256(json.dumps(revision_payload, sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()[:24]}"
+        state_digest = hashlib.sha256(json.dumps(revision_payload, sort_keys=True, separators=(',', ':')).encode("utf-8")).hexdigest()
+        # Include an observed-state generation so A -> B -> A cannot reuse the
+        # first A revision. Repeated reads of an unchanged state remain stable.
+        if state_digest != self._playback_state_digest:
+            self._playback_revision_counter += 1
+            self._playback_state_digest = state_digest
+        revision = f"{self.refs.epoch}:playback:{self._playback_revision_counter}:{state_digest[:16]}"
         return {"ref": self.refs.put("session_playback", self.song, "playback"), "epoch": self.refs.epoch, "revision": revision, "transport": transport, "firedTargets": fired, "playingTargets": playing}
 
     def _cursor(self, offset: int, revision: str) -> str:
@@ -1843,6 +1851,8 @@ class LiveObjectMapper:
             return self.status()
         if operation == "session.reconnect":
             self.refs.reset()
+            self._playback_state_digest = None
+            self._playback_revision_counter = 0
             return self.status()
         if operation in {"locator.add", "arrangement.locator.create"}:
             return self._locator_mutate(args, delete=False)
