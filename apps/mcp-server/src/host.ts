@@ -189,7 +189,7 @@ interface ClipLifecycleTransaction {
 }
 
 const REQUEST_ID_MAX_LENGTH = 128;
-const SERVER_VERSION = "0.1.0";
+const SERVER_VERSION = "0.1.1";
 const TRANSACTION_TTL_MS = 30_000;
 const MAX_TRANSACTIONS = 256;
 const AUDITION_TTL_MS = 30_000;

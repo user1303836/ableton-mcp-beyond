@@ -14,6 +14,8 @@ import { npmExecutable } from "../dist/src/platform.js";
 // provenance is asserted throughout; this evidence never claims real Live.
 
 const packageDirectory = new URL("..", import.meta.url);
+const packageMetadata = JSON.parse(readFileSync(new URL("package.json", packageDirectory), "utf8"));
+if (packageMetadata.name !== "@ableton-mcp/mcp-server" || typeof packageMetadata.version !== "string") throw new Error("package identity is invalid");
 const temporaryDirectory = mkdtempSync(join(tmpdir(), "ableton-mcp-journey-"));
 const npm = npmExecutable();
 const npmOptions = { shell: process.platform === "win32" };
@@ -550,7 +552,7 @@ try {
   if (requestedArtifact) {
     artifact = resolve(requestedArtifact);
     if (!isAbsolute(requestedArtifact) || !existsSync(artifact)) throw new Error("ABLETON_MCP_ARTIFACT must name an existing absolute tarball");
-    packedRecord = { name: "@ableton-mcp/mcp-server", version: "0.1.0", filename: basename(artifact), shasum: null, integrity: null, size: statSync(artifact).size, unpackedSize: null };
+    packedRecord = { name: packageMetadata.name, version: packageMetadata.version, filename: basename(artifact), shasum: null, integrity: null, size: statSync(artifact).size, unpackedSize: null };
   } else {
     const packOutput = execFileSync(npm, ["pack", "--json", "--pack-destination", temporaryDirectory], { ...npmOptions, cwd: packageDirectory, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
     const packed = JSON.parse(packOutput);
@@ -1463,7 +1465,7 @@ const accessibilityEvidence = {
   contrastValidation: "not-applicable-no-server-owned-visual-surface",
   knownLimitationsDocumented: true,
 };
-const packageIdentityPassed = packageEvidence?.version === "npm-packed-artifact/v1" && packageEvidence?.name === "@ableton-mcp/mcp-server" && packageEvidence?.packageVersion === "0.1.0" && /^[a-f0-9]{64}$/.test(packageEvidence?.sha256 ?? "") && Number.isSafeInteger(packageEvidence?.sizeBytes);
+const packageIdentityPassed = packageEvidence?.version === "npm-packed-artifact/v1" && packageEvidence?.name === packageMetadata.name && packageEvidence?.packageVersion === packageMetadata.version && /^[a-f0-9]{64}$/.test(packageEvidence?.sha256 ?? "") && Number.isSafeInteger(packageEvidence?.sizeBytes);
 const accessibilityPassed = accessibilityChecks.length === 5 && accessibilityChecks.every((entry) => entry.contentType === "text" && entry.orderedStages && !entry.ansiControlBytes && entry.nonColorGuidance && !entry.pointerInputUsedByVerifier);
 const summary = { schemaVersion: "phase-9-packaged-journeys/v1", generatedAt: new Date().toISOString(), package: packageEvidence, journey: "packaged-production-boundary", provenance: "fake-live", progressEvidence: "derived-from-actual-purpose-specific-tool-results-not-plan-template-flags", accessibilityEvidence, userJourneys: executionRows, steps: results, passed: !failed && results.every((entry) => entry.passed) && results.length === 25 && userJourneyEvidence.length === 5 && representativeJourneysPassed && accessibilityPassed && packageIdentityPassed };
 console.log(JSON.stringify(summary));
