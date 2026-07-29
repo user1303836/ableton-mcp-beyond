@@ -262,11 +262,15 @@ test("Session structure indexes only the mutable regular-track collection", asyn
     return snapshot;
   };
   const host = new McpHost(simulator); ready(host);
-  const invalid = await host.handleAsync({ jsonrpc: "2.0", id: 810, method: "tools/call", params: { name: "live_session_structure_preview", arguments: { tracks: [{ name: "Out of Range", kind: "midi", index: 3 }], scenes: [] } } });
+  const syncInvalid = host.handle({ jsonrpc: "2.0", id: 809, method: "tools/call", params: { name: "live_session_structure_preview", arguments: { tracks: [{ name: "Sync Out of Range", kind: "midi", index: 3 }], scenes: [] } } });
+  assert.equal((syncInvalid as any).error.code, -32602); assert.match((syncInvalid as any).error.message, /regular-track collection/);
+  const syncValid = host.handle({ jsonrpc: "2.0", id: 810, method: "tools/call", params: { name: "live_session_structure_preview", arguments: { tracks: [{ name: "Sync At End", kind: "midi", index: 1 }], scenes: [] } } });
+  assert.deepEqual(JSON.parse((syncValid as any).result.content[0].text).prior.tracks.map((track: { name: string }) => track.name), ["Drums"]);
+  const invalid = await host.handleAsync({ jsonrpc: "2.0", id: 811, method: "tools/call", params: { name: "live_session_structure_preview", arguments: { tracks: [{ name: "Out of Range", kind: "midi", index: 3 }], scenes: [] } } });
   assert.equal((invalid as any).error.code, -32602); assert.match((invalid as any).error.message, /regular-track collection/);
-  const invalidScene = await host.handleAsync({ jsonrpc: "2.0", id: 811, method: "tools/call", params: { name: "live_session_structure_preview", arguments: { tracks: [], scenes: [{ name: "Out of Range Scene", index: 2 }] } } });
+  const invalidScene = await host.handleAsync({ jsonrpc: "2.0", id: 812, method: "tools/call", params: { name: "live_session_structure_preview", arguments: { tracks: [], scenes: [{ name: "Out of Range Scene", index: 2 }] } } });
   assert.equal((invalidScene as any).error.code, -32602); assert.match((invalidScene as any).error.message, /scene collection/);
-  const valid = await host.handleAsync({ jsonrpc: "2.0", id: 812, method: "tools/call", params: { name: "live_session_structure_preview", arguments: { tracks: [{ name: "At End", kind: "midi", index: 1 }], scenes: [] } } });
+  const valid = await host.handleAsync({ jsonrpc: "2.0", id: 813, method: "tools/call", params: { name: "live_session_structure_preview", arguments: { tracks: [{ name: "At End", kind: "midi", index: 1 }], scenes: [] } } });
   const value = JSON.parse((valid as any).result.content[0].text); assert.equal((valid as any).result.isError, false); assert.deepEqual(value.prior.tracks.map((track: { name: string }) => track.name), ["Drums"]);
 });
 
