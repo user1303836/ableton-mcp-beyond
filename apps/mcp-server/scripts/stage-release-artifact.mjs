@@ -12,20 +12,19 @@ const releaseManifestPath = join(packageRoot, "release-manifest.json");
 
 const documentation = [
   ["README.md", "README.md"],
-  ["docs/USER_GUIDE.md", "USER_GUIDE.md"],
-  ["docs/USER_JOURNEYS.md", "USER_JOURNEYS.md"],
-  ["docs/OPERATIONS.md", "OPERATIONS.md"],
-  ["docs/RECOVERY.md", "RECOVERY.md"],
-  ["docs/LIVE_SAFETY.md", "LIVE_SAFETY.md"],
-  ["docs/AUDIO_INTELLIGENCE.md", "AUDIO_INTELLIGENCE.md"],
-  ["docs/REALTIME_CONTROL.md", "REALTIME_CONTROL.md"],
-  ["docs/DELIVERY.md", "DELIVERY.md"],
-  ["docs/DEVELOPER_GUIDE.md", "DEVELOPER_GUIDE.md"],
-  ["docs/TESTING.md", "TESTING.md"],
-  ["docs/IMPLEMENTATION_STATUS.md", "IMPLEMENTATION_STATUS.md"],
-  ["docs/DISTRIBUTION_POLICY.md", "DISTRIBUTION_POLICY.md"],
-  ["docs/SUPPORT_MATRIX.md", "SUPPORT_MATRIX.md"],
-  ["docs/CAPABILITY_MATRIX.md", "CAPABILITY_MATRIX.md"],
+  ["docs/en/USER_GUIDE.md", "USER_GUIDE.md"],
+  ["docs/en/USER_JOURNEYS.md", "USER_JOURNEYS.md"],
+  ["docs/en/OPERATIONS.md", "OPERATIONS.md"],
+  ["docs/en/RECOVERY.md", "RECOVERY.md"],
+  ["docs/en/LIVE_SAFETY.md", "LIVE_SAFETY.md"],
+  ["docs/en/AUDIO_INTELLIGENCE.md", "AUDIO_INTELLIGENCE.md"],
+  ["docs/en/REALTIME_CONTROL.md", "REALTIME_CONTROL.md"],
+  ["docs/en/DELIVERY.md", "DELIVERY.md"],
+  ["docs/en/DEVELOPER_GUIDE.md", "DEVELOPER_GUIDE.md"],
+  ["docs/en/TESTING.md", "TESTING.md"],
+  ["docs/en/IMPLEMENTATION_STATUS.md", "IMPLEMENTATION_STATUS.md"],
+  ["docs/en/SUPPORT_MATRIX.md", "SUPPORT_MATRIX.md"],
+  ["docs/en/CAPABILITY_MATRIX.md", "CAPABILITY_MATRIX.md"],
 ];
 
 rmSync(docsRoot, { recursive: true, force: true });
@@ -33,9 +32,16 @@ mkdirSync(docsRoot, { recursive: true });
 for (const [sourceRelative, destinationName] of documentation) {
   const source = join(repositoryRoot, sourceRelative);
   if (!existsSync(source) || !statSync(source).isFile()) throw new Error(`release documentation is missing: ${sourceRelative}`);
-  let packaged = readFileSync(source, "utf8").replace(/\[([^\]]+)\]\(evidence\/[^)]+\)/g, "$1 (repository-only evidence; excluded from the private tarball)");
+  let packaged = readFileSync(source, "utf8")
+    .replace(/^.*\]\(\.\.\/(?:zh-CN|ja)\/[^\n]*\n\n?/m, "")
+    .replace(/\[([^\]]+)\]\((?:\.\.\/)?evidence\/[^)]*\)/g, "$1 (repository-only evidence; excluded from the tarball)")
+    .replace(/\[([^\]]+)\]\(\.\.\/\.\.\/[^)]+\)/g, "$1");
   if (sourceRelative === "README.md") packaged = packaged
-    .replaceAll("(docs/", "(")
+    .replace(" · <a href=\"README.zh-CN.md\">简体中文</a> · <a href=\"README.ja.md\">日本語</a>", "")
+    .replace(/\[([^\]]+)\]\(docs\/evidence\/[^)]*\)/g, "$1 (repository-only evidence; excluded from the tarball)")
+    .replaceAll("(docs/en/", "(")
+    .replaceAll("(LICENSE.md)", "(../LICENSE.md)")
+    .replaceAll('href="LICENSE.md"', 'href="../LICENSE.md"')
     .replaceAll("(protocol/ableton-live-v1.operations.json)", "(../remote-script/AbletonMcpBridge/ableton-live-v1.operations.json)");
   writeFileSync(join(docsRoot, destinationName), packaged, "utf8");
 }

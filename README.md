@@ -18,7 +18,7 @@
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT license" /></a>
   <a href="apps/mcp-server/package.json"><img src="https://img.shields.io/badge/node-22%20%7C%2024%20%7C%2025-339933?style=flat-square" alt="Node 22 | 24 | 25" /></a>
   <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blue?style=flat-square" alt="MCP protocol 2025-11-25" /></a>
-  <a href="docs/SUPPORT_MATRIX.md"><img src="https://img.shields.io/badge/Ableton%20Live-12-555555?style=flat-square" alt="Ableton Live 12" /></a>
+  <a href="docs/en/SUPPORT_MATRIX.md"><img src="https://img.shields.io/badge/Ableton%20Live-12-555555?style=flat-square" alt="Ableton Live 12" /></a>
 </p>
 
 ---
@@ -54,11 +54,11 @@ node dist/src/install-remote-script.js --destination '/abs/.../Remote Scripts/Ab
 ```
 
 Restart Live, then verify: `npm run diagnostics -- --config /abs/path/bridge-config.json`.
-Full walkthrough: [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
+Full walkthrough: [docs/USER_GUIDE.md](docs/en/USER_GUIDE.md).
 
 ## Safety model
 
-Every mutation follows **discover → preview → confirm → apply → verify → undo**. Idempotency keys, epoch fencing, and an execution ledger make lost acknowledgements safe to reconcile; arbitrary deletes are refused. Without an explicit bridge config the server is fail-closed — it cannot read or touch Live. See [docs/LIVE_SAFETY.md](docs/LIVE_SAFETY.md).
+Every mutation follows **discover → preview → confirm → apply → verify → undo**. Idempotency keys, epoch fencing, and an execution ledger make lost acknowledgements safe to reconcile; arbitrary deletes are refused. Without an explicit bridge config the server is fail-closed — it cannot read or touch Live. See [docs/LIVE_SAFETY.md](docs/en/LIVE_SAFETY.md).
 
 ## Compatibility
 
@@ -69,21 +69,21 @@ Every mutation follows **discover → preview → confirm → apply → verify �
 | Windows host | CI-tested; Windows 11 + Live not yet certified |
 | Linux / Live 11 or earlier | Unsupported |
 
-Capabilities are negotiated at connect time, so your agent always knows exactly what a given Live install can do. Full matrix: [docs/SUPPORT_MATRIX.md](docs/SUPPORT_MATRIX.md).
+Capabilities are negotiated at connect time, so your agent always knows exactly what a given Live install can do. Full matrix: [docs/SUPPORT_MATRIX.md](docs/en/SUPPORT_MATRIX.md).
 
 ## Docs
 
 | Doc | What it covers |
 |---|---|
-| [USER_GUIDE](docs/USER_GUIDE.md) | Tool list, mutation workflow, resources, prompts |
-| [LIVE_SAFETY](docs/LIVE_SAFETY.md) | The real-Live safety boundary |
-| [OPERATIONS](docs/OPERATIONS.md) / [RECOVERY](docs/RECOVERY.md) | Supervision, failure handling, uncertain-state recovery |
-| [AUDIO_INTELLIGENCE](docs/AUDIO_INTELLIGENCE.md) | DSP standards, capture consent, privacy limits |
-| [USER_JOURNEYS](docs/USER_JOURNEYS.md) | The five guided composition workflows |
-| [REALTIME_CONTROL](docs/REALTIME_CONTROL.md) | The armed UDP/OSC/XY control plane |
-| [CAPABILITY_MATRIX](docs/CAPABILITY_MATRIX.md) | Per-tool capability and operation requirements |
-| [DELIVERY](docs/DELIVERY.md) | Install, upgrade, rollback, uninstall of packed artifacts |
-| [IMPLEMENTATION_STATUS](docs/IMPLEMENTATION_STATUS.md) | What's verified and what's still limited |
+| [USER_GUIDE](docs/en/USER_GUIDE.md) | Tool list, mutation workflow, resources, prompts |
+| [LIVE_SAFETY](docs/en/LIVE_SAFETY.md) | The real-Live safety boundary |
+| [OPERATIONS](docs/en/OPERATIONS.md) / [RECOVERY](docs/en/RECOVERY.md) | Supervision, failure handling, uncertain-state recovery |
+| [AUDIO_INTELLIGENCE](docs/en/AUDIO_INTELLIGENCE.md) | DSP standards, capture consent, privacy limits |
+| [USER_JOURNEYS](docs/en/USER_JOURNEYS.md) | The five guided composition workflows |
+| [REALTIME_CONTROL](docs/en/REALTIME_CONTROL.md) | The armed UDP/OSC/XY control plane |
+| [CAPABILITY_MATRIX](docs/en/CAPABILITY_MATRIX.md) | Per-tool capability and operation requirements |
+| [DELIVERY](docs/en/DELIVERY.md) | Install, upgrade, rollback, uninstall of packed artifacts |
+| [IMPLEMENTATION_STATUS](docs/en/IMPLEMENTATION_STATUS.md) | What's verified and what's still limited |
 
 ## License
 

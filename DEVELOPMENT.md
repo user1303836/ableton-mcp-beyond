@@ -37,7 +37,7 @@ platform-specific runner, or local-only reference material. The default
 `UnavailableLiveAdapter` is the supported behavior when no explicit
 configuration is supplied. Any adapter must preserve the registry, protocol,
 epoch, validation, and safety contracts documented in
-[`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md).
+[`docs/LIVE_SAFETY.md`](docs/en/LIVE_SAFETY.md).
 
 ## Change discipline
 

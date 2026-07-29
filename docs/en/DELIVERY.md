@@ -1,18 +1,28 @@
 # Cross-platform delivery and lifecycle
 
+English · [简体中文](../zh-CN/DELIVERY.md) · [日本語](../ja/DELIVERY.md)
+
 ## Release artifact and channel
 
-The only artifact is a private, local npm tarball from `npm pack`. It is marked
-`private` and `UNLICENSED`, is unsigned/unnotarized, and is not published. See
-[DISTRIBUTION_POLICY.md](DISTRIBUTION_POLICY.md). `package:verify` rejects every
+The release artifact is an exact-SHA npm tarball from `npm pack`, installed by
+local path and SHA-256. It is unsigned, unnotarized, and not published to npm.
+The repository source is MIT-licensed; the packaged `package.json` still
+carries `private`/`UNLICENSED` metadata from before the repository went
+public, which the lifecycle verifier enforces and which is tracked for a
+release-pipeline update.
+
+`package:verify` rejects every
 path outside the exact allowlist and verifies `release-manifest.json` against
 every compiled runtime, Remote Script, registry, document, and license byte.
-Tests, verification scripts, source maps, dependencies, secrets, configs,
-state, backups, logs, captured media, evidence, and protected local material
-are excluded.
+The tarball may contain only compiled runtime JavaScript and declarations, the
+Remote Script with its registry and manifest, the release manifest and package
+metadata, the MIT license file, and the allowlisted user/safety/operations
+documents. Tests, verification scripts, source maps, dependencies, secrets,
+configs, state, backups, logs, captured media, evidence, and protected local
+material are excluded.
 
 The manifest records the package version, exact source commit and dirty flag,
-Node range, host/bridge protocol, canonical registry hash, private channel,
+Node range, host/bridge protocol, canonical registry hash, distribution channel,
 signing/notarization/publication state, file roles, and SHA-256 values. A
 release candidate must come from a clean commit. SHA-256 proves byte integrity,
 not publisher identity.

@@ -1,5 +1,7 @@
 # Developer guide
 
+English · [简体中文](../zh-CN/DEVELOPER_GUIDE.md) · [日本語](../ja/DEVELOPER_GUIDE.md)
+
 Source, schemas, and tests are authoritative. Documentation must not promote a capability unless its exported tool, adapter contract, mapper, and tests support it.
 
 ## Layout

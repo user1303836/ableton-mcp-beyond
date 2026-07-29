@@ -60,7 +60,7 @@ The ingress enforces 512-byte packets, a 64/s token bucket with burst 16,
 positive safe sequences, replay and endpoint rejection, bounded nonblocking
 main-thread queueing, generation fencing on disarm/re-arm/expiry, verified
 published-parameter and compensated XY writes, jitter/loss/drop counters, and
-an emergency stop. See `docs/REALTIME_CONTROL.md` in the repository; no `.amxd`
+an emergency stop. See `docs/en/REALTIME_CONTROL.md` in the repository; no `.amxd`
 device is claimed or bundled.
 
 The mapper also conditionally advertises `audio.capture.resampling` and six
@@ -78,7 +78,7 @@ metadata. Acquire returns
 path and identity only across that authenticated host boundary. Host-side code separately validates and analyzes WAV/ASD media, then performs
 descriptor-fenced quarantine/unlink before cleanup deletes only the exact owned
 clip and moves mapper state to `cleaned`. Unsupported or externally changed state is
-reported as residual rather than overwritten. See `docs/AUDIO_INTELLIGENCE.md`.
+reported as residual rather than overwritten. See `docs/en/AUDIO_INTELLIGENCE.md`.
 
 Run contract tests from the repository root:
 
