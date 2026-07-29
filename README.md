@@ -1,152 +1,179 @@
 # Ableton MCP Beyond
 
-A safety-first MCP host for bounded Ableton Live integration.
+**Give your AI agent real, safety-first control of Ableton Live 12 — Session and
+Arrangement, devices, mixer, browser, recording — plus standards-based audio
+analysis, all over the Model Context Protocol.**
 
-The server speaks newline-delimited JSON-RPC over stdio. Without `--config`,
-it uses `UnavailableLiveAdapter`; no Live state is read or changed. With an
-explicit validated version-2 configuration, the packaged CLI connects to the
-loopback `AbletonMcpBridge` over the authenticated `ableton-loopback/v1`
-transport.
+![Node 22 | 24 | 25](https://img.shields.io/badge/node-22%20%7C%2024%20%7C%2025-339933)
+![MCP 2025-11-25](https://img.shields.io/badge/MCP-2025--11--25-blue)
+![Ableton Live 12](https://img.shields.io/badge/Ableton%20Live-12-5b2ee5)
+
+A Node.js MCP host (76 tools, stdio JSON-RPC) that talks to Live through an
+authenticated, HMAC-sealed loopback bridge and a Python Remote Script
+(`AbletonMcpBridge`). Developed and verified against **Live 12.4.5b8 (beta)**.
+Without an explicit bridge configuration it is **fail-closed**: it never reads
+or touches your Set.
+
+## See it work — no Live required
+
+```sh
+cd apps/mcp-server
+npm ci && npm run build
+npm run demo
+```
+
+This drives a real MCP session against the server: handshake, full tool
+catalog, fail-closed status, a live `audio_analyze` run on a synthesized tone,
+and a generated beat-making plan.
+
+<details>
+<summary><b>Actual demo output</b></summary>
+
+```text
+▶ initialize (MCP protocol 2025-11-25)
+  server: {"name":"ableton-mcp-host","version":"1.0.0"}
+
+▶ tools/list
+  tools exposed: 76
+  server_status, capabilities, plan_user_journey, audio_analyze, … live_undo, live_recovery_finalize
+
+▶ server_status + live_status (no Live configured → fail-closed)
+  server_status: {"host":"ready","live":{"connected":false,"adapter":"unavailable", … }}
+  live_status.adapter: "unavailable"
+
+▶ audio_analyze: 2 s 440 Hz sine @ 48 kHz → BS.1770-5 loudness, true peak, spectra
+  peak / rms: "-6.02 dBFS / -9.03 dBFS"
+  BS.1770-5 integrated loudness: "-9.71 LUFS (standardsCompliant: true)"
+  BS.1770-5 Annex 2 true peak: "-6.008 dBTP (ITU-R BS.1770-5 Annex 2 order-48 four-phase FIR)"
+
+▶ plan_user_journey: beat-making plan
+  journey: "create-beat-or-song"
+  stages: ["discover","draft","preview-create","apply-create","arrange",
+           "arrange-edit","audition","revise","final-readback"]
+
+▶ done — no Live instance was read or changed
+```
+
+</details>
 
 ## Quick start
 
-Requirements: Node.js 22, 24, or 25 (all three are exercised in CI).
+**Requirements:** Node.js 22, 24, or 25 (all exercised in CI). Ableton Live 12
+for the bridge; the host, tests, and demo run without it.
 
 ```sh
 cd apps/mcp-server
 npm ci
-npm test
-npm start
+npm test          # full build + test suite
+npm start         # serve MCP over stdio
 ```
 
-The MCP executable is `dist/src/cli.js`. It accepts one JSON-RPC message per
-line on stdin and writes only JSON-RPC responses to stdout. Initialize with
-protocol version `2025-11-25`, then send `notifications/initialized`.
-
-For the client-facing tool list and mutation sequence, see
-[`docs/USER_GUIDE.md`](docs/USER_GUIDE.md). For supervision and failure
-handling, see [`docs/OPERATIONS.md`](docs/OPERATIONS.md) and
-[`docs/RECOVERY.md`](docs/RECOVERY.md).
-
-The source-controlled operation contract is
-[`protocol/ableton-live-v1.operations.json`](protocol/ableton-live-v1.operations.json).
-The bridge negotiates its canonical SHA-256 before serving Live operations. The current host surface includes bounded discovery; guarded Session and
-Arrangement lifecycles; transport, MIDI, mixer, automation, devices/racks,
-Browser, routing, recording, projects, subscriptions, realtime control;
-standards audio/reference intelligence; and consent-bound real-Live Resampling
-capture. The Python mapper supports bounded,
-epoch-scoped discovery for the observed hierarchy, including regular/group,
-return and main tracks, scenes, parent-scoped clip slots and clips, notes,
-locators, devices, parameters, selection, routing choices, and Session
-playback. Unsupported or unobserved Live shapes remain unavailable.
-
-Build a host-only client configuration:
+**1. Point your MCP client at the server.** Generate a client config:
 
 ```sh
-npm run build
 npm run setup -- --output /absolute/path/client-config.json
 ```
 
-To enable the bridge, create a strong owner-only secret separately, then
-generate a version-2 configuration:
+**2. Connect Live.** Create a strong owner-only secret, then generate a
+bridge configuration:
 
 ```sh
 npm run setup -- --output /absolute/path/bridge-config.json \
   --bridge-host 127.0.0.1 --bridge-port 9000 \
-  --realtime-port 9001 \
   --secret-file /absolute/path/bridge.secret --bridge-timeout 5000
 ```
 
-The generated version-2 client entry includes `--config
-/absolute/path/bridge-config.json`; the secret remains in its separate
-owner-only file and is never placed in client arguments. `--realtime-port` is
-optional; when present it enables only the separately armed loopback control
-plane documented in [`docs/REALTIME_CONTROL.md`](docs/REALTIME_CONTROL.md).
-
-The CLI loads a bridge only when `--config /absolute/path/bridge-config.json`
-is supplied. Configuration, secret, and Remote Script installation are never
-selected from JSON-RPC arguments or client metadata.
-
-For an installed artifact, run `npm run diagnostics -- --config
-/absolute/path/bridge-config.json`. Diagnostics validate the package manifest's
-raw asset hashes and canonical registry hash, then perform authenticated,
-bounded Set, scene, track, child clip-slot, and Session-playback discovery.
-They report adapter operations separately from capabilities. `fake-live`,
-simulator, unavailable, and unknown provenance remain non-passing evidence for
-`liveConnected`, real Live state, audible state, or restoration.
-
-Private installed artifacts use the receipt-driven lifecycle CLI for exact
-install, manual activation verification, upgrade, repair, rollback, status, and
-ownership-safe uninstall:
+**3. Install the Remote Script** into a Live Control Surface folder
+(dry-run first; refuses symlink trees and overwrites by default):
 
 ```sh
-ableton-mcp-lifecycle install \
-  --remote-scripts-dir '/absolute/path/to/Live/Remote Scripts' \
-  --state-dir '/absolute/owner-only/ableton-mcp' \
-  --package-root '/absolute/installed/package/root' \
-  --artifact '/absolute/path/to/exact-candidate.tgz' \
-  --artifact-sha256 '<exact-tarball-sha>'
+node dist/src/install-remote-script.js --destination '/absolute/path/to/Live/Remote Scripts/AbletonMcpBridge' --dry-run
 ```
 
-Omit `--apply` for a plan. Mutating install/upgrade/rollback/uninstall also
-require `--confirm-live-stopped`; the tool never guesses a Live path, kills
-Live, follows symlink/junction ancestors, deletes drift, or claims activation
-without authenticated `real-live` discovery. See
-[`docs/DELIVERY.md`](docs/DELIVERY.md),
-[`docs/DISTRIBUTION_POLICY.md`](docs/DISTRIBUTION_POLICY.md),
-[`docs/SUPPORT_MATRIX.md`](docs/SUPPORT_MATRIX.md),
-[`docs/CAPABILITY_MATRIX.md`](docs/CAPABILITY_MATRIX.md), and
-[`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md).
+**4. Restart Live, then verify** the authenticated end-to-end path:
 
-Scene audition is a potentially audible workflow. Preview is read-only and
-requires an exact Set name, authoritative stopped/non-recording playback,
-unarmed and non-input-monitored tracks, safe launch quantization, callable
-launch/stop operations, and explicit output-safety evidence. Apply requires
-the returned confirmation and idempotency key, verifies fresh playback, and
-must be stopped with the returned stop confirmation. It is not real-Live
-evidence unless a real authenticated bridge and disposable Set have been
-independently established.
+```sh
+npm run diagnostics -- --config /absolute/path/bridge-config.json
+```
 
-## Capability-aware journeys
+The full mutation sequence, safety model, and client-facing tool reference:
+[`docs/USER_GUIDE.md`](docs/USER_GUIDE.md).
 
-`plan_user_journey`, `ableton://journeys`, and five matching MCP prompts expose
-bounded beat/song, advanced-drum, sound-design, reference-mix, and
-recording/performance-diagnosis plans. Plans negotiate the current epoch,
-capabilities, operations, and provenance; contain no mutation authority; use
-ordered non-color progress text; stop at purpose-specific confirmation gates;
-and include verification, recovery, accessibility, and truthful per-stage
-fallback. Only allowlisted high-level traits influence derived guidance;
-artist/song identity and exact-copy wording is excluded, and a copy-only request
-requires clarification—never an exact-replication or legal-clearance claim. See
-[`docs/USER_JOURNEYS.md`](docs/USER_JOURNEYS.md).
+## What your agent gets
 
-## Audio intelligence
+- **Deep Live control, both views.** Transport, Session clips/scenes/slots,
+  Arrangement clips and locators, MIDI notes (add/update/delete), mixer,
+  Session automation, routing, recording, project info/save/open/backup, and
+  live subscriptions.
+- **Real device mastery.** Recursive discovery of racks, chains, pads, and
+  macros; guarded parameter changes with bounds/quantization checks; Browser
+  search and guarded device loading.
+- **Standards-based audio intelligence — even without Live.** `audio_analyze`
+  returns ITU-R BS.1770-5 / EBU R128 loudness, LRA, and validated true peak
+  (Tech 3341/3342), plus spectral, transient, dynamics, and clipping summaries.
+  `audio_compare_reference` aligns and level-matches your mix against a
+  reference track. PCM is analyzed in an isolated, cancellable worker and raw
+  audio is never returned.
+- **Consent-bound Live audio capture.** When the authenticated bridge reports
+  `real-live`, the agent can resample one exact source clip into an empty slot,
+  analyze it internally, then delete every trace — with a 10-second Live-side
+  watchdog and emergency-stop recovery.
+- **Realtime control.** A separately armed, token-fenced UDP/OSC/XY channel for
+  low-latency parameter rides — with verified writes, replay protection, and an
+  independent TCP emergency stop.
+- **Capability-aware journeys.** `plan_user_journey` (plus MCP prompts and the
+  `ableton://journeys` resource) turns "make a dusty lo-fi beat" into an
+  ordered, confirmable plan — beat/song creation, advanced drums, sound design,
+  reference mixing, or performance diagnosis — that degrades truthfully when a
+  capability isn't negotiated.
 
-`audio_analyze` runs caller PCM in a cancellable secret-stripped worker and
-returns privacy-bounded `pcm-analysis/v2` summaries, including ITU-R BS.1770-5,
-EBU R128/Tech 3341/3342 loudness/LRA and validated 44.1/48 kHz true peak.
-`audio_compare_reference` adds bounded band-limited resampling,
-coarse-to-fine/manual alignment, standards level matching, and aggregate deltas.
-`audio_diagnose_live_context` links measurements to fresh refs without claiming
-that caller PCM came from Live or that an observed device caused a result.
+## Built to never wreck your Set
 
-When—and only when—the installed authenticated bridge reports `real-live` and
-`audio.capture.resampling`, `live_audio_capture_preview/apply` can record one
-exact source through Live's Resampling input into one exact empty audio slot.
-It requires explicit ephemeral consent and output safety, has a ten-second
-Live-side watchdog and post-restart emergency recovery, analyzes a fresh
-bounded WAV internally, deletes the owned clip, and unlinks the WAV/ASD without
-returning raw audio or its path. See
-[`docs/AUDIO_INTELLIGENCE.md`](docs/AUDIO_INTELLIGENCE.md).
+Every mutation follows the same protocol: **fresh discovery → read-only
+preview → exact confirmation → one-use apply → authoritative verification →
+guarded undo.** Idempotency keys, bridge/Live epoch fencing, and an
+execution ledger make retry storms and lost acknowledgements safe to
+reconcile. Arbitrary device or Arrangement-clip deletion is *refused* — the
+server only cleans up what it created, and can prove it. Configuration,
+secrets, and Remote Script installation can never be smuggled in through MCP
+tool arguments. See [`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md).
 
-## Evidence boundary
+## Compatibility
 
-The deterministic simulator, Python fake-Live mapper, package smoke tests,
-benchmarks, and authenticated loopback tests are contract evidence only. They
-do not prove a real Ableton Live version, disposable Set, audio device,
-hardware, accessibility, signing, notarization, or installer-runtime result.
-Tracked evidence distinguishes those contracts from macOS Live 12.4.5b8
-observations through Phase 8; it is not Windows Live, signing, notarization, or
-publication proof. Current limitations are recorded in
-[`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md), and the
-real-Live safety boundary is in [`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md).
+| Surface | Status |
+|---|---|
+| Node.js 22 / 24 / 25 | Supported (CI-tested) |
+| macOS + Live 12.4.5b8 beta | Verified engineering target (`docs/evidence/`) |
+| macOS + Live 12 Suite / Standard / Intro | Runtime-negotiated; missing content stays unavailable |
+| Windows host | CI-tested; Windows 11 + Live not yet certified |
+| Linux / Live 11 or earlier | Unsupported |
+
+The capability catalog is negotiated at connect time, so your agent always
+knows exactly what this Live installation can do — unsupported shapes report
+as unavailable instead of failing mid-mutation. Full matrix:
+[`docs/SUPPORT_MATRIX.md`](docs/SUPPORT_MATRIX.md).
+
+## Documentation
+
+| Doc | What it covers |
+|---|---|
+| [USER_GUIDE](docs/USER_GUIDE.md) | Tool list, mutation workflow, resources, prompts |
+| [LIVE_SAFETY](docs/LIVE_SAFETY.md) | The real-Live safety boundary |
+| [OPERATIONS](docs/OPERATIONS.md) / [RECOVERY](docs/RECOVERY.md) | Supervision, failure handling, uncertain-state recovery |
+| [AUDIO_INTELLIGENCE](docs/AUDIO_INTELLIGENCE.md) | DSP standards, capture consent, privacy limits |
+| [USER_JOURNEYS](docs/USER_JOURNEYS.md) | The five guided composition workflows |
+| [REALTIME_CONTROL](docs/REALTIME_CONTROL.md) | The armed UDP/OSC/XY control plane |
+| [CAPABILITY_MATRIX](docs/CAPABILITY_MATRIX.md) | Per-tool capability and operation requirements |
+| [DELIVERY](docs/DELIVERY.md) / [DISTRIBUTION_POLICY](docs/DISTRIBUTION_POLICY.md) | Install, upgrade, rollback, and uninstall of packed artifacts |
+| [IMPLEMENTATION_STATUS](docs/IMPLEMENTATION_STATUS.md) | What's verified and what's still limited |
+
+## Development
+
+```sh
+npm test                 # build + unit/integration/property tests
+npm run benchmark        # isolated performance gates
+npm run package:verify   # verify the packed artifact
+```
+
+Open source under the [MIT License](LICENSE.md). Ableton Live is a trademark
+of Ableton AG; this project is not affiliated with or endorsed by Ableton AG.
