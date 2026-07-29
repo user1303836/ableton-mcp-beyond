@@ -1,8 +1,12 @@
 # Realtime control plane
 
-The production Remote Script can expose a separately configured loopback UDP
-endpoint for short-lived high-rate control. It is disabled unless the version-2
-bridge configuration contains a distinct `realtimePort`:
+English · [简体中文](../zh-CN/REALTIME_CONTROL.md) · [日本語](../ja/REALTIME_CONTROL.md)
+
+An optional, separately armed UDP endpoint for short-lived high-rate parameter
+control — disabled unless explicitly configured, and fenced even when enabled.
+
+The production Remote Script can expose a loopback UDP endpoint when the
+version-2 bridge configuration contains a distinct `realtimePort`:
 
 ```json
 {
@@ -34,9 +38,9 @@ conflict fails startup rather than silently disabling the plane.
    token. A replacement at the same traversal ref is refused. Arming is also
    refused unless adapter provenance is `real-live`.
 3. The result contains the loopback endpoint, an unpredictable bearer token,
-   expiry, selected channels and exact parameter refs, 512-byte packet limit,
-   64-packet/s token-bucket
-   rate, and burst size 16. Do not log or persist the token.
+   expiry, selected channels and exact parameter refs, a 512-byte packet
+   limit, a 64-packet/s token-bucket rate, and burst size 16. Do not log or
+   persist the token.
 4. Send positive safe-integer sequences. Sequence state is one replay domain
    per arm. Re-arm invalidates the prior token and queued generation.
 5. Call `live_realtime_stats` to distinguish accepted, pending, applied,
@@ -80,9 +84,9 @@ Emergency stop:
 {"token":"<arm token>","seq":3,"channel":"udp-json","op":"emergency-stop","sentAtMs":1700000000000}
 ```
 
-The callback obtains exact fresh active targets and invokes the guarded stop on
-Live's thread. The authenticated TCP `live_session_emergency_stop` remains an
-independent recovery path when no realtime token is available.
+The callback obtains exact fresh active targets and invokes the guarded stop
+on Live's thread. The authenticated TCP `live_session_emergency_stop` remains
+an independent recovery path when no realtime token is available.
 
 ## OSC
 
@@ -109,8 +113,9 @@ verification, playback observation, and emergency stop all execute on Live's
 scheduled Control Surface thread. Before each write, Live recomputes the same
 parameter/owner/track/sibling descriptor retained at arm time; topology drift
 revokes the generation and refuses the queued write. Values outside
-authoritative bounds are rejected, never clamped silently. The queue is bounded to 128 callbacks and a
-realtime callback has a one-second pre-dispatch deadline.
+authoritative bounds are rejected, never clamped silently. The queue is bounded
+to 128 callbacks and a realtime callback has a one-second pre-dispatch
+deadline.
 
 The realtime plane only writes already published numeric Live parameters. It
 does not load devices, select Browser items, change routing, arm recording,
@@ -129,5 +134,6 @@ write files, or expose a generic Live-object operation.
   a disposable Set after a realtime test.
 
 Real-Live macOS evidence is recorded in
-`docs/evidence/phase-7c-realtime-live.json`. It does not substitute for Windows
-Live evidence or prove a bundled Max for Live device.
+[../evidence/phase-7c-realtime-live.json](../evidence/phase-7c-realtime-live.json).
+It does not substitute for Windows Live evidence or prove a bundled Max for
+Live device.

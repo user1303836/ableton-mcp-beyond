@@ -1,5 +1,7 @@
 # Testing guide
 
+English · [简体中文](../zh-CN/TESTING.md) · [日本語](../ja/TESTING.md)
+
 ## Deterministic gates
 
 Run serially from `apps/mcp-server`:
@@ -52,7 +54,7 @@ choices, capture fences/watchdog/emergency/cleanup, and bridge teardown. The
 package verifier starts the installed production bridge and checks
 authenticated fake Set, scene, track, child-slot, and playback discovery.
 
-CI builds one clean private tarball on Ubuntu 24.04, repeats the pack from a
+CI builds one clean tarball on Ubuntu 24.04, repeats the pack from a
 fresh detached local clone plus fresh `npm ci` and compares bytes, records the exact Git SHA and tarball SHA-256, then installs that same
 artifact in every Node 22/24/25 Ubuntu 24.04, macOS 15, and Windows Server 2025
 job. Each candidate job verifies strict inventory/hashes and exercises lifecycle

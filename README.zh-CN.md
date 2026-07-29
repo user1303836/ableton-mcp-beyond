@@ -18,7 +18,7 @@
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT 许可证" /></a>
   <a href="apps/mcp-server/package.json"><img src="https://img.shields.io/badge/node-22%20%7C%2024%20%7C%2025-339933?style=flat-square" alt="Node 22 | 24 | 25" /></a>
   <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blue?style=flat-square" alt="MCP 协议 2025-11-25" /></a>
-  <a href="docs/SUPPORT_MATRIX.md"><img src="https://img.shields.io/badge/Ableton%20Live-12-555555?style=flat-square" alt="Ableton Live 12" /></a>
+  <a href="docs/en/SUPPORT_MATRIX.md"><img src="https://img.shields.io/badge/Ableton%20Live-12-555555?style=flat-square" alt="Ableton Live 12" /></a>
 </p>
 
 ---
@@ -54,11 +54,11 @@ node dist/src/install-remote-script.js --destination '/abs/.../Remote Scripts/Ab
 ```
 
 重启 Live,然后验证:`npm run diagnostics -- --config /abs/path/bridge-config.json`。
-完整教程:[docs/USER_GUIDE.md](docs/USER_GUIDE.md)(英文)。
+完整教程:[docs/USER_GUIDE.md](docs/zh-CN/USER_GUIDE.md)。
 
 ## 安全模型
 
-每项变更都遵循 **发现 → 预览 → 确认 → 应用 → 验证 → 撤销** 的流程。幂等键、epoch 隔离与执行账本,使丢失的确认也能安全地对账;任意删除一律被拒绝。未经显式桥接配置,服务器处于故障关闭状态 —— 无法读取或改动 Live。参见 [docs/LIVE_SAFETY.md](docs/LIVE_SAFETY.md)(英文)。
+每项变更都遵循 **发现 → 预览 → 确认 → 应用 → 验证 → 撤销** 的流程。幂等键、epoch 隔离与执行账本,使丢失的确认也能安全地对账;任意删除一律被拒绝。未经显式桥接配置,服务器处于故障关闭状态 —— 无法读取或改动 Live。参见 [docs/LIVE_SAFETY.md](docs/zh-CN/LIVE_SAFETY.md)。
 
 ## 兼容性
 
@@ -69,23 +69,22 @@ node dist/src/install-remote-script.js --destination '/abs/.../Remote Scripts/Ab
 | Windows 宿主 | 已通过 CI;Windows 11 + Live 尚未认证 |
 | Linux / Live 11 或更早 | 不支持 |
 
-能力在连接时协商确定,您的代理始终清楚当前 Live 安装能做什么。完整矩阵:[docs/SUPPORT_MATRIX.md](docs/SUPPORT_MATRIX.md)(英文)。
+能力在连接时协商确定,您的代理始终清楚当前 Live 安装能做什么。完整矩阵:[docs/SUPPORT_MATRIX.md](docs/zh-CN/SUPPORT_MATRIX.md)。
 
 ## 文档
 
-以下文档均为英文。
 
 | 文档 | 内容 |
 |---|---|
-| [USER_GUIDE](docs/USER_GUIDE.md) | 工具列表、变更工作流、资源与提示词 |
-| [LIVE_SAFETY](docs/LIVE_SAFETY.md) | 真实 Live 的安全边界 |
-| [OPERATIONS](docs/OPERATIONS.md) / [RECOVERY](docs/RECOVERY.md) | 运行监督、故障处理、不确定状态恢复 |
-| [AUDIO_INTELLIGENCE](docs/AUDIO_INTELLIGENCE.md) | DSP 标准、捕获同意、隐私限制 |
-| [USER_JOURNEYS](docs/USER_JOURNEYS.md) | 五个引导式创作工作流 |
-| [REALTIME_CONTROL](docs/REALTIME_CONTROL.md) | 已布防的 UDP/OSC/XY 控制平面 |
-| [CAPABILITY_MATRIX](docs/CAPABILITY_MATRIX.md) | 每个工具的能力与操作要求 |
-| [DELIVERY](docs/DELIVERY.md) | 打包产物的安装、升级、回滚与卸载 |
-| [IMPLEMENTATION_STATUS](docs/IMPLEMENTATION_STATUS.md) | 已验证内容与当前限制 |
+| [USER_GUIDE](docs/zh-CN/USER_GUIDE.md) | 工具列表、变更工作流、资源与提示词 |
+| [LIVE_SAFETY](docs/zh-CN/LIVE_SAFETY.md) | 真实 Live 的安全边界 |
+| [OPERATIONS](docs/zh-CN/OPERATIONS.md) / [RECOVERY](docs/zh-CN/RECOVERY.md) | 运行监督、故障处理、不确定状态恢复 |
+| [AUDIO_INTELLIGENCE](docs/zh-CN/AUDIO_INTELLIGENCE.md) | DSP 标准、捕获同意、隐私限制 |
+| [USER_JOURNEYS](docs/zh-CN/USER_JOURNEYS.md) | 五个引导式创作工作流 |
+| [REALTIME_CONTROL](docs/zh-CN/REALTIME_CONTROL.md) | 已布防的 UDP/OSC/XY 控制平面 |
+| [CAPABILITY_MATRIX](docs/zh-CN/CAPABILITY_MATRIX.md) | 每个工具的能力与操作要求 |
+| [DELIVERY](docs/zh-CN/DELIVERY.md) | 打包产物的安装、升级、回滚与卸载 |
+| [IMPLEMENTATION_STATUS](docs/zh-CN/IMPLEMENTATION_STATUS.md) | 已验证内容与当前限制 |
 
 ## 许可证
 
