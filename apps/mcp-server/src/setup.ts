@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { configForBridge, configForEntrypoint, readSecretFile, writeConfig } from "./delivery.js";
+import { assertSupportedNodeRuntime, configForBridge, configForEntrypoint, readSecretFile, writeConfig } from "./delivery.js";
+
+try { assertSupportedNodeRuntime(); } catch (error) {
+  console.error(`setup: ${error instanceof Error ? error.message : "unsupported Node.js runtime"}`);
+  process.exitCode = 1;
+}
 
 const args = process.argv.slice(2);
 const allowed = new Set(["--output", "--force", "--bridge-host", "--bridge-port", "--secret-file", "--bridge-timeout", "--realtime-port"]);

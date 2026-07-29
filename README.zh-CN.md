@@ -64,9 +64,9 @@ node dist/src/install-remote-script.js --destination '/abs/.../Remote Scripts/Ab
 
 | 平台 | 状态 |
 |---|---|
-| Node.js 22 / 24 / 25 | 支持(CI 测试) |
+| Node.js 22 / 24 / 25 | 支持的契约;必须取得当前精确 SHA 的完整矩阵成功结果 |
 | macOS + Live 12 | 已对 12.4.5b8 beta 验证([证据](docs/evidence/)) |
-| Windows 宿主 | 已通过 CI;Windows 11 + Live 尚未认证 |
+| Windows 宿主 | 已配置 CI 契约;仍需当前精确 SHA 的结果;Windows 11 + Live 尚未认证 |
 | Linux / Live 11 或更早 | 不支持 |
 
 能力在连接时协商确定,您的代理始终清楚当前 Live 安装能做什么。完整矩阵:[docs/SUPPORT_MATRIX.md](docs/SUPPORT_MATRIX.md)(英文)。
@@ -89,4 +89,4 @@ node dist/src/install-remote-script.js --destination '/abs/.../Remote Scripts/Ab
 
 ## 许可证
 
-基于 [MIT 许可证](LICENSE.md)开源。Ableton Live 是 Ableton AG 的商标;本项目与 Ableton AG 无关联,亦未获其认可。
+基于 [MIT 许可证](LICENSE.md)开源。软件包的 `private: true` 与本地、未发布、未签名、未公证的交付渠道仅用于防止意外发布,不会改变 MIT 权利。Ableton Live 是 Ableton AG 的商标;MIT 不授予 Ableton 商标权,也不表示关联、认可、签名或认证。

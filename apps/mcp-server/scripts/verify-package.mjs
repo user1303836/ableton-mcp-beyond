@@ -2,9 +2,10 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import { createServer } from "node:net";
 import { npmExecutable } from "../dist/src/platform.js";
+import { validatePackagedDocumentation } from "./release-documentation.mjs";
 
 const packageDirectory = new URL("..", import.meta.url);
 const temporaryDirectory = mkdtempSync(join(tmpdir(), "ableton-mcp-package-"));
@@ -87,24 +88,24 @@ try {
   });
   const installedPackageDirectory = join(installDirectory, "node_modules", "@ableton-mcp", "mcp-server");
   const installedManifest = JSON.parse(readFileSync(join(installedPackageDirectory, "package.json"), "utf8"));
-  if (installedManifest.private !== true || installedManifest.license !== "UNLICENSED" || installedManifest.bin?.["ableton-mcp-server"] !== "./dist/src/cli.js" || installedManifest.bin?.["ableton-mcp-lifecycle"] !== "./dist/src/lifecycle-cli.js") throw new Error("installed package policy or executable map is invalid");
+  const canonicalNodeMajors = [22, 24, 25];
+  const canonicalNodeRange = ">=22 <23 || >=24 <25 || >=25 <26";
+  if (installedManifest.private !== true || installedManifest.license !== "MIT" || installedManifest.engines?.node !== canonicalNodeRange || JSON.stringify(installedManifest.abletonMcpSupport?.nodeMajors) !== JSON.stringify(canonicalNodeMajors) || installedManifest.bin?.["ableton-mcp-server"] !== "./dist/src/cli.js" || installedManifest.bin?.["ableton-mcp-lifecycle"] !== "./dist/src/lifecycle-cli.js") throw new Error("installed package policy, Node support, or executable map is invalid");
   const releaseManifest = JSON.parse(readFileSync(join(installedPackageDirectory, "release-manifest.json"), "utf8"));
-  if (releaseManifest.schema !== "ableton-mcp-private-release/v1" || releaseManifest.distribution?.channel !== "private-local-npm-tarball" || releaseManifest.distribution?.published !== false || releaseManifest.distribution?.signed !== false || releaseManifest.distribution?.notarized !== false || releaseManifest.algorithm !== "sha256" || !/^[a-f0-9]{64}$/.test(releaseManifest.build?.builder?.packageLockSha256 ?? "") || !/^[a-f0-9]{64}$/.test(releaseManifest.build?.builder?.workflowSha256 ?? "") || !releaseManifest.build?.builder?.node || !releaseManifest.build?.builder?.npm || !releaseManifest.build?.builder?.typescript) throw new Error("installed release manifest policy is invalid");
+  if (releaseManifest.schema !== "ableton-mcp-release/v2" || typeof releaseManifest.source?.commit !== "string" || !/^[a-f0-9]{40}$/.test(releaseManifest.source.commit) || typeof releaseManifest.source?.dirty !== "boolean" || releaseManifest.package?.name !== installedManifest.name || releaseManifest.package?.version !== installedManifest.version || releaseManifest.package?.license !== "MIT" || releaseManifest.package?.private !== true || releaseManifest.distribution?.channel !== "local-npm-tarball" || releaseManifest.distribution?.published !== false || releaseManifest.distribution?.signed !== false || releaseManifest.distribution?.notarized !== false || releaseManifest.distribution?.integrityIsIdentityProof !== false || releaseManifest.roles?.["LICENSE.md"] !== "license" || releaseManifest.build?.nodeRange !== canonicalNodeRange || JSON.stringify(releaseManifest.build?.nodeMajors) !== JSON.stringify(canonicalNodeMajors) || releaseManifest.algorithm !== "sha256" || !/^[a-f0-9]{64}$/.test(releaseManifest.build?.builder?.packageLockSha256 ?? "") || !/^[a-f0-9]{64}$/.test(releaseManifest.build?.builder?.workflowSha256 ?? "") || !releaseManifest.build?.builder?.node || !releaseManifest.build?.builder?.npm || !releaseManifest.build?.builder?.typescript) throw new Error("installed release manifest policy is invalid");
+  const packedLicense = readFileSync(join(installedPackageDirectory, "LICENSE.md"));
+  const repositoryLicense = readFileSync(new URL("../../LICENSE.md", packageDirectory));
+  if (!packedLicense.equals(repositoryLicense)) throw new Error("packed LICENSE.md differs from the repository MIT license");
   const manifestNames = Object.keys(releaseManifest.files ?? {}).sort();
   const expectedManifestNames = names.filter((name) => name !== "release-manifest.json").sort();
   if (JSON.stringify(manifestNames) !== JSON.stringify(expectedManifestNames)) throw new Error("release manifest does not exactly cover the packaged payload allowlist");
+  const expectedRole = (name) => name === "LICENSE.md" ? "license" : name === "package.json" ? "package-metadata" : name.startsWith("dist/src/") ? "compiled-runtime" : name.startsWith("release-docs/") ? "documentation" : name.startsWith("remote-script/") ? "ableton-remote-script" : null;
+  if (JSON.stringify(Object.keys(releaseManifest.roles ?? {}).sort()) !== JSON.stringify(manifestNames) || manifestNames.some((name) => releaseManifest.roles[name] !== expectedRole(name))) throw new Error("release manifest roles do not exactly classify the payload allowlist");
   for (const [name, expected] of Object.entries(releaseManifest.files)) {
     const actual = createHash("sha256").update(readFileSync(join(installedPackageDirectory, ...name.split("/")))).digest("hex");
     if (actual !== expected) throw new Error(`release payload hash mismatch: ${name}`);
   }
-  for (const name of manifestNames.filter((entry) => entry.startsWith("release-docs/") && entry.endsWith(".md"))) {
-    const documentPath = join(installedPackageDirectory, ...name.split("/")); const markdown = readFileSync(documentPath, "utf8");
-    for (const match of markdown.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
-      const target = match[1].split("#", 1)[0]; if (!target || /^[a-z]+:/i.test(target)) continue;
-      const resolvedTarget = resolve(dirname(documentPath), target); const within = relative(installedPackageDirectory, resolvedTarget);
-      if (within.startsWith("..") || isAbsolute(within) || !existsSync(resolvedTarget)) throw new Error(`packaged documentation has a broken internal link: ${name} -> ${match[1]}`);
-    }
-  }
+  validatePackagedDocumentation(installedPackageDirectory, manifestNames.filter((entry) => entry.startsWith("release-docs/") && entry.endsWith(".md")));
   const remotePackageDirectory = join(installedPackageDirectory, "remote-script", "AbletonMcpBridge");
   if (!readFileSync(join(remotePackageDirectory, "__init__.py"), "utf8").includes("def create_instance")) throw new Error("installed Remote Script package has no loadable create_instance");
   if (!readFileSync(join(remotePackageDirectory, "ableton_mcp_remote_script.py"), "utf8").includes("class AbletonMcpBridge")) throw new Error("installed Remote Script package has no production bridge");
@@ -151,17 +152,17 @@ try {
   while (realtimePort === controlPort) realtimePort = await freePort();
   const lifecycleBase = ["--remote-scripts-dir", lifecycleRemoteParent, "--state-dir", lifecycleState, "--package-root", installedPackageDirectory, "--allow-dirty-private-build"];
   const lifecycleCall = (action, extra = []) => JSON.parse(execFileSync(process.execPath, [lifecycleExecutable, action, ...lifecycleBase, ...extra], { encoding: "utf8" }));
-  const installedLifecycle = lifecycleCall("install", ["--artifact", artifact, "--artifact-sha256", artifactSha256, "--port", String(controlPort), "--realtime-port", String(realtimePort), "--apply", "--confirm-live-stopped"]);
+  const installedLifecycle = lifecycleCall("install", ["--artifact", artifact, "--artifact-sha256", artifactSha256, "--port", String(controlPort), "--realtime-port", String(realtimePort), "--enable-bridge-diagnostics", "--apply", "--confirm-live-stopped"]);
   if (installedLifecycle.state !== "completed" || installedLifecycle.verification?.artifactSha256 !== artifactSha256) throw new Error("installed lifecycle did not bind the exact tarball");
   const lifecycleRemote = join(lifecycleRemoteParent, "AbletonMcpBridge");
   const python = process.platform === "win32" ? "python.exe" : "python3";
-  const loaderOutput = execFileSync(python, ["-c", "import json; from AbletonMcpBridge import _read_config; c=_read_config(); print(json.dumps({'host':c['host'],'port':c['port'],'secretLength':len(c['secret']),'realtimePort':c.get('realtimePort')}))"], {
+  const loaderOutput = execFileSync(python, ["-c", "import json; from AbletonMcpBridge import _read_config; c=_read_config(); print(json.dumps({'host':c['host'],'port':c['port'],'secretLength':len(c['secret']),'realtimePort':c.get('realtimePort'),'diagnostics':c.get('diagnostics')}))"], {
     cwd: temporaryDirectory,
     env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1", PYTHONPATH: lifecycleRemoteParent },
     encoding: "utf8",
   });
   const loadedBridgeConfig = JSON.parse(loaderOutput);
-  if (loadedBridgeConfig.host !== "127.0.0.1" || loadedBridgeConfig.port !== controlPort || loadedBridgeConfig.realtimePort !== realtimePort || loadedBridgeConfig.secretLength < 32) throw new Error("installed Live loader rejected or misread the lifecycle bridge configuration");
+  if (loadedBridgeConfig.host !== "127.0.0.1" || loadedBridgeConfig.port !== controlPort || loadedBridgeConfig.realtimePort !== realtimePort || loadedBridgeConfig.secretLength < 32 || loadedBridgeConfig.diagnostics?.maxBytes !== 256 * 1024 || loadedBridgeConfig.diagnostics?.path !== join(lifecycleState, "bridge-diagnostics.log")) throw new Error("installed Live loader rejected or misread the lifecycle bridge configuration");
   const migratedV2Path = join(temporaryDirectory, "migrated-v2.json");
   execFileSync(process.execPath, [join(installedPackageDirectory, "dist", "src", "migrate.js"), "--input", configPath, "--output", migratedV2Path, "--bridge-host", "127.0.0.1", "--bridge-port", String(controlPort), "--realtime-port", String(realtimePort), "--secret-file", join(lifecycleState, "bridge.secret")], { encoding: "utf8" });
   const migratedV2 = JSON.parse(readFileSync(migratedV2Path, "utf8"));
@@ -191,10 +192,12 @@ try {
       "[void]$a.AddAccessRule($rule);[System.IO.File]::SetAccessControl($p,$a)";
     execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", aclScript], { env: { ...process.env, ABLETON_MCP_ACL_PATH: encodedPath }, stdio: "pipe" });
   }
+  const smokeDiagnosticsPath = join(lifecycleState, "bridge-diagnostics.log");
   const bridgeScript = join(temporaryDirectory, "bridge-smoke.py");
   writeFileSync(bridgeScript, `
 import json, os, pathlib, socket, sys, time
-from AbletonMcpBridge.ableton_mcp_remote_script import AbletonMcpBridge
+from AbletonMcpBridge import _diagnostics_path_safe
+from AbletonMcpBridge.ableton_mcp_remote_script import AbletonMcpBridge, _debug_trace
 class Scene:
     def __init__(self): self.name = "Package Smoke Scene"
 class Track:
@@ -207,9 +210,23 @@ class Instance:
     def __init__(self): self.song = Song()
 probe = socket.socket(); probe.bind(("127.0.0.1", 0)); port = probe.getsockname()[1]; probe.close()
 secret_path = os.environ.get("ABLETON_MCP_SMOKE_SECRET_FILE")
-if not secret_path:
-    raise RuntimeError("package smoke secret file was not provided through the environment")
-bridge = AbletonMcpBridge(Instance(), {"host":"127.0.0.1", "port":port, "secret":pathlib.Path(secret_path).read_text(encoding="utf-8").strip()})
+diagnostics_path = os.environ.get("ABLETON_MCP_SMOKE_DIAGNOSTICS_FILE")
+if not secret_path or not diagnostics_path:
+    raise RuntimeError("package smoke owner files were not provided through the environment")
+bridge = AbletonMcpBridge(Instance(), {"host":"127.0.0.1", "port":port, "secret":pathlib.Path(secret_path).read_text(encoding="utf-8").strip(), "diagnostics":{"path":diagnostics_path,"maxBytes":256 * 1024}}, diagnostics_validator=_diagnostics_path_safe)
+try:
+    raise RuntimeError("diagnostics-secret-canary /Users/example/Project.als browser-query token mac pcm")
+except RuntimeError:
+    _debug_trace("dispatch-failure")
+diagnostics_deadline = time.time() + 10.0
+while time.time() < diagnostics_deadline:
+    logged = pathlib.Path(diagnostics_path).read_text(encoding="utf-8")
+    if '"event":"dispatch-failure"' in logged: break
+    time.sleep(0.02)
+else:
+    bridge.disconnect(); raise RuntimeError("configured diagnostics sink produced no record")
+if "diagnostics-secret-canary" in logged or "Project.als" in logged or pathlib.Path(diagnostics_path).stat().st_size > 256 * 1024:
+    bridge.disconnect(); raise RuntimeError("configured diagnostics sink leaked or exceeded its bound")
 deadline = time.time() + 5.0
 while time.time() < deadline:
     client = socket.socket(); client.settimeout(0.1)
@@ -231,7 +248,7 @@ finally: bridge.disconnect()
   const bridgeErrorPath = join(temporaryDirectory, "bridge-smoke-stderr.log");
   bridgeProcess = spawn(python, [bridgeScript, readyPath], {
     cwd: temporaryDirectory,
-    env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1", PYTHONPATH: join(installedPackageDirectory, "remote-script"), ABLETON_MCP_SMOKE_SECRET_FILE: secretPath },
+    env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1", PYTHONPATH: join(installedPackageDirectory, "remote-script"), ABLETON_MCP_SMOKE_SECRET_FILE: secretPath, ABLETON_MCP_SMOKE_DIAGNOSTICS_FILE: smokeDiagnosticsPath },
     stdio: ["ignore", "ignore", openSync(bridgeErrorPath, "w")],
   });
   try {

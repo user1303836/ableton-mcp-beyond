@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   candidate:
-    name: Build exact private candidate
+    name: Build exact local candidate
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -52,6 +52,7 @@ jobs:
           sudo apt-get install --yes --no-install-recommends ffmpeg
       - run: npm run audio:oracle
       - run: npm run compatibility
+      - run: npm run package:verify
       - shell: bash
         run: |
           set -euo pipefail
@@ -81,7 +82,7 @@ jobs:
           echo "artifact_name=$filename" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: exact-private-candidate
+          name: exact-local-candidate
           path: ${{ runner.temp }}/candidate/
           if-no-files-found: error
           retention-days: 14
@@ -111,7 +112,7 @@ jobs:
       - run: npm ci
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: exact-private-candidate
+          name: exact-local-candidate
           path: ${{ runner.temp }}/ableton-candidate
       - run: npm run typecheck
       - run: npm test
@@ -170,9 +171,23 @@ jobs:
           python-version: "3.11"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: exact-private-candidate
+          name: exact-local-candidate
           path: ${{ runner.temp }}/ableton-candidate
       - name: Bind Python assets to the exact shared candidate
         run: python ../apps/mcp-server/scripts/verify-candidate-python.py "${{ runner.temp }}/ableton-candidate/${{ needs.candidate.outputs.artifact_name }}" "${{ runner.temp }}/ableton-candidate/candidate-metadata.json"
       - run: python -m unittest discover -s . -p 'test_*.py'
       - run: python -m compileall -q AbletonMcpBridge
+
+  required:
+    name: Required CI
+    if: always()
+    needs: [candidate, node, remote-script]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require the complete exact-candidate contract matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ needs.candidate.result }}" = "success"
+          test "${{ needs.node.result }}" = "success"
+          test "${{ needs.remote-script.result }}" = "success"

@@ -64,9 +64,9 @@ Every mutation follows **discover → preview → confirm → apply → verify �
 
 | Surface | Status |
 |---|---|
-| Node.js 22 / 24 / 25 | Supported (CI-tested) |
+| Node.js 22 / 24 / 25 | Supported contract; a green exact-current-SHA matrix is required |
 | macOS + Live 12 | Verified against 12.4.5b8 beta ([evidence](docs/evidence/)) |
-| Windows host | CI-tested; Windows 11 + Live not yet certified |
+| Windows host | CI contract configured; current exact-SHA result required; Windows 11 + Live not certified |
 | Linux / Live 11 or earlier | Unsupported |
 
 Capabilities are negotiated at connect time, so your agent always knows exactly what a given Live install can do. Full matrix: [docs/SUPPORT_MATRIX.md](docs/SUPPORT_MATRIX.md).
@@ -87,4 +87,4 @@ Capabilities are negotiated at connect time, so your agent always knows exactly 
 
 ## License
 
-Open source under the [MIT License](LICENSE.md). Ableton Live is a trademark of Ableton AG; this project is not affiliated with or endorsed by Ableton AG.
+Open source under the [MIT License](LICENSE.md). Package `private: true` and the local unpublished, unsigned, unnotarized delivery channel prevent accidental publication but do not change MIT rights. Ableton Live is a trademark of Ableton AG; MIT does not grant Ableton trademark rights or imply affiliation, endorsement, signing, or certification.

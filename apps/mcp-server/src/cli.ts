@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 
-import { readAnyConfig, readSecretFile } from "./delivery.js";
+import { assertSupportedNodeRuntime, readAnyConfig, readSecretFile } from "./delivery.js";
 import { RemoteScriptLiveAdapter } from "./bridge/remote-adapter.js";
 import { serve } from "./host.js";
+
+try { assertSupportedNodeRuntime(); } catch (error) {
+  process.stderr.write(`mcp-host: ${error instanceof Error ? error.message : "unsupported Node.js runtime"}\n`);
+  process.exitCode = 1;
+}
 
 const userArgs = process.argv.slice(2);
 const repeatedConfig = userArgs.filter((arg) => arg === "--config").length > 1;

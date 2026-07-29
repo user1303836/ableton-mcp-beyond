@@ -8,6 +8,18 @@ only field is an absolute path to a separate owner-only bridge configuration.
 It does not use environment variables or command-line secrets; missing,
 malformed, symlinked, non-loopback, or weak-secret configuration fails closed.
 
+Remote Script file diagnostics are absent and disabled by default. The supported
+opt-in is lifecycle provisioning with `--enable-bridge-diagnostics`, which adds
+an absolute owner-only, single-link regular file under the lifecycle state
+directory to the owner-only configuration. Creating the former predictable
+`/tmp/ableton-mcp-bridge-debug.log` path has no effect. Callers enqueue only
+fixed event and coarse error-category codes into a nonblocking 64-record queue;
+a daemon writer emits records of at most 512 bytes and resets the owner file
+before it can exceed 256 KiB. It never writes exception messages, tracebacks,
+requests, names, queries, secrets, tokens, MACs, PCM, or media paths. Queue
+saturation drops events, and descriptor/path drift or any write failure disables
+the sink without changing bridge behavior.
+
 The bridge uses the authenticated `ableton-loopback/v1` wire contract with
 HMAC-SHA256, canonical JSON, bounded frames and collections, positive safe
 sequences, replay rejection, and redacted errors. An authenticated server

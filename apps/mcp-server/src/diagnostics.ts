@@ -10,7 +10,9 @@ const config = configIndex >= 0 ? process.argv[configIndex + 1] : undefined;
 if (process.exitCode === undefined && configIndex >= 0 && (!config || config.startsWith("-"))) {
   process.stderr.write("diagnostics: --config requires a path\n"); process.exitCode = 2;
 } else if (process.exitCode === undefined) try {
-  console.log(JSON.stringify(await diagnosticsAsync(undefined, config), null, 2));
+  const report = await diagnosticsAsync(undefined, config);
+  console.log(JSON.stringify(report, null, 2));
+  if (!report.nodeSupported || !report.platformSupported) process.exitCode = 1;
 } catch {
   process.exitCode = 1;
 }

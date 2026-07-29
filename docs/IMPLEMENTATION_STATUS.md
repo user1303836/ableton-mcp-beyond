@@ -79,16 +79,21 @@ a current capability report.
 - Packed-artifact production journey, Python mapper tests, property tests,
   isolated resource benchmarks, compatibility/package verification, and
   Windows permission hardening.
-- Private/unpublished `UNLICENSED` release staging with an independently exact
-  77-file allowlist, full payload hashes, and clean-SHA/toolchain/lock/workflow
-  provenance. The release workflow is configured to require fresh-clone byte
-  reproducibility and share one exact candidate across Node 22/24/25 on Ubuntu 24.04, macOS 15, and Windows Server 2025.
+- MIT-licensed, local/unpublished release-v2 staging with an independently exact
+  77-file allowlist, full payload hashes, packed-license byte equality, and
+  clean-SHA/toolchain/lock/workflow provenance. Package `private: true` prevents
+  accidental npm publication without changing MIT rights. The release workflow
+  is configured to require fresh-clone byte reproducibility and share one exact
+  candidate across Node 22/24/25 on Ubuntu 24.04, macOS 15, and Windows Server 2025.
 - Receipt-driven install, truthful manual activation, strict newer-version
   upgrade, exact rollback, receipt-bound repair/quarantine, retained cleanup,
   ownership-safe uninstall/purge, and status. The lifecycle verifies actual
   tarball bytes/inventory, owner permissions, link/junction ancestors, ports,
   locks, generations, package/config/Remote Script integrity, and recoverable
-  failure state. Legacy/v1-to-v2 migration is explicit and secret-preserving.
+  failure state. An explicit install-only diagnostics opt-in provisions one
+  descriptor-fenced owner file; fixed redacted records are queued off callback
+  threads, capped at 256 KiB, and disabled on drift/write failure. Legacy/v1-to-v2
+  migration is explicit and secret-preserving.
 
 ## Evidence boundary
 
@@ -127,8 +132,9 @@ be opened, copied, staged, packaged, or cited as implementation evidence.
   plug-in windows remains client/version-dependent and is not claimed.
 - Native signing/notarization, Windows desktop/real-Live evidence, external
   VoiceOver/Narrator/client evidence, and public publication are not available
-  for the chosen channel. The channel stays explicitly private, unsigned,
-  unnotarized, and unpublished; those external cells are not inferred from host
+  for the chosen channel. The channel stays explicitly local, unsigned,
+  unnotarized, and unpublished; npm `private: true` prevents accidental
+  publication without changing MIT rights. Those external cells are not inferred from host
   CI or the server-owned text accessibility contract.
 
 ## Operating procedure

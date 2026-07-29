@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { LIFECYCLE_ACTIONS, runLifecycle, type LifecycleAction, type LifecycleOptions } from "./lifecycle.js";
 
 function usage(): never {
-  throw new Error("usage: ableton-mcp-lifecycle <install|activate|upgrade|repair|rollback|uninstall|status> --remote-scripts-dir ABSOLUTE_PATH [--state-dir ABSOLUTE_PATH] [--package-root ABSOLUTE_PATH] --artifact ABSOLUTE_TARBALL --artifact-sha256 HEX [--config PATH] [--secret PATH] [--host 127.0.0.1|::1] [--port N] [--realtime-port N] [--timeout-ms N] [--apply] [--confirm-live-stopped] [--purge-secret] [--allow-dirty-private-build]");
+  throw new Error("usage: ableton-mcp-lifecycle <install|activate|upgrade|repair|rollback|uninstall|status> --remote-scripts-dir ABSOLUTE_PATH [--state-dir ABSOLUTE_PATH] [--package-root ABSOLUTE_PATH] --artifact ABSOLUTE_TARBALL --artifact-sha256 HEX [--config PATH] [--secret PATH] [--host 127.0.0.1|::1] [--port N] [--realtime-port N] [--timeout-ms N] [--apply] [--confirm-live-stopped] [--purge-secret] [--enable-bridge-diagnostics] [--allow-dirty-private-build]");
 }
 
 function defaultStateDirectory(): string {
@@ -30,7 +30,7 @@ function parse(argv: string[]): LifecycleOptions {
   const values = new Map<string, string>();
   const flags = new Set<string>();
   const valueOptions = new Set(["--remote-scripts-dir", "--state-dir", "--package-root", "--artifact", "--artifact-sha256", "--config", "--secret", "--host", "--port", "--realtime-port", "--timeout-ms"]);
-  const flagOptions = new Set(["--apply", "--confirm-live-stopped", "--purge-secret", "--allow-dirty-private-build"]);
+  const flagOptions = new Set(["--apply", "--confirm-live-stopped", "--purge-secret", "--enable-bridge-diagnostics", "--allow-dirty-private-build"]);
   while (argv.length > 0) {
     const key = argv.shift()!;
     if (values.has(key) || flags.has(key)) throw new Error(`duplicate option: ${key}`);
@@ -61,6 +61,7 @@ function parse(argv: string[]): LifecycleOptions {
     apply: flags.has("--apply"),
     confirmLiveStopped: flags.has("--confirm-live-stopped"),
     purgeSecret: flags.has("--purge-secret"),
+    enableBridgeDiagnostics: flags.has("--enable-bridge-diagnostics"),
     allowDirtyPrivateBuild: flags.has("--allow-dirty-private-build"),
   };
 }

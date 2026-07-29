@@ -4,12 +4,14 @@ Ableton MCP Beyond is a fail-closed MCP host. With no explicit configuration it 
 
 ## Install and start
 
-The supported runtime majors are Node.js 22, 24, and 25. Node 20 and untested
-future majors are not supported. Private tarball installations should use the
-receipt-driven `ableton-mcp-lifecycle` flow in [DELIVERY.md](DELIVERY.md) for
-install, activation verification, upgrade, repair, rollback, and uninstall.
-The artifact is private/unpublished and requires its exact SHA-256; see
-[DISTRIBUTION_POLICY.md](DISTRIBUTION_POLICY.md). For a source checkout:
+The supported runtime majors are Node.js 22, 24, and 25. Node 21, 23, 26, 27,
+and unlisted/future majors are not supported. Local tarball installations
+should use the receipt-driven `ableton-mcp-lifecycle` flow in
+[DELIVERY.md](DELIVERY.md) for install, activation verification, upgrade,
+repair, rollback, and uninstall. The artifact is MIT licensed, locally
+delivered, unpublished, unsigned, and requires its exact SHA-256; npm
+`private: true` prevents accidental publication but does not change MIT rights.
+See [DISTRIBUTION_POLICY.md](DISTRIBUTION_POLICY.md). For a source checkout:
 
 ```sh
 cd apps/mcp-server
@@ -115,6 +117,13 @@ npm run setup -- --output /absolute/path/bridge-config.json \
 ```
 
 Version 2 writes the explicit `--config PATH` argument. The secret is never placed in client arguments, the package, the Remote Script reference, logs, or diagnostics. Paths must be explicit, safe, non-symlink paths; hosts must be loopback; secrets must be strong and owner-controlled. `--realtime-port` is optional, must differ from the authenticated TCP port, and enables only the short-lived separately armed channel described in `REALTIME_CONTROL.md`.
+
+Remote Script file diagnostics are disabled by default and are not enabled by
+`setup` or by creating a temporary sentinel. The supported opt-in is
+`ableton-mcp-lifecycle install --enable-bridge-diagnostics`, which provisions
+one bounded owner-state file without placing payloads or secrets in it. See
+`OPERATIONS.md` and `DELIVERY.md`; use uninstall/reinstall without the flag to
+disable it.
 
 Install only to an explicitly selected destination:
 
