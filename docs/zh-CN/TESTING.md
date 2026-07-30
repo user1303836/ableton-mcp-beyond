@@ -49,13 +49,15 @@ Python 测试覆盖:零依赖的 Control Surface 入口、规范注册表加载�
 软件包验证器启动已安装的生产桥接,并检查已认证的 fake Set、场景、轨道、
 子槽位与播放发现。
 
-CI 在 Ubuntu 24.04 上构建一个干净的 tarball,从全新分离的本地克隆加
-全新 `npm ci` 重复打包并比对字节,记录精确的 Git SHA 与 tarball
-SHA-256,然后在每个 Node 22/24/25 的 Ubuntu 24.04、macOS 15 与
-Windows Server 2025 任务中安装同一产物。每个候选任务验证严格清单/
-哈希,并演练生命周期计划/安装、不可用激活、幂等修复、非自有回滚拒绝
-与卸载;Windows 还测试原生 ACL 修复、联接点拒绝、占用文件恢复与随附的
-版本 2 迁移。这些仍是宿主/软件包契约。
+CI 在 Ubuntu 24.04 上构建一个干净的本地未发布 tarball,上传前运行
+`package:verify`,再从全新分离的本地克隆加全新 `npm ci` 重复打包并
+比对字节,记录精确 Git SHA 与 tarball SHA-256,然后在每个 Node 22/24/25
+的 Ubuntu 24.04、macOS 15 与 Windows Server 2025 任务中安装同一产物。
+每个候选任务验证严格清单/哈希,并演练生命周期计划/安装、不可用激活、
+幂等修复、非自有回滚拒绝与卸载;Windows 还测试原生 ACL 修复、联接点
+拒绝、占用文件恢复与随附的版本 2 迁移。稳定的 `Required CI` 检查只有在
+候选、完整 Node/OS 矩阵与完整 Python 矩阵全部成功时才通过。这些仍是
+宿主/软件包契约。
 
 操作者专用的打包真实 Live Phase 8 验证器不是 CI 替代品。安装 `npm pack`
 产物并 visibly 准备一次性 Set/输出/目标路由后,用显式证据输入运行:

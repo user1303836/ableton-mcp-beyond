@@ -73,13 +73,13 @@
 
 | 域 | 实现 / 安全 | 测试与证据 | 支持状态 | 限制 / 文档 |
 |---|---|---|---|---|
-| 发布产物 | 严格 77 路径 npm tarball、发布清单、负载角色/哈希、MIT 许可证 | `package:verify`、候选与 Python 绑定器、全新克隆字节比对 | 精确 SHA 本地 tarball;未发布到 npm | `DELIVERY.md`;未签名、未公证 |
+| 发布产物 | 严格 77 路径 MIT npm tarball、发布清单、负载角色/哈希、许可证字节相等 | `package:verify`、候选与 Python 绑定器、全新克隆字节比对 | 仅限精确 SHA 的本地未发布 tarball | `DISTRIBUTION_POLICY.md`;npm `private: true`,未签名、未公证、未发布 |
 | 安装/激活 | `ableton-mcp-lifecycle` 回执/日志/锁;D/FS | 生命周期单元 + 已安装候选矩阵;激活要求真实 Live 与完整的回执绑定软件包 | macOS 15 与 Windows Server 2025 宿主契约,以精确 SHA CI 为条件 | Windows Live/Windows 11 激活未认证;`DELIVERY.md` |
 | 升级/修复/回滚/卸载 | 精确的更新产物、隔离/保留清理、精确先前代际、owner-only 清除 | 生命周期单元、候选 OS 矩阵(含 Windows ACL/联接点/占用文件用例) | 托管精确 SHA 结果前仅为宿主契约 | 无原生安装器;操作者必须停止/重启 Live |
 | Node/OS 兼容性 | Node 22/24/25;Ubuntu 24.04、macOS 15、Windows Server 2025 工作流 | 完整 Node 测试加精确已安装候选;Python 3.11 映射器 | 有条件;见当前检查结果 | Linux 无 Live 声明;Windows 11 不继承自 Server |
 | 键盘操作 | 服务器 stdio 与生命周期 CLI 只需要键盘/stdin;有序文本状态 | 打包旅程与候选 CLI 测试 | 服务器自有文本边界 | 第三方客户端、终端与 Live 拥有焦点行为 |
 | 屏幕阅读器 | 无服务器自有视觉 UI;语义文本与非颜色状态 | 仅契约检查,不是 VoiceOver/Narrator 交互证据 | **未认证** | VoiceOver、Narrator、Live、插件与 MCP 客户端行为需要单独的交互平台证据;`USER_JOURNEYS.md`、`SUPPORT_MATRIX.md` |
-| 签名/发布 | 显式不可用诊断与策略 | 软件包/候选策略断言 | 不适用于当前本地 tarball 渠道 | 需要授权身份与单独的渠道决策 |
+| 签名/发布 | 显式不可用诊断与策略 | 软件包/候选策略断言 | 不适用于当前本地未发布渠道 | MIT 权利与此独立;需要授权身份与单独的发布决策 |
 
 ## 证据新鲜度规则
 

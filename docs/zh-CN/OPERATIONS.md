@@ -32,6 +32,15 @@ npm run diagnostics -- --config /absolute/path/bridge-config.json
 哈希、epoch、协议和 `liveConnected` 分开报告。文件、进程、开放端口、已
 安装软件包、模拟器或 fake-Live 结果都不能证明真实的 Live 连接。
 
+Remote Script 文件诊断是独立且默认禁用的本地契约。只能在生命周期安装时
+通过 `--enable-bridge-diagnostics` 配置;创建可预测的临时文件无法启用它。
+目标是所选状态目录下 owner-only、无链接的 `bridge-diagnostics.log`。一个
+非阻塞的 64 记录队列供给守护写入线程;单条最多 512 字节,文件在超过
+256 KiB 前重置。记录仅含时间戳、固定事件码、粗粒度允许类别与有界丢弃数,
+不含异常消息/回溯、请求、密钥/MAC/令牌、Set/工程/对象名、Browser 查询、
+PCM 或媒体路径。队列压力会丢弃记录;链接/路径漂移、写满/写入失败或不安全
+描述符只会禁用日志,不会改变原操作错误。
+
 ## 限制与关停
 
 宿主限制:JSON-RPC 帧 64 MiB;远程帧 1 MiB;远程待处理工作 64 个请求;

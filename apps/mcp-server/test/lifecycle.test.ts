@@ -12,6 +12,7 @@ import { LIVE_REGISTRY_HASH } from "../src/live.js";
 import { assertNoLinkedAncestors, runLifecycle, type LifecycleOptions, type LifecycleReceipt } from "../src/lifecycle.js";
 
 const sha = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
+const mitLicense = readFileSync(new URL("../../../../LICENSE.md", import.meta.url), "utf8");
 const artifacts = new Map<string, { path: string; sha256: string }>();
 
 function createArtifact(path: string, manifest: Buffer, packageRoot: string, extras: Record<string, string> = {}): void {
@@ -30,11 +31,13 @@ function createArtifact(path: string, manifest: Buffer, packageRoot: string, ext
   writeFileSync(path, gzipSync(Buffer.concat([...chunks, Buffer.alloc(1024)])));
 }
 
-function fixturePackage(root: string, version: string, marker: string): string {
-  const packageRoot = join(root, `candidate ${version} ü`);
-  const packageMetadata = `${JSON.stringify({ name: "@ableton-mcp/mcp-server", version, private: true, license: "UNLICENSED", type: "module" })}\n`;
+function fixturePackage(root: string, version: string, marker: string, policy: "current" | "legacy" = "current"): string {
+  const packageRoot = join(root, `candidate ${version} ü ${policy}`);
+  const license = policy === "current" ? "MIT" : "UNLICENSED";
+  const packageMetadata = `${JSON.stringify({ name: "@ableton-mcp/mcp-server", version, private: true, license, type: "module", ...(policy === "current" ? { engines: { node: ">=22 <23 || >=24 <25 || >=25 <26" }, abletonMcpSupport: { nodeMajors: [22, 24, 25] } } : {}) })}\n`;
   const files = new Map<string, string>([
     ["package.json", packageMetadata],
+    ["LICENSE.md", policy === "current" ? mitLicense : "# Legacy private license notice\n"],
     ["dist/src/cli.js", `#!/usr/bin/env node\n// ${marker}\n`],
     ["remote-script/AbletonMcpBridge/__init__.py", "def create_instance(c_instance):\n    return None\n"],
     ["remote-script/AbletonMcpBridge/ableton_mcp_remote_script.py", `class AbletonMcpBridge:\n    marker = ${JSON.stringify(marker)}\n`],
@@ -46,24 +49,45 @@ function fixturePackage(root: string, version: string, marker: string): string {
     writeFileSync(path, content);
   }
   const manifest = {
-    schema: "ableton-mcp-private-release/v1",
-    package: { name: "@ableton-mcp/mcp-server", version, license: "UNLICENSED", private: true },
-    source: { commit: marker.padEnd(40, "0").slice(0, 40), dirty: true },
-    build: { runtime: "TypeScript compiled JavaScript", nodeRange: ">=22 <26", recipe: "test fixture", builder: { node: process.versions.node, npm: "fixture", typescript: "fixture", platform: process.platform, architecture: process.arch, runnerImage: "fixture", runnerImageVersion: "fixture", packageLockSha256: "a".repeat(64), workflowSha256: "b".repeat(64) } },
+    schema: policy === "current" ? "ableton-mcp-release/v2" : "ableton-mcp-private-release/v1",
+    package: { name: "@ableton-mcp/mcp-server", version, license, private: true },
+    source: { commit: sha(marker).slice(0, 40), dirty: true },
+    build: { runtime: "TypeScript compiled JavaScript", nodeRange: policy === "current" ? ">=22 <23 || >=24 <25 || >=25 <26" : ">=22 <26", ...(policy === "current" ? { nodeMajors: [22, 24, 25] } : {}), recipe: "test fixture", builder: { node: process.versions.node, npm: "fixture", typescript: "fixture", platform: process.platform, architecture: process.arch, runnerImage: "fixture", runnerImageVersion: "fixture", packageLockSha256: "a".repeat(64), workflowSha256: "b".repeat(64) } },
     protocol: { registryHash: LIVE_REGISTRY_HASH },
-    distribution: { channel: "private-local-npm-tarball", published: false, signed: false, notarized: false },
+    distribution: { channel: policy === "current" ? "local-npm-tarball" : "private-local-npm-tarball", published: false, signed: false, notarized: false, integrityIsIdentityProof: false },
     algorithm: "sha256",
     files: Object.fromEntries([...files].map(([name, content]) => [name, sha(content)])),
+    roles: Object.fromEntries([...files.keys()].map((name) => [name, name === "LICENSE.md" ? policy === "current" ? "license" : "private-license" : name === "package.json" ? "package-metadata" : name.startsWith("dist/src/") ? "compiled-runtime" : name.startsWith("release-docs/") ? "documentation" : "ableton-remote-script"])),
   };
   const manifestBytes = Buffer.from(`${JSON.stringify(manifest)}\n`);
   writeFileSync(join(packageRoot, "release-manifest.json"), manifestBytes);
-  const artifactPath = join(root, `candidate-${version}-${marker}.tgz`);
+  const artifactPath = join(root, `candidate-${version}-${marker}-${policy}.tgz`);
   createArtifact(artifactPath, manifestBytes, packageRoot);
   artifacts.set(packageRoot, { path: artifactPath, sha256: sha(readFileSync(artifactPath)) });
   return packageRoot;
 }
 
 function artifactOptions(packageRoot: string) { return { artifactPath: artifacts.get(packageRoot)!.path, artifactSha256: artifacts.get(packageRoot)!.sha256 }; }
+
+function rebindInstalledReceiptToLegacyPackage(options: LifecycleOptions, packageRoot: string): void {
+  const saved = receipt(options);
+  const manifestPath = join(packageRoot, "release-manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  assert.equal(manifest.schema, "ableton-mcp-private-release/v1");
+  const config = structuredClone(saved.config);
+  config.server.args[0] = join(packageRoot, "dist", "src", "cli.js");
+  writeFileSync(saved.configPath, `${JSON.stringify(config, null, 2)}\n`);
+  Object.assign(saved, {
+    packageRoot,
+    packageVersion: manifest.package.version,
+    artifactSha256: artifacts.get(packageRoot)!.sha256,
+    releaseManifestSha256: sha(readFileSync(manifestPath)),
+    registryHash: manifest.protocol.registryHash,
+    config,
+    configSha256: sha(readFileSync(saved.configPath)),
+  });
+  writeFileSync(join(options.stateDirectory, "install-receipt.json"), `${JSON.stringify(saved, null, 2)}\n`);
+}
 
 function lifecycleOptions(root: string, packageRoot: string, action: LifecycleOptions["action"], overrides: Partial<LifecycleOptions> = {}): LifecycleOptions {
   const remoteScriptsDirectory = join(root, "Live Remote Scripts ü");
@@ -172,6 +196,55 @@ test("installs into paths with spaces and Unicode, records exact artifact identi
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("provisions bridge diagnostics only by explicit lifecycle opt-in and detects destination drift", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ableton-lifecycle-diagnostics-"));
+  try {
+    const packageRoot = fixturePackage(root, "1.0.1", "diagnostics");
+    const options = await withPorts(lifecycleOptions(root, packageRoot, "install", { enableBridgeDiagnostics: true }));
+    const installed = await runLifecycle(options);
+    const saved = receipt(options);
+    const diagnostics = saved.config.bridge.diagnostics!;
+    assert.equal(diagnostics.path, join(options.stateDirectory, "bridge-diagnostics.log"));
+    assert.equal(diagnostics.maxBytes, 256 * 1024);
+    assert.equal((installed.verification.bridgeDiagnostics as any).permissions, "owner-only");
+    const entry = lstatSync(diagnostics.path);
+    assert.equal(entry.isFile() && !entry.isSymbolicLink() && entry.nlink === 1, true);
+    if (process.platform !== "win32") assert.equal(entry.mode & 0o777, 0o600);
+    const healthy = await runLifecycle({ ...options, action: "status", apply: false, confirmLiveStopped: false, enableBridgeDiagnostics: false });
+    assert.equal((healthy.verification.bridgeDiagnostics as any).valid, true);
+    await assert.rejects(runLifecycle({ ...options, action: "status", apply: false, confirmLiveStopped: false }), /only during lifecycle install/);
+    rmSync(diagnostics.path);
+    const missing = await runLifecycle({ ...options, action: "status", apply: false, confirmLiveStopped: false, enableBridgeDiagnostics: false });
+    assert.equal(missing.verification.installationIntegrityValid, false);
+    const repaired = await runLifecycle({ ...options, action: "repair", enableBridgeDiagnostics: false });
+    assert.equal(repaired.verification.diagnosticsRepaired, true);
+    assert.equal(lstatSync(diagnostics.path).isFile(), true);
+    const repairedStatus = await runLifecycle({ ...options, action: "status", apply: false, confirmLiveStopped: false, enableBridgeDiagnostics: false });
+    assert.equal(repairedStatus.verification.installationIntegrityValid, true);
+    if (process.platform !== "win32") {
+      const moved = `${diagnostics.path}.moved`; renameSync(diagnostics.path, moved); symlinkSync(moved, diagnostics.path);
+      const drifted = await runLifecycle({ ...options, action: "status", apply: false, confirmLiveStopped: false, enableBridgeDiagnostics: false });
+      assert.equal(drifted.verification.installationIntegrityValid, false);
+      assert.equal((drifted.verification.bridgeDiagnostics as any).valid, false);
+      const repairedLink = await runLifecycle({ ...options, action: "repair", enableBridgeDiagnostics: false });
+      assert.equal(repairedLink.verification.diagnosticsRepaired, true);
+      assert.equal(lstatSync(diagnostics.path).isFile() && !lstatSync(diagnostics.path).isSymbolicLink(), true);
+      const linkRepairStatus = await runLifecycle({ ...options, action: "status", apply: false, confirmLiveStopped: false, enableBridgeDiagnostics: false });
+      assert.equal(linkRepairStatus.verification.installationIntegrityValid, true);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("failed diagnostics-enabled install removes only the file it created", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ableton-lifecycle-diagnostics-failure-"));
+  try {
+    const packageRoot = fixturePackage(root, "1.0.1", "diagnostics-failure");
+    const options = await withPorts(lifecycleOptions(root, packageRoot, "install", { enableBridgeDiagnostics: true, faultAt: "after-config" }));
+    await assert.rejects(runLifecycle(options), /injected lifecycle failure/);
+    assert.equal(existsSync(join(options.stateDirectory, "bridge-diagnostics.log")), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("legacy receipts cannot bypass the managed Python cache blocker and repair migrates them", async () => {
   const root = mkdtempSync(join(tmpdir(), "ableton-lifecycle-cache-migration-"));
   try {
@@ -252,21 +325,63 @@ test("detects drift, quarantines it, and repairs only managed payload", async ()
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("upgrades, retains an exact generation, rolls back, and survives failed upgrade", async () => {
+test("rejects mixed release policy tuples", async () => {
+  for (const mutate of [
+    (manifest: any) => { manifest.schema = "ableton-mcp-private-release/v1"; },
+    (manifest: any) => { manifest.package.license = "UNLICENSED"; },
+    (manifest: any) => { manifest.distribution.channel = "private-local-npm-tarball"; },
+    (manifest: any) => { manifest.roles["LICENSE.md"] = "private-license"; },
+    (manifest: any) => { manifest.roles["dist/src/cli.js"] = "documentation"; },
+    (manifest: any) => { delete manifest.distribution.published; },
+    (manifest: any) => { manifest.distribution.signed = null; },
+    (manifest: any) => { manifest.distribution.notarized = 0; },
+    (manifest: any) => { manifest.source.dirty = null; },
+    (manifest: any) => { manifest.source.commit = "not-a-commit"; },
+    (manifest: any) => { manifest.source.commit = ["a".repeat(40)]; },
+  ]) {
+    const root = mkdtempSync(join(tmpdir(), "ableton-lifecycle-policy-mix-"));
+    try {
+      const packageRoot = fixturePackage(root, "1.0.1", "mixed");
+      const manifestPath = join(packageRoot, "release-manifest.json");
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")); mutate(manifest); writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
+      const options = lifecycleOptions(root, packageRoot, "install");
+      await assert.rejects(runLifecycle(options), /release manifest policy is invalid|package metadata and release manifest policy disagree/);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
+  const root = mkdtempSync(join(tmpdir(), "ableton-lifecycle-license-bytes-"));
+  try {
+    const packageRoot = fixturePackage(root, "1.0.1", "license-bytes");
+    const replacement = "# MIT License\n\nnot the repository license\n";
+    writeFileSync(join(packageRoot, "LICENSE.md"), replacement);
+    const manifestPath = join(packageRoot, "release-manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.files["LICENSE.md"] = sha(replacement);
+    writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
+    await assert.rejects(runLifecycle(lifecycleOptions(root, packageRoot, "install")), /release manifest policy is invalid/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("upgrades a receipt-bound legacy release, retains it exactly, rolls back, and rejects new legacy candidates", async () => {
   const root = mkdtempSync(join(tmpdir(), "ableton-lifecycle-upgrade-"));
   try {
-    const packageOne = fixturePackage(root, "1.0.0", "one");
-    const packageTwo = fixturePackage(root, "2.0.0", "two");
-    const packageThree = fixturePackage(root, "3.0.0", "three");
-    let options = await withPorts(lifecycleOptions(root, packageOne, "install"));
+    const packageOneCurrent = fixturePackage(root, "1.0.0", "one");
+    const packageOneLegacy = fixturePackage(root, "1.0.0", "one", "legacy");
+    const packageTwo = fixturePackage(root, "1.0.1", "two");
+    const packageThree = fixturePackage(root, "1.0.2", "three");
+    const legacyUpgrade = fixturePackage(root, "1.0.2", "legacy-upgrade", "legacy");
+    await assert.rejects(runLifecycle(await withPorts(lifecycleOptions(root, packageOneLegacy, "install"))), /release\/v2 MIT candidate/);
+    let options = await withPorts(lifecycleOptions(root, packageOneCurrent, "install"));
     await runLifecycle(options);
+    rebindInstalledReceiptToLegacyPackage(options, packageOneLegacy);
+    const legacyStatus = await runLifecycle({ ...options, action: "status", apply: false, confirmLiveStopped: false });
+    assert.equal(legacyStatus.verification.packageValid, true);
     const upgraded = await runLifecycle({ ...options, action: "upgrade", packageRoot: packageTwo, ...artifactOptions(packageTwo) });
     assert.equal(upgraded.recovery.rollbackAvailable, true);
-    assert.equal(receipt(options).packageVersion, "2.0.0");
+    assert.equal(receipt(options).packageVersion, "1.0.1");
     assert.match(readFileSync(join(options.remoteScriptsDirectory, "AbletonMcpBridge", "ableton_mcp_remote_script.py"), "utf8"), /two/);
     const beforeFailedRollback = receipt(options);
     await assert.rejects(runLifecycle({ ...options, action: "rollback", packageRoot: packageTwo, faultAt: "after-rollback-config" }), /injected lifecycle failure/);
-    assert.equal(receipt(options).packageVersion, "2.0.0");
+    assert.equal(receipt(options).packageVersion, "1.0.1");
     assert.match(readFileSync(join(options.remoteScriptsDirectory, "AbletonMcpBridge", "ableton_mcp_remote_script.py"), "utf8"), /two/);
     assert.deepEqual(JSON.parse(readFileSync(beforeFailedRollback.configPath, "utf8")), beforeFailedRollback.config);
     const rolledBack = await runLifecycle({ ...options, action: "rollback", packageRoot: packageTwo });
@@ -277,7 +392,8 @@ test("upgrades, retains an exact generation, rolls back, and survives failed upg
     // Roll forward again, then prove a failure after replacement restores the
     // active generation and leaves the owner receipt unchanged.
     await runLifecycle({ ...options, action: "upgrade", packageRoot: packageTwo, ...artifactOptions(packageTwo) });
-    await assert.rejects(runLifecycle({ ...options, action: "upgrade", packageRoot: packageOne, ...artifactOptions(packageOne) }), /strictly newer semantic package version/);
+    await assert.rejects(runLifecycle({ ...options, action: "upgrade", packageRoot: packageOneCurrent, ...artifactOptions(packageOneCurrent) }), /strictly newer semantic package version/);
+    await assert.rejects(runLifecycle({ ...options, action: "upgrade", packageRoot: legacyUpgrade, ...artifactOptions(legacyUpgrade) }), /release\/v2 MIT candidate/);
     const before = receipt(options);
     await assert.rejects(runLifecycle({ ...options, action: "upgrade", packageRoot: packageThree, ...artifactOptions(packageThree), faultAt: "before-remote" }), /injected lifecycle failure/);
     assert.equal(receipt(options).generation, before.generation);

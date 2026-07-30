@@ -11,7 +11,8 @@ MCP クライアントから Ableton MCP Beyond をインストール・設定�
 
 ## インストールと起動
 
-サポートされるランタイム: Node.js 22 / 24 / 25。ソースチェックアウトから:
+サポートされるランタイム: Node.js 22 / 24 / 25。Node 21、23、26、27、
+未列挙/将来のメジャーはサポートされません。ソースチェックアウトから:
 
 ```sh
 cd apps/mcp-server
@@ -29,7 +30,9 @@ JSON-RPC を初期化し、続けて `notifications/initialized` を送信して
 tarball によるインストールは、[DELIVERY.md](DELIVERY.md) のレシート駆動
 `ableton-mcp-lifecycle` フローで、インストール、アクティベーション、
 アップグレード、修復、ロールバック、アンインストールを行います。成果物は
-正確なパスと SHA-256 でインストールされます。
+MIT ライセンスで、ローカル配布・未公開・未署名であり、正確なパスと SHA-256
+でインストールされます。`private: true` は誤公開を防ぐだけで MIT の権利を
+変更しません。詳細は [DISTRIBUTION_POLICY.md](DISTRIBUTION_POLICY.md) を参照してください。
 
 ## 読み取り専用ツール
 
@@ -110,6 +113,13 @@ npm run setup -- --output /absolute/path/bridge-config.json \
 管理するものである必要があります。`--realtime-port` はオプションで、認証済み
 TCP ポートと異なる必要があり、[REALTIME_CONTROL.md](REALTIME_CONTROL.md) で
 説明されている個別にアームされるチャンネルのみを有効にします。
+
+Remote Script のファイル診断はデフォルトで無効で、`setup` や一時センチネルの
+作成では有効になりません。サポートされる明示的なオプトインは
+`ableton-mcp-lifecycle install --enable-bridge-diagnostics` です。ペイロードや
+シークレットを書かず、有界なオーナー状態ファイル 1 つだけを用意します。
+このフラグなしのアンインストール/再インストールで無効になります。詳細は
+[OPERATIONS.md](OPERATIONS.md) と [DELIVERY.md](DELIVERY.md) を参照してください。
 
 Remote Script は明示的に選択した宛先にのみインストールしてください:
 

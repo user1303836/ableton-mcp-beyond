@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { configForBridge, configForEntrypoint, diagnostics, generateSecret, installRemoteScript, isSupportedPlatform, migrateConfig, readAnyConfig, readConfig, readSecretFile, supportedNodeMajor, writeBridgeReference, writeConfig, writeSecretFile } from "../src/delivery.js";
+import { BRIDGE_DIAGNOSTICS_MAX_BYTES, NODE_ENGINE_RANGE, SUPPORTED_NODE_MAJORS, configForBridge, configForEntrypoint, diagnostics, generateSecret, installRemoteScript, isSupportedPlatform, migrateConfig, readAnyConfig, readConfig, readSecretFile, secureWindowsDirectory, supportedNodeMajor, unsupportedNodeMessage, writeBridgeReference, writeConfig, writeSecretFile } from "../src/delivery.js";
 import { npmExecutable } from "../src/platform.js";
 
 test("writes a versioned config and replaces it only with explicit force", () => {
@@ -98,6 +98,9 @@ test("diagnostics report local readiness separately from unavailable external ev
   assert.deepEqual(report.diagnosticErrors, []);
   assert.equal(report.entrypoint.path.replaceAll("\\", "/").endsWith("dist/src/cli.js"), true);
   assert.equal(report.platformSupported, true);
+  assert.deepEqual(report.supportedNodeMajors, [22, 24, 25]);
+  assert.equal(report.nodeSupported, true);
+  assert.equal(report.compatibilityError, null);
 });
 
 test("compatibility is explicit for the portable Node runtime", () => {
@@ -107,13 +110,18 @@ test("compatibility is explicit for the portable Node runtime", () => {
   assert.equal(isSupportedPlatform("aix"), false);
 });
 
-test("requires a maintained Node runtime", () => {
-  assert.equal(supportedNodeMajor("22.0.0"), true);
-  assert.equal(supportedNodeMajor("24.1.0"), true);
-  assert.equal(supportedNodeMajor("25.0.0"), true);
-  assert.equal(supportedNodeMajor("26.0.0"), false);
-  assert.equal(supportedNodeMajor("20.19.0"), false);
-  assert.equal(supportedNodeMajor("not-a-version"), false);
+test("canonical Node policy agrees for stable major fixtures 21 through 27", () => {
+  const expected = new Map([[21, false], [22, true], [23, false], [24, true], [25, true], [26, false], [27, false]]);
+  for (const [major, supported] of expected) assert.equal(supportedNodeMajor(`${major}.0.0`), supported, `Node ${major}`);
+  assert.deepEqual(SUPPORTED_NODE_MAJORS, [22, 24, 25]);
+  assert.equal(NODE_ENGINE_RANGE, ">=22 <23 || >=24 <25 || >=25 <26");
+  for (const prerelease of ["22.0.0-rc.1", "24.0.0-nightly.1", "25.1.0-pre"]) assert.equal(supportedNodeMajor(prerelease), false, prerelease);
+  for (const malformed of ["v22.0.0", "22", "22.0", "not-a-version"]) assert.equal(supportedNodeMajor(malformed), false, malformed);
+  assert.equal(unsupportedNodeMessage("23.4.0"), "Unsupported Node.js 23.4.0. Supported major versions: 22, 24, 25. Install one of those versions and retry.");
+  assert.equal(unsupportedNodeMessage("24.1.0"), null);
+  const packageJson = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+  assert.deepEqual(packageJson.abletonMcpSupport.nodeMajors, SUPPORTED_NODE_MAJORS);
+  assert.equal(packageJson.engines.node, NODE_ENGINE_RANGE);
 });
 
 test("delivery supports the three CI platforms without native packaging", () => {
@@ -135,16 +143,27 @@ test("npm start launches the stdio server entrypoint", () => {
 test("bridge configuration and secrets are explicit and fail closed", () => {
   const directory = mkdtempSync(join(tmpdir(), "ableton-mcp-"));
   const secretPath = join(directory, "secret");
+  secureWindowsDirectory(directory);
   writeSecretFile(secretPath);
   const secret = readSecretFile(secretPath);
   assert.equal(secret.length >= 32, true);
   const config = configForBridge("/opt/ableton-mcp/dist/src/cli.js", { host: "127.0.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000 });
   assert.equal(config.version, 2);
-  const generated = configForBridge("/opt/ableton-mcp/dist/src/cli.js", { host: "127.0.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000, realtimePort: 43211 }, "/usr/bin/node", join(directory, "bridge-config.json"));
+  const diagnosticsPath = join(directory, "bridge-diagnostics.log");
+  writeSecretFile(diagnosticsPath, "d".repeat(32));
+  const generated = configForBridge("/opt/ableton-mcp/dist/src/cli.js", { host: "127.0.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000, realtimePort: 43211, diagnostics: { path: diagnosticsPath, maxBytes: BRIDGE_DIAGNOSTICS_MAX_BYTES } }, "/usr/bin/node", join(directory, "bridge-config.json"));
   assert.deepEqual(generated.server.args, ["/opt/ableton-mcp/dist/src/cli.js", "--config", join(directory, "bridge-config.json")]);
   assert.equal(generated.bridge.realtimePort, 43211);
+  assert.deepEqual(generated.bridge.diagnostics, { path: diagnosticsPath, maxBytes: BRIDGE_DIAGNOSTICS_MAX_BYTES });
   writeConfig(join(directory, "bridge-config.json"), generated);
-  assert.equal((readAnyConfig(join(directory, "bridge-config.json")) as any).bridge.realtimePort, 43211);
+  const readBack = readAnyConfig(join(directory, "bridge-config.json")) as any;
+  assert.equal(readBack.bridge.realtimePort, 43211);
+  assert.deepEqual(readBack.bridge.diagnostics, { path: diagnosticsPath, maxBytes: BRIDGE_DIAGNOSTICS_MAX_BYTES });
+  const temporarilyMissingDiagnostics = `${diagnosticsPath}.missing`;
+  renameSync(diagnosticsPath, temporarilyMissingDiagnostics);
+  assert.deepEqual((readAnyConfig(join(directory, "bridge-config.json")) as any).bridge.diagnostics, { path: diagnosticsPath, maxBytes: BRIDGE_DIAGNOSTICS_MAX_BYTES });
+  renameSync(temporarilyMissingDiagnostics, diagnosticsPath);
+  assert.throws(() => configForBridge("/opt/cli.js", { host: "127.0.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000, diagnostics: { path: diagnosticsPath, maxBytes: 1 } as any }), /diagnostics configuration/);
   assert.throws(() => configForBridge("/opt/cli.js", { host: "127.0.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000, realtimePort: 43210 }), /realtime port/);
   assert.throws(() => configForBridge("/opt/cli.js", { host: "127.0.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000, inlineSecret: "forbidden" } as any), /unsupported bridge configuration fields/);
   assert.throws(() => configForBridge("/opt/cli.js", { host: "0.0.0.0", port: 43210, secretFile: secretPath, timeoutMs: 5000 }), /loopback/);
@@ -157,6 +176,10 @@ test("bridge configuration and secrets are explicit and fail closed", () => {
   if (process.platform !== "win32") {
     const linkedSecret = join(directory, "linked-secret"); symlinkSync(secretPath, linkedSecret);
     assert.throws(() => readSecretFile(linkedSecret), /symbolic link|regular file/);
+    const linkedDiagnostics = join(directory, "linked-diagnostics"); symlinkSync(diagnosticsPath, linkedDiagnostics);
+    assert.throws(() => configForBridge("/opt/cli.js", { host: "127.0.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000, diagnostics: { path: linkedDiagnostics, maxBytes: BRIDGE_DIAGNOSTICS_MAX_BYTES } }), /symbolic-link|single-link/);
+    const hardDiagnostics = join(directory, "hard-diagnostics"); linkSync(diagnosticsPath, hardDiagnostics);
+    assert.throws(() => configForBridge("/opt/cli.js", { host: "127.0.0.1", port: 43210, secretFile: secretPath, timeoutMs: 5000, diagnostics: { path: diagnosticsPath, maxBytes: BRIDGE_DIAGNOSTICS_MAX_BYTES } }), /single-link/);
     chmodSync(secretPath, 0o644);
     assert.throws(() => readSecretFile(secretPath), /permissions.*owner-only/);
   }

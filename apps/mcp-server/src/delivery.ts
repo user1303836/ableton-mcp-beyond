@@ -8,9 +8,15 @@ import type { LiveStatus } from "./live.js";
 
 export const CONFIG_VERSION = 1;
 export const BRIDGE_CONFIG_VERSION = 2;
-export const MIN_NODE_MAJOR = 22;
-export const SUPPORTED_NODE_MAJORS = [22, 24, 25] as const;
+const PACKAGE_METADATA = JSON.parse(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../..", "package.json"), "utf8")) as { version?: unknown; engines?: { node?: unknown }; abletonMcpSupport?: { nodeMajors?: unknown } };
+const configuredNodeMajors = PACKAGE_METADATA.abletonMcpSupport?.nodeMajors;
+if (!Array.isArray(configuredNodeMajors) || configuredNodeMajors.length === 0 || configuredNodeMajors.some((major) => !Number.isSafeInteger(major)) || new Set(configuredNodeMajors).size !== configuredNodeMajors.length) throw new Error("canonical Node support policy is invalid");
+if (typeof PACKAGE_METADATA.version !== "string" || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(PACKAGE_METADATA.version)) throw new Error("package version metadata is invalid");
+export const PACKAGE_VERSION = PACKAGE_METADATA.version;
+export const SUPPORTED_NODE_MAJORS: readonly number[] = Object.freeze([...configuredNodeMajors] as number[]);
+export const NODE_ENGINE_RANGE = String(PACKAGE_METADATA.engines?.node ?? "");
 export const SUPPORTED_PLATFORMS = ["darwin", "linux", "win32"] as const;
+export const BRIDGE_DIAGNOSTICS_MAX_BYTES = 256 * 1024;
 export const REMOTE_SCRIPT_ASSET = "ableton_mcp_remote_script.py";
 export const REMOTE_SCRIPT_PACKAGE = "AbletonMcpBridge";
 export const OPERATION_REGISTRY_ASSET = "ableton-live-v1.operations.json";
@@ -20,10 +26,15 @@ export interface ServerConfig {
   server: { command: string; args: string[] };
 }
 
+export interface BridgeDiagnosticsConfig {
+  path: string;
+  maxBytes: typeof BRIDGE_DIAGNOSTICS_MAX_BYTES;
+}
+
 export interface BridgeConfig {
   version: 2;
   server: { command: string; args: string[] };
-  bridge: { host: string; port: number; secretFile: string; timeoutMs: number; realtimePort?: number };
+  bridge: { host: string; port: number; secretFile: string; timeoutMs: number; realtimePort?: number; diagnostics?: BridgeDiagnosticsConfig };
 }
 
 type LiveStatusWithRegistry = { registryHash?: unknown; provenance?: unknown };
@@ -32,7 +43,9 @@ export interface DiagnosticReport {
   platform: NodeJS.Platform;
   arch: string;
   node: string;
+  supportedNodeMajors: readonly number[];
   nodeSupported: boolean;
+  compatibilityError: string | null;
   platformSupported: boolean;
   packageRoot: string;
   entrypoint: { path: string; present: boolean };
@@ -76,6 +89,24 @@ function validateSecretPath(path: string): void {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
+}
+
+function validateDiagnosticsFile(path: string): void {
+  if (!isAbsolute(path) || path.includes("\0")) throw new Error("diagnostics file must be an absolute safe path");
+  let cursor = resolve(path);
+  while (dirname(cursor) !== cursor) {
+    if (existsSync(cursor)) {
+      const entry = lstatSync(cursor);
+      const macCompatibilityRoot = platform === "darwin" && (cursor === "/var" || cursor === "/tmp");
+      if (entry.isSymbolicLink() && !macCompatibilityRoot) throw new Error("diagnostics path must not contain a symbolic-link or junction ancestor");
+    }
+    cursor = dirname(cursor);
+  }
+  const parent = dirname(path);
+  const parentEntry = lstatSync(parent);
+  if (!parentEntry.isDirectory() || parentEntry.isSymbolicLink() || secretPermissions(parent) !== "owner-only") throw new Error("diagnostics directory must be owner-only and non-linked");
+  const entry = lstatSync(path);
+  if (!entry.isFile() || entry.isSymbolicLink() || entry.nlink !== 1 || secretPermissions(path) !== "owner-only") throw new Error("diagnostics file must be an owner-only single-link regular file");
 }
 
 const WINDOWS_ACL_REASONS: Readonly<Record<number, string>> = {
@@ -175,8 +206,8 @@ export function secureWindowsDirectory(path: string): void {
   }
 }
 
-export function configForBridge(entrypoint: string, bridge: BridgeConfig["bridge"], nodeCommand = process.execPath, configPath?: string): BridgeConfig {
-  if (Object.keys(bridge).some((key) => !["host", "port", "secretFile", "timeoutMs", "realtimePort"].includes(key))) throw new Error("unsupported bridge configuration fields");
+export function configForBridge(entrypoint: string, bridge: BridgeConfig["bridge"], nodeCommand = process.execPath, configPath?: string, validateDiagnosticsDestination = true): BridgeConfig {
+  if (Object.keys(bridge).some((key) => !["host", "port", "secretFile", "timeoutMs", "realtimePort", "diagnostics"].includes(key))) throw new Error("unsupported bridge configuration fields");
   if (!isAbsolute(entrypoint)) throw new Error("entrypoint must be an absolute path");
   if (!Number.isInteger(bridge.port) || bridge.port < 1 || bridge.port > 65_535) throw new Error("bridge port must be between 1 and 65535");
   validateLoopback(bridge.host);
@@ -184,6 +215,11 @@ export function configForBridge(entrypoint: string, bridge: BridgeConfig["bridge
   if (configPath !== undefined && (!isAbsolute(configPath) || configPath.includes("\0"))) throw new Error("configuration path must be absolute");
   if (!Number.isInteger(bridge.timeoutMs) || bridge.timeoutMs < 100 || bridge.timeoutMs > 60_000) throw new Error("bridge timeout must be between 100 and 60000 ms");
   if (bridge.realtimePort !== undefined && (!Number.isInteger(bridge.realtimePort) || bridge.realtimePort < 1 || bridge.realtimePort > 65_535 || bridge.realtimePort === bridge.port)) throw new Error("realtime port must be distinct and between 1 and 65535");
+  if (bridge.diagnostics !== undefined) {
+    if (typeof bridge.diagnostics !== "object" || bridge.diagnostics === null || Object.keys(bridge.diagnostics).some((key) => !["path", "maxBytes"].includes(key)) || bridge.diagnostics.maxBytes !== BRIDGE_DIAGNOSTICS_MAX_BYTES) throw new Error("bridge diagnostics configuration is invalid");
+    if (typeof bridge.diagnostics.path !== "string" || !isAbsolute(bridge.diagnostics.path) || bridge.diagnostics.path.includes("\0")) throw new Error("bridge diagnostics path is invalid");
+    if (validateDiagnosticsDestination) validateDiagnosticsFile(bridge.diagnostics.path);
+  }
   if (typeof nodeCommand !== "string" || nodeCommand.length === 0) throw new Error("node command must be a non-empty string");
   return { version: 2, server: { command: nodeCommand, args: configPath ? [entrypoint, "--config", configPath] : [entrypoint] }, bridge: { ...bridge } };
 }
@@ -229,11 +265,12 @@ function parseBridgeConfig(value: unknown): BridgeConfig {
   if (candidate.version !== BRIDGE_CONFIG_VERSION || typeof candidate.server !== "object" || candidate.server === null || typeof candidate.bridge !== "object" || candidate.bridge === null) throw new Error("unsupported configuration version");
   const server = candidate.server as Record<string, unknown>;
   const bridge = candidate.bridge as Record<string, unknown>;
-  if (Object.keys(server).some((key) => !["command", "args"].includes(key)) || Object.keys(bridge).some((key) => !["host", "port", "secretFile", "timeoutMs", "realtimePort"].includes(key))) throw new Error("unsupported configuration fields");
+  if (Object.keys(server).some((key) => !["command", "args"].includes(key)) || Object.keys(bridge).some((key) => !["host", "port", "secretFile", "timeoutMs", "realtimePort", "diagnostics"].includes(key))) throw new Error("unsupported configuration fields");
   if (typeof server.command !== "string" || !server.command || !Array.isArray(server.args) || !server.args.every((arg) => typeof arg === "string")) throw new Error("invalid server configuration");
-  if (typeof bridge.host !== "string" || typeof bridge.port !== "number" || typeof bridge.secretFile !== "string" || typeof bridge.timeoutMs !== "number" || (bridge.realtimePort !== undefined && typeof bridge.realtimePort !== "number")) throw new Error("invalid bridge configuration");
+  if (typeof bridge.host !== "string" || typeof bridge.port !== "number" || typeof bridge.secretFile !== "string" || typeof bridge.timeoutMs !== "number" || (bridge.realtimePort !== undefined && typeof bridge.realtimePort !== "number") || (bridge.diagnostics !== undefined && (typeof bridge.diagnostics !== "object" || bridge.diagnostics === null || Array.isArray(bridge.diagnostics)))) throw new Error("invalid bridge configuration");
   if (server.args.length !== 3 || server.args[1] !== "--config" || !isAbsolute(server.args[2] ?? "")) throw new Error("version-2 server configuration must include --config PATH");
-  const config = configForBridge(server.args[0] ?? "", { host: bridge.host, port: bridge.port, secretFile: bridge.secretFile, timeoutMs: bridge.timeoutMs, ...(bridge.realtimePort === undefined ? {} : { realtimePort: bridge.realtimePort }) }, server.command, server.args[2]);
+  const diagnostics = bridge.diagnostics as BridgeDiagnosticsConfig | undefined;
+  const config = configForBridge(server.args[0] ?? "", { host: bridge.host, port: bridge.port, secretFile: bridge.secretFile, timeoutMs: bridge.timeoutMs, ...(bridge.realtimePort === undefined ? {} : { realtimePort: bridge.realtimePort }), ...(diagnostics === undefined ? {} : { diagnostics }) }, server.command, server.args[2], false);
   readSecretFile(config.bridge.secretFile);
   return config;
 }
@@ -249,8 +286,19 @@ export function isSupportedPlatform(value: NodeJS.Platform = platform): boolean 
 }
 
 export function supportedNodeMajor(value = versions.node): boolean {
-  const major = Number.parseInt(value.split(".")[0] ?? "0", 10);
-  return Number.isSafeInteger(major) && (SUPPORTED_NODE_MAJORS as readonly number[]).includes(major);
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value);
+  if (!match) return false;
+  const major = Number(match[1]);
+  return Number.isSafeInteger(major) && SUPPORTED_NODE_MAJORS.includes(major);
+}
+
+export function unsupportedNodeMessage(value = versions.node): string | null {
+  return supportedNodeMajor(value) ? null : `Unsupported Node.js ${value}. Supported major versions: ${SUPPORTED_NODE_MAJORS.join(", ")}. Install one of those versions and retry.`;
+}
+
+export function assertSupportedNodeRuntime(value = versions.node): void {
+  const message = unsupportedNodeMessage(value);
+  if (message) throw new Error(message);
 }
 
 export function readConfig(path: string): ServerConfig {
@@ -450,7 +498,9 @@ export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.m
     platform,
     arch: process.arch,
     node: versions.node,
+    supportedNodeMajors: SUPPORTED_NODE_MAJORS,
     nodeSupported: supportedNodeMajor(),
+    compatibilityError: unsupportedNodeMessage(),
     platformSupported: isSupportedPlatform(),
     packageRoot,
     entrypoint: { path: entrypoint, present: entrypointPresent },
@@ -474,7 +524,7 @@ export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.m
     evidence: hostReady ? "local-contract" : "unavailable",
     external: { abletonLive: "unavailable", signing: "unavailable", notarization: "unavailable" },
     readiness: { package: hostReady && packageAssetsValid, configured: bridgeConfigured, authenticatedBridge: false, realLiveOperational: false, releaseCertified: false },
-    diagnosticErrors: [],
+    diagnosticErrors: unsupportedNodeMessage() ? [unsupportedNodeMessage()!] : [],
     ready: false,
   };
 }
@@ -485,7 +535,7 @@ export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.m
  */
 export async function diagnosticsAsync(packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../.."), configPath?: string): Promise<DiagnosticReport> {
   const report = diagnostics(packageRoot, configPath);
-  if (!report.bridgeConfigured || !configPath) return report;
+  if (!report.nodeSupported || !report.platformSupported || !report.bridgeConfigured || !configPath) return report;
   try {
     const { RemoteScriptLiveAdapter } = await import("./bridge/remote-adapter.js");
     const config = readAnyConfig(configPath);
@@ -528,13 +578,13 @@ export async function diagnosticsAsync(packageRoot = resolve(dirname(fileURLToPa
         evidence: "authenticated-bridge",
         external: { ...report.external, abletonLive: provenance === "real-live" ? "verified" : "unavailable" },
         readiness: { package: report.readiness.package, configured: true, authenticatedBridge: true, realLiveOperational: status.connected && status.adapter === "remote-script" && provenance === "real-live", releaseCertified: false },
-        diagnosticErrors: [],
+        diagnosticErrors: report.diagnosticErrors,
         ready: report.readiness.package && status.connected && status.adapter === "remote-script" && provenance === "real-live",
       };
     } finally {
       await adapter.close();
     }
   } catch {
-    return { ...report, diagnosticErrors: ["authenticated-bridge-probe-failed"] };
+    return { ...report, diagnosticErrors: [...report.diagnosticErrors, "authenticated-bridge-probe-failed"] };
   }
 }

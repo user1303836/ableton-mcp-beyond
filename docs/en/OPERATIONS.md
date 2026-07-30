@@ -35,6 +35,21 @@ authenticated reachability, discovery reachability, registry hash, epoch,
 protocol, and `liveConnected`. A file, process, open port, installed package,
 simulator, or fake-Live result cannot establish real Live connectivity.
 
+Remote Script file diagnostics are a separate, disabled-by-default local
+contract. They can be provisioned only during lifecycle install with
+`--enable-bridge-diagnostics`; creating a predictable temporary file cannot
+activate them. The destination is the owner-only, non-linked
+`bridge-diagnostics.log` under the selected lifecycle state directory. A
+nonblocking 64-record queue feeds one daemon writer; records are at most 512
+bytes and the active file resets before exceeding 256 KiB. Records contain only
+a timestamp, fixed event code, coarse allowlisted category, and bounded dropped
+count—not exception messages/tracebacks, request data, secrets/MACs/tokens,
+Set/project/object names, Browser queries, PCM, or media paths. Queue pressure
+drops records. Link/path drift, log-full/write failure, or an unsafe descriptor
+disables logging without changing the operational error. Uninstall/reinstall
+without the flag disables the configured sink; after uninstall and inspection,
+the retained log may be removed with the rest of owner state.
+
 ## Limits and shutdown
 
 The host bounds JSON-RPC frames at 64 MiB, remote frames at 1 MiB, remote

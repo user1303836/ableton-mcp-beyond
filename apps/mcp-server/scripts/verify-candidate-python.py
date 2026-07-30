@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bind Python contract tests to the exact shared private npm candidate."""
+"""Bind Python contract tests to the exact shared local npm candidate."""
 from __future__ import annotations
 
 import hashlib

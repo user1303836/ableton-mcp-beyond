@@ -77,13 +77,13 @@ they grant no mutation authority.
 
 | Domain | Implementation / safety | Tests and evidence | Supported status | Limitations / docs |
 |---|---|---|---|---|
-| Release artifact | strict 77-path npm tarball, release manifest, payload roles/hashes, MIT license | `package:verify`, candidate and Python binders, fresh-clone byte comparison | Exact-SHA local tarball; not published to npm | `DELIVERY.md`; unsigned and unnotarized |
+| Release artifact | strict 77-path MIT npm tarball, release manifest, payload roles/hashes, license-byte equality | `package:verify`, candidate and Python binders, fresh-clone byte comparison | Exact-SHA local unpublished tarball only | `DISTRIBUTION_POLICY.md`; npm `private: true`, unsigned, unnotarized, unpublished |
 | Install/activation | `ableton-mcp-lifecycle` receipt/journal/lock; D/FS | lifecycle unit + installed-candidate matrix; activation requires real-Live and intact receipt-bound package | macOS 15 and Windows Server 2025 host contracts conditional on exact-SHA CI | Windows Live/Windows 11 activation not certified; `DELIVERY.md` |
 | Upgrade/repair/rollback/uninstall | exact newer artifact, quarantine/retained cleanup, exact prior generation, owner-only purge | lifecycle unit, candidate OS matrix including Windows ACL/junction/held-file cases | Host contract only until hosted exact-SHA result | No native installer; operator must stop/restart Live |
 | Node/OS compatibility | Node 22/24/25; Ubuntu 24.04, macOS 15, Windows Server 2025 workflow | full Node tests plus exact installed candidate; Python 3.11 mapper | Conditional; see current check results | Linux has no Live claim; Windows 11 is not inherited from Server |
 | Keyboard operation | server stdio and lifecycle CLIs require only keyboard/stdin; ordered text statuses | packaged journey and candidate CLI tests | Server-owned text boundary | Third-party clients, terminals and Live own focus behavior |
 | Screen readers | no server-owned visual UI; semantic text and non-color states | contract checks only, not VoiceOver/Narrator interaction evidence | **Not certified** | VoiceOver, Narrator, Live, plug-ins and MCP client behavior require separate interactive platform evidence; `USER_JOURNEYS.md`, `SUPPORT_MATRIX.md` |
-| Signing/publication | explicit unavailable diagnostic and policy | package/candidate policy assertions | Not applicable to the current local-tarball channel | Authorized identities and a separate channel decision are required |
+| Signing/publication | explicit unavailable diagnostic and policy | package/candidate policy assertions | Not applicable to the current local unpublished channel | MIT rights are independent; authorized identities and a separate publication decision are required |
 
 ## Evidence freshness rule
 

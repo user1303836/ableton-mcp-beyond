@@ -10,7 +10,8 @@ secret, protocol, operation-registry hash, and status negotiation succeed.
 
 ## Install and start
 
-Supported runtimes: Node.js 22, 24, and 25. From a source checkout:
+Supported runtimes: Node.js 22, 24, and 25. Node 21, 23, 26, 27, and
+unlisted/future majors are unsupported. From a source checkout:
 
 ```sh
 cd apps/mcp-server
@@ -27,7 +28,10 @@ metadata. Initialize JSON-RPC with protocol `2025-11-25`, then send
 
 Tarball installations use the receipt-driven `ableton-mcp-lifecycle` flow in
 [DELIVERY.md](DELIVERY.md) for install, activation, upgrade, repair, rollback,
-and uninstall. The artifact is installed by exact path and SHA-256.
+and uninstall. The artifact is MIT licensed, locally delivered, unpublished,
+unsigned, and installed by exact path and SHA-256. Package `private: true`
+prevents accidental publication but does not change MIT rights; see
+[DISTRIBUTION_POLICY.md](DISTRIBUTION_POLICY.md).
 
 ## Read-only tools
 
@@ -108,6 +112,13 @@ diagnostics. Paths must be explicit, safe, non-symlink paths; hosts must be
 loopback; secrets must be strong and owner-controlled. `--realtime-port` is
 optional, must differ from the authenticated TCP port, and enables only the
 separately armed channel described in [REALTIME_CONTROL.md](REALTIME_CONTROL.md).
+
+Remote Script file diagnostics are disabled by default and are not enabled by
+`setup` or by creating a temporary sentinel. The supported opt-in is
+`ableton-mcp-lifecycle install --enable-bridge-diagnostics`, which provisions
+one bounded owner-state file without placing payloads or secrets in it. See
+[OPERATIONS.md](OPERATIONS.md) and [DELIVERY.md](DELIVERY.md); use
+uninstall/reinstall without the flag to disable it.
 
 Install the Remote Script only to an explicitly selected destination:
 

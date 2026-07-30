@@ -1,8 +1,11 @@
 {
   "name": "@ableton-mcp/mcp-server",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
+  "abletonMcpSupport": {
+    "nodeMajors": [22, 24, 25]
+  },
   "main": "./dist/src/index.js",
   "exports": {
     ".": "./dist/src/index.js"
@@ -17,19 +20,20 @@
   },
   "files": ["dist/src/**/*.js", "dist/src/**/*.d.ts", "!dist/src/benchmark.*", "!dist/src/analysis-worker.*", "remote-script/AbletonMcpBridge", "remote-script/README.md", "release-docs", "release-manifest.json", "LICENSE.md"],
   "engines": {
-    "node": ">=22 <26"
+    "node": ">=22 <23 || >=24 <25 || >=25 <26"
   },
   "type": "module",
   "scripts": {
     "build": "node scripts/clean-build.mjs && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node scripts/run-tests.mjs",
+    "test": "npm run build && node scripts/run-tests.mjs && node --test scripts/release-documentation.test.mjs",
     "property-test": "npm run build && node --test dist/test/property.test.js",
     "coverage": "npm run build && node scripts/run-coverage.mjs",
     "benchmark": "npm run build && node dist/src/benchmark.js && node --test dist/test/benchmark.test.js",
     "audio:oracle": "npm run build && node scripts/verify-audio-oracle.mjs",
     "audio:live-verify": "node scripts/verify-phase8-live.mjs",
-    "compatibility": "node scripts/check-compatibility.mjs",
+    "policy:verify": "node scripts/verify-node-policy.mjs",
+    "compatibility": "npm run policy:verify && node scripts/check-compatibility.mjs",
     "package": "npm pack --json",
     "package:verify": "npm run build && node scripts/verify-package.mjs",
     "journey:verify": "npm run build && node scripts/verify-production-journey.mjs",
@@ -38,10 +42,11 @@
     "diagnostics": "node dist/src/diagnostics.js",
     "start": "node dist/src/cli.js",
     "demo": "node scripts/demo.mjs",
-    "prepack": "npm run build && node scripts/stage-remote-script.mjs && node scripts/stage-release-artifact.mjs"
+    "prepack": "npm run policy:verify && npm run build && node scripts/stage-remote-script.mjs && node scripts/stage-release-artifact.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "semver": "^7.7.2",
     "typescript": "^5.9.2"
   }
 }

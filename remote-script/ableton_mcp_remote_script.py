@@ -15,31 +15,220 @@ import secrets
 import base64
 import re
 import math
+import os
 import queue
 import socket
+import stat
 import struct
+import sys
 import threading
 import time
-import traceback
 from collections import deque
 from pathlib import Path
 from typing import Any, Callable
 
 PROTOCOL = "ableton-loopback/v1"
-# Opt-in developer traceback sink enabled by creating this file before Live
-# starts; never leaks operation details to the wire.
-_DEBUG_LOG = Path("/tmp/ableton-mcp-bridge-debug.log")
-_DEBUG_ENABLED = _DEBUG_LOG.exists()
+_DIAGNOSTICS_MAX_BYTES = 256 * 1024
+_DIAGNOSTICS_QUEUE_LIMIT = 64
+_DIAGNOSTICS_RECORD_LIMIT = 512
+_DIAGNOSTIC_EVENTS = {"dispatch-failure", "result-contract-failure", "capture-tick-failure", "realtime-packet-failure"}
+
+
+class _DiagnosticsSink:
+    """Bounded owner-file diagnostics writer; callers only enqueue constants."""
+
+    def __init__(self, path: str, max_bytes: int = _DIAGNOSTICS_MAX_BYTES, *, start_writer: bool = True, security_validator: Callable[[Path], bool] | None = None) -> None:
+        self._path = Path(path)
+        self._max_bytes = max_bytes
+        self._security_validator = security_validator
+        self._parent_identity: os.stat_result | None = None
+        self._queue: queue.Queue[Any] = queue.Queue(maxsize=_DIAGNOSTICS_QUEUE_LIMIT)
+        self._stop = threading.Event()
+        self._dropped = 0
+        self._fd: int | None = None
+        self._thread: threading.Thread | None = None
+        self.enabled = False
+        if not self._path.is_absolute() or max_bytes != _DIAGNOSTICS_MAX_BYTES or (os.name == "nt" and security_validator is None):
+            return
+        try:
+            self._fd = self._secure_open()
+        except (OSError, ValueError):
+            return
+        self.enabled = True
+        if start_writer:
+            self._thread = threading.Thread(target=self._write_loop, name="AbletonMcpDiagnostics", daemon=True)
+            try:
+                self._thread.start()
+            except BaseException:
+                self._thread = None
+                self._disable()
+
+    @staticmethod
+    def _reparse_point(entry: os.stat_result) -> bool:
+        return bool(getattr(entry, "st_file_attributes", 0) & 0x400)
+
+    @classmethod
+    def _safe_descriptor(cls, entry: os.stat_result) -> bool:
+        if not stat.S_ISREG(entry.st_mode) or entry.st_nlink != 1 or cls._reparse_point(entry):
+            return False
+        if os.name != "nt":
+            if stat.S_IMODE(entry.st_mode) & 0o077:
+                return False
+            if hasattr(os, "getuid") and entry.st_uid != os.getuid():
+                return False
+        return True
+
+    def _secure_open(self) -> int:
+        parent = self._path.parent
+        parent_entry = os.lstat(parent)
+        if stat.S_ISLNK(parent_entry.st_mode) or self._reparse_point(parent_entry) or not stat.S_ISDIR(parent_entry.st_mode):
+            raise ValueError("unsafe diagnostics directory")
+        if os.name != "nt" and ((stat.S_IMODE(parent_entry.st_mode) & 0o077) or (hasattr(os, "getuid") and parent_entry.st_uid != os.getuid())):
+            raise ValueError("diagnostics directory is not owner-only")
+        for ancestor in (parent, *parent.parents):
+            entry = os.lstat(ancestor)
+            if (stat.S_ISLNK(entry.st_mode) or self._reparse_point(entry)) and str(ancestor) not in {"/var", "/tmp"}:
+                raise ValueError("diagnostics path contains a linked ancestor")
+        if self._security_validator is not None and not self._security_validator(self._path):
+            raise ValueError("diagnostics security validation failed")
+        before = os.lstat(self._path)
+        if stat.S_ISLNK(before.st_mode) or not self._safe_descriptor(before):
+            raise ValueError("unsafe diagnostics destination")
+        flags = os.O_WRONLY | os.O_APPEND
+        flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+        descriptor = os.open(self._path, flags)
+        try:
+            opened = os.fstat(descriptor)
+            current = os.lstat(self._path)
+            if not self._safe_descriptor(opened) or not self._safe_descriptor(current) or not os.path.samestat(before, opened) or not os.path.samestat(opened, current):
+                raise ValueError("diagnostics destination changed during open")
+            if opened.st_size > self._max_bytes:
+                os.ftruncate(descriptor, 0)
+                opened = os.fstat(descriptor)
+            self._parent_identity = parent_entry
+            return descriptor
+        except BaseException:
+            os.close(descriptor)
+            raise
+
+    @staticmethod
+    def _error_category() -> str:
+        kind = sys.exc_info()[0]
+        if kind is None:
+            return "unknown-error"
+        try:
+            if issubclass(kind, TimeoutError): return "timeout-error"
+            if issubclass(kind, OSError): return "io-error"
+            if issubclass(kind, (ValueError, TypeError, KeyError)): return "validation-error"
+        except TypeError:
+            pass
+        return "internal-error"
+
+    def record(self, event: str) -> None:
+        if not self.enabled or event not in _DIAGNOSTIC_EVENTS:
+            return
+        item = (int(time.time() * 1000), event, self._error_category())
+        try:
+            self._queue.put_nowait(item)
+        except queue.Full:
+            self._dropped = min(self._dropped + 1, 2**31 - 1)
+
+    def _descriptor_current(self) -> bool:
+        if self._fd is None or self._parent_identity is None:
+            return False
+        try:
+            opened = os.fstat(self._fd)
+            current = os.lstat(self._path)
+            parent = os.lstat(self._path.parent)
+            parent_safe = stat.S_ISDIR(parent.st_mode) and not stat.S_ISLNK(parent.st_mode) and not self._reparse_point(parent)
+            if os.name != "nt":
+                parent_safe = parent_safe and not (stat.S_IMODE(parent.st_mode) & 0o077) and (not hasattr(os, "getuid") or parent.st_uid == os.getuid())
+            if self._security_validator is not None:
+                parent_safe = parent_safe and self._security_validator(self._path)
+            return parent_safe and os.path.samestat(self._parent_identity, parent) and self._safe_descriptor(opened) and self._safe_descriptor(current) and os.path.samestat(opened, current)
+        except (OSError, ValueError):
+            return False
+
+    def _disable(self) -> None:
+        self.enabled = False
+        descriptor, self._fd = self._fd, None
+        if descriptor is not None:
+            try: os.close(descriptor)
+            except OSError: pass
+
+    def _write(self, item: tuple[int, str, str]) -> None:
+        if self._fd is None or not self._descriptor_current():
+            raise OSError("diagnostics descriptor is no longer authoritative")
+        record = json.dumps({"version": 1, "timeMs": item[0], "event": item[1], "category": item[2], "dropped": self._dropped}, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("ascii") + b"\n"
+        if len(record) > _DIAGNOSTICS_RECORD_LIMIT:
+            raise OSError("diagnostics record exceeds bound")
+        if os.fstat(self._fd).st_size + len(record) > self._max_bytes:
+            os.ftruncate(self._fd, 0)
+        offset = 0
+        while offset < len(record):
+            written = os.write(self._fd, record[offset:])
+            if written <= 0:
+                raise OSError("diagnostics write made no progress")
+            offset += written
+
+    def _write_loop(self) -> None:
+        try:
+            while not self._stop.is_set():
+                try: item = self._queue.get(timeout=0.2)
+                except queue.Empty: continue
+                try:
+                    if item is None: return
+                    self._write(item)
+                except OSError:
+                    self._disable()
+                    return
+                finally:
+                    self._queue.task_done()
+        finally:
+            self._disable()
+
+    def flush_for_test(self, timeout: float = 2.0) -> bool:
+        deadline = time.monotonic() + timeout
+        while self._queue.unfinished_tasks and time.monotonic() < deadline:
+            time.sleep(0.005)
+        return self._queue.unfinished_tasks == 0
+
+    def close(self) -> None:
+        self._stop.set()
+        if self._thread is None:
+            self._disable()
+            return
+        try: self._queue.put_nowait(None)
+        except queue.Full: pass
+
+    def wait_closed_for_test(self, timeout: float = 2.0) -> bool:
+        thread = self._thread
+        if thread is not None:
+            thread.join(timeout)
+        return (thread is None or not thread.is_alive()) and self._fd is None
+
+
+_ACTIVE_DIAGNOSTICS: _DiagnosticsSink | None = None
+
+
+def _set_diagnostics_sink(sink: _DiagnosticsSink | None) -> None:
+    global _ACTIVE_DIAGNOSTICS
+    prior, _ACTIVE_DIAGNOSTICS = _ACTIVE_DIAGNOSTICS, sink
+    if prior is not None and prior is not sink:
+        prior.close()
+
+
+def _clear_diagnostics_sink(sink: _DiagnosticsSink) -> None:
+    global _ACTIVE_DIAGNOSTICS
+    if _ACTIVE_DIAGNOSTICS is sink:
+        _ACTIVE_DIAGNOSTICS = None
+    sink.close()
 
 
 def _debug_trace(context: str) -> None:
-    if not _DEBUG_ENABLED:
-        return
-    try:
-        with open(_DEBUG_LOG, "a", encoding="utf-8") as log:
-            log.write(f"--- {context} ---\n{traceback.format_exc()}\n")
-    except OSError:
-        pass
+    sink = _ACTIVE_DIAGNOSTICS
+    if sink is not None:
+        sink.record(context)
 
 METHODS = {"status", "snapshot", "discover", "get", "preflight", "prepare", "invoke", "subscribe", "reconnect", "retire"}
 _READ_ONLY_INVOKES = {"session.playback", "automation.envelope.read", "browser.search", "browser.inspect", "audio.capture.inspect", "audio.capture.status", "realtime.stats", "session.reconnect"}
@@ -302,12 +491,12 @@ class AuthenticatedRemoteScript:
             validate_operation_payload(operation_id, "request", operation_request)
             result = self._operation(request["method"], unsigned)
         except Exception:
-            _debug_trace(f"dispatch {request.get('method')}")
+            _debug_trace("dispatch-failure")
             return self._error(request["id"], "request failed")
         try:
             validate_operation_payload(operation_id, "result", result)
         except Exception:
-            _debug_trace(f"result-contract {operation_id}")
+            _debug_trace("result-contract-failure")
             self.invalid = True
             return self._error(request["id"], "response contract failed")
         return self._response(request["id"], True, result=result)
@@ -3898,7 +4087,7 @@ class LiveObjectMapper:
         try:
             self._capture_refresh()
         except BaseException:
-            _debug_trace("capture tick")
+            _debug_trace("capture-tick-failure")
             if self._capture_state is not None:
                 try: self._capture_stop_state(self._capture_state, failed=True)
                 except BaseException: self._capture_state["state"] = "failed"
@@ -4481,7 +4670,7 @@ class _RealtimePlane:
                 # Never let a malformed or failing datagram kill the ingress.
                 with self._lock:
                     self.dropped_invalid += 1
-                _debug_trace("realtime packet")
+                _debug_trace("realtime-packet-failure")
 
     def _decode(self, data: bytes) -> dict[str, Any]:
         if len(data) > REALTIME_MAX_DATAGRAM:
@@ -4880,12 +5069,13 @@ def _authority_state_digest(mapper: LiveObjectMapper, args: dict[str, Any], oper
 class AbletonMcpBridge:
     """Installable Control Surface boundary with fail-closed loopback listener."""
 
-    def __init__(self, c_instance: Any, config: dict[str, Any] | None = None, song: Any = None, provenance: str = "fake-live"):
+    def __init__(self, c_instance: Any, config: dict[str, Any] | None = None, song: Any = None, provenance: str = "fake-live", diagnostics_validator: Callable[[Path], bool] | None = None):
         config = config or {}
         host = config.get("host", "")
         port = config.get("port", 0)
         secret = config.get("secret", "")
         realtime_port = config.get("realtimePort")
+        diagnostics = config.get("diagnostics")
         if host not in {"127.0.0.1", "::1"} or not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535 or not isinstance(secret, str) or len(secret) < 32:
             raise ValueError("explicit loopback host, port, and strong secret are required")
         if realtime_port is not None and (not isinstance(realtime_port, int) or isinstance(realtime_port, bool) or not 1 <= realtime_port <= 65535 or realtime_port == port):
@@ -4912,6 +5102,8 @@ class AbletonMcpBridge:
             self.queue.close()
             raise
         self.mapper.realtime_available = self._realtime.port > 0
+        self._diagnostics = _DiagnosticsSink(str(diagnostics.get("path")), diagnostics.get("maxBytes"), security_validator=diagnostics_validator) if isinstance(diagnostics, dict) and set(diagnostics) == {"path", "maxBytes"} else None
+        _set_diagnostics_sink(self._diagnostics if self._diagnostics is not None and self._diagnostics.enabled else None)
         self._stop = threading.Event()
         self._clients: set[socket.socket] = set()
         self._workers: set[threading.Thread] = set()
@@ -5164,6 +5356,8 @@ class AbletonMcpBridge:
             self._thread.join(timeout=1)
         for worker in list(self._workers):
             worker.join(timeout=1)
+        if self._diagnostics is not None:
+            _clear_diagnostics_sink(self._diagnostics)
 
     def __del__(self) -> None:
         try:

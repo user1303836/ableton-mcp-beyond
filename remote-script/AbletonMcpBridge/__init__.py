@@ -38,7 +38,7 @@ def _normalize_bridge_config(value: Any) -> dict[str, Any]:
         bridge = value.get("bridge")
         if (set(value) != {"version", "server", "bridge"} or not isinstance(server, dict) or set(server) != {"command", "args"}
                 or not isinstance(server.get("command"), str) or not server["command"] or not isinstance(server.get("args"), list) or any(not isinstance(item, str) for item in server["args"])
-                or not isinstance(bridge, dict) or not {"host", "port", "secretFile", "timeoutMs"} <= set(bridge) or set(bridge) - {"host", "port", "secretFile", "timeoutMs", "realtimePort"}):
+                or not isinstance(bridge, dict) or not {"host", "port", "secretFile", "timeoutMs"} <= set(bridge) or set(bridge) - {"host", "port", "secretFile", "timeoutMs", "realtimePort", "diagnostics"}):
             raise ValueError("unsupported bridge configuration")
         timeout_ms = bridge["timeoutMs"]
         if not isinstance(timeout_ms, int) or isinstance(timeout_ms, bool) or not 100 <= timeout_ms <= 60000:
@@ -46,9 +46,14 @@ def _normalize_bridge_config(value: Any) -> dict[str, Any]:
         realtime_port = bridge.get("realtimePort")
         if realtime_port is not None and (not isinstance(realtime_port, int) or isinstance(realtime_port, bool) or not 1 <= realtime_port <= 65535 or realtime_port == bridge.get("port")):
             raise ValueError("unsupported bridge configuration")
+        diagnostics = bridge.get("diagnostics")
+        if diagnostics is not None and (not isinstance(diagnostics, dict) or set(diagnostics) != {"path", "maxBytes"} or not isinstance(diagnostics.get("path"), str) or not Path(diagnostics["path"]).is_absolute() or diagnostics.get("maxBytes") != 256 * 1024):
+            raise ValueError("unsupported bridge diagnostics configuration")
         normalized = {"version": 1, "host": bridge["host"], "port": bridge["port"], "secretFile": bridge["secretFile"]}
         if realtime_port is not None:
             normalized["realtimePort"] = realtime_port
+        if diagnostics is not None:
+            normalized["diagnostics"] = diagnostics
         return normalized
     if set(value) != {"version", "host", "port", "secretFile"} or value.get("version") != 1:
         raise ValueError("unsupported bridge configuration")
@@ -101,7 +106,11 @@ def _read_config() -> dict[str, Any]:
         secret = secret[:-1]
     if not secret or len(secret) < 32 or any(character.isspace() for character in secret):
         raise ValueError("bridge secret is invalid")
-    return {"host": host, "port": port, "secret": secret, "realtimePort": realtime_port}
+    result = {"host": host, "port": port, "secret": secret, "realtimePort": realtime_port}
+    diagnostics = value.get("diagnostics")
+    if isinstance(diagnostics, dict) and _diagnostics_path_safe(Path(diagnostics["path"])):
+        result["diagnostics"] = diagnostics
+    return result
 
 
 def _owner_controlled(path: Path) -> bool:
@@ -111,6 +120,28 @@ def _owner_controlled(path: Path) -> bool:
     try:
         return path.stat().st_uid == os.getuid()
     except (AttributeError, OSError):
+        return False
+
+
+def _diagnostics_path_safe(path: Path) -> bool:
+    """Validate the provisioned diagnostics leaf and its private parent."""
+    reparse = lambda entry: bool(getattr(entry, "st_file_attributes", 0) & 0x400)
+    try:
+        if not path.is_absolute() or path.is_symlink():
+            return False
+        leaf = path.lstat()
+        if reparse(leaf) or not stat.S_ISREG(leaf.st_mode) or leaf.st_nlink != 1 or not _owner_controlled(path) or not _mode_owner_only(path):
+            return False
+        parent = path.parent
+        parent_entry = parent.lstat()
+        if reparse(parent_entry) or not stat.S_ISDIR(parent_entry.st_mode) or parent.is_symlink() or not _owner_controlled(parent) or not _mode_owner_only(parent):
+            return False
+        for ancestor in (parent, *parent.parents):
+            entry = ancestor.lstat()
+            if (stat.S_ISLNK(entry.st_mode) or reparse(entry)) and str(ancestor) not in {"/var", "/tmp"}:
+                return False
+        return True
+    except (AttributeError, OSError, ValueError):
         return False
 
 
@@ -254,7 +285,7 @@ class AbletonMcpBridge(_ControlSurface):
     def __init__(self, c_instance: Any) -> None:
         super().__init__(c_instance)
         accessor = getattr(self, "song", None)
-        self._bridge = _Bridge(c_instance, _read_config(), song=accessor() if callable(accessor) else None, provenance="real-live")
+        self._bridge = _Bridge(c_instance, _read_config(), song=accessor() if callable(accessor) else None, provenance="real-live", diagnostics_validator=_diagnostics_path_safe)
         self._disconnected = False
         self._schedule_next()
 

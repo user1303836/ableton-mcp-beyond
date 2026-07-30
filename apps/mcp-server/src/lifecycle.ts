@@ -1,11 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { gunzipSync } from "node:zlib";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, chmodSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, truncateSync, writeFileSync, chmodSync } from "node:fs";
 import { createServer } from "node:net";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { platform } from "node:process";
 import {
+  BRIDGE_DIAGNOSTICS_MAX_BYTES,
+  NODE_ENGINE_RANGE,
+  SUPPORTED_NODE_MAJORS,
   configForBridge,
   diagnosticsAsync,
   generateSecret,
@@ -81,6 +84,7 @@ export interface LifecycleOptions {
   apply?: boolean;
   confirmLiveStopped?: boolean;
   purgeSecret?: boolean;
+  enableBridgeDiagnostics?: boolean;
   allowDirtyPrivateBuild?: boolean;
   /** Test-only deterministic failure point; not exposed by the CLI. */
   faultAt?: "after-secret" | "after-config" | "before-remote" | "after-remote" | "after-repair-install" | "after-rollback-config" | "retired-cleanup-blocked" | "before-receipt";
@@ -100,14 +104,15 @@ export interface LifecycleResult {
 }
 
 interface ReleaseManifest {
-  schema: "ableton-mcp-private-release/v1";
+  schema: "ableton-mcp-private-release/v1" | "ableton-mcp-release/v2";
   package: { name: string; version: string; license: string; private: boolean };
   source: { commit: string; dirty: boolean };
-  build: { runtime: string; nodeRange: string; recipe: string; builder: { node: string; npm: string; typescript: string; platform: string; architecture: string; runnerImage: string; runnerImageVersion: string; packageLockSha256: string; workflowSha256: string } };
+  build: { runtime: string; nodeRange: string; nodeMajors?: number[]; recipe: string; builder: { node: string; npm: string; typescript: string; platform: string; architecture: string; runnerImage: string; runnerImageVersion: string; packageLockSha256: string; workflowSha256: string } };
   protocol: { registryHash: string };
-  distribution: { channel: string; published: boolean; signed: boolean; notarized: boolean };
+  distribution: { channel: string; published: boolean; signed: boolean; notarized: boolean; integrityIsIdentityProof?: boolean };
   algorithm: "sha256";
   files: Record<string, string>;
+  roles: Record<string, string>;
 }
 
 const RECEIPT_NAME = "install-receipt.json";
@@ -119,6 +124,7 @@ const MAX_ARTIFACT_BYTES = 32 * 1024 * 1024;
 const MAX_ARTIFACT_TAR_BYTES = 64 * 1024 * 1024;
 const PYTHON_CACHE_BLOCKER = "__pycache__";
 const EMPTY_FILE_SHA256 = createHash("sha256").update("").digest("hex");
+const MIT_LICENSE_SHA256 = "f6a4bf820a492313c9d4e100e16bd474cd5cf06c0fba27c1035238acb4af75cb";
 
 function sha256(value: Buffer | string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -159,6 +165,40 @@ function ensureOwnerDirectory(path: string): void {
   mkdirSync(path, { recursive: true, mode: 0o700 });
   if (platform !== "win32") chmodSync(path, 0o700);
   else secureWindowsDirectory(path);
+}
+
+function diagnosticsFileValid(path: string): boolean {
+  try {
+    assertNoLinkedAncestors(path);
+    const parent = lstatSync(dirname(path));
+    const entry = lstatSync(path);
+    return parent.isDirectory() && !parent.isSymbolicLink() && secretPermissions(dirname(path)) === "owner-only" && entry.isFile() && !entry.isSymbolicLink() && entry.nlink === 1 && secretPermissions(path) === "owner-only";
+  } catch { return false; }
+}
+
+function ensureDiagnosticsFile(path: string): boolean {
+  assertNoLinkedAncestors(path);
+  if (existsSync(path)) {
+    if (!diagnosticsFileValid(path)) throw new Error("bridge diagnostics destination must be an owner-only single-link regular file");
+    if (lstatSync(path).size > BRIDGE_DIAGNOSTICS_MAX_BYTES) truncateSync(path, 0);
+    return false;
+  }
+  let created = false;
+  try {
+    writeFileSync(path, "", { mode: 0o600, flag: "wx" });
+    created = true;
+    if (platform !== "win32") chmodSync(path, 0o600);
+    secureWindowsFile(path);
+    const entry = lstatSync(path);
+    if (!entry.isFile() || entry.isSymbolicLink() || entry.nlink !== 1 || secretPermissions(path) !== "owner-only") throw new Error("could not establish a safe bridge diagnostics destination");
+    return true;
+  } catch (error) {
+    if (created) {
+      try { rmSync(path, { force: true }); }
+      catch (cleanupError) { throw new AggregateError([error, cleanupError], "bridge diagnostics creation and compensation both failed"); }
+    }
+    throw error;
+  }
 }
 
 async function withLifecycleLock<T>(stateDirectory: string, task: () => Promise<T>): Promise<T> {
@@ -211,6 +251,10 @@ function finalizeFailedJournal(path: string, action: LifecycleAction, generation
   tryWriteOwnerJson(path, { version: 1, action, state: "failed", receiptGeneration: generation, reason: error instanceof Error ? error.message : "unknown" });
 }
 
+function pathEntryExists(path: string): boolean {
+  try { lstatSync(path); return true; } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw error; }
+}
+
 function tryRemove(path: string, recursive = false): boolean {
   try { rmSync(path, { recursive, force: true }); return true; } catch { return false; }
 }
@@ -223,10 +267,12 @@ function parseReceipt(path: string): LifecycleReceipt {
   const absoluteFields = [value?.packageRoot, value?.stateDirectory, value?.remoteScriptsDirectory, value?.remoteScriptDirectory, value?.configPath, value?.secretPath];
   const hashes = [value?.artifactSha256, value?.releaseManifestSha256, value?.registryHash, value?.configSha256, ...Object.values(value?.remoteFiles ?? {})];
   const config = value?.config;
+  const diagnostics = config?.bridge?.diagnostics;
+  const diagnosticsValid = diagnostics === undefined || (typeof value.stateDirectory === "string" && diagnostics?.path === join(value.stateDirectory, "bridge-diagnostics.log") && diagnostics?.maxBytes === BRIDGE_DIAGNOSTICS_MAX_BYTES);
   const previous = value?.previous;
   const retainedValid = value?.retained === undefined || (typeof value.stateDirectory === "string" && [value.retained.pendingCleanup, value.retained.preserved].every((items) => Array.isArray(items) && items.every((item) => typeof item === "string" && isAbsolute(item) && !relative(value.stateDirectory, item).startsWith(".."))));
   const previousValid = previous === null || (typeof previous === "object" && [previous.artifactSha256, previous.releaseManifestSha256, previous.registryHash, previous.configSha256, ...Object.values(previous.remoteFiles ?? {})].every((hash) => typeof hash === "string" && ARTIFACT_SHA_PATTERN.test(hash)) && [previous.packageRoot, previous.remoteBackup].every((item) => typeof item === "string" && isAbsolute(item)) && previous.config?.version === 2);
-  if (value?.version !== LIFECYCLE_RECEIPT_VERSION || !["installed-restart-required", "activated", "uninstalled"].includes(value.status) || !Number.isSafeInteger(value.generation) || value.generation < 1 || absoluteFields.some((item) => typeof item !== "string" || !isAbsolute(item)) || hashes.some((hash) => typeof hash !== "string" || !ARTIFACT_SHA_PATTERN.test(hash)) || !previousValid || !retainedValid || config?.version !== 2 || typeof config.bridge?.host !== "string" || !Number.isSafeInteger(config.bridge.port) || typeof value.secretCreatedByLifecycle !== "boolean" || typeof value.activation?.required !== "boolean" || typeof value.activation?.realLiveVerified !== "boolean") throw new Error("installation receipt is invalid or unsupported");
+  if (value?.version !== LIFECYCLE_RECEIPT_VERSION || !["installed-restart-required", "activated", "uninstalled"].includes(value.status) || !Number.isSafeInteger(value.generation) || value.generation < 1 || absoluteFields.some((item) => typeof item !== "string" || !isAbsolute(item)) || hashes.some((hash) => typeof hash !== "string" || !ARTIFACT_SHA_PATTERN.test(hash)) || !previousValid || !retainedValid || !diagnosticsValid || config?.version !== 2 || typeof config.bridge?.host !== "string" || !Number.isSafeInteger(config.bridge.port) || typeof value.secretCreatedByLifecycle !== "boolean" || typeof value.activation?.required !== "boolean" || typeof value.activation?.realLiveVerified !== "boolean") throw new Error("installation receipt is invalid or unsupported");
   return value;
 }
 
@@ -258,6 +304,23 @@ function verifyFiles(root: string, expected: Record<string, string>): { valid: b
   return { valid: missing.length === 0 && changed.length === 0 && unknown.length === 0, missing, changed, unknown };
 }
 
+function releaseRole(name: string, legacy: boolean): string | null {
+  if (name === "LICENSE.md") return legacy ? "private-license" : "license";
+  if (name === "package.json") return "package-metadata";
+  if (name.startsWith("dist/src/") && (name.endsWith(".js") || name.endsWith(".d.ts"))) return "compiled-runtime";
+  if (name.startsWith("release-docs/") && name.endsWith(".md")) return "documentation";
+  if (name.startsWith("remote-script/")) return "ableton-remote-script";
+  return null;
+}
+
+function releaseRolesValid(manifest: ReleaseManifest): boolean {
+  if (!manifest.roles || typeof manifest.roles !== "object" || !manifest.files || typeof manifest.files !== "object") return false;
+  const names = Object.keys(manifest.files).sort();
+  if (JSON.stringify(Object.keys(manifest.roles).sort()) !== JSON.stringify(names)) return false;
+  const legacy = manifest.schema === "ableton-mcp-private-release/v1";
+  return names.every((name) => releaseRole(name, legacy) === manifest.roles[name]);
+}
+
 function verifyReleasePackage(packageRoot: string, allowDirty: boolean): { manifest: ReleaseManifest; manifestSha256: string } {
   validateAbsolutePath(packageRoot, "package root");
   assertNoLinkedAncestors(packageRoot);
@@ -265,8 +328,12 @@ function verifyReleasePackage(packageRoot: string, allowDirty: boolean): { manif
   const manifestEntry = lstatSync(manifestPath);
   if (!manifestEntry.isFile() || manifestEntry.isSymbolicLink()) throw new Error("release manifest must be a regular file");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as ReleaseManifest;
-  if (manifest.schema !== "ableton-mcp-private-release/v1" || manifest.package.name !== "@ableton-mcp/mcp-server" || manifest.package.private !== true || manifest.package.license !== "UNLICENSED" || manifest.algorithm !== "sha256" || manifest.distribution.channel !== "private-local-npm-tarball" || manifest.distribution.published || manifest.distribution.signed || manifest.distribution.notarized || !ARTIFACT_SHA_PATTERN.test(manifest.protocol.registryHash) || !manifest.build?.recipe || !manifest.build?.builder?.node || !manifest.build?.builder?.npm || !manifest.build?.builder?.typescript || !ARTIFACT_SHA_PATTERN.test(manifest.build?.builder?.packageLockSha256 ?? "") || !ARTIFACT_SHA_PATTERN.test(manifest.build?.builder?.workflowSha256 ?? "") || !manifest.files || manifest.files["release-manifest.json"] !== undefined || !ARTIFACT_SHA_PATTERN.test(manifest.files["package.json"] ?? "") || Object.keys(manifest.files).length < 10) throw new Error("release manifest policy is invalid");
-  if (manifest.source.dirty && !allowDirty) throw new Error("release manifest identifies a dirty source tree; only explicit private development testing may override this");
+  const legacyPolicy = manifest.schema === "ableton-mcp-private-release/v1" && manifest.package.license === "UNLICENSED" && manifest.distribution.channel === "private-local-npm-tarball" && manifest.distribution.integrityIsIdentityProof === false && manifest.roles?.["LICENSE.md"] === "private-license";
+  const currentPolicy = manifest.schema === "ableton-mcp-release/v2" && manifest.package.license === "MIT" && manifest.distribution.channel === "local-npm-tarball" && manifest.distribution.integrityIsIdentityProof === false && manifest.roles?.["LICENSE.md"] === "license" && manifest.files?.["LICENSE.md"] === MIT_LICENSE_SHA256 && manifest.build?.nodeRange === NODE_ENGINE_RANGE && JSON.stringify(manifest.build?.nodeMajors) === JSON.stringify(SUPPORTED_NODE_MAJORS);
+  if ((!legacyPolicy && !currentPolicy) || !releaseRolesValid(manifest) || typeof manifest.source?.commit !== "string" || !/^[a-f0-9]{40}$/.test(manifest.source.commit) || typeof manifest.source?.dirty !== "boolean" || manifest.package.name !== "@ableton-mcp/mcp-server" || manifest.package.private !== true || manifest.algorithm !== "sha256" || manifest.distribution.published !== false || manifest.distribution.signed !== false || manifest.distribution.notarized !== false || !ARTIFACT_SHA_PATTERN.test(manifest.protocol.registryHash) || !manifest.build?.recipe || !manifest.build?.builder?.node || !manifest.build?.builder?.npm || !manifest.build?.builder?.typescript || !ARTIFACT_SHA_PATTERN.test(manifest.build?.builder?.packageLockSha256 ?? "") || !ARTIFACT_SHA_PATTERN.test(manifest.build?.builder?.workflowSha256 ?? "") || !manifest.files || manifest.files["release-manifest.json"] !== undefined || !ARTIFACT_SHA_PATTERN.test(manifest.files["package.json"] ?? "") || !ARTIFACT_SHA_PATTERN.test(manifest.files["LICENSE.md"] ?? "") || Object.keys(manifest.files).length < 10) throw new Error("release manifest policy is invalid");
+  const packageMetadata = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as { name?: unknown; version?: unknown; license?: unknown; private?: unknown; engines?: { node?: unknown }; abletonMcpSupport?: { nodeMajors?: unknown } };
+  if (packageMetadata.name !== manifest.package.name || packageMetadata.version !== manifest.package.version || packageMetadata.license !== manifest.package.license || packageMetadata.private !== manifest.package.private || (currentPolicy && (packageMetadata.engines?.node !== NODE_ENGINE_RANGE || JSON.stringify(packageMetadata.abletonMcpSupport?.nodeMajors) !== JSON.stringify(SUPPORTED_NODE_MAJORS)))) throw new Error("package metadata and release manifest policy disagree");
+  if (manifest.source.dirty === true && !allowDirty) throw new Error("release manifest identifies a dirty source tree; only explicit local development testing may override this");
   const expectedFiles = { "release-manifest.json": fileDigest(manifestPath), ...manifest.files }; const currentFiles = hashRegularTree(packageRoot); const expectedNames = Object.keys(expectedFiles).sort(); const currentNames = Object.keys(currentFiles).sort();
   if (JSON.stringify(currentNames) !== JSON.stringify(expectedNames)) throw new Error("extracted package root inventory differs from the strict release manifest");
   const expectedDirectories = new Set<string>(); for (const name of expectedNames) { const parts = name.split("/"); for (let index = 1; index < parts.length; index += 1) expectedDirectories.add(parts.slice(0, index).join("/")); }
@@ -353,14 +420,17 @@ function expectedPaths(options: LifecycleOptions) {
   validateAbsolutePath(options.remoteScriptsDirectory, "Remote Scripts directory");
   const configPath = options.configPath ?? join(options.stateDirectory, "bridge-config.json");
   const secretPath = options.secretPath ?? join(options.stateDirectory, "bridge.secret");
+  const diagnosticsPath = join(options.stateDirectory, "bridge-diagnostics.log");
   validateAbsolutePath(configPath, "configuration path");
   validateAbsolutePath(secretPath, "secret path");
+  validateAbsolutePath(diagnosticsPath, "diagnostics path");
   return {
     receiptPath: join(options.stateDirectory, RECEIPT_NAME),
     journalPath: join(options.stateDirectory, JOURNAL_NAME),
     remoteScriptDirectory: join(options.remoteScriptsDirectory, REMOTE_PACKAGE),
     configPath,
     secretPath,
+    diagnosticsPath,
   };
 }
 
@@ -418,6 +488,7 @@ function restoreBackup(destination: string, backup: string | null): void {
 
 export async function runLifecycle(options: LifecycleOptions): Promise<LifecycleResult> {
   if (!LIFECYCLE_ACTIONS.includes(options.action)) throw new Error("unsupported lifecycle action");
+  if (options.enableBridgeDiagnostics === true && options.action !== "install") throw new Error("bridge diagnostics can be selected only during lifecycle install");
   const paths = expectedPaths(options);
   const result = baseResult(options, paths);
   for (const path of [options.packageRoot, options.stateDirectory, options.remoteScriptsDirectory, paths.configPath, paths.secretPath, paths.remoteScriptDirectory, paths.receiptPath, paths.journalPath, ...(options.artifactPath ? [options.artifactPath] : [])]) assertNoLinkedAncestors(path);
@@ -425,6 +496,7 @@ export async function runLifecycle(options: LifecycleOptions): Promise<Lifecycle
   const receipt = existsSync(paths.receiptPath) ? parseReceipt(paths.receiptPath) : null;
   const packageRequired = ["install", "upgrade", "repair"].includes(options.action);
   const packageEvidence = packageRequired ? verifyReleasePackage(options.packageRoot, options.allowDirtyPrivateBuild === true) : null;
+  if (["install", "upgrade"].includes(options.action) && packageEvidence!.manifest.schema !== "ableton-mcp-release/v2") throw new Error("install and upgrade require a current ableton-mcp-release/v2 MIT candidate; legacy v1 is receipt-bound compatibility only");
   const artifactSha256 = options.action === "install" || options.action === "upgrade" ? verifyArtifactBinding(options.artifactPath, options.artifactSha256, options.packageRoot, packageEvidence!.manifestSha256) : (options.artifactSha256 ?? "");
   requireStoppedConfirmation(options);
   if (receipt?.previous) { const priorRelative = relative(receipt.stateDirectory, receipt.previous.remoteBackup); if (priorRelative.startsWith("..") || isAbsolute(priorRelative)) throw new Error("receipt rollback path escapes owner state"); }
@@ -432,7 +504,7 @@ export async function runLifecycle(options: LifecycleOptions): Promise<Lifecycle
   if (receipt && options.action === "repair" && (resolve(options.packageRoot) !== resolve(receipt.packageRoot) || packageEvidence!.manifestSha256 !== receipt.releaseManifestSha256 || packageEvidence!.manifest.package.version !== receipt.packageVersion || packageEvidence!.manifest.protocol.registryHash !== receipt.registryHash)) throw new Error("repair package root is not the exact receipt-bound generation; use upgrade for a different artifact");
 
   if (!options.apply && options.action !== "activate" && options.action !== "status") {
-    result.verification = { packageVersion: packageEvidence?.manifest.package.version ?? receipt?.packageVersion ?? null, sourceCommit: packageEvidence?.manifest.source.commit ?? null, sourceDirty: packageEvidence?.manifest.source.dirty ?? null, packageRootVerified: packageEvidence !== null, receiptPresent: receipt !== null, portsRequireApplyTimeProbe: options.action === "install" };
+    result.verification = { packageVersion: packageEvidence?.manifest.package.version ?? receipt?.packageVersion ?? null, sourceCommit: packageEvidence?.manifest.source.commit ?? null, sourceDirty: packageEvidence?.manifest.source.dirty ?? null, packageRootVerified: packageEvidence !== null, receiptPresent: receipt !== null, bridgeDiagnosticsRequested: options.enableBridgeDiagnostics === true, portsRequireApplyTimeProbe: options.action === "install" };
     result.instructions = ["Review the plan, stop Ableton Live, then repeat with --apply and --confirm-live-stopped."];
     return result;
   }
@@ -440,12 +512,14 @@ export async function runLifecycle(options: LifecycleOptions): Promise<Lifecycle
   if (options.action === "status") {
     const drift = receipt && receipt.status !== "uninstalled" ? verifyFiles(paths.remoteScriptDirectory, receipt.remoteFiles) : null;
     const configValid = Boolean(receipt && receipt.status !== "uninstalled" && existsSync(receipt.configPath) && fileDigest(receipt.configPath) === receipt.configSha256 && secretPermissions(receipt.configPath) === "owner-only");
+    const diagnosticsPath = receipt?.config.bridge.diagnostics?.path;
+    const diagnosticsValid = diagnosticsPath === undefined || diagnosticsFileValid(diagnosticsPath);
     let packageValid = false;
     if (receipt && receipt.status !== "uninstalled") { try { const evidence = verifyReleasePackage(receipt.packageRoot, options.allowDirtyPrivateBuild === true); packageValid = evidence.manifestSha256 === receipt.releaseManifestSha256 && evidence.manifest.protocol.registryHash === receipt.registryHash; } catch { packageValid = false; } }
     const secretValid = Boolean(receipt && receipt.status !== "uninstalled" && existsSync(receipt.secretPath) && secretPermissions(receipt.secretPath) === "owner-only");
-    const installationIntegrityValid = Boolean(drift?.valid && configValid && packageValid && secretValid);
+    const installationIntegrityValid = Boolean(drift?.valid && configValid && diagnosticsValid && packageValid && secretValid);
     result.state = "completed";
-    result.verification = { receipt: receipt ? { status: receipt.status, effectiveStatus: receipt.status === "activated" && !installationIntegrityValid ? "installed-restart-required" : receipt.status, generation: receipt.generation, packageVersion: receipt.packageVersion, artifactSha256: receipt.artifactSha256, recordedActivation: receipt.activation, activationEvidenceScope: "historical-receipt-not-current-connectivity", retained: receipt.retained ?? { pendingCleanup: [], preserved: [] } } : null, installationIntegrityValid, packageValid, configValid, remoteScript: drift, configPermissions: receipt && existsSync(receipt.configPath) ? secretPermissions(receipt.configPath) : "unavailable", secretPermissions: receipt && existsSync(receipt.secretPath) ? secretPermissions(receipt.secretPath) : "unavailable", lifecycleLockPresent: existsSync(join(options.stateDirectory, "lifecycle.lock")) };
+    result.verification = { receipt: receipt ? { status: receipt.status, effectiveStatus: receipt.status === "activated" && !installationIntegrityValid ? "installed-restart-required" : receipt.status, generation: receipt.generation, packageVersion: receipt.packageVersion, artifactSha256: receipt.artifactSha256, recordedActivation: receipt.activation, activationEvidenceScope: "historical-receipt-not-current-connectivity", retained: receipt.retained ?? { pendingCleanup: [], preserved: [] } } : null, installationIntegrityValid, packageValid, configValid, bridgeDiagnostics: diagnosticsPath ? { path: diagnosticsPath, valid: diagnosticsValid, permissions: existsSync(diagnosticsPath) ? secretPermissions(diagnosticsPath) : "unavailable" } : null, remoteScript: drift, configPermissions: receipt && existsSync(receipt.configPath) ? secretPermissions(receipt.configPath) : "unavailable", secretPermissions: receipt && existsSync(receipt.secretPath) ? secretPermissions(receipt.secretPath) : "unavailable", lifecycleLockPresent: existsSync(join(options.stateDirectory, "lifecycle.lock")) };
     result.recovery.rollbackAvailable = Boolean(receipt?.previous && existsSync(receipt.previous.remoteBackup));
     if (receipt?.retained?.preserved[0] || receipt?.retained?.pendingCleanup[0]) result.recovery.quarantine = receipt.retained.preserved[0] ?? receipt.retained.pendingCleanup[0];
     completeSteps(result);
@@ -461,7 +535,9 @@ export async function runLifecycle(options: LifecycleOptions): Promise<Lifecycle
       const remote = verifyFiles(paths.remoteScriptDirectory, current.remoteFiles);
       let packageValid = false;
       try { const evidence = verifyReleasePackage(current.packageRoot, options.allowDirtyPrivateBuild === true); packageValid = evidence.manifestSha256 === current.releaseManifestSha256 && evidence.manifest.protocol.registryHash === current.registryHash; } catch { packageValid = false; }
-      const installationValid = remote.valid && existsSync(current.configPath) && fileDigest(current.configPath) === current.configSha256 && secretPermissions(current.configPath) === "owner-only" && secretPermissions(current.secretPath) === "owner-only" && packageValid;
+      const diagnosticsPath = current.config.bridge.diagnostics?.path;
+      const diagnosticsValid = diagnosticsPath === undefined || diagnosticsFileValid(diagnosticsPath);
+      const installationValid = remote.valid && diagnosticsValid && existsSync(current.configPath) && fileDigest(current.configPath) === current.configSha256 && secretPermissions(current.configPath) === "owner-only" && secretPermissions(current.secretPath) === "owner-only" && packageValid;
       const report = installationValid ? await diagnosticsAsync(current.packageRoot, current.configPath) : null;
       const activated = installationValid && report !== null && report.liveConnected && report.provenance === "real-live" && report.registryHash === current.registryHash;
       const next: LifecycleReceipt = { ...current, status: activated ? "activated" : "installed-restart-required", activation: { required: !activated, realLiveVerified: activated, provenance: activated ? "real-live" : "unavailable", remediation: activated ? "none" : installationValid ? "Restart Live, select AbletonMcpBridge as a Control Surface, then rerun activate." : "Run lifecycle repair and verify receipt-bound hashes before activation." }, lastAction: "activate" };
@@ -491,13 +567,15 @@ export async function runLifecycle(options: LifecycleOptions): Promise<Lifecycle
     const realtimePort = options.realtimePort ?? 9_766;
     let remoteBackup: string | null = null;
     let secretCreated = false;
+    let diagnosticsCreated = false;
     let configCreated = false;
     try {
       if (!existsSync(paths.secretPath)) { writeSecretFile(paths.secretPath, generateSecret()); secretCreated = true; }
       else readSecretFile(paths.secretPath);
+      if (options.enableBridgeDiagnostics === true) diagnosticsCreated = ensureDiagnosticsFile(paths.diagnosticsPath);
       fault(options, "after-secret");
       const entrypoint = join(options.packageRoot, "dist", "src", "cli.js");
-      const config = configForBridge(entrypoint, { host, port, realtimePort, secretFile: paths.secretPath, timeoutMs: options.timeoutMs ?? 5_000 }, process.execPath, paths.configPath);
+      const config = configForBridge(entrypoint, { host, port, realtimePort, secretFile: paths.secretPath, timeoutMs: options.timeoutMs ?? 5_000, ...(options.enableBridgeDiagnostics === true ? { diagnostics: { path: paths.diagnosticsPath, maxBytes: BRIDGE_DIAGNOSTICS_MAX_BYTES } } : {}) }, process.execPath, paths.configPath);
       writeConfig(paths.configPath, config, false); configCreated = true;
       fault(options, "after-config");
       const source = join(options.packageRoot, "remote-script", REMOTE_PACKAGE, REMOTE_MODULE);
@@ -516,10 +594,11 @@ export async function runLifecycle(options: LifecycleOptions): Promise<Lifecycle
       fault(options, "before-receipt");
       writeOwnerJson(paths.receiptPath, next);
       const journalFinalized = tryWriteOwnerJson(paths.journalPath, { version: 1, action: "install", state: "completed", generation: next.generation });
-      result.applied = true; result.state = "completed"; result.restartRequired = true; result.verification = { packageVersion: next.packageVersion, artifactSha256: next.artifactSha256, releaseManifestSha256: next.releaseManifestSha256, registryHash: next.registryHash, remoteFiles: Object.keys(remoteFiles).length, configSha256: next.configSha256, configPermissions: secretPermissions(paths.configPath), secretPermissions: secretPermissions(paths.secretPath), portsAvailableAtPreflight: true, journalFinalized }; result.instructions = [next.activation.remediation]; completeSteps(result); return result;
+      result.applied = true; result.state = "completed"; result.restartRequired = true; result.verification = { packageVersion: next.packageVersion, artifactSha256: next.artifactSha256, releaseManifestSha256: next.releaseManifestSha256, registryHash: next.registryHash, remoteFiles: Object.keys(remoteFiles).length, configSha256: next.configSha256, configPermissions: secretPermissions(paths.configPath), secretPermissions: secretPermissions(paths.secretPath), bridgeDiagnostics: config.bridge.diagnostics ? { path: config.bridge.diagnostics.path, maxBytes: config.bridge.diagnostics.maxBytes, permissions: secretPermissions(config.bridge.diagnostics.path) } : null, portsAvailableAtPreflight: true, journalFinalized }; result.instructions = [next.activation.remediation]; completeSteps(result); return result;
     } catch (error) {
       restoreBackup(paths.remoteScriptDirectory, remoteBackup);
       if (configCreated && existsSync(paths.configPath)) rmSync(paths.configPath, { force: true });
+      if (diagnosticsCreated && existsSync(paths.diagnosticsPath)) rmSync(paths.diagnosticsPath, { force: true });
       if (secretCreated && existsSync(paths.secretPath)) rmSync(paths.secretPath, { force: true });
       tryWriteOwnerJson(paths.journalPath, { version: 1, action: "install", state: "failed-rolled-back", reason: error instanceof Error ? error.message : "unknown" });
       throw error;
@@ -573,16 +652,24 @@ export async function runLifecycle(options: LifecycleOptions): Promise<Lifecycle
     const drift = verifyFiles(paths.remoteScriptDirectory, receipt.remoteFiles);
     const configValid = existsSync(paths.configPath) && fileDigest(paths.configPath) === receipt.configSha256 && secretPermissions(paths.configPath) === "owner-only";
     const permissionsValid = existsSync(paths.secretPath) && secretPermissions(paths.secretPath) === "owner-only";
-    if (drift.valid && configValid && permissionsValid) {
+    const diagnosticsPath = receipt.config.bridge.diagnostics?.path;
+    const diagnosticsValid = diagnosticsPath === undefined || diagnosticsFileValid(diagnosticsPath);
+    if (drift.valid && configValid && permissionsValid && diagnosticsValid) {
       const journalFinalized = tryWriteOwnerJson(paths.journalPath, { version: 1, action: "repair", state: "completed", generation: receipt.generation, changed: false });
-      result.applied = true; result.state = "completed"; result.verification = { changed: false, remoteScript: drift, configValid, permissionsValid, journalFinalized }; result.steps = result.steps.map((step) => ({ ...step, status: step.id === "inspect" || step.id === "verify" ? "completed" : "skipped" })); return result;
+      result.applied = true; result.state = "completed"; result.verification = { changed: false, remoteScript: drift, configValid, permissionsValid, diagnosticsValid, journalFinalized }; result.steps = result.steps.map((step) => ({ ...step, status: step.id === "inspect" || step.id === "verify" ? "completed" : "skipped" })); return result;
     }
     if (!existsSync(paths.secretPath)) throw new Error("managed secret is missing; repair refuses to manufacture new bridge authority");
     let remoteQuarantine: string | undefined;
     let configQuarantine: string | undefined;
+    let diagnosticsQuarantine: string | undefined;
+    let diagnosticsCreated = false;
     try {
       if (existsSync(paths.remoteScriptDirectory)) { remoteQuarantine = quarantinePath(options.stateDirectory, "repair-remote"); renameSync(paths.remoteScriptDirectory, remoteQuarantine); }
       if (existsSync(paths.configPath) && !configValid) { configQuarantine = quarantinePath(options.stateDirectory, "repair-config"); renameSync(paths.configPath, configQuarantine); }
+      if (diagnosticsPath !== undefined && !diagnosticsValid) {
+        if (pathEntryExists(diagnosticsPath)) { diagnosticsQuarantine = quarantinePath(options.stateDirectory, "repair-diagnostics"); renameSync(diagnosticsPath, diagnosticsQuarantine); }
+        diagnosticsCreated = ensureDiagnosticsFile(diagnosticsPath);
+      }
       if (!permissionsValid) {
         if (platform !== "win32") chmodSync(paths.secretPath, 0o600);
         secureWindowsFile(paths.secretPath);
@@ -593,13 +680,15 @@ export async function runLifecycle(options: LifecycleOptions): Promise<Lifecycle
       fault(options, "after-repair-install");
       assertPackageStillBound(options.packageRoot, packageEvidence!, options.allowDirtyPrivateBuild === true);
       const next: LifecycleReceipt = { ...receipt, generation: receipt.generation + 1, remoteFiles: hashRegularTree(paths.remoteScriptDirectory), configSha256: fileDigest(paths.configPath), status: "installed-restart-required", activation: { required: true, realLiveVerified: false, provenance: "unavailable", remediation: "Restart Live and rerun activate after repair." }, lastAction: "repair" };
-      writeOwnerJson(paths.receiptPath, next); const journalFinalized = tryWriteOwnerJson(paths.journalPath, { version: 1, action: "repair", state: "completed", generation: next.generation, quarantine: { remote: remoteQuarantine ?? null, config: configQuarantine ?? null } });
-      result.applied = true; result.state = "completed"; result.restartRequired = true; result.recovery.quarantine = remoteQuarantine ?? configQuarantine; result.verification = { changed: true, priorDrift: drift, configRepaired: !configValid, secretPermissions: secretPermissions(paths.secretPath), repairedRemoteFiles: Object.keys(next.remoteFiles).length, configQuarantine: configQuarantine ?? null, journalFinalized }; result.instructions = [next.activation.remediation]; completeSteps(result); return result;
+      writeOwnerJson(paths.receiptPath, next); const journalFinalized = tryWriteOwnerJson(paths.journalPath, { version: 1, action: "repair", state: "completed", generation: next.generation, quarantine: { remote: remoteQuarantine ?? null, config: configQuarantine ?? null, diagnostics: diagnosticsQuarantine ?? null } });
+      result.applied = true; result.state = "completed"; result.restartRequired = true; result.recovery.quarantine = remoteQuarantine ?? configQuarantine ?? diagnosticsQuarantine; result.verification = { changed: true, priorDrift: drift, configRepaired: !configValid, diagnosticsRepaired: !diagnosticsValid, secretPermissions: secretPermissions(paths.secretPath), repairedRemoteFiles: Object.keys(next.remoteFiles).length, configQuarantine: configQuarantine ?? null, diagnosticsQuarantine: diagnosticsQuarantine ?? null, journalFinalized }; result.instructions = [next.activation.remediation]; completeSteps(result); return result;
     } catch (error) {
       if (existsSync(paths.remoteScriptDirectory)) rmSync(paths.remoteScriptDirectory, { recursive: true, force: true });
       if (remoteQuarantine && existsSync(remoteQuarantine)) renameSync(remoteQuarantine, paths.remoteScriptDirectory);
       if (configQuarantine && existsSync(configQuarantine)) { if (existsSync(paths.configPath)) rmSync(paths.configPath, { force: true }); renameSync(configQuarantine, paths.configPath); }
       else if (!configValid && existsSync(paths.configPath)) rmSync(paths.configPath, { force: true });
+      if (diagnosticsCreated && diagnosticsPath && pathEntryExists(diagnosticsPath)) rmSync(diagnosticsPath, { force: true });
+      if (diagnosticsQuarantine && diagnosticsPath && pathEntryExists(diagnosticsQuarantine)) renameSync(diagnosticsQuarantine, diagnosticsPath);
       tryWriteOwnerJson(paths.journalPath, { version: 1, action: "repair", state: "failed-rolled-back", reason: error instanceof Error ? error.message : "unknown", quarantine: { remote: remoteQuarantine ?? null, config: configQuarantine ?? null } });
       throw error;
     }
@@ -608,7 +697,8 @@ export async function runLifecycle(options: LifecycleOptions): Promise<Lifecycle
   if (options.action === "rollback") {
     if (!receipt.previous || !existsSync(receipt.previous.remoteBackup)) throw new Error("no verified previous generation is available");
     const current = verifyFiles(paths.remoteScriptDirectory, receipt.remoteFiles);
-    if (!current.valid || !existsSync(paths.configPath) || fileDigest(paths.configPath) !== receipt.configSha256 || secretPermissions(paths.configPath) !== "owner-only" || secretPermissions(paths.secretPath) !== "owner-only") throw new Error("current generation is drifted; repair or preserve it before rollback");
+    const diagnosticsPath = receipt.config.bridge.diagnostics?.path;
+    if (!current.valid || (diagnosticsPath !== undefined && !diagnosticsFileValid(diagnosticsPath)) || !existsSync(paths.configPath) || fileDigest(paths.configPath) !== receipt.configSha256 || secretPermissions(paths.configPath) !== "owner-only" || secretPermissions(paths.secretPath) !== "owner-only") throw new Error("current generation is drifted; repair or preserve it before rollback");
     assertNoLinkedAncestors(receipt.previous.remoteBackup);
     const previousPackage = verifyReleasePackage(receipt.previous.packageRoot, options.allowDirtyPrivateBuild === true);
     if (previousPackage.manifestSha256 !== receipt.previous.releaseManifestSha256 || previousPackage.manifest.protocol.registryHash !== receipt.previous.registryHash) throw new Error("previous package root is unavailable or differs from the retained generation");

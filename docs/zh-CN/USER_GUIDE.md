@@ -10,7 +10,8 @@
 
 ## 安装与启动
 
-支持的运行时:Node.js 22、24、25。从源码检出目录:
+支持的运行时:Node.js 22、24、25。Node 21、23、26、27 以及未列出的/
+未来主版本均不受支持。从源码检出目录:
 
 ```sh
 cd apps/mcp-server
@@ -26,7 +27,9 @@ node dist/src/cli.js --config /absolute/path/bridge-config.json
 
 tarball 安装请使用 [DELIVERY.md](DELIVERY.md) 中基于回执(receipt)的
 `ableton-mcp-lifecycle` 流程进行安装、激活、升级、修复、回滚与卸载。
-产物按精确路径与 SHA-256 安装。
+产物采用 MIT 许可,通过本地渠道交付,未发布、未签名,并按精确路径与
+SHA-256 安装。`private: true` 仅防止意外发布,不改变 MIT 权利;见
+[DISTRIBUTION_POLICY.md](DISTRIBUTION_POLICY.md)。
 
 ## 只读工具
 
@@ -156,6 +159,12 @@ npm run setup -- --output /absolute/path/bridge-config.json \
 主机必须是回环地址;密钥必须强随机且由所有者控制。`--realtime-port`
 可选,必须与已认证的 TCP 端口不同,仅启用
 [REALTIME_CONTROL.md](REALTIME_CONTROL.md) 中所述的独立布防通道。
+
+Remote Script 文件诊断默认禁用,不会因 `setup` 或创建临时哨兵而启用。
+受支持的显式选项是
+`ableton-mcp-lifecycle install --enable-bridge-diagnostics`;它只配置一个
+有界的 owner-state 文件,不写入负载或密钥。不带该选项卸载/重装即可禁用。
+详见 [OPERATIONS.md](OPERATIONS.md) 与 [DELIVERY.md](DELIVERY.md)。
 
 仅向显式选择的目标安装 Remote Script:
 

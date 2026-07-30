@@ -54,19 +54,19 @@ node dist/src/install-remote-script.js --destination '/abs/.../Remote Scripts/Ab
 ```
 
 重启 Live,然后验证:`npm run diagnostics -- --config /abs/path/bridge-config.json`。
-完整教程:[docs/USER_GUIDE.md](docs/zh-CN/USER_GUIDE.md)。
+完整教程:[docs/zh-CN/USER_GUIDE.md](docs/zh-CN/USER_GUIDE.md)。
 
 ## 安全模型
 
-每项变更都遵循 **发现 → 预览 → 确认 → 应用 → 验证 → 撤销** 的流程。幂等键、epoch 隔离与执行账本,使丢失的确认也能安全地对账;任意删除一律被拒绝。未经显式桥接配置,服务器处于故障关闭状态 —— 无法读取或改动 Live。参见 [docs/LIVE_SAFETY.md](docs/zh-CN/LIVE_SAFETY.md)。
+每项变更都遵循 **发现 → 预览 → 确认 → 应用 → 验证 → 撤销** 的流程。幂等键、epoch 隔离与执行账本,使丢失的确认也能安全地对账;任意删除一律被拒绝。未经显式桥接配置,服务器处于故障关闭状态 —— 无法读取或改动 Live。参见 [docs/zh-CN/LIVE_SAFETY.md](docs/zh-CN/LIVE_SAFETY.md)。
 
 ## 兼容性
 
 | 平台 | 状态 |
 |---|---|
-| Node.js 22 / 24 / 25 | 支持(CI 测试) |
+| Node.js 22 / 24 / 25 | 支持的契约;必须取得当前精确 SHA 的完整矩阵成功结果 |
 | macOS + Live 12 | 已对 12.4.5b8 beta 验证([证据](docs/evidence/)) |
-| Windows 宿主 | 已通过 CI;Windows 11 + Live 尚未认证 |
+| Windows 宿主 | 已配置 CI 契约;仍需当前精确 SHA 的结果;Windows 11 + Live 尚未认证 |
 | Linux / Live 11 或更早 | 不支持 |
 
 能力在连接时协商确定,您的代理始终清楚当前 Live 安装能做什么。完整矩阵:[docs/SUPPORT_MATRIX.md](docs/zh-CN/SUPPORT_MATRIX.md)。
@@ -84,8 +84,9 @@ node dist/src/install-remote-script.js --destination '/abs/.../Remote Scripts/Ab
 | [REALTIME_CONTROL](docs/zh-CN/REALTIME_CONTROL.md) | 已布防的 UDP/OSC/XY 控制平面 |
 | [CAPABILITY_MATRIX](docs/zh-CN/CAPABILITY_MATRIX.md) | 每个工具的能力与操作要求 |
 | [DELIVERY](docs/zh-CN/DELIVERY.md) | 打包产物的安装、升级、回滚与卸载 |
+| [DISTRIBUTION_POLICY](docs/zh-CN/DISTRIBUTION_POLICY.md) | 本地 MIT 产物、必需检查与紧急流程 |
 | [IMPLEMENTATION_STATUS](docs/zh-CN/IMPLEMENTATION_STATUS.md) | 已验证内容与当前限制 |
 
 ## 许可证
 
-基于 [MIT 许可证](LICENSE.md)开源。Ableton Live 是 Ableton AG 的商标;本项目与 Ableton AG 无关联,亦未获其认可。
+基于 [MIT 许可证](LICENSE.md)开源。软件包的 `private: true` 与本地、未发布、未签名、未公证的交付渠道仅用于防止意外发布,不会改变 MIT 权利。Ableton Live 是 Ableton AG 的商标;MIT 不授予 Ableton 商标权,也不表示关联、认可、签名或认证。

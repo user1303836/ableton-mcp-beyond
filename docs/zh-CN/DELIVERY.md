@@ -4,22 +4,26 @@
 
 ## 发布产物与渠道
 
-发布产物是来自 `npm pack` 的精确 SHA npm tarball,按本地路径与 SHA-256
-安装。它未签名、未公证,也未发布到 npm。仓库源码采用 MIT 许可;打包的
-`package.json` 仍带有仓库公开之前的 `private`/`UNLICENSED` 元数据,
-生命周期验证器会强制检查该元数据,并已跟踪待发布管线更新。
+唯一配置的发布产物是由 `npm pack` 创建的精确本地 npm tarball,按本地
+路径与 SHA-256 安装。它采用 MIT 许可;`private: true` 仅用于防止意外
+发布到 npm。该产物未签名、未公证、未发布。详见
+[DISTRIBUTION_POLICY.md](DISTRIBUTION_POLICY.md)。
 
-`package:verify` 拒绝精确允许列表之外的任何路径,并对照每一个编译后的
-运行时、Remote Script、注册表、文档与许可证字节验证
-`release-manifest.json`。tarball 只能包含:编译后的运行时 JavaScript 与
-声明、带注册表与清单的 Remote Script、发布清单与软件包元数据、MIT
-许可证文件,以及允许列表中的用户/安全/运维文档。测试、验证脚本、源码
-映射、依赖、密钥、配置、状态、备份、日志、捕获的媒体、证据与受保护的
-本地材料都被排除。
+`package:verify` 拒绝精确允许列表之外的任何路径,逐字节比较打包与仓库中
+的 MIT 许可证,并对照每一个编译后的运行时、Remote Script、注册表、文档
+与许可证字节验证 `release-manifest.json`。tarball 只能包含编译后的运行时
+JavaScript 与声明、带注册表与清单的 Remote Script、发布清单与软件包元
+数据、MIT 许可证文件,以及允许列表中的用户/安全/运维文档。测试、验证
+脚本、源码映射、依赖、密钥、配置、状态、备份、日志、捕获的媒体、证据与
+受保护的本地材料都被排除。
 
-清单记录软件包版本、精确源码提交与脏标志、Node 范围、宿主/桥接协议、
+新清单使用 `ableton-mcp-release/v2`、`local-npm-tarball` 渠道、MIT SPDX
+元数据与明确的 `license` 负载角色。生命周期仅为现有回执的升级/回滚严格
+兼容精确的旧版 v1/UNLICENSED/private 渠道元组;混合元组会被拒绝。清单
+记录软件包版本、精确源码提交与脏标志、Node 范围与主版本、宿主/桥接协议、
 规范注册表哈希、分发渠道、签名/公证/发布状态、文件角色与 SHA-256 值。
-发布候选必须来自干净的提交。SHA-256 证明字节完整性,而不是发布者身份。
+发布候选必须来自干净提交。SHA-256 证明字节完整性,而不是发布者身份;MIT
+也不授予 Ableton 商标权或表示签名、认证、关联或认可。
 
 ## 支持矩阵
 
@@ -126,6 +130,12 @@ owner-only 密钥与配置,原子地安装 Remote Script/注册表/清单/引用
 写入 owner-only 回执与日志。密钥、配置或桥接暂存之后的任何注入或真实
 失败,都会移除新授权并恢复先前状态。成功是
 `installed-restart-required`,而不是激活。
+
+只有在计划与应用命令中显式加入 `--enable-bridge-diagnostics`,Remote
+Script 文件诊断才会启用。该选项仅在 `$STATE/bridge-diagnostics.log`
+配置一个 owner-only、单链接的常规文件;固定且经脱敏的记录在回调线程外
+排队,文件上限为 256 KiB。不带该选项重新安装或卸载会禁用已配置的接收器;
+卸载后日志会保留供检查。详见 [OPERATIONS.md](OPERATIONS.md)。
 
 ### 激活
 

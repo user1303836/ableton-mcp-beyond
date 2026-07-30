@@ -11,14 +11,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import ableton_mcp_remote_script as remote_module
 from ableton_mcp_remote_script import (
     AbletonMcpBridge,
     AuthenticatedRemoteScript,
-    LiveObjectMapper, _DispatchToken, _MainThreadQueue, _Subscription, _authority_state_digest, operation_registry, validate_operation_payload,
+    LiveObjectMapper, _DiagnosticsSink, _DispatchToken, _MainThreadQueue, _Subscription, _authority_state_digest, _clear_diagnostics_sink, _debug_trace, _set_diagnostics_sink, operation_registry, validate_operation_payload,
     PROTOCOL,
     create_instance,
 )
-from AbletonMcpBridge import _mode_owner_only, _owner_controlled, _normalize_bridge_config
+from AbletonMcpBridge import _diagnostics_path_safe, _mode_owner_only, _owner_controlled, _normalize_bridge_config
 
 
 class BridgeConfigNormalizationTests(unittest.TestCase):
@@ -44,6 +45,16 @@ class BridgeConfigNormalizationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _normalize_bridge_config({**base, "extra": True})
 
+    def test_version_two_accepts_only_the_bounded_diagnostics_shape(self):
+        base = {"version": 2, "server": {"command": "node", "args": []}, "bridge": {"host": "127.0.0.1", "port": 9765, "secretFile": "/tmp/secret", "timeoutMs": 5000}}
+        absolute_path = str((Path(tempfile.gettempdir()) / "owner" / "bridge-diagnostics.log").resolve())
+        diagnostics = {"path": absolute_path, "maxBytes": 256 * 1024}
+        normalized = _normalize_bridge_config({**base, "bridge": {**base["bridge"], "diagnostics": diagnostics}})
+        self.assertEqual(normalized["diagnostics"], diagnostics)
+        for invalid in [{"path": "relative.log", "maxBytes": 256 * 1024}, {"path": absolute_path, "maxBytes": 1}, {"path": absolute_path, "maxBytes": 256 * 1024, "extra": True}, True]:
+            with self.assertRaises(ValueError):
+                _normalize_bridge_config({**base, "bridge": {**base["bridge"], "diagnostics": invalid}})
+
     def test_version_one_shape_passes_through_and_others_fail(self):
         self.assertEqual(_normalize_bridge_config({"version": 1, "host": "::1", "port": 9765, "secretFile": "/tmp/s"}), {"version": 1, "host": "::1", "port": 9765, "secretFile": "/tmp/s"})
         with self.assertRaises(ValueError):
@@ -54,6 +65,152 @@ class BridgeConfigNormalizationTests(unittest.TestCase):
 
 def fake_status_result():
     return {"connected": False, "adapter": "unavailable", "epoch": None, "protocol": "ableton-live/v1", "registryHash": operation_registry()[1], "operations": ["status", "snapshot", "discover", "get", "reconnect", "session.playback"], "capabilities": []}
+
+
+def _protect_windows_owner_only(path):
+    if os.name != "nt": return
+    encoded = base64.b64encode(str(path).encode("utf-8")).decode("ascii")
+    script = (
+        "$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:ABLETON_MCP_ACL_PATH));"
+        "$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User;"
+        "$a=if([IO.Directory]::Exists($p)){New-Object System.Security.AccessControl.DirectorySecurity}else{New-Object System.Security.AccessControl.FileSecurity};"
+        "$a.SetOwner($sid);$a.SetAccessRuleProtection($true,$false);"
+        "$rule=New-Object System.Security.AccessControl.FileSystemAccessRule -ArgumentList @($sid,[System.Security.AccessControl.FileSystemRights]::FullControl,[System.Security.AccessControl.AccessControlType]::Allow);"
+        "[void]$a.AddAccessRule($rule);"
+        "if([IO.Directory]::Exists($p)){[IO.Directory]::SetAccessControl($p,$a)}else{[IO.File]::SetAccessControl($p,$a)}"
+    )
+    environment = dict(os.environ); environment["ABLETON_MCP_ACL_PATH"] = encoded
+    subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], check=True, env=environment)
+
+
+class DiagnosticsSecurityTests(unittest.TestCase):
+    def test_predictable_temporary_sentinel_cannot_enable_diagnostics(self):
+        self.assertFalse(hasattr(remote_module, "_DEBUG_LOG"))
+        self.assertFalse(hasattr(remote_module, "_DEBUG_ENABLED"))
+        _set_diagnostics_sink(None)
+        _debug_trace("dispatch-failure")
+
+    def _owner_file(self, directory, name="bridge-diagnostics.log"):
+        root = Path(directory); root.chmod(0o700); _protect_windows_owner_only(root)
+        path = root / name; path.write_bytes(b""); path.chmod(0o600); _protect_windows_owner_only(path)
+        return path
+
+    def _sink(self, path, *, start_writer=True):
+        return _DiagnosticsSink(str(path), start_writer=start_writer, security_validator=_diagnostics_path_safe)
+
+    def test_structured_diagnostics_are_explicit_asynchronous_and_redacted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._owner_file(directory)
+            self.assertTrue(_diagnostics_path_safe(path))
+            sink = self._sink(path); self.assertTrue(sink.enabled)
+            _set_diagnostics_sink(sink)
+            try:
+                try:
+                    raise RuntimeError("SECRET-CANARY /Users/example/Project.als browser-query token mac pcm")
+                except RuntimeError:
+                    _debug_trace("dispatch-failure")
+                self.assertTrue(sink.flush_for_test())
+                logged = path.read_text(encoding="utf-8")
+                self.assertIn('"event":"dispatch-failure"', logged)
+                for forbidden in ["SECRET-CANARY", "Project.als", "browser-query", "token", "Traceback", str(path)]:
+                    self.assertNotIn(forbidden, logged)
+            finally:
+                _clear_diagnostics_sink(sink)
+            self.assertTrue(sink.wait_closed_for_test())
+
+    def test_thread_start_failure_and_prefilled_oversize_file_fail_safe(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._owner_file(directory)
+            path.write_bytes(b"sensitive-canary" * 30000)
+            bounded = self._sink(path, start_writer=False)
+            self.assertTrue(bounded.enabled); self.assertEqual(path.stat().st_size, 0)
+            bounded.close()
+            # Patch only after replacing the Windows validator with an in-process
+            # equivalent. subprocess.capture_output also starts helper threads on
+            # Windows, and globally failing those would not exercise the writer.
+            with patch("ableton_mcp_remote_script.threading.Thread.start", side_effect=RuntimeError("thread unavailable")):
+                unavailable = _DiagnosticsSink(str(path), security_validator=lambda candidate: candidate == path)
+            self.assertFalse(unavailable.enabled); self.assertIsNone(unavailable._fd)
+
+    @unittest.skipIf(os.name == "nt", "POSIX link and FIFO contract")
+    def test_symlink_hardlink_fifo_and_insecure_mode_are_rejected_without_opening(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); root.chmod(0o700)
+            target = self._owner_file(directory, "target.log")
+            link = root / "link.log"; link.symlink_to(target)
+            self.assertFalse(self._sink(link).enabled)
+            hard = root / "hard.log"; os.link(target, hard)
+            self.assertFalse(self._sink(target).enabled)
+            hard.unlink(); target.chmod(0o644)
+            self.assertFalse(self._sink(target).enabled)
+            fifo = root / "fifo"; os.mkfifo(fifo, 0o600)
+            started = time.monotonic(); self.assertFalse(self._sink(fifo).enabled)
+            self.assertLess(time.monotonic() - started, 1.0)
+
+    def test_nonblocking_queue_and_fixed_file_bound(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._owner_file(directory)
+            queued = self._sink(path, start_writer=False); self.assertTrue(queued.enabled)
+            started = time.monotonic()
+            for _ in range(1000): queued.record("capture-tick-failure")
+            self.assertLess(time.monotonic() - started, 1.0)
+            self.assertEqual(queued._queue.qsize(), 64); self.assertGreater(queued._dropped, 0)
+            queued.close()
+            bounded = self._sink(path, start_writer=False); self.assertTrue(bounded.enabled)
+            try:
+                # One near-boundary write proves rotation without launching the
+                # Windows security verifier thousands of times.
+                self.assertIsNotNone(bounded._fd)
+                os.write(bounded._fd, b"x" * (256 * 1024 - 1))
+                bounded._write((1, "realtime-packet-failure", "internal-error"))
+                self.assertLessEqual(path.stat().st_size, 256 * 1024)
+                self.assertNotIn(b"x", path.read_bytes())
+            finally: bounded.close()
+
+    def test_path_or_security_drift_and_write_failure_disable_logging_without_touching_replacement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); path = self._owner_file(directory)
+            authority = {"valid": True}
+            validator = _diagnostics_path_safe if os.name != "nt" else lambda candidate: authority["valid"] and candidate == path
+            sink = _DiagnosticsSink(str(path), security_validator=validator); self.assertTrue(sink.enabled)
+            try:
+                if os.name == "nt":
+                    # Windows intentionally prevents renaming an open file. Model
+                    # the validator rejecting equivalent DACL/path authority drift.
+                    authority["valid"] = False
+                else:
+                    moved = root / "moved.log"; path.rename(moved)
+                    path.write_bytes(b""); path.chmod(0o600)
+                sink.record("result-contract-failure")
+                self.assertTrue(sink.flush_for_test())
+                self.assertFalse(sink.enabled)
+                self.assertEqual(path.read_bytes(), b"")
+            finally:
+                sink.close(); self.assertTrue(sink.wait_closed_for_test())
+
+            failed = self._sink(path); self.assertTrue(failed.enabled)
+            try:
+                with patch.object(failed, "_write", side_effect=OSError("injected write failure")):
+                    failed.record("capture-tick-failure")
+                    self.assertTrue(failed.flush_for_test())
+                self.assertFalse(failed.enabled)
+                self.assertEqual(path.read_bytes(), b"")
+            finally:
+                failed.close(); self.assertTrue(failed.wait_closed_for_test())
+
+    @unittest.skipIf(os.name == "nt", "POSIX parent mode contract")
+    def test_parent_permission_drift_disables_the_writer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); path = self._owner_file(directory)
+            sink = self._sink(path); self.assertTrue(sink.enabled)
+            root.chmod(0o777)
+            try:
+                sink.record("capture-tick-failure")
+                self.assertTrue(sink.flush_for_test())
+                self.assertFalse(sink.enabled)
+                self.assertEqual(path.read_bytes(), b"")
+            finally:
+                root.chmod(0o700); sink.close()
 
 
 class RemoteScriptTests(unittest.TestCase):

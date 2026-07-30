@@ -11,6 +11,7 @@ import { projectBackup, projectInfo, projectLimitation } from "./project.js";
 import { SessionMidiTransactionManager, discoverSession } from "./transactions/session-midi.js";
 import { JOURNEY_IDS, JOURNEY_PROMPTS, journeyResource, planUserJourney, renderJourneyPrompt, type ExperienceLevel, type JourneyId } from "./journeys.js";
 import type { AsyncLiveAdapter } from "./live.js";
+import { PACKAGE_VERSION } from "./delivery.js";
 
 export const PROTOCOL_VERSION = "2025-11-25";
 export const MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
@@ -189,7 +190,7 @@ interface ClipLifecycleTransaction {
 }
 
 const REQUEST_ID_MAX_LENGTH = 128;
-const SERVER_VERSION = "1.0.0";
+const SERVER_VERSION = PACKAGE_VERSION;
 const TRANSACTION_TTL_MS = 30_000;
 const MAX_TRANSACTIONS = 256;
 const AUDITION_TTL_MS = 30_000;
