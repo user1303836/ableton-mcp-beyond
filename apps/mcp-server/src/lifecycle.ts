@@ -496,6 +496,7 @@ export async function runLifecycle(options: LifecycleOptions): Promise<Lifecycle
   const receipt = existsSync(paths.receiptPath) ? parseReceipt(paths.receiptPath) : null;
   const packageRequired = ["install", "upgrade", "repair"].includes(options.action);
   const packageEvidence = packageRequired ? verifyReleasePackage(options.packageRoot, options.allowDirtyPrivateBuild === true) : null;
+  if (["install", "upgrade"].includes(options.action) && packageEvidence!.manifest.schema !== "ableton-mcp-release/v2") throw new Error("install and upgrade require a current ableton-mcp-release/v2 MIT candidate; legacy v1 is receipt-bound compatibility only");
   const artifactSha256 = options.action === "install" || options.action === "upgrade" ? verifyArtifactBinding(options.artifactPath, options.artifactSha256, options.packageRoot, packageEvidence!.manifestSha256) : (options.artifactSha256 ?? "");
   requireStoppedConfirmation(options);
   if (receipt?.previous) { const priorRelative = relative(receipt.stateDirectory, receipt.previous.remoteBackup); if (priorRelative.startsWith("..") || isAbsolute(priorRelative)) throw new Error("receipt rollback path escapes owner state"); }

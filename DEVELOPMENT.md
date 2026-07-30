@@ -9,7 +9,9 @@ project reference document is context, not an API specification.
 
 ## Local development
 
-Use Node.js 22, 24, or 25. Node 23 and unlisted/future majors are unsupported until they pass the complete exact-candidate matrix:
+Use Node.js 22, 24, or 25. Node 21, 23, 26, 27, prereleases, and all
+unlisted/future majors are unsupported until they pass the complete
+exact-candidate matrix and the canonical policy is updated:
 
 ```sh
 cd apps/mcp-server
@@ -41,7 +43,7 @@ platform-specific runner, or local-only reference material. The default
 `UnavailableLiveAdapter` is the supported behavior when no explicit
 configuration is supplied. Any adapter must preserve the registry, protocol,
 epoch, validation, and safety contracts documented in
-[`docs/LIVE_SAFETY.md`](docs/LIVE_SAFETY.md).
+[`docs/en/LIVE_SAFETY.md`](docs/en/LIVE_SAFETY.md).
 
 ## Change discipline
 

@@ -1,28 +1,34 @@
 # Cross-platform delivery and lifecycle
 
+English · [简体中文](../zh-CN/DELIVERY.md) · [日本語](../ja/DELIVERY.md)
+
 ## Release artifact and channel
 
-The only artifact is an exact local npm tarball from `npm pack`. It is MIT
-licensed, remains marked `private: true` to prevent accidental npm publication,
-is unsigned/unnotarized, and is not published. See
+The only configured artifact is an exact local npm tarball from `npm pack`,
+installed by local path and SHA-256. It is MIT licensed, remains marked
+`private: true` to prevent accidental npm publication, and is unsigned,
+unnotarized, and unpublished. See
 [DISTRIBUTION_POLICY.md](DISTRIBUTION_POLICY.md). `package:verify` rejects every
 path outside the exact allowlist, byte-compares the packed MIT license with the
 repository license, and verifies `release-manifest.json` against every compiled
-runtime, Remote Script, registry, document, and license byte. Tests,
+runtime, Remote Script, registry, document, and license byte. The tarball may
+contain only compiled runtime JavaScript and declarations, the Remote Script
+with its registry and manifest, the release manifest and package metadata, the
+MIT license file, and the allowlisted user/safety/operations documents. Tests,
 verification scripts, source maps, dependencies, secrets, configs, state,
 backups, logs, captured media, evidence, and protected local material are
 excluded.
 
 New manifests use `ableton-mcp-release/v2` with the `local-npm-tarball` channel,
 MIT SPDX metadata, and an explicit `license` payload role. The lifecycle also
-strictly recognizes the legacy v1/UNLICENSED/private-channel tuple so an
+strictly recognizes the exact legacy v1/UNLICENSED/private-channel tuple so an
 existing receipt can upgrade and roll back; mixed policy tuples are rejected.
 The manifest records the package version, exact source commit and dirty flag,
 Node range and majors, host/bridge protocol, canonical registry hash,
-signing/notarization/publication state, file roles, and SHA-256 values. A
-release candidate must come from a clean commit. SHA-256 proves byte integrity,
-not publisher identity. MIT does not grant Ableton trademark rights or imply
-signing, certification, affiliation, or endorsement.
+distribution channel, signing/notarization/publication state, file roles, and
+SHA-256 values. A release candidate must come from a clean commit. SHA-256
+proves byte integrity, not publisher identity. MIT does not grant Ableton
+trademark rights or imply signing, certification, affiliation, or endorsement.
 
 ## Supported matrix
 
@@ -127,16 +133,6 @@ absence as proof and never kills a process.
   --apply --confirm-live-stopped
 ```
 
-Remote Script diagnostics remain disabled unless the operator adds
-`--enable-bridge-diagnostics` to both the reviewed install plan and apply
-command. That opt-in exclusively provisions `$STATE/bridge-diagnostics.log` as
-an owner-only single-link regular file and records its fixed 256 KiB bound in
-the owner-only bridge config. Upgrade preserves the selected configuration.
-To disable it, uninstall and reinstall without the flag; uninstall retains the
-log for inspection rather than deleting diagnostics implicitly. See
-[OPERATIONS.md](OPERATIONS.md) for its nonblocking queue, strict redaction, and
-failure behavior.
-
 Preflight hashes the exact local tarball bytes, binds the tarball's embedded
 release manifest and complete strict inventory/payload hashes to the extracted
 package root, verifies the release manifest, empty owned
@@ -146,6 +142,15 @@ config, atomically installs the Remote Script/registry/manifest/reference, then
 writes an owner-only receipt and journal. Any injected or real failure after
 secret, config, or bridge staging removes new authority and restores the prior
 state. Success is `installed-restart-required`, not activation.
+
+Remote Script file diagnostics remain disabled unless the operator adds
+`--enable-bridge-diagnostics` to both the reviewed install plan and apply
+command. That explicit opt-in provisions only `$STATE/bridge-diagnostics.log`
+as an owner-only, single-link regular file. The fixed redacted records are
+queued off callback threads and the file is capped at 256 KiB. Reinstall or
+uninstall without the flag disables the configured sink; uninstall retains the
+log for inspection rather than deleting diagnostics implicitly. See
+[OPERATIONS.md](OPERATIONS.md).
 
 ### Activation
 

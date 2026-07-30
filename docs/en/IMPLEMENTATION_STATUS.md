@@ -1,14 +1,15 @@
 # Implementation status
 
-This file describes the current branch. The historical checkpoint and phased
-finish criteria remain in `REPOSITORY_STATE_AND_FINISH_PLAN.html`; they are not
-a current capability report.
+English · [简体中文](../zh-CN/IMPLEMENTATION_STATUS.md) · [日本語](../ja/IMPLEMENTATION_STATUS.md)
+
+What the current branch implements and verifies, and where the honest limits
+are. Source, schemas, and tests are the final authority.
 
 ## Implemented and verified
 
 - Strict newline-delimited JSON-RPC MCP host (`2025-11-25`) with bounded
   framing/concurrency, ordered backpressure-aware output, cancellation,
-  duplicate-ID rejection, redacted diagnostics, and fail-closed default
+  duplicate-ID rejection, redacted diagnostics, and a fail-closed default
   adapter.
 - Explicit host/bridge configuration, owner-only separate secrets, loopback
   enforcement, migration, setup, diagnostics, and atomic Remote Script
@@ -27,18 +28,16 @@ a current capability report.
   Arrangement clips and locators; mixer; Session automation; nested devices,
   racks/chains/pads/macros; Browser search/load; routing; Session and
   Arrangement recording; project path/manifest/backup; subscriptions; and
-  realtime UDP JSON/OSC/XY plus bounded `max`-label extension packets (not a Max capability).
+  realtime UDP JSON/OSC/XY plus bounded `max`-label extension packets (not a
+  Max capability).
 - Purpose-specific preview/apply/verify/undo or cleanup workflows with exact
   object and hierarchy identities, state/content revisions, creation-time
   fingerprints, epochs, expiry, idempotency, fresh postconditions, bounded
   compensation, and explicit uncertain state. Atomic Session clip move runs
-  duplicate/delete/compensation on Live's main thread. Apply, undo, and
-  compensation acknowledgement loss retain exact step arguments for same-key
-  reconciliation; explicit evidence-bound recovery finalization releases
-  protected capacity only after audible/recording/capture/realtime safety checks.
-  The capability catalog classifies every Live tool from both its domain
-  capability and exact negotiated operation set; unsupported or partial Live
-  shapes remain negotiated limitations.
+  duplicate/delete/compensation on Live's main thread. The capability catalog
+  classifies every Live tool from both its domain capability and exact
+  negotiated operation set; unsupported or partial Live shapes remain
+  negotiated limitations.
 - Realtime authority limited by loopback endpoint, unpredictable token, TTL,
   source ports, channels, exact parameter refs, packet/rate/queue bounds,
   sequence/replay checks, generation fencing, verified writes, XY compensation,
@@ -48,8 +47,8 @@ a current capability report.
   analysis.
 - ITU-R BS.1770-5 / EBU R128, Tech 3341, and Tech 3342 programme loudness,
   momentary/short-term measures, loudness range, semantic channel weights, and
-  validated 44.1/48 kHz true peak. Generated independent FFmpeg-oracle
-  evidence is tracked; no third-party audio is stored.
+  validated 44.1/48 kHz true peak. Generated independent FFmpeg-oracle evidence
+  is tracked; no third-party audio is stored.
 - Bounded 48 kHz reference comparison with band-limited resampling,
   coarse-to-fine alignment, ambiguity refusal, standards level matching, and
   aggregate deltas. Untrusted automatic alignment retains separate source
@@ -62,29 +61,25 @@ a current capability report.
   quantization restoration, independently recoverable stop, internal WAV
   validation, standards analysis, signal-chain-linked non-causal diagnosis,
   transaction-owned clip deletion, WAV/ASD unlink, and zero-residual readback.
-  See `AUDIO_INTELLIGENCE.md` and the Phase 8 evidence files.
+  See [AUDIO_INTELLIGENCE.md](AUDIO_INTELLIGENCE.md) and the Phase 8 evidence
+  files.
 - Five capability-aware composition journeys for editable beat/song creation,
   advanced drums, owned/native sound design, standards reference comparison,
-  and mix/recording/performance diagnosis. The tool/resource/prompts expose
-  ordered text progress, impact labels, exact confirmation boundaries,
-  verification, recovery, rights-aware high-level trait translation,
-  accessibility scope, per-stage capability/provenance negotiation, and
-  truthful fallback. The packed fake-Live boundary translates allowlisted
-  traits into guidance, blocks identity/copy collisions, executes every
-  `planned` stage through actual purpose-specific tool results, validates
-  non-regressing runtime progress, and records residual state,
-  replans after device capability renegotiation, and leaves real-Live-only
-  capture/realtime stages unavailable without claiming real-Live or
-  third-party client accessibility evidence.
+  and mix/recording/performance diagnosis. Plans expose ordered text progress,
+  impact labels, exact confirmation boundaries, verification, recovery,
+  rights-aware high-level trait translation, accessibility scope, per-stage
+  capability/provenance negotiation, and truthful fallback. See
+  [USER_JOURNEYS.md](USER_JOURNEYS.md).
 - Packed-artifact production journey, Python mapper tests, property tests,
-  isolated resource benchmarks, compatibility/package verification, and
-  Windows permission hardening.
-- MIT-licensed, local/unpublished release-v2 staging with an independently exact
-  77-file allowlist, full payload hashes, packed-license byte equality, and
-  clean-SHA/toolchain/lock/workflow provenance. Package `private: true` prevents
-  accidental npm publication without changing MIT rights. The release workflow
-  is configured to require fresh-clone byte reproducibility and share one exact
-  candidate across Node 22/24/25 on Ubuntu 24.04, macOS 15, and Windows Server 2025.
+  isolated resource benchmarks, compatibility/package verification, and Windows
+  permission hardening.
+- MIT-licensed, local/unpublished release-v2 staging with an independently
+  exact 77-file allowlist, full payload hashes, packed-license byte equality,
+  and clean-SHA/toolchain/lock/workflow provenance. Package `private: true`
+  prevents accidental npm publication without changing MIT rights. The release
+  workflow requires fresh-clone byte reproducibility and shares one exact
+  candidate across Node 22/24/25 on Ubuntu 24.04, macOS 15, and Windows Server
+  2025.
 - Receipt-driven install, truthful manual activation, strict newer-version
   upgrade, exact rollback, receipt-bound repair/quarantine, retained cleanup,
   ownership-safe uninstall/purge, and status. The lifecycle verifies actual
@@ -97,25 +92,26 @@ a current capability report.
 
 ## Evidence boundary
 
-Tracked evidence under `docs/evidence/` distinguishes deterministic fake-Live,
-packaged bridge, and real-Live observations. Phase 8 real-Live evidence was
-produced by an installed `npm pack` artifact against macOS Live 12.4.5b8 and
-includes cancellation and host-restart/watchdog recovery. It is not Windows
-Live proof and does not prove signing/notarization or release publication.
+Tracked evidence under [`../evidence/`](../evidence/) distinguishes
+deterministic fake-Live, packaged bridge, and real-Live observations. Phase 8
+real-Live evidence was produced by an installed `npm pack` artifact against
+macOS Live 12.4.5b8 and includes cancellation and host-restart/watchdog
+recovery. It is not Windows Live proof and does not prove signing/notarization
+or release publication.
 
 The local protected `extensions-sdk-1.0.0-beta.0` remains excluded: it must not
 be opened, copied, staged, packaged, or cited as implementation evidence.
 
 ## Truthful limitations
 
-- Arbitrary device and Arrangement clip deletion is refused because prior
-  state cannot be reconstructed. Only exact transaction-created identity,
-  hierarchy, and creation-fingerprint cleanup is available through guarded undo.
+- Arbitrary device and Arrangement clip deletion is refused because prior state
+  cannot be reconstructed. Only exact transaction-created identity, hierarchy,
+  and creation-fingerprint cleanup is available through guarded undo.
 - Live save/open/new/export/collect/bounce, Arrangement automation, warp-marker
-  editing, take/comp editing, and Browser audio preview remain unavailable where
-  the observed API has no authoritative operation. Strict reserved canonical
-  contracts are tested but remain unadvertised until an adapter can execute and
-  verify them.
+  editing, take/comp editing, and Browser audio preview remain unavailable
+  where the observed API has no authoritative operation. Strict reserved
+  canonical contracts are tested but remain unadvertised until an adapter can
+  execute and verify them.
 - No Max for Live `.amxd`, plug-in UI control, streaming PCM tap, arbitrary
   path/URL analysis, immersive/object loudness layout, automatic mastering
   verdict, or forensic secure erase is claimed.
@@ -131,14 +127,16 @@ be opened, copied, staged, packaged, or cited as implementation evidence.
   but VoiceOver/Narrator behavior in third-party MCP clients, Ableton Live, and
   plug-in windows remains client/version-dependent and is not claimed.
 - Native signing/notarization, Windows desktop/real-Live evidence, external
-  VoiceOver/Narrator/client evidence, and public publication are not available
+  VoiceOver/Narrator/client evidence, and public publication are unavailable
   for the chosen channel. The channel stays explicitly local, unsigned,
   unnotarized, and unpublished; npm `private: true` prevents accidental
-  publication without changing MIT rights. Those external cells are not inferred from host
-  CI or the server-owned text accessibility contract.
+  publication without changing MIT rights. Those external cells are not
+  inferred from host CI or the server-owned text accessibility contract.
 
 ## Operating procedure
 
-Use `USER_GUIDE.md`, `USER_JOURNEYS.md`, `AUDIO_INTELLIGENCE.md`, and
-`REALTIME_CONTROL.md` for client contracts; `OPERATIONS.md` for supervision; `RECOVERY.md` for uncertain
-state; and `TESTING.md` for release gates.
+Use [USER_GUIDE.md](USER_GUIDE.md), [USER_JOURNEYS.md](USER_JOURNEYS.md),
+[AUDIO_INTELLIGENCE.md](AUDIO_INTELLIGENCE.md), and
+[REALTIME_CONTROL.md](REALTIME_CONTROL.md) for client contracts;
+[OPERATIONS.md](OPERATIONS.md) for supervision; [RECOVERY.md](RECOVERY.md) for
+uncertain state; and [TESTING.md](TESTING.md) for release gates.

@@ -46,12 +46,14 @@ for (const name of ["README.md", "README.ja.md", "README.zh-CN.md"]) {
   if (!value.includes(badgePath) || !value.includes(badgeAlt)) throw new Error(`${name} Node badge disagrees with canonical package policy`);
 }
 const documentChecks = new Map([
-  ["docs/SUPPORT_MATRIX.md", "22.x, 24.x, 25.x"],
-  ["docs/DELIVERY.md", "Node 22, 24, and 25"],
-  ["docs/USER_GUIDE.md", "Node.js 22, 24, and 25"],
-  ["docs/TESTING.md", "Node 22/24/25"],
-  ["docs/IMPLEMENTATION_STATUS.md", "Node 22/24/25"],
-  ["docs/CAPABILITY_MATRIX.md", "Node 22/24/25"],
+  ["docs/en/SUPPORT_MATRIX.md", "22.x, 24.x, 25.x"],
+  ["docs/en/DELIVERY.md", "Node 22, 24, and 25"],
+  ["docs/en/USER_GUIDE.md", "Node.js 22, 24, and 25"],
+  ["docs/en/TESTING.md", "Node 22/24/25"],
+  ["docs/en/IMPLEMENTATION_STATUS.md", "Node 22/24/25"],
+  ["docs/en/CAPABILITY_MATRIX.md", "Node 22/24/25"],
+  ["docs/zh-CN/SUPPORT_MATRIX.md", "22.x、24.x、25.x"],
+  ["docs/ja/SUPPORT_MATRIX.md", "22.x、24.x、25.x"],
   ["DEVELOPMENT.md", "Node.js 22, 24, or 25"],
 ]);
 for (const [name, marker] of documentChecks) if (!readFileSync(resolve(repositoryRoot, name), "utf8").includes(marker)) throw new Error(`${name} lacks canonical Node policy marker: ${marker}`);

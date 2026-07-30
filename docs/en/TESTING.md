@@ -1,5 +1,7 @@
 # Testing guide
 
+English · [简体中文](../zh-CN/TESTING.md) · [日本語](../ja/TESTING.md)
+
 ## Deterministic gates
 
 Run serially from `apps/mcp-server`:
@@ -52,14 +54,17 @@ choices, capture fences/watchdog/emergency/cleanup, and bridge teardown. The
 package verifier starts the installed production bridge and checks
 authenticated fake Set, scene, track, child-slot, and playback discovery.
 
-CI builds one clean local unpublished tarball on Ubuntu 24.04, runs installed-package verification before upload, repeats the pack from a
-fresh detached local clone plus fresh `npm ci` and compares bytes, records the exact Git SHA and tarball SHA-256, then installs that same
-artifact in every Node 22/24/25 Ubuntu 24.04, macOS 15, and Windows Server 2025
-job. Each candidate job verifies strict inventory/hashes and exercises lifecycle
-plan/install, unavailable activation, idempotent repair, unowned rollback
-refusal, and uninstall; Windows additionally tests native ACL repair, junction
-refusal, held-file recovery, and shipped version-2 migration. These remain host/package
-contracts.
+CI builds one clean local unpublished tarball on Ubuntu 24.04, runs
+`package:verify` before upload, repeats the pack from a fresh detached local
+clone plus fresh `npm ci` and compares bytes, records the exact Git SHA and
+tarball SHA-256, then installs that same artifact in every Node 22/24/25 Ubuntu
+24.04, macOS 15, and Windows Server 2025 job. Each candidate job verifies strict
+inventory/hashes and exercises lifecycle plan/install, unavailable activation,
+idempotent repair, unowned rollback refusal, and uninstall; Windows additionally
+tests native ACL repair, junction refusal, held-file recovery, and shipped
+version-2 migration. The stable `Required CI` context fails unless the candidate,
+complete Node/OS matrix, and complete Python matrix all succeed. These remain
+host/package contracts.
 
 The operator-only packaged real-Live Phase 8 verifier is not a CI substitute.
 After installing an `npm pack` artifact and visibly preparing the disposable

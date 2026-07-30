@@ -1,10 +1,12 @@
 # Distribution, signing, and publication policy
 
+English · [简体中文](../zh-CN/DISTRIBUTION_POLICY.md) · [日本語](../ja/DISTRIBUTION_POLICY.md)
+
 ## Chosen channel
 
 The only release channel configured in this repository is an **exact local npm
 tarball** created with `npm pack`. The software and tarball are licensed under
-the [MIT License](../LICENSE.md). Package metadata remains `private: true` to
+the [MIT License](../../LICENSE.md). Package metadata remains `private: true` to
 prevent accidental `npm publish`; candidates are not published to npm, GitHub
 Releases, or another registry. Installation is by exact local path and SHA-256.
 The SHA proves byte integrity, not publisher identity.

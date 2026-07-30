@@ -61,13 +61,33 @@ function fixturePackage(root: string, version: string, marker: string, policy: "
   };
   const manifestBytes = Buffer.from(`${JSON.stringify(manifest)}\n`);
   writeFileSync(join(packageRoot, "release-manifest.json"), manifestBytes);
-  const artifactPath = join(root, `candidate-${version}-${marker}.tgz`);
+  const artifactPath = join(root, `candidate-${version}-${marker}-${policy}.tgz`);
   createArtifact(artifactPath, manifestBytes, packageRoot);
   artifacts.set(packageRoot, { path: artifactPath, sha256: sha(readFileSync(artifactPath)) });
   return packageRoot;
 }
 
 function artifactOptions(packageRoot: string) { return { artifactPath: artifacts.get(packageRoot)!.path, artifactSha256: artifacts.get(packageRoot)!.sha256 }; }
+
+function rebindInstalledReceiptToLegacyPackage(options: LifecycleOptions, packageRoot: string): void {
+  const saved = receipt(options);
+  const manifestPath = join(packageRoot, "release-manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  assert.equal(manifest.schema, "ableton-mcp-private-release/v1");
+  const config = structuredClone(saved.config);
+  config.server.args[0] = join(packageRoot, "dist", "src", "cli.js");
+  writeFileSync(saved.configPath, `${JSON.stringify(config, null, 2)}\n`);
+  Object.assign(saved, {
+    packageRoot,
+    packageVersion: manifest.package.version,
+    artifactSha256: artifacts.get(packageRoot)!.sha256,
+    releaseManifestSha256: sha(readFileSync(manifestPath)),
+    registryHash: manifest.protocol.registryHash,
+    config,
+    configSha256: sha(readFileSync(saved.configPath)),
+  });
+  writeFileSync(join(options.stateDirectory, "install-receipt.json"), `${JSON.stringify(saved, null, 2)}\n`);
+}
 
 function lifecycleOptions(root: string, packageRoot: string, action: LifecycleOptions["action"], overrides: Partial<LifecycleOptions> = {}): LifecycleOptions {
   const remoteScriptsDirectory = join(root, "Live Remote Scripts ü");
@@ -341,14 +361,18 @@ test("rejects mixed release policy tuples", async () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("upgrades a legacy release, retains it exactly, rolls back, and survives failed upgrade", async () => {
+test("upgrades a receipt-bound legacy release, retains it exactly, rolls back, and rejects new legacy candidates", async () => {
   const root = mkdtempSync(join(tmpdir(), "ableton-lifecycle-upgrade-"));
   try {
-    const packageOne = fixturePackage(root, "1.0.0", "one", "legacy");
+    const packageOneCurrent = fixturePackage(root, "1.0.0", "one");
+    const packageOneLegacy = fixturePackage(root, "1.0.0", "one", "legacy");
     const packageTwo = fixturePackage(root, "1.0.1", "two");
     const packageThree = fixturePackage(root, "1.0.2", "three");
-    let options = await withPorts(lifecycleOptions(root, packageOne, "install"));
+    const legacyUpgrade = fixturePackage(root, "1.0.2", "legacy-upgrade", "legacy");
+    await assert.rejects(runLifecycle(await withPorts(lifecycleOptions(root, packageOneLegacy, "install"))), /release\/v2 MIT candidate/);
+    let options = await withPorts(lifecycleOptions(root, packageOneCurrent, "install"));
     await runLifecycle(options);
+    rebindInstalledReceiptToLegacyPackage(options, packageOneLegacy);
     const legacyStatus = await runLifecycle({ ...options, action: "status", apply: false, confirmLiveStopped: false });
     assert.equal(legacyStatus.verification.packageValid, true);
     const upgraded = await runLifecycle({ ...options, action: "upgrade", packageRoot: packageTwo, ...artifactOptions(packageTwo) });
@@ -368,7 +392,8 @@ test("upgrades a legacy release, retains it exactly, rolls back, and survives fa
     // Roll forward again, then prove a failure after replacement restores the
     // active generation and leaves the owner receipt unchanged.
     await runLifecycle({ ...options, action: "upgrade", packageRoot: packageTwo, ...artifactOptions(packageTwo) });
-    await assert.rejects(runLifecycle({ ...options, action: "upgrade", packageRoot: packageOne, ...artifactOptions(packageOne) }), /strictly newer semantic package version/);
+    await assert.rejects(runLifecycle({ ...options, action: "upgrade", packageRoot: packageOneCurrent, ...artifactOptions(packageOneCurrent) }), /strictly newer semantic package version/);
+    await assert.rejects(runLifecycle({ ...options, action: "upgrade", packageRoot: legacyUpgrade, ...artifactOptions(legacyUpgrade) }), /release\/v2 MIT candidate/);
     const before = receipt(options);
     await assert.rejects(runLifecycle({ ...options, action: "upgrade", packageRoot: packageThree, ...artifactOptions(packageThree), faultAt: "before-remote" }), /injected lifecycle failure/);
     assert.equal(receipt(options).generation, before.generation);
