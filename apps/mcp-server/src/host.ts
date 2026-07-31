@@ -7,7 +7,7 @@ import type { PcmAnalysis } from "./analysis.js";
 import type { ConventionalChannelLabel } from "./audio-standards.js";
 import { captureMediaIsAbsent, decodeOwnedWaveFile, unlinkLateCaptureCompanions, unlinkOwnedCaptureFile, type DecodedCaptureFile } from "./audio-file.js";
 import { diagnoseAudioWithLiveContext, type AudioDiagnosis } from "./audio-diagnosis.js";
-import { LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_REGISTRY_OPERATIONS, LIVE_UNAVAILABLE_CAPABILITIES, UnavailableLiveAdapter, type LiveAdapter, type LiveCapability, type LiveEvent, type LiveInvocation, type LiveOperationContext, type LiveRef, type LiveSnapshot, type LiveStatus } from "./live.js";
+import { LIVE_CAPABILITIES, LIVE_PROTOCOL_VERSION, LIVE_REGISTRY_OPERATIONS, LIVE_UNAVAILABLE_CAPABILITIES, UnavailableLiveAdapter, type LiveAdapter, type LiveCapability, type LiveEvent, type LiveInvocation, type LiveOperationContext, type LiveRef, type LiveSnapshot, type LiveStatus, type Track, type TakeLane } from "./live.js";
 import { serveStdio, type RecordContext } from "./stdio.js";
 import { projectBackup, projectInfo, projectLimitation } from "./project.js";
 import { SessionMidiTransactionManager, discoverSession } from "./transactions/session-midi.js";
@@ -178,7 +178,7 @@ interface NoteEditTransaction {
 interface ClipLifecycleTransaction {
   id: string;
   epoch: number;
-  kind: "rename" | "duplicate" | "arrangement-create" | "arrangement-delete" | "arrangement-audio-create" | "move" | "audio-set" | "mixer-set" | "automation" | "browser-load" | "device" | "routing-set" | "recording" | "backup" | "realtime-arm" | "capture-midi" | "scene-capture" | "view" | "locator-jump" | "clip-set" | "session-audio-create" | "warp-marker" | "clip-action" | "note-target";
+  kind: "rename" | "duplicate" | "arrangement-create" | "arrangement-delete" | "arrangement-audio-create" | "arrangement-take-lane-create" | "move" | "audio-set" | "mixer-set" | "automation" | "browser-load" | "device" | "routing-set" | "recording" | "backup" | "realtime-arm" | "capture-midi" | "scene-capture" | "view" | "locator-jump" | "clip-set" | "session-audio-create" | "warp-marker" | "clip-action" | "note-target";
   fence: string;
   clipRef?: LiveRef;
   payload: Record<string, unknown>;
@@ -677,7 +677,7 @@ const implementedTools = [
   {
     name: "live_object_rename_preview",
     description: "Preview a purpose-specific track, scene, clip, device, or locator rename against its exact current name.",
-    inputSchema: { type: "object", properties: { kind: { type: "string", enum: ["track", "scene", "clip", "device", "locator"] }, ref: { type: "string", minLength: 1, maxLength: 256 }, name: { type: "string", minLength: 1, maxLength: 256 } }, required: ["kind", "ref", "name"], additionalProperties: false },
+    inputSchema: { type: "object", properties: { kind: { type: "string", enum: ["track", "scene", "clip", "device", "locator", "takeLane"] }, ref: { type: "string", minLength: 1, maxLength: 256 }, name: { type: "string", minLength: 1, maxLength: 256 } }, required: ["kind", "ref", "name"], additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
   },
   {
@@ -797,8 +797,8 @@ const implementedTools = [
   },
   {
     name: "live_audio_import_preview",
-    description: "Read-only preflight for importing one audio file into an empty Session clip slot with explicit file authority (allowed root, canonical path, size/type, SHA-256).",
-    inputSchema: { type: "object", properties: { filePath: { type: "string", minLength: 1, maxLength: 1024 }, allowedRoot: { type: "string", minLength: 1, maxLength: 1024 }, trackRef: { type: "string", minLength: 1, maxLength: 256 }, sceneIndex: { type: "integer", minimum: 0, maximum: 10000 }, name: { type: "string", minLength: 1, maxLength: 256 } }, required: ["filePath", "allowedRoot", "trackRef", "sceneIndex"], additionalProperties: false },
+    description: "Read-only preflight for importing one audio file into an empty Session clip slot or a take lane, with explicit file authority (allowed root, canonical path, size/type, SHA-256).",
+    inputSchema: { type: "object", properties: { filePath: { type: "string", minLength: 1, maxLength: 1024 }, allowedRoot: { type: "string", minLength: 1, maxLength: 1024 }, trackRef: { type: "string", minLength: 1, maxLength: 256 }, sceneIndex: { type: "integer", minimum: 0, maximum: 10000 }, takeLaneRef: { type: "string", minLength: 1, maxLength: 256 }, position: { type: "number", minimum: 0 }, name: { type: "string", minLength: 1, maxLength: 256 } }, required: ["filePath", "allowedRoot"], additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   },
   {
@@ -1698,19 +1698,28 @@ export class McpHost {
     } catch (cause) { if (transaction.state === "applying") transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Session-structure apply is uncertain; read authoritative tracks and scenes before retrying."); }
   }
 
+  private takeLaneRow(snapshot: LiveSnapshot, reference: LiveRef): { track: Track; lane: TakeLane } {
+    for (const track of snapshot.tracks) {
+      const lane = (track.takeLanes ?? []).find((candidate: TakeLane) => candidate.ref === reference);
+      if (lane) return { track, lane };
+    }
+    throw new Error("take-lane reference is unknown");
+  }
+
   private renameAuthorityRevision(snapshot: LiveSnapshot, kind: string, reference: LiveRef): string {
     if (kind === "track" || kind === "scene") return this.structureRevision(snapshot);
     if (kind === "locator") return this.locatorRevision(snapshot);
+    if (kind === "takeLane") { const located = this.takeLaneRow(snapshot, reference); const siblings = located.track.takeLanes!.map((lane) => ({ ref: lane.ref, objectIdentity: lane.objectIdentity, name: lane.name })); return createHash("sha256").update(canonicalMutationIdentity(siblings)).digest("hex"); }
     if (kind === "clip") return createHash("sha256").update(canonicalMutationIdentity(this.clipAuthority(snapshot, reference))).digest("hex");
     if (kind === "device") { const row = this.deviceRow(snapshot, reference); return createHash("sha256").update(canonicalMutationIdentity({ ref: row.device.ref, objectIdentity: row.device.objectIdentity, trackRef: row.track.ref, trackIdentity: row.track.objectIdentity, ownerRef: row.ownerRef, ownerIdentity: row.ownerIdentity, siblings: row.siblings })).digest("hex"); }
     throw new Error("rename authority kind is unsupported");
   }
 
   private async liveObjectRenamePreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
-    const kinds = ["track", "scene", "clip", "device", "locator"] as const;
+    const kinds = ["track", "scene", "clip", "device", "locator", "takeLane"] as const;
     if (!isObject(params) || !hasOnly(params, ["kind", "ref", "name"]) || !kinds.includes(params.kind as typeof kinds[number]) || !isNonEmptyString(params.ref, 256) || !isNonEmptyString(params.name, 256)) return error(id, -32602, "kind, ref, and a non-empty name are required");
     try {
-      const status = this.requireConnected("session.read"); const operation = `${params.kind}.rename` as LiveInvocation["operation"];
+      const status = this.requireConnected("session.read"); const operation = (params.kind === "takeLane" ? "take-lane.rename" : `${params.kind}.rename`) as LiveInvocation["operation"];
       if (!status.operations?.includes(operation)) throw new Error(`${operation} is unavailable on this Live shape`);
       const adapter = this.asyncAdapter(); const snapshot = await adapter.snapshotAsync({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
       if (params.kind === "track" && !snapshot.tracks.some((track) => track.ref === params.ref)) throw new Error("track rename is limited to regular Set tracks");
@@ -1739,7 +1748,7 @@ export class McpHost {
       const priorState = exactIdentity && current?.name === transaction.prior?.name; const appliedState = exactIdentity && current?.name === transaction.payload.name;
       if ((!reconciliation && JSON.stringify({ ref: current?.ref, objectIdentity: current?.objectIdentity, name: current?.name, kind: transaction.payload.kind }) !== transaction.fence) || (reconciliation && !priorState && !appliedState)) return this.transactionError(id, "Rename target identity or name conflicts with the retained transaction");
       transaction.applyKey = params.idempotencyKey as string;
-      const operation = `${transaction.payload.kind}.rename` as LiveInvocation["operation"];
+      const operation = (transaction.payload.kind === "takeLane" ? "take-lane.rename" : `${transaction.payload.kind}.rename`) as LiveInvocation["operation"];
       transaction.state = "applying";
       await adapter.invokeAsync({ operation, args: { ref: transaction.clipRef, name: transaction.payload.name, expectedName: transaction.prior?.name, expectedObjectIdentity: transaction.prior?.objectIdentity, expectedAuthorityRevision: transaction.payload.expectedAuthorityRevision } }, context);
       const verified = await adapter.getAsync(transaction.clipRef, context) as { objectIdentity?: unknown; name?: unknown } | undefined;
@@ -3122,9 +3131,9 @@ export class McpHost {
   }
 
   private clipPropertiesMutationAuthority(snapshot: LiveSnapshot, clipRef: LiveRef): JsonObject {
-    const located = this.clipRow(snapshot, clipRef); const authority = this.clipAuthority(snapshot, clipRef); const fields = ["muted", "colorIndex", "looping", "loopStart", "loopEnd"];
+    const located = this.clipRow(snapshot, clipRef); const fields = ["muted", "colorIndex", "looping", "loopStart", "loopEnd"];
     const state = Object.fromEntries(fields.map((field) => [field, located.clip[field] ?? null]));
-    const expectedAuthorityRevision = located.arrangement ? authority.expectedAuthorityRevision : createHash("sha256").update(canonicalMutationIdentity(authority)).digest("hex");
+    const expectedAuthorityRevision = this.clipAuthorityDigest(snapshot, clipRef);
     return { expectedObjectIdentity: located.clip.objectIdentity, expectedAuthorityRevision, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") };
   }
 
@@ -3210,7 +3219,13 @@ export class McpHost {
   }
 
   private clipAuthorityDigest(snapshot: LiveSnapshot, clipRef: LiveRef): string {
-    const located = this.clipRow(snapshot, clipRef); const authority = this.clipAuthority(snapshot, clipRef);
+    const located = this.clipRow(snapshot, clipRef);
+    if (located.takeLane) {
+      const laneSiblings = ((located.takeLane.clips as unknown[]) ?? []).filter(isObject).map((clip) => ({ ref: clip.ref, objectIdentity: clip.objectIdentity }));
+      const takeLaneRevision = createHash("sha256").update(canonicalMutationIdentity(laneSiblings)).digest("hex");
+      return createHash("sha256").update(canonicalMutationIdentity({ takeLaneRevision, laneIdentity: located.takeLane.objectIdentity })).digest("hex");
+    }
+    const authority = this.clipAuthority(snapshot, clipRef);
     if (located.arrangement) return authority.expectedAuthorityRevision as string;
     return createHash("sha256").update(canonicalMutationIdentity(authority)).digest("hex");
   }
@@ -3240,13 +3255,27 @@ export class McpHost {
   }
 
   private async liveAudioImportPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
-    if (!isObject(params) || !hasOnly(params, ["filePath", "allowedRoot", "trackRef", "sceneIndex", "name"])) return error(id, -32602, "filePath, allowedRoot, trackRef, and sceneIndex are required");
-    if (!Number.isInteger(params.sceneIndex) || (params.sceneIndex as number) < 0 || (params.sceneIndex as number) > 10000) return error(id, -32602, "sceneIndex is invalid");
+    if (!isObject(params) || !hasOnly(params, ["filePath", "allowedRoot", "trackRef", "sceneIndex", "takeLaneRef", "position", "name"])) return error(id, -32602, "filePath and allowedRoot plus a Session (trackRef, sceneIndex) or take-lane (takeLaneRef, position) destination are required");
+    if (params.takeLaneRef !== undefined && (params.trackRef !== undefined || params.sceneIndex !== undefined)) return error(id, -32602, "takeLaneRef is mutually exclusive with trackRef/sceneIndex");
+    if (params.takeLaneRef === undefined && (!Number.isInteger(params.sceneIndex) || (params.sceneIndex as number) < 0 || (params.sceneIndex as number) > 10000)) return error(id, -32602, "sceneIndex is invalid");
+    if (params.takeLaneRef !== undefined && (!isNonEmptyString(params.takeLaneRef, 256) || typeof params.position !== "number" || !Number.isFinite(params.position) || params.position < 0)) return error(id, -32602, "takeLaneRef and position are required for a take-lane import");
     if (params.name !== undefined && !isNonEmptyString(params.name, 256)) return error(id, -32602, "name is invalid");
     try {
       const authority = await this.audioImportFileAuthority(params.filePath, params.allowedRoot);
       const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
       if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      if (params.takeLaneRef !== undefined) {
+        if (!(status.operations ?? []).includes("take-lane.audio-clip.create")) throw new Error("take-lane audio import is unavailable");
+        const snapshot = await this.asyncAdapter().snapshotAsync();
+        const lane = this.takeLaneRow(snapshot, params.takeLaneRef as LiveRef);
+        if (!isNonEmptyString(lane.lane.objectIdentity, 256)) throw new Error("take-lane identity is not authoritative");
+        const laneSiblings = lane.lane.clips.map((clip) => ({ ref: clip.ref, objectIdentity: clip.objectIdentity }));
+        const payload: Record<string, unknown> = { takeLaneRef: params.takeLaneRef, filePath: authority.canonicalPath, position: params.position, ...(params.name !== undefined ? { name: params.name } : {}), expectedTakeLaneIdentity: lane.lane.objectIdentity, expectedCollectionRevision: createHash("sha256").update(canonicalMutationIdentity(laneSiblings)).digest("hex") };
+        const fence = JSON.stringify({ takeLaneRef: params.takeLaneRef, laneIdentity: lane.lane.objectIdentity, siblings: laneSiblings });
+        const transaction: ClipLifecycleTransaction = { id: `audioimport_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "session-audio-create", fence, payload, prior: { file: authority, destination: "take-lane" }, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+        this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "audio import");
+        return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, takeLaneRef: params.takeLaneRef, position: params.position, file: { path: authority.canonicalPath, size: authority.size, sha256: authority.sha256 }, impact: "creates-take-lane-audio-clip-no-undo", confirmation: "apply", expiresAt: transaction.expiresAt });
+      }
       if (!(status.operations ?? []).includes("session.audio-clip.create")) throw new Error("session audio import is unavailable");
       const snapshot = await this.asyncAdapter().snapshotAsync();
       const track = (snapshot.tracks as unknown as JsonObject[]).find((candidate) => candidate.ref === params.trackRef);
@@ -3281,7 +3310,13 @@ export class McpHost {
       if (currentFile.canonicalPath !== previewFile.canonicalPath || currentFile.size !== previewFile.size || currentFile.mtimeMs !== previewFile.mtimeMs || currentFile.sha256 !== previewFile.sha256) return this.transactionError(id, "audio file changed since preview; preview again");
       const adapter = this.asyncAdapter();
       const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
-      if (!reconciliation) {
+      if (!reconciliation && transaction.payload.takeLaneRef !== undefined) {
+        const snapshot = await adapter.snapshotAsync(context);
+        const lane = this.takeLaneRow(snapshot, transaction.payload.takeLaneRef as LiveRef);
+        const laneSiblings = lane.lane.clips.map((clip) => ({ ref: clip.ref, objectIdentity: clip.objectIdentity }));
+        if (JSON.stringify({ takeLaneRef: transaction.payload.takeLaneRef, laneIdentity: lane.lane.objectIdentity, siblings: laneSiblings }) !== transaction.fence) return this.transactionError(id, "take lane or its clips changed since preview; preview again");
+      }
+      if (!reconciliation && transaction.payload.takeLaneRef === undefined) {
         const snapshot = await adapter.snapshotAsync(context);
         const track = (snapshot.tracks as unknown as JsonObject[]).find((candidate) => candidate.ref === transaction.payload.trackRef);
         const slot = track && ((track.clipSlots as unknown[]) ?? []).filter(isObject).find((candidate) => candidate.sceneIndex === transaction.payload.sceneIndex);
@@ -3290,7 +3325,7 @@ export class McpHost {
         if (slot.clipRef) return this.transactionError(id, "Session slot became occupied since preview; preview again");
       }
       transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
-      const result = await adapter.invokeAsync({ operation: "session.audio-clip.create", args: transaction.payload }, context) as Record<string, unknown>;
+      const result = await adapter.invokeAsync({ operation: (transaction.payload.takeLaneRef !== undefined ? "take-lane.audio-clip.create" : "session.audio-clip.create") as "session.audio-clip.create" | "take-lane.audio-clip.create", args: transaction.payload }, context) as Record<string, unknown>;
       if (!isNonEmptyString(result.ref, 256) || !isNonEmptyString(result.objectIdentity, 256) || !isNonEmptyString(result.createdFingerprint, 64) || !isNonEmptyString(result.filePath, 1024)) throw new Error("Session audio import did not return exact identity");
       transaction.created = result;
       transaction.applyKey = params.idempotencyKey as string;
@@ -3615,10 +3650,14 @@ export class McpHost {
     } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Automation state is uncertain; perform fresh discovery before retrying."); }
   }
 
-  private clipRow(snapshot: LiveSnapshot, clipRef: LiveRef): { track?: JsonObject; clip: JsonObject; arrangement: boolean } {
+  private clipRow(snapshot: LiveSnapshot, clipRef: LiveRef): { track?: JsonObject; clip: JsonObject; arrangement: boolean; takeLane?: JsonObject } {
     for (const track of snapshot.tracks as unknown as JsonObject[]) {
       const clip = (track.clips as unknown[]).filter(isObject).find((item) => item.ref === clipRef);
       if (clip) return { track, clip, arrangement: false };
+      for (const lane of ((track.takeLanes as unknown[]) ?? []).filter(isObject)) {
+        const laneClip = ((lane.clips as unknown[]) ?? []).filter(isObject).find((item) => item.ref === clipRef);
+        if (laneClip) return { track, clip: laneClip, arrangement: true, takeLane: lane };
+      }
     }
     const arrangementClips = (snapshot.arrangement as unknown as { clips?: unknown[] }).clips ?? [];
     const arrangement = arrangementClips.filter(isObject).find((item) => item.ref === clipRef);
@@ -3757,15 +3796,27 @@ export class McpHost {
 
   private async liveArrangementClipPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
     if (isObject(params) && params.action === "delete") return this.transactionError(id, "Arbitrary Arrangement clip deletion is unavailable; use live_undo only for an exact transaction-created clip");
-    if (!isObject(params) || !hasOnly(params, ["action", "kind", "trackRef", "position", "length", "name", "filePath", "clipRef"]) || params.action !== "create") return error(id, -32602, "action=create is required; arbitrary Arrangement deletion is unavailable");
+    if (!isObject(params) || !hasOnly(params, ["action", "kind", "trackRef", "position", "length", "name", "filePath", "clipRef", "takeLaneRef"]) || params.action !== "create") return error(id, -32602, "action=create is required; arbitrary Arrangement deletion is unavailable");
     const createKind = params.kind ?? "midi";
     if (createKind !== "midi" && createKind !== "audio") return error(id, -32602, "kind must be midi or audio");
+    if (params.takeLaneRef !== undefined && (createKind !== "midi" || !isNonEmptyString(params.takeLaneRef, 256))) return error(id, -32602, "takeLaneRef requires kind=midi");
     try {
       const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
       if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
-      const operation = createKind === "audio" ? "arrangement.audio-clip.create" : "arrangement.clip.create";
+      const operation = params.takeLaneRef !== undefined ? "take-lane.clip.create" : createKind === "audio" ? "arrangement.audio-clip.create" : "arrangement.clip.create";
       if (!(status.operations ?? []).includes(operation)) throw new Error(`${operation} is unavailable`);
       const snapshot = await this.asyncAdapter().snapshotAsync(); const fence = this.arrangementFence(snapshot);
+      if (params.takeLaneRef !== undefined) {
+        if (typeof params.position !== "number" || !Number.isFinite(params.position) || params.position < 0 || typeof params.length !== "number" || !Number.isFinite(params.length) || params.length <= 0 || !isNonEmptyString(params.name, 256)) return error(id, -32602, "position, length, and name are required for a take-lane clip create");
+        const lane = this.takeLaneRow(snapshot, params.takeLaneRef as LiveRef);
+        if (!isNonEmptyString(lane.lane.objectIdentity, 256)) throw new Error("take-lane identity is not authoritative");
+        const laneSiblings = lane.lane.clips.map((clip) => ({ ref: clip.ref, objectIdentity: clip.objectIdentity }));
+        const payload: Record<string, unknown> = { takeLaneRef: params.takeLaneRef, position: params.position, length: params.length, name: params.name, expectedTakeLaneIdentity: lane.lane.objectIdentity, expectedCollectionRevision: createHash("sha256").update(canonicalMutationIdentity(laneSiblings)).digest("hex") };
+        const takeLaneFence = JSON.stringify({ takeLaneRef: params.takeLaneRef, laneIdentity: lane.lane.objectIdentity, siblings: laneSiblings });
+        const transaction: ClipLifecycleTransaction = { id: `arrclip_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "arrangement-take-lane-create", fence: takeLaneFence, payload, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+        this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "arrangement clip");
+        return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, action: "create", kind: "take-lane", payload, impact: "creates-take-lane-clip-no-undo", confirmation: "apply", expiresAt: transaction.expiresAt });
+      }
       if (!isNonEmptyString(params.trackRef, 256) || typeof params.position !== "number" || !Number.isFinite(params.position) || params.position < 0) return error(id, -32602, "trackRef and position are required for create");
       if (createKind === "midi" && (typeof params.length !== "number" || !Number.isFinite(params.length) || params.length <= 0 || !isNonEmptyString(params.name, 256))) return error(id, -32602, "length and name are required for a MIDI clip create");
       if (createKind === "audio" && !isNonEmptyString(params.filePath, 1024)) return error(id, -32602, "filePath is required for an Arrangement audio import");
@@ -3783,7 +3834,7 @@ export class McpHost {
   private async liveArrangementClipApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
     if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
     const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
-    if (!transaction || !["arrangement-create", "arrangement-delete", "arrangement-audio-create"].includes(transaction.kind) || (transaction.state === "previewed" && transaction.expiresAt <= Date.now())) return this.transactionError(id, "Unknown or expired arrangement-clip transaction");
+    if (!transaction || !["arrangement-create", "arrangement-delete", "arrangement-audio-create", "arrangement-take-lane-create"].includes(transaction.kind) || (transaction.state === "previewed" && transaction.expiresAt <= Date.now())) return this.transactionError(id, "Unknown or expired arrangement-clip transaction");
     if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", created: transaction.created, idempotent: true });
     const reconciliation = transaction.state === "uncertain" && transaction.applyKey === params.idempotencyKey;
     if (transaction.state !== "previewed" && !reconciliation) return this.transactionError(id, "Transaction is no longer applicable");
@@ -3794,11 +3845,12 @@ export class McpHost {
       if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
       const adapter = this.asyncAdapter();
       const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
-      if (!reconciliation && this.arrangementFence(await adapter.snapshotAsync(context)) !== transaction.fence) return this.transactionError(id, "Arrangement changed since preview; preview again");
-      const operation = transaction.kind === "arrangement-create" ? "arrangement.clip.create" : transaction.kind === "arrangement-audio-create" ? "arrangement.audio-clip.create" : "arrangement.clip.delete";
+      if (!reconciliation && transaction.kind !== "arrangement-take-lane-create" && this.arrangementFence(await adapter.snapshotAsync(context)) !== transaction.fence) return this.transactionError(id, "Arrangement changed since preview; preview again");
+      if (!reconciliation && transaction.kind === "arrangement-take-lane-create") { const snapshot = await adapter.snapshotAsync(context); const lane = this.takeLaneRow(snapshot, transaction.payload.takeLaneRef as LiveRef); const laneSiblings = lane.lane.clips.map((clip) => ({ ref: clip.ref, objectIdentity: clip.objectIdentity })); if (JSON.stringify({ takeLaneRef: transaction.payload.takeLaneRef, laneIdentity: lane.lane.objectIdentity, siblings: laneSiblings }) !== transaction.fence) return this.transactionError(id, "take lane or its clips changed since preview; preview again"); }
+      const operation = transaction.kind === "arrangement-create" ? "arrangement.clip.create" : transaction.kind === "arrangement-audio-create" ? "arrangement.audio-clip.create" : transaction.kind === "arrangement-take-lane-create" ? "take-lane.clip.create" : "arrangement.clip.delete";
       transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
       const result = await adapter.invokeAsync({ operation, args: transaction.payload }, context) as Record<string, unknown>;
-      const createsClip = transaction.kind === "arrangement-create" || transaction.kind === "arrangement-audio-create";
+      const createsClip = transaction.kind === "arrangement-create" || transaction.kind === "arrangement-audio-create" || transaction.kind === "arrangement-take-lane-create";
       if (createsClip && (!isNonEmptyString(result.ref, 256) || !isNonEmptyString(result.objectIdentity, 256) || !isNonEmptyString(result.createdFingerprint, 64))) throw new Error("Arrangement clip creation did not return exact identity");
       transaction.created = result;
       if (createsClip) { const createdClip = this.clipRow(await adapter.snapshotAsync(context), result.ref as LiveRef); if (createdClip.clip.objectIdentity !== result.objectIdentity || this.captureObjectFingerprint(createdClip.clip) !== result.createdFingerprint) throw new Error("created Arrangement clip identity or creation fingerprint was not confirmed"); transaction.created.fingerprint = result.createdFingerprint; }
@@ -4468,6 +4520,7 @@ export class McpHost {
     }
     if (!transaction && String(params.transactionId).startsWith("arrclip_")) {
       const arrangementClip = this.clipLifecycleTransactions.get(params.transactionId as string);
+      if (arrangementClip && arrangementClip.kind === "arrangement-take-lane-create") return this.transactionError(id, "The public LOM exposes no take-lane clip deletion; undo is unavailable for this transaction");
       if (!arrangementClip || !["arrangement-create", "arrangement-audio-create"].includes(arrangementClip.kind)) return this.transactionError(id, "Only an applied Arrangement clip creation has automatic undo authority");
       if (arrangementClip.state === "undone" && arrangementClip.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: arrangementClip.id, state: "undone", idempotent: true });
       const reconciliation = arrangementClip.state === "uncertain" && arrangementClip.undoKey === params.idempotencyKey;
@@ -4504,6 +4557,7 @@ export class McpHost {
     }
     if (!transaction && String(params.transactionId).startsWith("audioimport_")) {
       const audioImport = this.clipLifecycleTransactions.get(params.transactionId as string);
+      if (audioImport && audioImport.kind === "session-audio-create" && audioImport.payload.takeLaneRef !== undefined) return this.transactionError(id, "The public LOM exposes no take-lane clip deletion; undo is unavailable for this transaction");
       if (!audioImport || audioImport.kind !== "session-audio-create") return this.transactionError(id, "Only an applied Session audio import has automatic undo authority");
       if (audioImport.state === "undone" && audioImport.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: audioImport.id, state: "undone", idempotent: true });
       const reconciliation = audioImport.state === "uncertain" && audioImport.undoKey === params.idempotencyKey;
@@ -4982,11 +5036,11 @@ export class McpHost {
       if (name.startsWith("live_note_delete_")) return hasAll("session.midi_note.write") && hasOperations("snapshot", "note.delete", "note.add-batch");
       if (name.startsWith("live_midi_clip_")) return hasAll("session.midi_clip.create", "session.midi_note.write") && hasOperations("snapshot", "discover", "clip.create", "note.add-batch", "clip.delete");
       if (name.startsWith("live_arrangement_section_")) return hasAll("arrangement.write") && hasOperations("snapshot", "locator.add", "locator.delete");
-      if (name.startsWith("live_arrangement_clip_")) return hasAll("arrangement.write") && hasOperations("snapshot", "arrangement.clip.delete") && hasAnyOperation("arrangement.clip.create", "arrangement.audio-clip.create");
+      if (name.startsWith("live_arrangement_clip_")) return hasAll("arrangement.write") && hasOperations("snapshot", "arrangement.clip.delete") && hasAnyOperation("arrangement.clip.create", "arrangement.audio-clip.create", "take-lane.clip.create");
       if (name.startsWith("live_clip_properties_")) return hasAll("clips") && hasOperations("snapshot", "clip.set");
       if (name.startsWith("live_locator_jump_")) return hasAll("arrangement.read") && hasOperations("snapshot", "locator.jump");
       if (name.startsWith("live_view_")) return hasAll("view") && hasOperations("view.set", "view.control");
-      if (name.startsWith("live_audio_import_")) return hasAll("session.structure") && hasOperations("snapshot", "session.audio-clip.create");
+      if (name.startsWith("live_audio_import_")) return hasAll("session.structure") && hasOperations("snapshot") && hasAnyOperation("session.audio-clip.create", "take-lane.audio-clip.create");
       if (name.startsWith("live_warp_marker_")) return hasAll("warp") && hasOperations("snapshot", "audio.warp-marker.read") && hasAnyOperation("audio.warp-marker.add", "audio.warp-marker.move", "audio.warp-marker.delete");
       if (name.startsWith("live_clip_action_")) return hasAll("clips") && hasOperations("snapshot", "clip.action");
       if (name.startsWith("live_note_edit_")) return hasAll("session.midi_note.write") && hasOperations("snapshot") && hasAnyOperation("note.quantize", "note.duplicate");
@@ -5006,7 +5060,7 @@ export class McpHost {
       if (name === "live_realtime_stats") return hasAll("realtime.events") && hasOperations("realtime.stats");
       if (name === "live_realtime_disarm") return hasAll("realtime.events") && hasOperations("realtime.disarm");
       if (name.startsWith("live_realtime_arm_")) return live.provenance === "real-live" && hasAll("realtime.events") && hasOperations("snapshot", "realtime.arm", "realtime.disarm", "realtime.stats");
-      if (name.startsWith("live_object_rename_")) return hasAny("tracks", "scenes", "clips", "devices") && hasAnyOperation("track.rename", "scene.rename", "clip.rename", "device.rename", "locator.rename");
+      if (name.startsWith("live_object_rename_")) return hasAny("tracks", "scenes", "clips", "devices") && hasAnyOperation("track.rename", "scene.rename", "clip.rename", "device.rename", "locator.rename", "take-lane.rename");
       if (name === "live_undo" || name === "live_recovery_finalize") return mutationAvailable && hasOperations("snapshot");
       return false;
     };

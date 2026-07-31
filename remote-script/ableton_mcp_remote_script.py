@@ -740,6 +740,16 @@ class LiveObjectMapper:
             if operation == "audio.warp-marker.read": return any(self._read_attr(clip, "warp_markers") is not None for clip in audio_clips)
             method = {"audio.warp-marker.add": "add_warp_marker", "audio.warp-marker.move": "move_warp_marker", "audio.warp-marker.delete": "remove_warp_marker"}[operation]
             return any(callable(getattr(clip, method, None)) for clip in audio_clips)
+        if operation == "audio.take-lane.read":
+            return any(self._read_attr(track, "take_lanes") is not None for track in tracks)
+        if operation == "take-lane.create":
+            return any(callable(getattr(track, "create_take_lane", None)) for track in tracks)
+        if operation == "take-lane.rename":
+            return any(hasattr(lane, "name") for track in tracks for lane in self._items(self._read_attr(track, "take_lanes") or []))
+        if operation == "take-lane.clip.create":
+            return any(callable(getattr(lane, "create_midi_clip", None)) for track in tracks for lane in self._items(self._read_attr(track, "take_lanes") or []))
+        if operation == "take-lane.audio-clip.create":
+            return any(callable(getattr(lane, "create_audio_clip", None)) for track in tracks for lane in self._items(self._read_attr(track, "take_lanes") or []))
         return False
 
     def capabilities(self, operations: set[str] | None = None) -> list[str]:
@@ -780,6 +790,7 @@ class LiveObjectMapper:
             if any(any(marker in name for marker in ("plugin", "vst", "audio_unit")) for name in class_names): capabilities.append("plugins")
         if supports("audio.clip.set"): capabilities.append("audio")
         if supports("audio.warp-marker.read"): capabilities.append("warp")
+        if supports("audio.take-lane.read"): capabilities.append("takes")
         if supports("audio.capture.inspect") and supports("audio.capture.start") and supports("audio.capture.stop") and supports("audio.capture.cleanup"): capabilities.append("audio.capture.resampling")
         if supports("automation.envelope.read"): capabilities.append("automation")
         if supports("view.set") or supports("view.control"): capabilities.append("view")
@@ -1233,7 +1244,7 @@ class LiveObjectMapper:
                 "firedSlotIndex": self._slot_index(self._read_attr(track, "fired_slot_index")),
                 "mixer": self._mixer_row(track, index),
                 "routing": self._routing_row(track),
-                "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track, index),
+                "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track, index), "takeLanes": self._take_lane_rows(track, index),
             })
         scene_rows = [{"ref": self.refs.put("scene", scene, str(i)), "parentRef": self.refs.put("set", self.song, "song"), "objectIdentity": self._capture_object_identity(scene), "name": str(getattr(scene, "name", f"Scene {i + 1}")), "index": i, "triggerable": callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None))} for i, scene in enumerate(scenes)]
         locators = self._locator_items()
@@ -1291,6 +1302,10 @@ class LiveObjectMapper:
             result = next((clip for track in self.snapshot()["tracks"] for clip in track["clips"] if clip["ref"] == reference), None)
         elif kind == "arrangement_clip":
             result = next((clip for clip in self._arrangement_clip_items() if clip["ref"] == reference), None)
+        elif kind == "take_lane":
+            result = next((lane for track in self.snapshot()["tracks"] for lane in (track.get("takeLanes") or []) if lane["ref"] == reference), None)
+        elif kind == "take_lane_clip":
+            result = next((clip for track in self.snapshot()["tracks"] for lane in (track.get("takeLanes") or []) for clip in (lane.get("clips") or []) if clip["ref"] == reference), None)
         elif kind in {"device", "parameter"}:
             for track in self.snapshot()["tracks"]:
                 for device in self._flatten_device_rows(track.get("devices", [])):
@@ -2065,6 +2080,14 @@ class LiveObjectMapper:
             return self._warp_marker_read(args)
         if operation in {"audio.warp-marker.add", "audio.warp-marker.move", "audio.warp-marker.delete"}:
             return self._warp_marker_mutate(operation, args)
+        if operation == "audio.take-lane.read":
+            return self._take_lane_read(args)
+        if operation == "take-lane.create":
+            return self._take_lane_create(args)
+        if operation == "take-lane.rename":
+            return self._take_lane_rename(args)
+        if operation in {"take-lane.clip.create", "take-lane.audio-clip.create"}:
+            return self._take_lane_clip_create(args, audio=operation == "take-lane.audio-clip.create")
         if operation == "arrangement.audio-clip.create":
             return self._arrangement_audio_clip_create(args)
         if operation == "locator.jump":
@@ -2490,6 +2513,45 @@ class LiveObjectMapper:
         if not 0 <= clip_index < len(clips):
             raise ValueError("arrangement clip is stale")
         return tracks[track_index], clips[clip_index], track_index, clip_index
+
+    def _take_lane_rows(self, track: Any, track_index: int) -> list[dict[str, Any]]:
+        lanes = self._items(self._read_attr(track, "take_lanes") or [])
+        if len(lanes) > 64: raise ValueError("take-lane collection exceeds its bound")
+        rows = []
+        for lane_index, lane in enumerate(lanes):
+            clips = self._items(self._read_attr(lane, "arrangement_clips") or [])
+            if len(clips) > 256: raise ValueError("take-lane clip collection exceeds its bound")
+            clip_rows = []
+            for clip_index, clip in enumerate(clips):
+                reference = self.refs.put("take_lane_clip", clip, f"{track_index}:{lane_index}:{clip_index}")
+                notes = self._read_notes(clip)
+                row = {"ref": reference, "objectIdentity": self._capture_object_identity(clip), "parentRef": self.refs.put("take_lane", lane, f"{track_index}:{lane_index}"), "takeLaneRef": self.refs.put("take_lane", lane, f"{track_index}:{lane_index}"), "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": float(getattr(clip, "start_time", getattr(clip, "start", 0.0)) or 0.0), "length": float(getattr(clip, "length", 0.0) or 0.0), "notes": notes, "notesRevision": hashlib.sha256(self._bounded_canonical(notes).encode("utf-8")).hexdigest(), **self._audio_fields(clip)}
+                for key, value in self._clip_state_fields(clip).items():
+                    if value is not None or key not in row: row[key] = value
+                if row.get("isTakeLaneClip") is None: row["isTakeLaneClip"] = True
+                clip_rows.append(row)
+            lane_ref = self.refs.put("take_lane", lane, f"{track_index}:{lane_index}")
+            rows.append({"ref": lane_ref, "objectIdentity": self._capture_object_identity(lane), "parentRef": self.refs.put("track", track, str(track_index)), "trackRef": self.refs.put("track", track, str(track_index)), "name": str(getattr(lane, "name", "")), "index": lane_index, "clips": clip_rows})
+        return rows
+
+    def _take_lane_collection_revision(self, track: Any, track_index: int) -> str:
+        lanes = self._items(self._read_attr(track, "take_lanes") or []); siblings = [{"ref": self.refs.put("take_lane", lane, f"{track_index}:{index}"), "objectIdentity": self._capture_object_identity(lane), "name": str(getattr(lane, "name", ""))} for index, lane in enumerate(lanes)]
+        if len(siblings) > 64: raise ValueError("take-lane collection exceeds authority bound")
+        return hashlib.sha256(self._bounded_canonical(siblings).encode("utf-8")).hexdigest()
+
+    def _take_lane_clip_collection_revision(self, lane: Any, lane_ref: str) -> str:
+        path = ":".join(lane_ref.split(":")[2:]); clips = self._items(self._read_attr(lane, "arrangement_clips") or []); siblings = [{"ref": self.refs.put("take_lane_clip", clip, f"{path}:{index}"), "objectIdentity": self._capture_object_identity(clip)} for index, clip in enumerate(clips)]
+        if len(siblings) > 256: raise ValueError("take-lane clip collection exceeds authority bound")
+        return hashlib.sha256(self._bounded_canonical(siblings).encode("utf-8")).hexdigest()
+
+    def _take_lane_location(self, reference: str) -> tuple[Any, Any, int, int]:
+        parts = reference.split(":"); key = parts[2:] if len(parts) > 2 else []
+        if len(key) < 2 or not all(part.isdigit() for part in key[:2]): raise ValueError("take-lane reference is stale or invalid")
+        track_index, lane_index = int(key[0]), int(key[1]); tracks = self._items(getattr(self.song, "tracks", []))
+        if track_index >= len(tracks): raise ValueError("take-lane track hierarchy changed")
+        track = tracks[track_index]; lanes = self._items(self._read_attr(track, "take_lanes") or [])
+        if lane_index >= len(lanes): raise ValueError("take-lane hierarchy changed")
+        return track, lanes[lane_index], track_index, lane_index
 
     def _arrangement_collection_revision(self, track: Any, track_index: int) -> str:
         clips = self._items(self._read_attr(track, "arrangement_clips") or []); siblings = [{"ref": self.refs.put("arrangement_clip", clip, f"{track_index}:{index}"), "objectIdentity": self._capture_object_identity(clip)} for index, clip in enumerate(clips)]
@@ -2928,6 +2990,8 @@ class LiveObjectMapper:
         fields["velocityAmount"] = optional_float("velocity_amount")
         fields["willRecordOnStart"] = optional_bool("will_record_on_start")
         fields["fireButtonState"] = optional_bool("fire_button_state")
+        is_take_lane = self._read_attr(clip, "is_take_lane_clip")
+        fields["isTakeLaneClip"] = is_take_lane if isinstance(is_take_lane, bool) else None
         end_time = self._read_attr(clip, "end_time")
         fields["endTime"] = float(end_time) if isinstance(end_time, (int, float)) and not isinstance(end_time, bool) and math.isfinite(float(end_time)) else None
         return fields
@@ -2939,9 +3003,7 @@ class LiveObjectMapper:
         current = self.get(reference); expected_identity = args.get("expectedObjectIdentity"); expected_authority = args.get("expectedAuthorityRevision"); expected_state = args.get("expectedStateRevision")
         if not isinstance(current, dict) or not isinstance(expected_identity, str) or not hmac.compare_digest(str(current.get("objectIdentity", "")), expected_identity):
             raise ValueError("clip identity changed since preview")
-        if reference.startswith(f"{self.refs.epoch}:clip:"): authority_revision = hashlib.sha256(self._bounded_canonical(self._session_clip_authority(reference)).encode("utf-8")).hexdigest()
-        elif reference.startswith(f"{self.refs.epoch}:arrangement_clip:"): authority_revision = self._arrangement_clip_authority_revision(reference)
-        else: raise ValueError("clip hierarchy is unavailable")
+        authority_revision = self._clip_authority_digest(reference)
         state_revision = hashlib.sha256(self._bounded_canonical({field: current.get(field) for field in self._CLIP_SET_FIELDS}).encode("utf-8")).hexdigest()
         if not isinstance(expected_authority, str) or not hmac.compare_digest(authority_revision, expected_authority) or not isinstance(expected_state, str) or not hmac.compare_digest(state_revision, expected_state): raise ValueError("clip hierarchy or state changed since preview")
         clip = self.refs.get(reference)
@@ -3116,6 +3178,9 @@ class LiveObjectMapper:
     def _clip_authority_digest(self, reference: str) -> str:
         if reference.startswith(f"{self.refs.epoch}:clip:"): return hashlib.sha256(self._bounded_canonical(self._session_clip_authority(reference)).encode("utf-8")).hexdigest()
         if reference.startswith(f"{self.refs.epoch}:arrangement_clip:"): return self._arrangement_clip_authority_revision(reference)
+        if reference.startswith(f"{self.refs.epoch}:take_lane_clip:"):
+            parts = reference.split(":"); track, lane, track_index, lane_index = self._take_lane_location(":".join(parts[:4]))
+            return hashlib.sha256(self._bounded_canonical({"takeLaneRevision": self._take_lane_clip_collection_revision(lane, ":".join(parts[:4])), "laneIdentity": self._capture_object_identity(lane)}).encode("utf-8")).hexdigest()
         raise ValueError("clip hierarchy is unavailable")
 
     def _warp_marker_rows(self, clip: Any) -> list[dict[str, Any]]:
@@ -3442,6 +3507,100 @@ class LiveObjectMapper:
         if quantize_error is None and len(after_rows) == len(before_rows):
             return {"changed": True, "notesRevision": hashlib.sha256(self._bounded_canonical(after_rows).encode("utf-8")).hexdigest()}
         raise ValueError("quantization was not confirmed") from quantize_error
+
+    def _take_lane_read(self, args: dict[str, Any]) -> dict[str, Any]:
+        track_ref = args.get("trackRef")
+        if not isinstance(track_ref, str) or set(args) - {"trackRef"}:
+            raise ValueError("take-lane read arguments are invalid")
+        self.snapshot(); track = self.refs.get(track_ref); track_index = self._capture_index(self._items(getattr(self.song, "tracks", [])), track)
+        if track_index is None or track_ref != f"{self.refs.epoch}:track:{track_index}": raise ValueError("take-lane track hierarchy is stale")
+        lanes = [{"ref": row["ref"], "name": row["name"]} for row in self._take_lane_rows(track, track_index)]
+        return {"lanes": lanes}
+
+    def _take_lane_create(self, args: dict[str, Any]) -> dict[str, Any]:
+        track_ref = args.get("trackRef")
+        if not isinstance(track_ref, str): raise ValueError("track reference is invalid")
+        self.snapshot(); track = self.refs.get(track_ref); track_index = self._capture_index(self._items(getattr(self.song, "tracks", [])), track, args.get("expectedTrackIdentity") if isinstance(args.get("expectedTrackIdentity"), str) else None)
+        if track_index is None or track_ref != f"{self.refs.epoch}:track:{track_index}": raise ValueError("take-lane track hierarchy is stale")
+        if not isinstance(args.get("expectedTrackIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(track), args["expectedTrackIdentity"]):
+            raise ValueError("take-lane target track identity changed since preview")
+        if not isinstance(args.get("expectedTakeLaneCollectionRevision"), str) or not hmac.compare_digest(self._take_lane_collection_revision(track, track_index), args["expectedTakeLaneCollectionRevision"]):
+            raise ValueError("take-lane collection changed since preview")
+        name = args.get("name")
+        if name is not None and (not isinstance(name, str) or not 1 <= len(name) <= 256): raise ValueError("name is invalid")
+        creator = getattr(track, "create_take_lane", None)
+        if not callable(creator): raise ValueError("take-lane creation is unavailable")
+        before_lanes = self._items(self._read_attr(track, "take_lanes") or []); before_identities = [self._capture_object_identity(lane) for lane in before_lanes]
+        lane = creator()
+        lanes = self._items(self._read_attr(track, "take_lanes") or []); created_rows = [(index, candidate) for index, candidate in enumerate(lanes) if self._capture_object_identity(candidate) not in set(before_identities)]
+        if lane is None or len(lanes) != len(before_lanes) + 1 or len(created_rows) != 1: raise ValueError("take-lane creation was not confirmed (note: the public LOM exposes no take-lane deletion, so creation cannot be compensated)")
+        lane_index, created = created_rows[0]
+        if name is not None and hasattr(created, "name"): created.name = name
+        if name is not None and str(getattr(created, "name", "")) != name: raise ValueError("take-lane name was not confirmed (no public deletion exists for compensation)")
+        lane_ref = self.refs.put("take_lane", created, f"{track_index}:{lane_index}"); created_identity = self._capture_object_identity(created); fingerprint = hashlib.sha256(self._bounded_canonical({"ref": lane_ref, "objectIdentity": created_identity, "name": str(getattr(created, "name", "")), "index": lane_index}).encode("utf-8")).hexdigest()
+        return {"ref": lane_ref, "objectIdentity": created_identity, "name": str(getattr(created, "name", "")), "index": lane_index, "createdFingerprint": fingerprint}
+
+    def _take_lane_rename(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference, name, expected_name, expected_identity = args.get("ref"), args.get("name"), args.get("expectedName"), args.get("expectedObjectIdentity")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:take_lane:") or not isinstance(name, str) or not 1 <= len(name) <= 256 or not isinstance(expected_name, str) or not isinstance(expected_identity, str):
+            raise ValueError("take-lane rename authority is invalid")
+        track, lane, track_index, lane_index = self._take_lane_location(reference)
+        if not hmac.compare_digest(self._capture_object_identity(lane), expected_identity) or str(getattr(lane, "name", "")) != expected_name:
+            raise ValueError("take-lane rename target changed since preview")
+        expected_authority = args.get("expectedAuthorityRevision")
+        if not isinstance(expected_authority, str) or not hmac.compare_digest(self._take_lane_collection_revision(track, track_index), expected_authority): raise ValueError("take-lane hierarchy changed since preview")
+        rename_error: BaseException | None = None
+        try: lane.name = name
+        except BaseException as error: rename_error = error
+        if rename_error is not None or str(getattr(lane, "name", "")) != name:
+            try: lane.name = expected_name
+            except BaseException: pass
+            if str(getattr(lane, "name", "")) != expected_name: raise ValueError("take-lane rename failed and exact rollback failed") from rename_error
+            raise ValueError("take-lane rename postcondition was not confirmed") from rename_error
+        return {"renamed": reference, "name": name}
+
+    def _take_lane_clip_create(self, args: dict[str, Any], audio: bool) -> dict[str, Any]:
+        position = args.get("position")
+        if not isinstance(position, (int, float)) or isinstance(position, bool) or not math.isfinite(float(position)) or float(position) < 0: raise ValueError("position is invalid")
+        name = args.get("name")
+        file_path = None; length = None
+        if audio:
+            file_path = args.get("filePath")
+            if not isinstance(file_path, str) or not 1 <= len(file_path) <= 1024 or not (file_path.startswith("/") or (len(file_path) > 2 and file_path[1] == ":" and file_path[0].isalpha())): raise ValueError("filePath must be an absolute path")
+            if name is not None and (not isinstance(name, str) or not 1 <= len(name) <= 256): raise ValueError("name is invalid")
+        else:
+            length = args.get("length")
+            if not isinstance(length, (int, float)) or isinstance(length, bool) or not math.isfinite(float(length)) or not 0 < float(length) <= 100000: raise ValueError("length is invalid")
+            if not isinstance(name, str) or not 1 <= len(name) <= 256: raise ValueError("name is invalid")
+        lane_ref = args.get("takeLaneRef")
+        if not isinstance(lane_ref, str): raise ValueError("take-lane reference is invalid")
+        track, lane, track_index, lane_index = self._take_lane_location(lane_ref)
+        expected_identity = args.get("expectedTakeLaneIdentity")
+        if not isinstance(expected_identity, str) or not hmac.compare_digest(self._capture_object_identity(lane), expected_identity):
+            raise ValueError("take-lane identity changed since preview")
+        lane_path = f"{track_index}:{lane_index}"
+        if not isinstance(args.get("expectedCollectionRevision"), str) or not hmac.compare_digest(self._take_lane_clip_collection_revision(lane, lane_ref), args["expectedCollectionRevision"]):
+            raise ValueError("take-lane clip collection changed since preview")
+        method = getattr(lane, "create_audio_clip" if audio else "create_midi_clip", None)
+        if not callable(method): raise ValueError("take-lane clip creation is unavailable")
+        before_clips = self._items(self._read_attr(lane, "arrangement_clips") or []); before_identity_order = [self._capture_object_identity(item) for item in before_clips]; before_identities = set(before_identity_order)
+        clip = method(file_path, float(position)) if audio else method(float(position), float(length))
+        clips = self._items(self._read_attr(lane, "arrangement_clips") or []); created_rows = [(index, candidate) for index, candidate in enumerate(clips) if self._capture_object_identity(candidate) not in before_identities]
+        if clip is None or len(clips) != len(before_clips) + 1 or len(created_rows) != 1: raise ValueError("take-lane clip creation was not confirmed (the public LOM exposes no take-lane clip deletion, so creation cannot be compensated)")
+        clip_index, created = created_rows[0]
+        if name is not None and hasattr(created, "name"): created.name = name
+        actual_start = self._read_attr(created, "start_time"); actual_length = self._read_attr(created, "length")
+        if name is not None and str(getattr(created, "name", "")) != name: raise ValueError("take-lane clip name was not confirmed")
+        if not isinstance(actual_start, (int, float)) or float(actual_start) != float(position): raise ValueError("take-lane clip position was not confirmed")
+        if not audio and (not isinstance(actual_length, (int, float)) or float(actual_length) != float(length)): raise ValueError("take-lane clip length was not confirmed")
+        if audio:
+            if not isinstance(actual_length, (int, float)) or not math.isfinite(float(actual_length)) or float(actual_length) <= 0: raise ValueError("take-lane audio clip length was not confirmed")
+            actual_path = self._read_attr(created, "file_path")
+            if not isinstance(actual_path, str) or not actual_path: raise ValueError("take-lane audio clip file path was not confirmed")
+        created_ref = self.refs.put("take_lane_clip", created, f"{lane_path}:{clip_index}"); created_identity = self._capture_object_identity(created); fingerprint = self._mapped_fingerprint(created_ref)
+        result = {"ref": created_ref, "objectIdentity": created_identity, "name": str(getattr(created, "name", "")), "start": float(actual_start), "length": float(actual_length), "createdFingerprint": fingerprint}
+        if audio: result["filePath"] = str(self._read_attr(created, "file_path"))
+        return result
 
     def _mixer_row(self, track: Any, track_index: int) -> dict[str, Any]:
         mixer = self._read_attr(track, "mixer_device")

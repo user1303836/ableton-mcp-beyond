@@ -7921,6 +7921,351 @@
       }
     },
     {
+      "id": "take-lane.audio-clip.create",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "takeLaneRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "filePath": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "position": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000000
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedTakeLaneIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedCollectionRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "takeLaneRef",
+          "filePath",
+          "position",
+          "expectedTakeLaneIdentity",
+          "expectedCollectionRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "objectIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "start": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000000
+          },
+          "length": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000000
+          },
+          "filePath": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "createdFingerprint": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "ownershipToken": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{32,128}$"
+          }
+        },
+        "required": [
+          "ref",
+          "objectIdentity",
+          "name",
+          "start",
+          "length",
+          "filePath",
+          "createdFingerprint"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "take-lane.clip.create",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "takeLaneRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "position": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000000
+          },
+          "length": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000000
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedTakeLaneIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedCollectionRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "takeLaneRef",
+          "position",
+          "length",
+          "name",
+          "expectedTakeLaneIdentity",
+          "expectedCollectionRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "objectIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "start": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000000
+          },
+          "length": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000000
+          },
+          "createdFingerprint": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "ownershipToken": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{32,128}$"
+          }
+        },
+        "required": [
+          "ref",
+          "objectIdentity",
+          "name",
+          "start",
+          "length",
+          "createdFingerprint"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "take-lane.create",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "trackRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedTrackIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedTakeLaneCollectionRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "trackRef",
+          "expectedTrackIdentity",
+          "expectedTakeLaneCollectionRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "objectIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "createdFingerprint": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "ownershipToken": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{32,128}$"
+          }
+        },
+        "required": [
+          "ref",
+          "objectIdentity",
+          "name",
+          "index",
+          "createdFingerprint"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "take-lane.rename",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedName": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "expectedObjectIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedAuthorityRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "ref",
+          "name",
+          "expectedName",
+          "expectedObjectIdentity",
+          "expectedAuthorityRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "renamed": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "renamed",
+          "name"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "id": "tempo.set",
       "method": "invoke",
       "request": {

@@ -47,6 +47,14 @@ are. Source, schemas, and tests are the final authority.
   envelopes. Content-destroying actions (crop, envelope clear) are honestly
   non-undoable. Verified at the host, simulator, Python contract, and packaged
   fake-Live levels; exact-candidate real-Live proof is pending.
+- Take-lane discovery under `Track.take_lanes` with bounded rows and
+  stable-in-snapshot references, lane creation and rename, MIDI and
+  file-backed audio clip creation inside lanes, and `is_take_lane_clip`
+  exposure on clip rows. The public LOM exposes no take-lane deletion and no
+  comp-region editing; lane and lane-clip creation is therefore honestly
+  non-compensatable, and comp editing stays unavailable. Verified at the host,
+  simulator, Python contract, and packaged fake-Live levels; exact-candidate
+  real-Live proof is pending.
 - Purpose-specific preview/apply/verify/undo or cleanup workflows with exact
   object and hierarchy identities, state/content revisions, creation-time
   fingerprints, epochs, expiry, idempotency, fresh postconditions, bounded

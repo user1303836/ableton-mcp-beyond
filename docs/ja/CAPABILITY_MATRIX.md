@@ -28,6 +28,7 @@
 | タイムライン上でクリップを編成 | `live_arrangement_clip_preview/apply`、`live_clip_duplicate_preview/apply`、`live_clip_move_preview/apply` | クリップの作成、複製、移動。トランザクション作成クリップのクリーンアップは正確。任意の Arrangement 削除は拒否 |
 | オーディオファイルを Arrangement にインポート | `live_arrangement_clip_preview/apply` に `kind: "audio"` | ファイルバックのオーディオクリップを選択したトラックの正確な位置に配置し、作成されたアイデンティティを検証 |
 | オーディオファイルを Session スロットにインポート | `live_audio_import_preview/apply` | 明示的なファイル権限: 許可ルート、正規パス、サイズ/タイプチェック、SHA-256 と適用時再検証(anti-TOCTOU)、インポートしたクリップのガード付きクリーンアップ |
+| テイクレーンを操作 | ディスカバリ、`live_object_rename`(kind `takeLane`)、`live_arrangement_clip_preview/apply`(`takeLaneRef`)、`live_audio_import_preview/apply`(`takeLaneRef`) | レーンとそのクリップの読み取り、レーン作成、レーン名変更、レーン内での MIDI またはファイルオーディオクリップ作成。公開 LOM にテイクレーン削除がないため、レーンとレーンクリップの作成は正直にアンドゥ不可。コンプ領域編集は公開 API がなく利用不可 |
 | ワープマーカーを編集 | `live_warp_marker_preview/apply` | ビートタイムでマーカーを追加/移動/削除(サンプルタイムマッピングは Live が所有)。マーカーコレクションフェンス、正確なロールバック、ガード付きアンドゥ |
 | クリップのクロップ、複製、スクラブ | `live_clip_action_preview/apply` | ループへのクロップ、ループ/リージョンの複製、スクラブ、再生位置の移動。コンテンツアクションは正直にアンドゥ不可と表示 |
 | ノートのクオンタイズと複製 | `live_note_edit_preview/apply` | タイミングまたはピッチのクオンタイズ、安定ノート ID による対象複製。正確な事前コンテンツアンドゥ付き |
@@ -153,7 +154,7 @@ Live/Windows 11 のセルを埋めることはありません。
 | 予約済み操作 ID | ディスポジション |
 |---|---|
 | `audio.warp-marker.read/add/move/delete` | 実装済み(ワープマーカーファミリーはこのブランチで出荷)。スキーマはビートタイムでマーカーをアドレス — 整数 ID は捏造しない |
-| `audio.take-lane.read`、`audio.comp.read` | テイクレーンは `Track.take_lanes` の下で実装中。コンプ領域編集は制限されたまま(公開 API なし) |
+| `audio.take-lane.read`、`audio.comp.read` | テイクレーンのディスカバリ/作成/名前変更とレーンクリップ作成は実装済み。コンプ領域編集は制限されたまま(公開 API なし)のため、`audio.comp.read` は予約済みのまま |
 | `arrangement.automation.*` | Arrangement オートメーション作成には安定した公開 API がない。予約済み・フェイルクローズのまま |
 | `browser.preview.start/stop` | Browser プレビューは非公式 Python バインディングを使用。ディスポジションは Browser ファミリー作業で決定 |
 | `project.new/open/save/save-as/collect/export/bounce` | 公開 Remote Script API なし。`live_project_save` / `live_project_open` は明示的な制限レポーターのまま |

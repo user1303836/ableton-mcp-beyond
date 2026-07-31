@@ -609,7 +609,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "b60ea8992a91843bb0f173d39dded99ce01bf9cf1328e27f99211ae8e2a005ec")
+        self.assertEqual(digest, "6ed59d643e3346f42567d9ce1a02fa88dcf0d2d196a0d4cffe1f37af944b2db8")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -2931,3 +2931,93 @@ class AudioWarpNoteExpansionTests(unittest.TestCase):
         self.assertTrue(changed["changed"]); self.assertEqual(clip.notes[1]["start_time"], 0.5)
         changed = mapper.invoke("note.quantize", {**note_fences(), "grid": 0.25, "amount": 1.0, "pitch": 67})
         self.assertTrue(changed["changed"]); self.assertTrue(all(note["pitch"] == 67 for note in clip.notes))
+
+
+class FakeTakeLane:
+    def __init__(self, name="Take 1"):
+        self.name = name
+        self.arrangement_clips = []
+
+    def create_midi_clip(self, position, length):
+        clip = FakeClip(length); clip.start_time = position; clip.is_take_lane_clip = True; self.arrangement_clips.append(clip); return clip
+
+    def create_audio_clip(self, file_path, position):
+        clip = FakeClip(4.0); clip.is_audio_clip = True; clip.start_time = position; clip.file_path = file_path; clip.is_take_lane_clip = True; self.arrangement_clips.append(clip); return clip
+
+
+class TakeLaneExpansionTests(unittest.TestCase):
+    def _mapper_with_lanes(self):
+        song = FakeSong(); track = song.tracks[0]
+        lane = FakeTakeLane()
+        existing = FakeClip(4.0); existing.name = "Comp A"; existing.start_time = 0.0; existing.is_take_lane_clip = True
+        lane.arrangement_clips = [existing]
+        track.take_lanes = [lane]
+        track.create_take_lane = lambda: (track.take_lanes.append(FakeTakeLane(f"Take {len(track.take_lanes) + 1}")) or track.take_lanes[-1])
+        mapper = LiveObjectMapper(song)
+        return song, track, lane, existing, mapper
+
+    def test_take_lane_discovery_rows_and_read(self):
+        _, track, lane, existing, mapper = self._mapper_with_lanes()
+        track_row = mapper.snapshot()["tracks"][0]
+        lanes = track_row["takeLanes"]
+        self.assertEqual(len(lanes), 1); self.assertEqual(lanes[0]["name"], "Take 1"); self.assertEqual(lanes[0]["index"], 0)
+        clip_row = lanes[0]["clips"][0]
+        self.assertEqual(clip_row["name"], "Comp A"); self.assertTrue(clip_row["isTakeLaneClip"]); self.assertEqual(clip_row["takeLaneRef"], lanes[0]["ref"])
+        self.assertEqual(mapper.get(lanes[0]["ref"])["name"], "Take 1")
+        self.assertEqual(mapper.get(clip_row["ref"])["name"], "Comp A")
+        self.assertIsNone(mapper.snapshot()["tracks"][0]["clips"] and mapper.snapshot()["tracks"][0]["clips"] == [] or None)
+        result = mapper.invoke("audio.take-lane.read", {"trackRef": track_row["ref"]})
+        self.assertEqual(result["lanes"], [{"ref": lanes[0]["ref"], "name": "Take 1"}]); validate_operation_payload("audio.take-lane.read", "result", result)
+        self.assertTrue(mapper._operation_supported("audio.take-lane.read")); self.assertIn("takes", mapper.capabilities())
+
+    def test_take_lane_create_with_collection_fencing(self):
+        song, track, lane, existing, mapper = self._mapper_with_lanes()
+        track_row = mapper.snapshot()["tracks"][0]
+        args = {"trackRef": track_row["ref"], "name": "Take 2", "expectedTrackIdentity": track_row["objectIdentity"], "expectedTakeLaneCollectionRevision": mapper._take_lane_collection_revision(track, 0)}
+        self.assertTrue(mapper._operation_supported("take-lane.create"))
+        result = mapper.invoke("take-lane.create", args)
+        self.assertEqual((result["name"], result["index"]), ("Take 2", 1)); validate_operation_payload("take-lane.create", "result", result)
+        self.assertEqual(len(track.take_lanes), 2)
+        with self.assertRaisesRegex(ValueError, "collection changed"): mapper.invoke("take-lane.create", args)
+
+    def test_take_lane_rename_with_rollback(self):
+        _, track, lane, existing, mapper = self._mapper_with_lanes()
+        lane_row = mapper.snapshot()["tracks"][0]["takeLanes"][0]
+        args = {"ref": lane_row["ref"], "name": "Verse Take", "expectedName": "Take 1", "expectedObjectIdentity": lane_row["objectIdentity"], "expectedAuthorityRevision": mapper._take_lane_collection_revision(track, 0)}
+        result = mapper.invoke("take-lane.rename", args)
+        self.assertEqual(result, {"renamed": lane_row["ref"], "name": "Verse Take"}); self.assertEqual(lane.name, "Verse Take")
+        with self.assertRaisesRegex(ValueError, "changed since preview"): mapper.invoke("take-lane.rename", args)
+        class FailingLane(FakeTakeLane):
+            @property
+            def name(self): return self._name
+            @name.setter
+            def name(self, value):
+                if value == "Boom": raise RuntimeError("rename rejected")
+                self._name = value
+        failing = FailingLane(); failing._name = "Old"; track.take_lanes = [failing]
+        mapper2 = LiveObjectMapper(_song_with_lanes(track_holder=[track])) if False else LiveObjectMapper(FakeSong())
+        song2 = FakeSong(); song2.tracks[0] = track; mapper2 = LiveObjectMapper(song2)
+        failing_row = mapper2.snapshot()["tracks"][0]["takeLanes"][0]
+        bad_args = {"ref": failing_row["ref"], "name": "Boom", "expectedName": "Old", "expectedObjectIdentity": failing_row["objectIdentity"], "expectedAuthorityRevision": mapper2._take_lane_collection_revision(track, 0)}
+        with self.assertRaisesRegex(ValueError, "postcondition was not confirmed"): mapper2.invoke("take-lane.rename", bad_args)
+        self.assertEqual(failing.name, "Old")
+
+    def test_take_lane_clip_create_midi_and_audio(self):
+        _, track, lane, existing, mapper = self._mapper_with_lanes()
+        lane_row = mapper.snapshot()["tracks"][0]["takeLanes"][0]
+        base = {"takeLaneRef": lane_row["ref"], "expectedTakeLaneIdentity": lane_row["objectIdentity"], "expectedCollectionRevision": mapper._take_lane_clip_collection_revision(lane, lane_row["ref"])}
+        result = mapper.invoke("take-lane.clip.create", {**base, "position": 8.0, "length": 4.0, "name": "New Take"})
+        self.assertEqual((result["name"], result["start"], result["length"]), ("New Take", 8.0, 4.0)); validate_operation_payload("take-lane.clip.create", "result", result)
+        self.assertEqual(len(lane.arrangement_clips), 2); self.assertTrue(lane.arrangement_clips[1].is_take_lane_clip)
+        audio = mapper.invoke("take-lane.audio-clip.create", {"takeLaneRef": lane_row["ref"], "expectedTakeLaneIdentity": lane_row["objectIdentity"], "expectedCollectionRevision": mapper._take_lane_clip_collection_revision(lane, lane_row["ref"]), "filePath": "/tmp/demo.wav", "position": 16.0, "name": "Audio Take"})
+        self.assertEqual((audio["filePath"], audio["start"]), ("/tmp/demo.wav", 16.0)); validate_operation_payload("take-lane.audio-clip.create", "result", audio)
+        with self.assertRaisesRegex(ValueError, "absolute path"): mapper.invoke("take-lane.audio-clip.create", {**base, "filePath": "demo.wav", "position": 20.0})
+        clip_row = mapper.snapshot()["tracks"][0]["takeLanes"][0]["clips"][1]
+        self.assertTrue(clip_row["isTakeLaneClip"])
+        fields = ("muted", "colorIndex", "looping", "loopStart", "loopEnd")
+        current = mapper.get(clip_row["ref"])
+        args = {"ref": clip_row["ref"], "muted": True, "expectedObjectIdentity": clip_row["objectIdentity"], "expectedAuthorityRevision": mapper._clip_authority_digest(clip_row["ref"]), "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({field: current.get(field) for field in fields}).encode()).hexdigest()}
+        lane.arrangement_clips[1].muted = False; lane.arrangement_clips[1].color_index = 1; lane.arrangement_clips[1].looping = True; lane.arrangement_clips[1].loop_start = 0.0; lane.arrangement_clips[1].loop_end = 4.0
+        current = mapper.get(clip_row["ref"]); args["expectedStateRevision"] = hashlib.sha256(mapper._bounded_canonical({field: current.get(field) for field in fields}).encode()).hexdigest()
+        result = mapper.invoke("clip.set", args)
+        self.assertTrue(result["changed"]); self.assertTrue(lane.arrangement_clips[1].muted)

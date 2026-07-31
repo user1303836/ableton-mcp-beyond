@@ -26,6 +26,7 @@
 | 在时间线上编排剪辑 | `live_arrangement_clip_preview/apply`、`live_clip_duplicate_preview/apply`、`live_clip_move_preview/apply` | 创建、复制和移动剪辑;事务创建剪辑的清理是精确的;拒绝任意 Arrangement 删除 |
 | 把音频文件导入 Arrangement | `live_arrangement_clip_preview/apply` 加 `kind: "audio"` | 把文件支持的音频剪辑放到选定轨道的确切位置,并验证创建身份 |
 | 把音频文件导入 Session 槽位 | `live_audio_import_preview/apply` | 显式文件权限:允许根、规范化路径、大小/类型检查、SHA-256 并在应用时重新验证(防 TOCTOU),以及对已导入剪辑的受护栏清理 |
+| 使用 take lane | 发现、`live_object_rename`(kind `takeLane`)、`live_arrangement_clip_preview/apply`(`takeLaneRef`)、`live_audio_import_preview/apply`(`takeLaneRef`) | 读取 lane 及其剪辑、创建 lane、重命名 lane,并在 lane 内创建 MIDI 或文件音频剪辑。公共 LOM 不提供 take-lane 删除,因此 lane 与 lane 剪辑的创建诚实不可撤销;comp 区域编辑无公共 API,保持不可用 |
 | 编辑 warp 标记 | `live_warp_marker_preview/apply` | 按节拍时间添加、移动或删除标记(采样时间映射由 Live 负责);标记集合栅栏、精确回滚与受护栏撤销 |
 | 裁剪、复制与刮擦剪辑 | `live_clip_action_preview/apply` | 按循环裁剪、复制循环或区域、刮擦以及移动播放位置;内容操作被诚实标记为不可撤销 |
 | 量化与复制音符 | `live_note_edit_preview/apply` | 时间或音高量化,以及按稳定音符 ID 定向复制,带精确先前内容撤销 |
@@ -143,7 +144,7 @@ Server 宿主证据绝不填补 Windows Live/Windows 11 单元格。
 | 保留操作 ID | 处置 |
 |---|---|
 | `audio.warp-marker.read/add/move/delete` | 已实现(warp 标记家族已随本分支交付);模式按节拍时间寻址标记 —— 不虚构整数 ID |
-| `audio.take-lane.read`、`audio.comp.read` | take lane 正在 `Track.take_lanes` 下实现;comp 区域编辑保持受限(无公共 API) |
+| `audio.take-lane.read`、`audio.comp.read` | take lane 发现/创建/重命名与 lane 剪辑创建已实现;comp 区域编辑保持受限(无公共 API),因此 `audio.comp.read` 保持保留 |
 | `arrangement.automation.*` | Arrangement 自动化编写无稳定公共 API;保持保留并故障关闭 |
 | `browser.preview.start/stop` | Browser 预览使用非官方 Python 绑定;处置随 Browser 家族工作决定 |
 | `project.new/open/save/save-as/collect/export/bounce` | 无公共 Remote Script API;`live_project_save` / `live_project_open` 保持为显式限制报告器 |

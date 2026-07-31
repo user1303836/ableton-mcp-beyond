@@ -1709,3 +1709,38 @@ test("automation clear-envelopes clears with presence fencing and refuses undo",
   assert.equal(((await call(6, "live_undo", { transactionId: clearPreview.transactionId, confirmation: "undo", idempotencyKey: "env-clear-undo" })) as any).result.isError, true);
   assert.equal(((await call(7, "live_automation_preview", { action: "clear-envelopes", clipRef: "clip:clip-1", parameterRef: volumeRef })) as any).error.code, -32602);
 });
+
+test("take lanes are discoverable, renamable, and accept MIDI and audio clips with exact fencing", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const laneRef = "take-lane:track-1:0";
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const snapshot = JSON.parse(((await call(2, "live_snapshot", {})) as any).result.content[0].text);
+  const lanes = snapshot.snapshot.tracks[0].takeLanes;
+  assert.equal(lanes.length, 1); assert.equal(lanes[0].name, "Take 1"); assert.equal(lanes[0].ref, laneRef);
+  const renamePreview = JSON.parse(((await call(3, "live_object_rename_preview", { kind: "takeLane", ref: laneRef, name: "Verse Take" })) as any).result.content[0].text);
+  const renamed = JSON.parse(((await call(4, "live_object_rename_apply", { transactionId: renamePreview.transactionId, confirmation: "apply", idempotencyKey: "lane-rename-1" })) as any).result.content[0].text);
+  assert.equal(renamed.state, "applied");
+  assert.equal((simulator as any).state.tracks[0].takeLanes[0].name, "Verse Take");
+  const midiPreview = JSON.parse(((await call(5, "live_arrangement_clip_preview", { action: "create", takeLaneRef: laneRef, position: 8, length: 4, name: "New Take" })) as any).result.content[0].text);
+  assert.equal(midiPreview.kind, "take-lane"); assert.equal(midiPreview.impact, "creates-take-lane-clip-no-undo");
+  const midiApplied = JSON.parse(((await call(6, "live_arrangement_clip_apply", { transactionId: midiPreview.transactionId, confirmation: "apply", idempotencyKey: "lane-midi-1" })) as any).result.content[0].text);
+  assert.equal(midiApplied.state, "applied");
+  const lane = (simulator as any).state.tracks[0].takeLanes[0];
+  assert.equal(lane.clips.length, 1); assert.equal(lane.clips[0].name, "New Take"); assert.equal(lane.clips[0].isTakeLaneClip, true);
+  assert.equal(((await call(7, "live_undo", { transactionId: midiPreview.transactionId, confirmation: "undo", idempotencyKey: "lane-midi-undo" })) as any).result.isError, true);
+  const dir = mkdtempSync(join(tmpdir(), "lane-import-"));
+  const audioPath = join(dir, "take.wav");
+  writeFileSync(audioPath, Buffer.from("RIFF-take-bytes"));
+  const audioPreview = JSON.parse(((await call(8, "live_audio_import_preview", { filePath: audioPath, allowedRoot: dir, takeLaneRef: laneRef, position: 16, name: "Audio Take" })) as any).result.content[0].text);
+  assert.equal(audioPreview.impact, "creates-take-lane-audio-clip-no-undo");
+  const audioApplied = JSON.parse(((await call(9, "live_audio_import_apply", { transactionId: audioPreview.transactionId, confirmation: "apply", idempotencyKey: "lane-audio-1" })) as any).result.content[0].text);
+  assert.equal(audioApplied.state, "applied");
+  assert.equal(lane.clips.length, 2); assert.equal(lane.clips[1].kind, "audio"); assert.equal(lane.clips[1].filePath, realpathSync(audioPath));
+  assert.equal(((await call(10, "live_undo", { transactionId: audioPreview.transactionId, confirmation: "undo", idempotencyKey: "lane-audio-undo" })) as any).result.isError, true);
+  assert.equal(((await call(11, "live_audio_import_preview", { filePath: audioPath, allowedRoot: dir, takeLaneRef: laneRef, position: 0, trackRef: "track:track-1" })) as any).error.code, -32602);
+  const mutePreview = JSON.parse(((await call(12, "live_clip_properties_preview", { clipRef: lane.clips[0].ref, muted: true })) as any).result.content[0].text);
+  const muted = JSON.parse(((await call(13, "live_clip_properties_apply", { transactionId: mutePreview.transactionId, confirmation: "apply", idempotencyKey: "lane-mute-1" })) as any).result.content[0].text);
+  assert.equal(muted.state, "applied"); assert.equal(lane.clips[0].muted, true);
+});

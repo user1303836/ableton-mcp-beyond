@@ -37,6 +37,12 @@
   包络清除。破坏内容的操作(裁剪、包络清除)诚实不可撤销。已在宿主、
   模拟器、Python 契约与打包 fake-Live 层面验证;精确候选的真实 Live
   证明待完成。
+- `Track.take_lanes` 的 take lane 发现(有界行与快照内稳定引用)、
+  lane 创建与重命名、lane 内 MIDI 与文件音频剪辑创建,以及剪辑行的
+  `is_take_lane_clip` 暴露。公共 LOM 不提供 take-lane 删除与 comp 区域
+  编辑;lane 与 lane 剪辑创建因此诚实不可补偿,comp 编辑保持不可用。
+  已在宿主、模拟器、Python 契约与打包 fake-Live 层面验证;精确候选的
+  真实 Live 证明待完成。
 - 用途特定的 preview/apply/verify/undo 或清理工作流:精确的对象与层级
   身份、状态/内容修订、创建时指纹、epoch、过期、幂等、新鲜事后状态、
   有界补偿与显式不确定状态。原子 Session 剪辑移动在 Live 主线程上运行

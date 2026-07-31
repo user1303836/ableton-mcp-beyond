@@ -34,12 +34,12 @@ export const LIVE_UNAVAILABLE_CAPABILITIES = [
 ] as const;
 
 export const SIMULATOR_CAPABILITIES = [
-  "session.read", "tracks", "scenes", "clips", "notes", "session.discovery", "session.structure", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write", "arrangement.read", "arrangement.write", "transport", "devices", "parameters", "device.parameter.write", "subscriptions", "reconnect", "view", "warp",
+  "session.read", "tracks", "scenes", "clips", "notes", "session.discovery", "session.structure", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write", "arrangement.read", "arrangement.write", "transport", "devices", "parameters", "device.parameter.write", "subscriptions", "reconnect", "view", "warp", "takes",
 ] as const satisfies readonly LiveCapability[];
 
 export type LiveCapability = typeof LIVE_CAPABILITIES[number];
-export type LiveObjectKind = "set" | "track" | "scene" | "clip" | "clip-slot" | "session-playback" | "arrangement-clip" | "device" | "parameter" | "note" | "automation" | "locator" | "chain" | "drum_pad";
-export type LiveWireObjectKind = LiveObjectKind | "clip_slot" | "arrangement_clip" | "routing_choice" | "return_track" | "main_track" | "browser_item";
+export type LiveObjectKind = "set" | "track" | "scene" | "clip" | "clip-slot" | "session-playback" | "arrangement-clip" | "take-lane" | "take-lane-clip" | "device" | "parameter" | "note" | "automation" | "locator" | "chain" | "drum_pad";
+export type LiveWireObjectKind = LiveObjectKind | "clip_slot" | "arrangement_clip" | "take_lane" | "take_lane_clip" | "routing_choice" | "return_track" | "main_track" | "browser_item";
 /** Opaque references are simulator-local (`kind:key`) or production mapper
  * references (`epoch:wire_kind:key`). Callers must never parse authority from
  * either form; the adapter performs epoch and object-identity checks. */
@@ -89,11 +89,12 @@ export interface Parameter { ref: LiveRef; objectIdentity?: string; name: string
 export interface DeviceChain { ref: LiveRef; parentRef: LiveRef; objectIdentity?: string; index: number; name: string; mute: boolean | null; solo: boolean | null; devices: Device[]; }
 export interface DrumPad { ref: LiveRef; parentRef: LiveRef; index: number; name: string; mute: boolean | null; chains: DeviceChain[]; }
 export interface Device { ref: LiveRef; parentRef?: LiveRef; name: string; kind: "instrument" | "audio-effect" | "midi-effect" | "plugin" | "rack" | "device"; parameters: Parameter[]; objectIdentity?: string; enabled?: boolean; className?: string; canHaveChains?: boolean | null; canHaveDrumPads?: boolean | null; chains?: DeviceChain[]; drumPads?: DrumPad[]; macros?: { ref: LiveRef; objectIdentity?: string; name: string; value: unknown }[]; variationCount?: number; chainSelector?: unknown; }
-export interface Clip { ref: LiveRef; objectIdentity?: string; name: string; kind: "midi" | "audio"; start: number; length: number; notes: Note[]; notesRevision?: string; warp: boolean; takes: string[]; automation: AutomationPoint[]; envelopes?: Record<string, AutomationPoint[]>; isAudio?: boolean | null; gain?: number | null; pitchCoarse?: number | null; pitchFine?: number | null; warpMode?: number | null; warping?: boolean | null; fadeInLength?: number | null; fadeOutLength?: number | null; availableAudioFields?: string[]; loopStart?: number | null; loopEnd?: number | null; filePath?: string | null; muted?: boolean | null; colorIndex?: number | null; looping?: boolean | null; launchMode?: number | null; legato?: boolean | null; playingPosition?: number | null; isPlaying?: boolean | null; isTriggered?: boolean | null; isRecording?: boolean | null; ramMode?: boolean | null; signatureNumerator?: number | null; signatureDenominator?: number | null; velocityAmount?: number | null; willRecordOnStart?: boolean | null; fireButtonState?: boolean | null; endTime?: number | null; availableWarpModes?: number[] | null; sampleLength?: number | null; warpMarkers?: Array<{ beatTime: number; sampleTime: number }> | null; }
+export interface Clip { ref: LiveRef; objectIdentity?: string; name: string; kind: "midi" | "audio"; start: number; length: number; notes: Note[]; notesRevision?: string; warp: boolean; takes: string[]; automation: AutomationPoint[]; envelopes?: Record<string, AutomationPoint[]>; isAudio?: boolean | null; gain?: number | null; pitchCoarse?: number | null; pitchFine?: number | null; warpMode?: number | null; warping?: boolean | null; fadeInLength?: number | null; fadeOutLength?: number | null; availableAudioFields?: string[]; loopStart?: number | null; loopEnd?: number | null; filePath?: string | null; muted?: boolean | null; colorIndex?: number | null; looping?: boolean | null; isTakeLaneClip?: boolean | null; launchMode?: number | null; legato?: boolean | null; playingPosition?: number | null; isPlaying?: boolean | null; isTriggered?: boolean | null; isRecording?: boolean | null; ramMode?: boolean | null; signatureNumerator?: number | null; signatureDenominator?: number | null; velocityAmount?: number | null; willRecordOnStart?: boolean | null; fireButtonState?: boolean | null; endTime?: number | null; availableWarpModes?: number[] | null; sampleLength?: number | null; warpMarkers?: Array<{ beatTime: number; sampleTime: number }> | null; }
 export interface RoutingState { inputType: string | null; inputSubRouting: string | null; outputType: string | null; outputSubRouting: string | null; availableInputTypes: number; availableInputChannels: number; availableOutputTypes: number; availableOutputChannels: number; }
 export interface MixerState { volume: number | null; pan: number | null; cueVolume: number | null; mute: boolean | null; solo: boolean | null; sends: (number | null)[]; volumeRef: LiveRef | null; volumeIdentity?: string | null; panRef: LiveRef | null; panIdentity?: string | null; cueRef: LiveRef | null; cueIdentity?: string | null; sendRefs: LiveRef[]; sendIdentities?: string[]; }
 export interface ClipSlot { ref: LiveRef; parentRef: LiveRef; objectIdentity?: string; sceneIndex: number; clipRef?: LiveRef | null; empty: boolean; }
-export interface Track { ref: LiveRef; objectIdentity?: string; name: string; kind: "audio" | "midi" | "group" | "return" | "main" | "master" | "regular"; volume: number; pan: number; mute: boolean; solo: boolean; armed: boolean | null; monitoringState?: LiveMonitoringState; playingSlotIndex?: number | null; firedSlotIndex?: number | null; clips: Clip[]; clipSlots?: ClipSlot[]; mixer?: MixerState; routing?: RoutingState; devices: Device[]; sends: number[]; input?: string; output?: string; }
+export interface Track { ref: LiveRef; objectIdentity?: string; name: string; kind: "audio" | "midi" | "group" | "return" | "main" | "master" | "regular"; volume: number; pan: number; mute: boolean; solo: boolean; armed: boolean | null; monitoringState?: LiveMonitoringState; playingSlotIndex?: number | null; firedSlotIndex?: number | null; clips: Clip[]; clipSlots?: ClipSlot[]; mixer?: MixerState; routing?: RoutingState; devices: Device[]; sends: number[]; input?: string; output?: string; takeLanes?: TakeLane[]; }
+export interface TakeLane { ref: LiveRef; objectIdentity?: string; parentRef?: LiveRef; trackRef?: LiveRef; name: string; index: number; clips: Clip[]; }
 export interface Scene { ref: LiveRef; objectIdentity?: string; name: string; index: number; }
 export interface LiveSnapshot {
   set: { ref: LiveRef; objectIdentity?: string; name: string; tempo?: number; playing?: boolean; position?: number; loop?: { enabled: boolean; start?: number; length?: number }; [key: string]: unknown };
@@ -118,7 +119,7 @@ export type LiveOperation =
   | "project.bounce" | "project.collect" | "project.export" | "project.new" | "project.open" | "project.save" | "project.save-as"
   | "realtime.arm" | "realtime.disarm" | "realtime.stats" | "recording.arrangement" | "recording.session" | "routing.set"
   | "scene.capture" | "scene.create" | "scene.delete" | "scene.rename" | "session.audio-clip.create" | "session.audition-launch" | "session.audition-stop" | "session.capture-midi" | "session.clip-launch" | "session.clip-stop" | "session.discover" | "session.emergency-stop"
-  | "tempo.set" | "track.create" | "track.delete" | "track.rename" | "transport.set" | "view.control" | "view.set" | "subscribe";
+  | "tempo.set" | "track.create" | "track.delete" | "track.rename" | "transport.set" | "take-lane.create" | "take-lane.rename" | "take-lane.clip.create" | "take-lane.audio-clip.create" | "view.control" | "view.set" | "subscribe";
 
 export interface LiveInvocation { operation: LiveOperation; args: Record<string, unknown>; }
 
@@ -155,7 +156,7 @@ const simulatorRevision = (value: unknown): string => createHash("sha256").updat
 function createSimulatorState(): LiveSnapshot {
   const initialNotes: Note[] = [{ pitch: 36, start: 0, duration: 0.25, velocity: 110, channel: 1, id: 1, mute: false, probability: 1, velocityDeviation: 0, releaseVelocity: 64 }];
   const kick: Clip = { ref: ref("clip", "clip-1"), objectIdentity: "simulator:clip:clip-1", name: "Kick Pattern", kind: "midi", start: 0, length: 4, notes: initialNotes, notesRevision: simulatorRevision(initialNotes), warp: false, takes: ["take-1"], automation: [], muted: false, colorIndex: 0, looping: true, loopStart: 0, loopEnd: 4 };
-  const track: Track = { ref: ref("track", "track-1"), objectIdentity: "simulator:track:track-1", name: "Drums", kind: "midi", volume: 0.85, pan: 0, mute: false, solo: false, armed: false, monitoringState: "off", playingSlotIndex: null, firedSlotIndex: null, clips: [kick], clipSlots: [{ ref: ref("clip-slot", "track-1:0"), parentRef: ref("track", "track-1"), objectIdentity: "simulator:clip-slot:track-1:0", sceneIndex: 0, clipRef: kick.ref, empty: false }], mixer: { volume: 0.85, pan: 0, cueVolume: 1, mute: false, solo: false, sends: [0.5, 0.25], volumeRef: ref("parameter", "mixer:0:volume"), volumeIdentity: "simulator:parameter:mixer:0:volume", panRef: ref("parameter", "mixer:0:panning"), panIdentity: "simulator:parameter:mixer:0:panning", cueRef: ref("parameter", "mixer:0:cue_volume"), cueIdentity: "simulator:parameter:mixer:0:cue_volume", sendRefs: [ref("parameter", "mixer:0:sends:0"), ref("parameter", "mixer:0:sends:1")], sendIdentities: ["simulator:parameter:mixer:0:sends:0", "simulator:parameter:mixer:0:sends:1"] }, routing: { inputType: "Ext. In", inputSubRouting: "1", outputType: "Main", outputSubRouting: "1/2", availableInputTypes: 2, availableInputChannels: 16, availableOutputTypes: 3, availableOutputChannels: 4 }, devices: [], sends: [0, 0] };
+  const track: Track = { ref: ref("track", "track-1"), objectIdentity: "simulator:track:track-1", name: "Drums", kind: "midi", volume: 0.85, pan: 0, mute: false, solo: false, armed: false, monitoringState: "off", playingSlotIndex: null, firedSlotIndex: null, clips: [kick], clipSlots: [{ ref: ref("clip-slot", "track-1:0"), parentRef: ref("track", "track-1"), objectIdentity: "simulator:clip-slot:track-1:0", sceneIndex: 0, clipRef: kick.ref, empty: false }], mixer: { volume: 0.85, pan: 0, cueVolume: 1, mute: false, solo: false, sends: [0.5, 0.25], volumeRef: ref("parameter", "mixer:0:volume"), volumeIdentity: "simulator:parameter:mixer:0:volume", panRef: ref("parameter", "mixer:0:panning"), panIdentity: "simulator:parameter:mixer:0:panning", cueRef: ref("parameter", "mixer:0:cue_volume"), cueIdentity: "simulator:parameter:mixer:0:cue_volume", sendRefs: [ref("parameter", "mixer:0:sends:0"), ref("parameter", "mixer:0:sends:1")], sendIdentities: ["simulator:parameter:mixer:0:sends:0", "simulator:parameter:mixer:0:sends:1"] }, routing: { inputType: "Ext. In", inputSubRouting: "1", outputType: "Main", outputSubRouting: "1/2", availableInputTypes: 2, availableInputChannels: 16, availableOutputTypes: 3, availableOutputChannels: 4 }, devices: [], sends: [0, 0], takeLanes: [{ ref: ref("take-lane", "track-1:0"), objectIdentity: "simulator:take-lane:track-1:0", parentRef: ref("track", "track-1"), trackRef: ref("track", "track-1"), name: "Take 1", index: 0, clips: [] }] };
   const gain: Parameter = { ref: ref("parameter", "gain-1"), objectIdentity: "simulator:parameter:gain-1", name: "Gain", value: 0.5, min: 0, max: 1, automatable: true, quantization: 0, enabled: true, displayValue: "0.5", revision: 1 };
   const device: Device = { ref: ref("device", "utility-1"), parentRef: track.ref, name: "Utility", kind: "audio-effect", parameters: [gain], objectIdentity: "simulator:device:utility-1", enabled: true };
   track.devices.push(device);
@@ -172,7 +173,7 @@ function createSimulatorState(): LiveSnapshot {
   };
 }
 
-export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "transport.set", "tempo.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "session.clip-launch", "session.clip-stop", "clip.create", "clip.delete", "track.create", "track.delete", "track.rename", "scene.create", "scene.delete", "scene.rename", "clip.rename", "device.rename", "locator.rename", "scene.capture", "note.add", "note.add-batch", "note.update", "note.delete", "note.duplicate", "note.quantize", "note.read-by-id", "note.read-selected", "locator.add", "locator.delete", "locator.jump", "session.capture-midi", "device.parameter.set", "clip.duplicate", "clip.move", "clip.set", "clip.action", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "arrangement.audio-clip.create", "session.audio-clip.create", "audio.clip.set", "audio.warp-marker.read", "audio.warp-marker.add", "audio.warp-marker.move", "audio.warp-marker.delete", "mixer.set", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.envelope.clear", "automation.point.insert", "automation.point.delete", "device.insert", "device.delete", "device.enable", "device.move", "browser.search", "browser.inspect", "browser.load", "routing.set", "recording.session", "recording.arrangement", "view.set", "view.control"] as const;
+export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "transport.set", "tempo.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "session.clip-launch", "session.clip-stop", "clip.create", "clip.delete", "track.create", "track.delete", "track.rename", "scene.create", "scene.delete", "scene.rename", "clip.rename", "device.rename", "locator.rename", "scene.capture", "note.add", "note.add-batch", "note.update", "note.delete", "note.duplicate", "note.quantize", "note.read-by-id", "note.read-selected", "locator.add", "locator.delete", "locator.jump", "session.capture-midi", "device.parameter.set", "clip.duplicate", "clip.move", "clip.set", "clip.action", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "arrangement.audio-clip.create", "session.audio-clip.create", "take-lane.create", "take-lane.rename", "take-lane.clip.create", "take-lane.audio-clip.create", "audio.take-lane.read", "audio.clip.set", "audio.warp-marker.read", "audio.warp-marker.add", "audio.warp-marker.move", "audio.warp-marker.delete", "mixer.set", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.envelope.clear", "automation.point.insert", "automation.point.delete", "device.insert", "device.delete", "device.enable", "device.move", "browser.search", "browser.inspect", "browser.load", "routing.set", "recording.session", "recording.arrangement", "view.set", "view.control"] as const;
 
 export class DeterministicLiveSimulator implements LiveAdapter {
   private state = createSimulatorState();
@@ -198,6 +199,11 @@ export class DeterministicLiveSimulator implements LiveAdapter {
       if (track.ref === objectRef) return structuredClone(track);
       const clip = track.clips.find((item) => item.ref === objectRef);
       if (clip) return structuredClone(clip);
+      for (const lane of track.takeLanes ?? []) {
+        if (lane.ref === objectRef) return structuredClone(lane);
+        const laneClip = lane.clips.find((item) => item.ref === objectRef);
+        if (laneClip) return structuredClone(laneClip);
+      }
       for (const device of track.devices) {
         if (device.ref === objectRef) return structuredClone(device);
         const parameter = device.parameters.find((item) => item.ref === objectRef);
@@ -725,7 +731,14 @@ export class DeterministicLiveSimulator implements LiveAdapter {
       case "clip.set": {
         const clip = this.findClip(objectRef("ref"));
         if (clip.objectIdentity !== args.expectedObjectIdentity) throw new Error("clip identity changed since preview");
-        const clipAuthorityRevision = clip.ref.startsWith("arrangement-clip:") ? arrangementAuthorityRevision(clip.ref) : simulatorRevision(this.sessionClipAuthority(clip.ref));
+        let clipAuthorityRevision: string;
+        if (clip.ref.startsWith("take-lane-clip:")) {
+          const foundLane = this.state.tracks.flatMap((track) => track.takeLanes ?? []).find((lane) => lane.clips.some((candidate) => candidate.ref === clip.ref));
+          if (!foundLane) throw new Error("take-lane clip hierarchy is unavailable");
+          clipAuthorityRevision = simulatorRevision({ takeLaneRevision: simulatorRevision(foundLane.clips.map((candidate) => ({ ref: candidate.ref, objectIdentity: candidate.objectIdentity }))), laneIdentity: foundLane.objectIdentity });
+        } else {
+          clipAuthorityRevision = clip.ref.startsWith("arrangement-clip:") ? arrangementAuthorityRevision(clip.ref) : simulatorRevision(this.sessionClipAuthority(clip.ref));
+        }
         const clipFields = ["muted", "colorIndex", "looping", "loopStart", "loopEnd"];
         const clipStateRevision = simulatorRevision(Object.fromEntries(clipFields.map((field) => [field, (clip as unknown as Record<string, unknown>)[field] ?? null])));
         if (args.expectedAuthorityRevision !== clipAuthorityRevision || args.expectedStateRevision !== clipStateRevision) throw new Error("clip hierarchy or state changed since preview");
@@ -874,6 +887,65 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         clip.notesRevision = simulatorRevision(clip.notes);
         this.emit({ type: "object", ref: clip.ref, payload: { operation } });
         return { changed: true, notesRevision: clip.notesRevision };
+      }
+      case "audio.take-lane.read": {
+        const track = this.findTrack(objectRef("trackRef"));
+        return { lanes: (track?.takeLanes ?? []).map((lane) => ({ ref: lane.ref, name: lane.name })) };
+      }
+      case "take-lane.create": {
+        const track = this.findTrack(objectRef("trackRef"));
+        if (!track || args.expectedTrackIdentity !== track.objectIdentity) throw new Error("take-lane target track identity changed since preview");
+        const lanes = track.takeLanes ?? [];
+        const siblings = lanes.map((lane) => ({ ref: lane.ref, objectIdentity: lane.objectIdentity, name: lane.name }));
+        if (args.expectedTakeLaneCollectionRevision !== simulatorRevision(siblings)) throw new Error("take-lane collection changed since preview");
+        const name = args.name;
+        if (name !== undefined && (typeof name !== "string" || name.length < 1 || name.length > 256)) throw new RangeError("name is invalid");
+        const lane: TakeLane = { ref: ref("take-lane", `${track.ref}:${lanes.length}`), objectIdentity: `simulator:take-lane:${this.sequence + 1}`, parentRef: track.ref, trackRef: track.ref, name: (name as string | undefined) ?? `Take ${lanes.length + 1}`, index: lanes.length, clips: [] };
+        track.takeLanes = [...lanes, lane];
+        this.emit({ type: "object", ref: track.ref, payload: { operation, lane } });
+        return { ref: lane.ref, objectIdentity: lane.objectIdentity, name: lane.name, index: lane.index, createdFingerprint: simulatorRevision({ ref: lane.ref, objectIdentity: lane.objectIdentity, name: lane.name, index: lane.index }) };
+      }
+      case "take-lane.rename": {
+        const found = this.findTakeLane(objectRef("ref"));
+        if (!found) throw new Error("take-lane reference is stale or invalid");
+        const name = args.name;
+        if (typeof name !== "string" || name.length < 1 || name.length > 256) throw new RangeError("name is invalid");
+        if (found.lane.objectIdentity !== args.expectedObjectIdentity || found.lane.name !== args.expectedName) throw new Error("take-lane rename target changed since preview");
+        const siblings = (found.track.takeLanes ?? []).map((lane) => ({ ref: lane.ref, objectIdentity: lane.objectIdentity, name: lane.name }));
+        if (args.expectedAuthorityRevision !== simulatorRevision(siblings)) throw new Error("take-lane hierarchy changed since preview");
+        found.lane.name = name;
+        this.emit({ type: "object", ref: found.lane.ref, payload: { operation } });
+        return { renamed: found.lane.ref, name };
+      }
+      case "take-lane.clip.create":
+      case "take-lane.audio-clip.create": {
+        const found = this.findTakeLane(objectRef("takeLaneRef"));
+        if (!found) throw new Error("take-lane reference is stale or invalid");
+        if (found.lane.objectIdentity !== args.expectedTakeLaneIdentity) throw new Error("take-lane identity changed since preview");
+        const siblings = found.lane.clips.map((clip) => ({ ref: clip.ref, objectIdentity: clip.objectIdentity }));
+        if (args.expectedCollectionRevision !== simulatorRevision(siblings)) throw new Error("take-lane clip collection changed since preview");
+        const audio = operation === "take-lane.audio-clip.create";
+        const position = args.position;
+        if (typeof position !== "number" || !Number.isFinite(position) || position < 0) throw new RangeError("position is invalid");
+        const name = args.name;
+        let filePath: string | undefined;
+        let length = 4;
+        if (audio) {
+          filePath = args.filePath as string;
+          if (typeof filePath !== "string" || filePath.length < 1 || filePath.length > 1024 || !(filePath.startsWith("/") || /^[A-Za-z]:/.test(filePath))) throw new RangeError("filePath must be an absolute path");
+          if (name !== undefined && (typeof name !== "string" || name.length < 1 || name.length > 256)) throw new RangeError("name is invalid");
+        } else {
+          length = args.length as number;
+          if (typeof length !== "number" || !Number.isFinite(length) || length <= 0) throw new RangeError("length is invalid");
+          if (typeof name !== "string" || name.length < 1 || name.length > 256) throw new RangeError("name is invalid");
+        }
+        const clipName = audio ? ((name as string | undefined) ?? filePath!.split("/").pop() ?? "Audio Clip") : (name as string);
+        const clip: Clip = { ref: ref("take-lane-clip", `${found.lane.ref}:${position}`), objectIdentity: `simulator:take-lane-clip:${this.sequence + 1}`, name: clipName, kind: audio ? "audio" : "midi", start: position, length, notes: [], notesRevision: simulatorRevision([]), warp: audio, takes: [], automation: [], isAudio: audio, ...(audio ? { filePath } : {}), muted: false, isTakeLaneClip: true };
+        found.lane.clips.push(clip);
+        this.emit({ type: "object", ref: found.lane.ref, payload: { operation, clip } });
+        const result: Record<string, unknown> = { ref: clip.ref, objectIdentity: clip.objectIdentity, name: clip.name, start: position, length, createdFingerprint: simulatorRevision(clip) };
+        if (audio) result.filePath = filePath;
+        return result;
       }
       case "locator.jump": {
         const direction = args.direction;
@@ -1079,7 +1151,15 @@ export class DeterministicLiveSimulator implements LiveAdapter {
     { id: "drums/Kick Core", objectIdentity: "simulator:browser:drums/Kick Core", name: "Kick Core", category: "drums", path: "drums/Kick Core", isDevice: false },
   ]; }
   private findClipWithTrack(objectRef: LiveRef): { track: Track; clip: Clip } | undefined { for (const track of this.state.tracks) { const clip = track.clips.find((item) => item.ref === objectRef); if (clip) return { track, clip }; } return undefined; }
-  private find(objectRef: LiveRef): Track | Clip | Device | Parameter | undefined { for (const track of this.state.tracks) { if (track.ref === objectRef) return track; const clip = track.clips.find((item) => item.ref === objectRef); if (clip) return clip; for (const device of track.devices) { if (device.ref === objectRef) return device; const parameter = device.parameters.find((item) => item.ref === objectRef); if (parameter) return parameter; } } return undefined; }
+  private find(objectRef: LiveRef): Track | Clip | Device | Parameter | undefined { for (const track of this.state.tracks) { if (track.ref === objectRef) return track; const clip = track.clips.find((item) => item.ref === objectRef); if (clip) return clip; for (const lane of track.takeLanes ?? []) { const laneClip = lane.clips.find((item) => item.ref === objectRef); if (laneClip) return laneClip; } for (const device of track.devices) { if (device.ref === objectRef) return device; const parameter = device.parameters.find((item) => item.ref === objectRef); if (parameter) return parameter; } } return undefined; }
+  private findTakeLane(reference: LiveRef): { track: Track; lane: TakeLane } | undefined {
+    for (const track of this.state.tracks) {
+      const lane = (track.takeLanes ?? []).find((candidate) => candidate.ref === reference);
+      if (lane) return { track, lane };
+    }
+    return undefined;
+  }
+
   private findTrack(objectRef: LiveRef): Track | undefined { return this.state.tracks.find((track) => track.ref === objectRef); }
   private findClip(objectRef: LiveRef): Clip { const value = this.find(objectRef); if (!value || !("notes" in value)) throw new Error(`unknown clip reference: ${objectRef}`); return value; }
   private emit(event: Omit<LiveEvent, "epoch" | "sequence">): void { const complete = { ...event, epoch: this.epoch, sequence: ++this.sequence }; for (const listener of this.listeners) listener(structuredClone(complete)); }
