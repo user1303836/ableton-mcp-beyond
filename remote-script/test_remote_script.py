@@ -609,7 +609,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "6ed59d643e3346f42567d9ce1a02fa88dcf0d2d196a0d4cffe1f37af944b2db8")
+        self.assertEqual(digest, "4a9ef5c572e53d07b26a2dc3cd130030c1ab7db20f8025ae6d37de8ac6f15ce5")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -3021,3 +3021,59 @@ class TakeLaneExpansionTests(unittest.TestCase):
         current = mapper.get(clip_row["ref"]); args["expectedStateRevision"] = hashlib.sha256(mapper._bounded_canonical({field: current.get(field) for field in fields}).encode()).hexdigest()
         result = mapper.invoke("clip.set", args)
         self.assertTrue(result["changed"]); self.assertTrue(lane.arrangement_clips[1].muted)
+
+
+class FakeTuningSystem:
+    def __init__(self):
+        self.name = "Equal"
+        self.lowest_note = 0
+        self.highest_note = 127
+        self.reference_pitch = 440.0
+        self.pseudo_octave_in_cents = 1200.0
+        self.note_tunings = [{"note": index, "deviation": 0.0} for index in range(128)]
+
+
+class TuningScaleTests(unittest.TestCase):
+    def _mapper_with_tuning(self):
+        song = FakeSong()
+        song.tuning_system = FakeTuningSystem()
+        song.root_note = 0; song.scale_name = "Major"; song.scale_mode = "Ionian"; song.scale_intervals = [0, 2, 4, 5, 7, 9, 11]
+        return song, mapper if False else LiveObjectMapper(song)
+
+    def test_tuning_read_exposes_system_and_scale(self):
+        song, mapper = self._mapper_with_tuning()
+        self.assertTrue(mapper._operation_supported("tuning.read")); self.assertTrue(mapper._operation_supported("tuning.set"))
+        set_ref = mapper.snapshot()["set"]["ref"]
+        result = mapper.invoke("tuning.read", {"setRef": set_ref})
+        self.assertEqual(result["tuningSystem"]["name"], "Equal"); self.assertEqual(result["tuningSystem"]["referencePitch"], 440.0)
+        self.assertEqual(result["tuningSystem"]["pseudoOctaveInCents"], 1200.0); self.assertEqual(len(result["tuningSystem"]["noteTunings"]), 128)
+        self.assertEqual(result["scale"], {"rootNote": 0, "scaleName": "Major", "scaleMode": "Ionian", "scaleIntervals": [0, 2, 4, 5, 7, 9, 11]})
+        validate_operation_payload("tuning.read", "result", result)
+
+    def test_tuning_set_validates_and_rolls_back_exactly(self):
+        song, mapper = self._mapper_with_tuning()
+        set_ref = mapper.snapshot()["set"]["ref"]; identity = mapper.snapshot()["set"]["objectIdentity"]
+        def fences(): return {"setRef": set_ref, "expectedObjectIdentity": identity, "expectedRevision": mapper._tuning_revision()}
+        result = mapper.invoke("tuning.set", {**fences(), "referencePitch": 432.0, "rootNote": 9, "scaleName": "Minor", "scaleIntervals": [0, 2, 3, 5, 7, 8, 10]})
+        self.assertTrue(result["changed"]); validate_operation_payload("tuning.set", "result", result)
+        self.assertEqual(song.tuning_system.reference_pitch, 432.0); self.assertEqual(song.root_note, 9); self.assertEqual(song.scale_name, "Minor")
+        stale = fences(); stale["expectedRevision"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "changed since preview"): mapper.invoke("tuning.set", {**stale, "rootNote": 0})
+        with self.assertRaisesRegex(ValueError, "referencePitch is invalid"): mapper.invoke("tuning.set", {**fences(), "referencePitch": 5.0})
+        with self.assertRaisesRegex(ValueError, "note range is invalid"): mapper.invoke("tuning.set", {**fences(), "lowestNote": 100, "highestNote": 50})
+        with self.assertRaisesRegex(ValueError, "exactly 128"): mapper.invoke("tuning.set", {**fences(), "noteTunings": [{"note": 0, "deviation": 0.0}]})
+        with self.assertRaisesRegex(ValueError, "no fields"): mapper.invoke("tuning.set", fences())
+        rows = [{"note": index, "deviation": 5.0 if index == 69 else 0.0} for index in range(128)]
+        result = mapper.invoke("tuning.set", {**fences(), "noteTunings": rows})
+        self.assertTrue(result["changed"]); self.assertEqual(song.tuning_system.note_tunings[69]["deviation"], 5.0)
+        class FailingTuning(FakeTuningSystem):
+            @property
+            def reference_pitch(self): return self._pitch
+            @reference_pitch.setter
+            def reference_pitch(self, value):
+                if value == 415.0: raise RuntimeError("tuning rejected")
+                self._pitch = value
+        failing = FailingTuning(); failing._pitch = 440.0; song.tuning_system = failing
+        with self.assertRaisesRegex(RuntimeError, "tuning rejected"):
+            mapper.invoke("tuning.set", {**fences(), "referencePitch": 415.0, "rootNote": 2})
+        self.assertEqual(failing.reference_pitch, 440.0); self.assertEqual(song.root_note, 9)

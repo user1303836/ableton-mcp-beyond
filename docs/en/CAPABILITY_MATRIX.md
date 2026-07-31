@@ -32,6 +32,7 @@ most content edits can be undone with `live_undo`.
 | Edit warp markers | `live_warp_marker_preview/apply` | Add, move, or delete markers addressed by beat time (Live owns sample-time mapping); marker-collection fencing with exact rollback and guarded undo |
 | Crop, duplicate, and scrub clips | `live_clip_action_preview/apply` | Crop to loop, duplicate loop or a region, scrub, and nudge playing position; content actions are honestly marked non-undoable |
 | Quantize and duplicate notes | `live_note_edit_preview/apply` | Time or pitch quantization and targeted duplication by stable note IDs, with exact prior-content undo |
+| Edit tuning and scale | `live_tuning_preview/apply` | Tuning-system name, note range, reference pitch, and all 128 note tunings, plus root note, scale name/mode, and intervals. Validation covers length/range constraints with exact rollback; changes affect playback pitch globally and restore exactly through `live_undo` |
 | Read notes by ID or selection | `live_note_read` | Read-only targeted note reads, including the current selection when Live exposes it |
 | Clear all clip envelopes | `live_automation_preview/apply` with `clear-envelopes` | Counted, presence-fenced clear of every envelope on a clip (device, rack, and mixer parameters); honestly non-undoable |
 | Mute, color, and loop clips | `live_clip_properties_preview/apply` | Clip mute and color on any clip; loop bounds on MIDI clips (audio loops live in `live_audio_clip_*`) |

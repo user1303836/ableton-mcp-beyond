@@ -8625,6 +8625,277 @@
       }
     },
     {
+      "id": "tuning.read",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "setRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "setRef"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "tuningSystem": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "lowestNote": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 127
+              },
+              "highestNote": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 127
+              },
+              "referencePitch": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 20,
+                "maximum": 20000
+              },
+              "pseudoOctaveInCents": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "noteTunings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "note": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 127
+                    },
+                    "deviation": {
+                      "type": "number",
+                      "minimum": -1200,
+                      "maximum": 1200
+                    }
+                  },
+                  "required": [
+                    "note",
+                    "deviation"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 128
+              }
+            },
+            "required": [
+              "name",
+              "lowestNote",
+              "highestNote",
+              "referencePitch",
+              "pseudoOctaveInCents",
+              "noteTunings"
+            ],
+            "additionalProperties": false
+          },
+          "scale": {
+            "type": "object",
+            "properties": {
+              "rootNote": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 11
+              },
+              "scaleName": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 256
+              },
+              "scaleMode": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 256
+              },
+              "scaleIntervals": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": -24,
+                  "maximum": 24
+                },
+                "maxItems": 32
+              }
+            },
+            "required": [
+              "rootNote",
+              "scaleName",
+              "scaleMode",
+              "scaleIntervals"
+            ],
+            "additionalProperties": false
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "tuningSystem",
+          "scale",
+          "revision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "tuning.set",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "setRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "lowestNote": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 127
+          },
+          "highestNote": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 127
+          },
+          "referencePitch": {
+            "type": "number",
+            "minimum": 20,
+            "maximum": 20000
+          },
+          "noteTunings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "note": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 127
+                },
+                "deviation": {
+                  "type": "number",
+                  "minimum": -1200,
+                  "maximum": 1200
+                }
+              },
+              "required": [
+                "note",
+                "deviation"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 128,
+            "maxItems": 128
+          },
+          "rootNote": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 11
+          },
+          "scaleName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "scaleMode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "scaleIntervals": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": -24,
+              "maximum": 24
+            },
+            "minItems": 1,
+            "maxItems": 32
+          },
+          "expectedObjectIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "setRef",
+          "expectedObjectIdentity",
+          "expectedRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "boolean",
+            "const": true
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "changed",
+          "revision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "id": "view.control",
       "method": "invoke",
       "request": {

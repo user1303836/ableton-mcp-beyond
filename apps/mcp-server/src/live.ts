@@ -22,7 +22,7 @@ export const LIVE_CAPABILITIES = [
   "arrangement.read", "arrangement.write", "audio", "audio.capture.resampling", "warp", "takes",
   "automation", "devices", "racks", "chains", "parameters", "browser",
   "device.parameter.write",
-  "routing", "recording", "projects", "mixing", "transport", "max", "osc", "view",
+  "routing", "recording", "projects", "mixing", "transport", "max", "osc", "view", "tuning",
   "realtime.events", "plugins", "subscriptions", "reconnect",
 ] as const;
 
@@ -34,7 +34,7 @@ export const LIVE_UNAVAILABLE_CAPABILITIES = [
 ] as const;
 
 export const SIMULATOR_CAPABILITIES = [
-  "session.read", "tracks", "scenes", "clips", "notes", "session.discovery", "session.structure", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write", "arrangement.read", "arrangement.write", "transport", "devices", "parameters", "device.parameter.write", "subscriptions", "reconnect", "view", "warp", "takes",
+  "session.read", "tracks", "scenes", "clips", "notes", "session.discovery", "session.structure", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write", "arrangement.read", "arrangement.write", "transport", "devices", "parameters", "device.parameter.write", "subscriptions", "reconnect", "view", "warp", "takes", "tuning",
 ] as const satisfies readonly LiveCapability[];
 
 export type LiveCapability = typeof LIVE_CAPABILITIES[number];
@@ -106,6 +106,7 @@ export interface LiveSnapshot {
   playback: SessionPlaybackState;
   selected?: LiveRef;
   view?: { visibleView: string | null; follow: boolean | null };
+  tuning?: { system: { name: string; lowestNote: number | null; highestNote: number | null; referencePitch: number | null; pseudoOctaveInCents: number | null; noteTunings: Array<{ note: number; deviation: number }> }; scale: { rootNote: number | null; scaleName: string | null; scaleMode: string | null; scaleIntervals: number[] } };
 }
 export interface LiveEvent { epoch: number; sequence: number; type: "state" | "transport" | "object" | "meter" | "max" | "osc" | "reset"; ref?: LiveRef; payload: unknown; }
 
@@ -119,7 +120,7 @@ export type LiveOperation =
   | "project.bounce" | "project.collect" | "project.export" | "project.new" | "project.open" | "project.save" | "project.save-as"
   | "realtime.arm" | "realtime.disarm" | "realtime.stats" | "recording.arrangement" | "recording.session" | "routing.set"
   | "scene.capture" | "scene.create" | "scene.delete" | "scene.rename" | "session.audio-clip.create" | "session.audition-launch" | "session.audition-stop" | "session.capture-midi" | "session.clip-launch" | "session.clip-stop" | "session.discover" | "session.emergency-stop"
-  | "tempo.set" | "track.create" | "track.delete" | "track.rename" | "transport.set" | "take-lane.create" | "take-lane.rename" | "take-lane.clip.create" | "take-lane.audio-clip.create" | "view.control" | "view.set" | "subscribe";
+  | "tempo.set" | "track.create" | "track.delete" | "track.rename" | "transport.set" | "take-lane.create" | "take-lane.rename" | "take-lane.clip.create" | "take-lane.audio-clip.create" | "tuning.read" | "tuning.set" | "view.control" | "view.set" | "subscribe";
 
 export interface LiveInvocation { operation: LiveOperation; args: Record<string, unknown>; }
 
@@ -170,10 +171,11 @@ function createSimulatorState(): LiveSnapshot {
     playback: { ref: ref("session-playback", "playback-1"), epoch: 1, revision: "1:stopped", transport: { playing: false, arrangementRecord: false, sessionRecord: false, position: 0, launchQuantization: { raw: "1-bar", normalized: "1-bar" }, loop: { enabled: false, start: 0, length: 4 }, punchIn: false, punchOut: false, metronome: false, countIn: 1 }, firedTargets: [], playingTargets: [] },
     selected: track.ref,
     view: { visibleView: "Session", follow: false },
+    tuning: { system: { name: "Equal", lowestNote: 0, highestNote: 127, referencePitch: 440, pseudoOctaveInCents: 1200, noteTunings: Array.from({ length: 128 }, (_, note) => ({ note, deviation: 0 })) }, scale: { rootNote: 0, scaleName: "Major", scaleMode: "Ionian", scaleIntervals: [0, 2, 4, 5, 7, 9, 11] } },
   };
 }
 
-export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "transport.set", "tempo.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "session.clip-launch", "session.clip-stop", "clip.create", "clip.delete", "track.create", "track.delete", "track.rename", "scene.create", "scene.delete", "scene.rename", "clip.rename", "device.rename", "locator.rename", "scene.capture", "note.add", "note.add-batch", "note.update", "note.delete", "note.duplicate", "note.quantize", "note.read-by-id", "note.read-selected", "locator.add", "locator.delete", "locator.jump", "session.capture-midi", "device.parameter.set", "clip.duplicate", "clip.move", "clip.set", "clip.action", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "arrangement.audio-clip.create", "session.audio-clip.create", "take-lane.create", "take-lane.rename", "take-lane.clip.create", "take-lane.audio-clip.create", "audio.take-lane.read", "audio.clip.set", "audio.warp-marker.read", "audio.warp-marker.add", "audio.warp-marker.move", "audio.warp-marker.delete", "mixer.set", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.envelope.clear", "automation.point.insert", "automation.point.delete", "device.insert", "device.delete", "device.enable", "device.move", "browser.search", "browser.inspect", "browser.load", "routing.set", "recording.session", "recording.arrangement", "view.set", "view.control"] as const;
+export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "transport.set", "tempo.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "session.clip-launch", "session.clip-stop", "clip.create", "clip.delete", "track.create", "track.delete", "track.rename", "scene.create", "scene.delete", "scene.rename", "clip.rename", "device.rename", "locator.rename", "scene.capture", "note.add", "note.add-batch", "note.update", "note.delete", "note.duplicate", "note.quantize", "note.read-by-id", "note.read-selected", "locator.add", "locator.delete", "locator.jump", "session.capture-midi", "device.parameter.set", "clip.duplicate", "clip.move", "clip.set", "clip.action", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "arrangement.audio-clip.create", "session.audio-clip.create", "take-lane.create", "take-lane.rename", "take-lane.clip.create", "take-lane.audio-clip.create", "audio.take-lane.read", "tuning.read", "tuning.set", "audio.clip.set", "audio.warp-marker.read", "audio.warp-marker.add", "audio.warp-marker.move", "audio.warp-marker.delete", "mixer.set", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.envelope.clear", "automation.point.insert", "automation.point.delete", "device.insert", "device.delete", "device.enable", "device.move", "browser.search", "browser.inspect", "browser.load", "routing.set", "recording.session", "recording.arrangement", "view.set", "view.control"] as const;
 
 export class DeterministicLiveSimulator implements LiveAdapter {
   private state = createSimulatorState();
@@ -946,6 +948,34 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         const result: Record<string, unknown> = { ref: clip.ref, objectIdentity: clip.objectIdentity, name: clip.name, start: position, length, createdFingerprint: simulatorRevision(clip) };
         if (audio) result.filePath = filePath;
         return result;
+      }
+      case "tuning.read": {
+        const state = this.state.tuning!;
+        return { tuningSystem: structuredClone(state.system), scale: structuredClone(state.scale), revision: simulatorRevision(state) };
+      }
+      case "tuning.set": {
+        if (args.setRef !== this.state.set.ref || args.expectedObjectIdentity !== this.state.set.objectIdentity) throw new Error("Set identity changed since preview");
+        if (args.expectedRevision !== simulatorRevision(this.state.tuning)) throw new Error("tuning or scale state changed since preview");
+        const tuning = this.state.tuning!;
+        if (args.name !== undefined) { if (typeof args.name !== "string" || args.name.length < 1 || args.name.length > 256) throw new RangeError("name is invalid"); tuning.system.name = args.name; }
+        if (args.lowestNote !== undefined || args.highestNote !== undefined) {
+          const low = (args.lowestNote ?? tuning.system.lowestNote) as number; const high = (args.highestNote ?? tuning.system.highestNote) as number;
+          if (!Number.isInteger(low) || !Number.isInteger(high) || low < 0 || high > 127 || low > high) throw new RangeError("tuning note range is invalid");
+          tuning.system.lowestNote = low; tuning.system.highestNote = high;
+        }
+        if (args.referencePitch !== undefined) { const value = args.referencePitch; if (typeof value !== "number" || !Number.isFinite(value) || value < 20 || value > 20000) throw new RangeError("referencePitch is invalid"); tuning.system.referencePitch = value; }
+        if (args.noteTunings !== undefined) {
+          const rows = args.noteTunings;
+          if (!Array.isArray(rows) || rows.length !== 128 || !rows.every((row) => Number.isInteger((row as { note?: unknown }).note) && ((row as { note: number }).note >= 0) && ((row as { note: number }).note <= 127) && typeof (row as { deviation?: unknown }).deviation === "number" && Number.isFinite((row as { deviation: number }).deviation) && Math.abs((row as { deviation: number }).deviation) <= 1200)) throw new RangeError("noteTunings must contain exactly 128 valid entries");
+          if (new Set(rows.map((row) => (row as { note: number }).note)).size !== 128) throw new RangeError("noteTunings notes are invalid");
+          tuning.system.noteTunings = structuredClone(rows) as Array<{ note: number; deviation: number }>;
+        }
+        if (args.rootNote !== undefined) { if (!Number.isInteger(args.rootNote) || (args.rootNote as number) < 0 || (args.rootNote as number) > 11) throw new RangeError("rootNote is invalid"); tuning.scale.rootNote = args.rootNote as number; }
+        if (args.scaleName !== undefined) { if (typeof args.scaleName !== "string" || args.scaleName.length < 1 || args.scaleName.length > 256) throw new RangeError("scaleName is invalid"); tuning.scale.scaleName = args.scaleName; }
+        if (args.scaleMode !== undefined) { if (typeof args.scaleMode !== "string" || args.scaleMode.length < 1 || args.scaleMode.length > 256) throw new RangeError("scaleMode is invalid"); tuning.scale.scaleMode = args.scaleMode; }
+        if (args.scaleIntervals !== undefined) { const rows = args.scaleIntervals; if (!Array.isArray(rows) || rows.length < 1 || rows.length > 32 || !rows.every((value) => Number.isInteger(value) && (value as number) >= -24 && (value as number) <= 24)) throw new RangeError("scaleIntervals are invalid"); tuning.scale.scaleIntervals = [...(rows as number[])]; }
+        this.emit({ type: "state", payload: { operation } });
+        return { changed: true, revision: simulatorRevision(this.state.tuning) };
       }
       case "locator.jump": {
         const direction = args.direction;

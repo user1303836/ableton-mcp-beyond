@@ -55,6 +55,13 @@ are. Source, schemas, and tests are the final authority.
   non-compensatable, and comp editing stays unavailable. Verified at the host,
   simulator, Python contract, and packaged fake-Live levels; exact-candidate
   real-Live proof is pending.
+- `Song.tuning_system` and scale state exposure (name, note range, reference
+  pitch, pseudo-octave cents, and all 128 note tunings, plus root note, scale
+  name/mode, and intervals) with full-state revision fencing, length/range
+  validation, exact rollback, and full-state restore through `live_undo`.
+  Tuning edits affect playback pitch globally and say so. Verified at the
+  host, simulator, Python contract, and packaged fake-Live levels;
+  exact-candidate real-Live proof is pending.
 - Purpose-specific preview/apply/verify/undo or cleanup workflows with exact
   object and hierarchy identities, state/content revisions, creation-time
   fingerprints, epochs, expiry, idempotency, fresh postconditions, bounded

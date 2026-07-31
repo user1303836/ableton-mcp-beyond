@@ -750,6 +750,11 @@ class LiveObjectMapper:
             return any(callable(getattr(lane, "create_midi_clip", None)) for track in tracks for lane in self._items(self._read_attr(track, "take_lanes") or []))
         if operation == "take-lane.audio-clip.create":
             return any(callable(getattr(lane, "create_audio_clip", None)) for track in tracks for lane in self._items(self._read_attr(track, "take_lanes") or []))
+        if operation == "tuning.read":
+            return getattr(self.song, "tuning_system", None) is not None or self._read_attr(self.song, "root_note") is not None or self._read_attr(self.song, "scale_name") is not None
+        if operation == "tuning.set":
+            tuning = getattr(self.song, "tuning_system", None)
+            return tuning is not None and (self._read_attr(tuning, "reference_pitch") is not None or self._read_attr(self.song, "root_note") is not None)
         return False
 
     def capabilities(self, operations: set[str] | None = None) -> list[str]:
@@ -791,6 +796,7 @@ class LiveObjectMapper:
         if supports("audio.clip.set"): capabilities.append("audio")
         if supports("audio.warp-marker.read"): capabilities.append("warp")
         if supports("audio.take-lane.read"): capabilities.append("takes")
+        if supports("tuning.read"): capabilities.append("tuning")
         if supports("audio.capture.inspect") and supports("audio.capture.start") and supports("audio.capture.stop") and supports("audio.capture.cleanup"): capabilities.append("audio.capture.resampling")
         if supports("automation.envelope.read"): capabilities.append("automation")
         if supports("view.set") or supports("view.control"): capabilities.append("view")
@@ -2082,6 +2088,10 @@ class LiveObjectMapper:
             return self._warp_marker_mutate(operation, args)
         if operation == "audio.take-lane.read":
             return self._take_lane_read(args)
+        if operation == "tuning.read":
+            return self._tuning_read(args)
+        if operation == "tuning.set":
+            return self._tuning_set(args)
         if operation == "take-lane.create":
             return self._take_lane_create(args)
         if operation == "take-lane.rename":
@@ -3601,6 +3611,132 @@ class LiveObjectMapper:
         result = {"ref": created_ref, "objectIdentity": created_identity, "name": str(getattr(created, "name", "")), "start": float(actual_start), "length": float(actual_length), "createdFingerprint": fingerprint}
         if audio: result["filePath"] = str(self._read_attr(created, "file_path"))
         return result
+
+    def _tuning_state(self) -> dict[str, Any]:
+        tuning = getattr(self.song, "tuning_system", None)
+        def float_or_none(value: Any) -> float | None:
+            return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+        def int_or_none(value: Any) -> int | None:
+            return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+        note_tunings = []
+        if tuning is not None:
+            raw_tunings = self._items(self._read_attr(tuning, "note_tunings") or [])
+            if len(raw_tunings) > 128: raise ValueError("note tunings exceed their bound")
+            for index, entry in enumerate(raw_tunings):
+                if isinstance(entry, dict):
+                    note = entry.get("note", index); deviation = entry.get("deviation", entry.get("tuning", entry.get("cents")))
+                elif isinstance(entry, (int, float)) and not isinstance(entry, bool):
+                    note, deviation = index, entry
+                else:
+                    note = self._read_attr(entry, "note"); deviation = self._read_attr(entry, "deviation", "tuning", "cents")
+                    note = note if isinstance(note, int) else index
+                deviation_value = float_or_none(deviation)
+                if not isinstance(note, int) or isinstance(note, bool) or not 0 <= note <= 127 or deviation_value is None: raise ValueError("note tunings contain an unreadable entry")
+                note_tunings.append({"note": int(note), "deviation": deviation_value})
+        system = {"name": str(self._read_attr(tuning, "name") or "") if tuning is not None else "",
+                  "lowestNote": int_or_none(self._read_attr(tuning, "lowest_note")) if tuning is not None else None,
+                  "highestNote": int_or_none(self._read_attr(tuning, "highest_note")) if tuning is not None else None,
+                  "referencePitch": float_or_none(self._read_attr(tuning, "reference_pitch")) if tuning is not None else None,
+                  "pseudoOctaveInCents": float_or_none(self._read_attr(tuning, "pseudo_octave_in_cents")) if tuning is not None else None,
+                  "noteTunings": note_tunings}
+        intervals = []
+        for value in self._items(self._read_attr(self.song, "scale_intervals") or []):
+            if not isinstance(value, int) or isinstance(value, bool): raise ValueError("scale intervals contain an unreadable entry")
+            intervals.append(int(value))
+        if len(intervals) > 32: raise ValueError("scale intervals exceed their bound")
+        scale_name = self._read_attr(self.song, "scale_name"); scale_mode = self._read_attr(self.song, "scale_mode")
+        scale = {"rootNote": int_or_none(self._read_attr(self.song, "root_note")),
+                 "scaleName": scale_name if isinstance(scale_name, str) else None,
+                 "scaleMode": scale_mode if isinstance(scale_mode, str) else None,
+                 "scaleIntervals": intervals}
+        return {"tuningSystem": system, "scale": scale}
+
+    def _tuning_revision(self) -> str:
+        return hashlib.sha256(self._bounded_canonical(self._tuning_state()).encode("utf-8")).hexdigest()
+
+    def _tuning_read(self, args: dict[str, Any]) -> dict[str, Any]:
+        set_ref = args.get("setRef")
+        if not isinstance(set_ref, str) or set_ref != self.refs.put("set", self.song, "song") or set(args) - {"setRef"}:
+            raise ValueError("tuning read arguments are invalid")
+        state = self._tuning_state()
+        return {**state, "revision": hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()}
+
+    def _tuning_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        set_ref = args.get("setRef")
+        if not isinstance(set_ref, str) or set_ref != self.refs.put("set", self.song, "song"): raise ValueError("set reference is stale or invalid")
+        allowed = {"setRef", "name", "lowestNote", "highestNote", "referencePitch", "noteTunings", "rootNote", "scaleName", "scaleMode", "scaleIntervals", "expectedObjectIdentity", "expectedRevision"}
+        if set(args) - allowed: raise ValueError("tuning fields are invalid")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(self.song), args["expectedObjectIdentity"]): raise ValueError("Set identity changed since preview")
+        if not isinstance(args.get("expectedRevision"), str) or not hmac.compare_digest(self._tuning_revision(), args["expectedRevision"]): raise ValueError("tuning or scale state changed since preview")
+        tuning = getattr(self.song, "tuning_system", None)
+        proposals: list[tuple[Any, str, Any]] = []
+        if "name" in args:
+            if tuning is None or not isinstance(args["name"], str) or not 1 <= len(args["name"]) <= 256: raise ValueError("name is invalid")
+            proposals.append((tuning, "name", args["name"]))
+        if "lowestNote" in args or "highestNote" in args:
+            if tuning is None: raise ValueError("tuning system is unavailable")
+            low = args.get("lowestNote"); high = args.get("highestNote")
+            for key, value in (("lowestNote", low), ("highestNote", high)):
+                if value is not None and (not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 127): raise ValueError(f"{key} is invalid")
+            current_low = self._read_attr(tuning, "lowest_note"); current_high = self._read_attr(tuning, "highest_note")
+            final_low = low if low is not None else current_low; final_high = high if high is not None else current_high
+            if not all(isinstance(value, int) and not isinstance(value, bool) for value in (final_low, final_high)) or final_low > final_high: raise ValueError("tuning note range is invalid")
+            if low is not None: proposals.append((tuning, "lowest_note", low))
+            if high is not None: proposals.append((tuning, "highest_note", high))
+        if "referencePitch" in args:
+            value = args["referencePitch"]
+            if tuning is None or not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not 20 <= float(value) <= 20000: raise ValueError("referencePitch is invalid")
+            proposals.append((tuning, "reference_pitch", float(value)))
+        if "noteTunings" in args:
+            rows = args["noteTunings"]
+            if tuning is None or not isinstance(rows, list) or len(rows) != 128: raise ValueError("noteTunings must contain exactly 128 entries")
+            seen: set[int] = set()
+            for row in rows:
+                if not isinstance(row, dict) or set(row) - {"note", "deviation"}: raise ValueError("noteTunings entries are invalid")
+                note, deviation = row.get("note"), row.get("deviation")
+                if not isinstance(note, int) or isinstance(note, bool) or not 0 <= note <= 127 or note in seen: raise ValueError("noteTunings notes are invalid")
+                if not isinstance(deviation, (int, float)) or isinstance(deviation, bool) or not math.isfinite(float(deviation)) or not -1200 <= float(deviation) <= 1200: raise ValueError("noteTunings deviations are invalid")
+                seen.add(note)
+            if self._read_attr(tuning, "note_tunings") is None: raise ValueError("note tunings are unavailable")
+            proposals.append((tuning, "note_tunings", rows))
+        if "rootNote" in args:
+            value = args["rootNote"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 11: raise ValueError("rootNote is invalid")
+            if self._read_attr(self.song, "root_note") is None: raise ValueError("root_note is unavailable")
+            proposals.append((self.song, "root_note", value))
+        for key, attr in (("scaleName", "scale_name"), ("scaleMode", "scale_mode")):
+            if key in args:
+                value = args[key]
+                if not isinstance(value, str) or not 1 <= len(value) <= 256: raise ValueError(f"{key} is invalid")
+                if not isinstance(self._read_attr(self.song, attr), str): raise ValueError(f"{attr} is unavailable")
+                proposals.append((self.song, attr, value))
+        if "scaleIntervals" in args:
+            rows = args["scaleIntervals"]
+            if not isinstance(rows, list) or not 1 <= len(rows) <= 32 or not all(isinstance(value, int) and not isinstance(value, bool) and -24 <= value <= 24 for value in rows): raise ValueError("scaleIntervals are invalid")
+            if self._read_attr(self.song, "scale_intervals") is None: raise ValueError("scale_intervals is unavailable")
+            proposals.append((self.song, "scale_intervals", list(rows)))
+        if not proposals: raise ValueError("tuning mutation has no fields")
+        assignments = [(target, attr, value, self._read_attr(target, attr)) for target, attr, value in proposals]
+        before_state = self._tuning_state()
+        try:
+            for target, attr, value, _ in assignments: setattr(target, attr, value)
+            after = self._tuning_state()
+            for target, attr, value, _ in assignments:
+                if attr == "note_tunings":
+                    normalized = sorted(([row["note"], row["deviation"]] for row in value), key=lambda item: item[0])
+                    observed = sorted(([row["note"], row["deviation"]] for row in after["tuningSystem"]["noteTunings"]), key=lambda item: item[0])
+                    if self._bounded_canonical(observed) != self._bounded_canonical(normalized): raise ValueError("note tunings were not confirmed")
+                else:
+                    observed = self._read_attr(target, attr)
+                    if self._bounded_canonical(observed) != self._bounded_canonical(value): raise ValueError(f"tuning field {attr} was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for target, attr, _, prior in reversed(assignments):
+                try: setattr(target, attr, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or self._bounded_canonical(self._tuning_state()) != self._bounded_canonical(before_state): raise ValueError("tuning change failed and exact rollback failed") from error
+            raise
+        return {"changed": True, "revision": self._tuning_revision()}
 
     def _mixer_row(self, track: Any, track_index: int) -> dict[str, Any]:
         mixer = self._read_attr(track, "mixer_device")
