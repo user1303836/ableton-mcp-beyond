@@ -755,6 +755,13 @@ class LiveObjectMapper:
         if operation == "tuning.set":
             tuning = getattr(self.song, "tuning_system", None)
             return tuning is not None and (self._read_attr(tuning, "reference_pitch") is not None or self._read_attr(self.song, "root_note") is not None)
+        if operation == "groove.read":
+            return getattr(self.song, "groove_pool", None) is not None or self._read_attr(self.song, "groove_amount") is not None
+        if operation == "groove.set":
+            return isinstance(self._read_attr(self.song, "groove_amount"), (int, float)) and not isinstance(self._read_attr(self.song, "groove_amount"), bool)
+        if operation == "groove.edit":
+            pool = getattr(self.song, "groove_pool", None)
+            return any(self._read_attr(groove, "name") is not None for groove in self._items(self._read_attr(pool, "grooves") or [])) if pool is not None else False
         return False
 
     def capabilities(self, operations: set[str] | None = None) -> list[str]:
@@ -797,6 +804,7 @@ class LiveObjectMapper:
         if supports("audio.warp-marker.read"): capabilities.append("warp")
         if supports("audio.take-lane.read"): capabilities.append("takes")
         if supports("tuning.read"): capabilities.append("tuning")
+        if supports("groove.read"): capabilities.append("groove")
         if supports("audio.capture.inspect") and supports("audio.capture.start") and supports("audio.capture.stop") and supports("audio.capture.cleanup"): capabilities.append("audio.capture.resampling")
         if supports("automation.envelope.read"): capabilities.append("automation")
         if supports("view.set") or supports("view.control"): capabilities.append("view")
@@ -2092,6 +2100,12 @@ class LiveObjectMapper:
             return self._tuning_read(args)
         if operation == "tuning.set":
             return self._tuning_set(args)
+        if operation == "groove.read":
+            return self._groove_read(args)
+        if operation == "groove.set":
+            return self._groove_set(args)
+        if operation == "groove.edit":
+            return self._groove_edit(args)
         if operation == "take-lane.create":
             return self._take_lane_create(args)
         if operation == "take-lane.rename":
@@ -2965,7 +2979,7 @@ class LiveObjectMapper:
         revision = self.refs.touch(reference)
         return {"changed": True, "revision": revision}
 
-    _CLIP_SET_FIELDS = ("muted", "colorIndex", "looping", "loopStart", "loopEnd")
+    _CLIP_SET_FIELDS = ("muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove")
 
     def _clip_state_fields(self, clip: Any) -> dict[str, Any]:
         """Muted/color/loop clip state, honestly null when unavailable."""
@@ -3002,6 +3016,14 @@ class LiveObjectMapper:
         fields["fireButtonState"] = optional_bool("fire_button_state")
         is_take_lane = self._read_attr(clip, "is_take_lane_clip")
         fields["isTakeLaneClip"] = is_take_lane if isinstance(is_take_lane, bool) else None
+        groove = self._read_attr(clip, "groove")
+        if groove is not None:
+            groove_ref = self.refs.put("groove", groove, str(id(groove)))
+            fields["groove"] = {"ref": groove_ref, "name": str(self._read_attr(groove, "name") or "")}
+        else:
+            fields["groove"] = None
+        has_groove = self._read_attr(clip, "has_groove")
+        fields["hasGroove"] = has_groove if isinstance(has_groove, bool) else (groove is not None)
         end_time = self._read_attr(clip, "end_time")
         fields["endTime"] = float(end_time) if isinstance(end_time, (int, float)) and not isinstance(end_time, bool) and math.isfinite(float(end_time)) else None
         return fields
@@ -3018,10 +3040,18 @@ class LiveObjectMapper:
         if not isinstance(expected_authority, str) or not hmac.compare_digest(authority_revision, expected_authority) or not isinstance(expected_state, str) or not hmac.compare_digest(state_revision, expected_state): raise ValueError("clip hierarchy or state changed since preview")
         clip = self.refs.get(reference)
         is_audio = self._read_attr(clip, "is_audio_clip") is True
-        allowed = {"ref", "muted", "colorIndex", "looping", "loopStart", "loopEnd", "expectedObjectIdentity", "expectedAuthorityRevision", "expectedStateRevision"}
+        allowed = {"ref", "muted", "colorIndex", "looping", "loopStart", "loopEnd", "grooveRef", "expectedObjectIdentity", "expectedAuthorityRevision", "expectedStateRevision"}
         if set(args) - allowed:
             raise ValueError("clip fields are invalid")
         proposals: list[tuple[str, str, Any]] = []
+        if "grooveRef" in args:
+            groove_ref = args["grooveRef"]
+            if not hasattr(clip, "groove"): raise ValueError("groove assignment is unavailable on this clip")
+            if groove_ref is None:
+                proposals.append(("groove", "groove", None))
+            elif isinstance(groove_ref, str) and groove_ref.startswith(f"{self.refs.epoch}:groove:"):
+                proposals.append(("groove", "groove", self.refs.get(groove_ref)))
+            else: raise ValueError("grooveRef is invalid")
         if "muted" in args:
             value = args["muted"]
             if not isinstance(value, bool): raise ValueError("muted is invalid")
@@ -3045,7 +3075,7 @@ class LiveObjectMapper:
         final_loop_start = args.get("loopStart", current.get("loopStart")); final_loop_end = args.get("loopEnd", current.get("loopEnd"))
         if isinstance(final_loop_start, (int, float)) and isinstance(final_loop_end, (int, float)) and float(final_loop_start) > float(final_loop_end): raise ValueError("clip loopStart must not exceed loopEnd")
         for _, attribute, _ in proposals:
-            if self._read_attr(clip, attribute) is None: raise ValueError(f"{attribute} is unavailable on this clip")
+            if attribute != "groove" and self._read_attr(clip, attribute) is None: raise ValueError(f"{attribute} is unavailable on this clip")
         if "loopStart" in args and "loopEnd" in args:
             current_end = self._read_attr(clip, "loop_end"); new_start = float(args["loopStart"])
             if isinstance(current_end, (int, float)) and new_start > float(current_end): proposals.sort(key=lambda item: 0 if item[0] == "loopEnd" else 1)
@@ -3056,7 +3086,10 @@ class LiveObjectMapper:
             observed = self.get(reference); checks = []
             for key, value in applied.items():
                 observed_value = observed.get(key)
-                if isinstance(value, bool): checks.append(observed_value is value)
+                if key == "groove":
+                    if value is None: checks.append(observed_value is None)
+                    else: checks.append(isinstance(observed_value, dict) and observed_value.get("name") == str(self._read_attr(value, "name") or ""))
+                elif isinstance(value, bool): checks.append(observed_value is value)
                 else: checks.append(isinstance(observed_value, (int, float)) and not isinstance(observed_value, bool) and float(observed_value) == float(value))
             if not all(checks): raise ValueError("clip change was not confirmed")
         except BaseException as error:
@@ -3737,6 +3770,95 @@ class LiveObjectMapper:
             if rollback_failed or self._bounded_canonical(self._tuning_state()) != self._bounded_canonical(before_state): raise ValueError("tuning change failed and exact rollback failed") from error
             raise
         return {"changed": True, "revision": self._tuning_revision()}
+
+    def _groove_state(self) -> dict[str, Any]:
+        pool = getattr(self.song, "groove_pool", None)
+        grooves = []
+        for index, groove in enumerate(self._items(self._read_attr(pool, "grooves") or [])):
+            def float_or_none(value: Any) -> float | None:
+                return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+            base = self._read_attr(groove, "base")
+            grooves.append({"ref": self.refs.put("groove", groove, str(index)), "objectIdentity": self._capture_object_identity(groove),
+                            "name": str(self._read_attr(groove, "name") or ""),
+                            "base": int(base) if isinstance(base, int) and not isinstance(base, bool) else None,
+                            "quantizationAmount": float_or_none(self._read_attr(groove, "quantization_amount")),
+                            "randomAmount": float_or_none(self._read_attr(groove, "random_amount")),
+                            "timingAmount": float_or_none(self._read_attr(groove, "timing_amount")),
+                            "velocityAmount": float_or_none(self._read_attr(groove, "velocity_amount"))})
+        if len(grooves) > 256: raise ValueError("groove collection exceeds its bound")
+        amount = self._read_attr(self.song, "groove_amount")
+        return {"grooveAmount": float(amount) if isinstance(amount, (int, float)) and not isinstance(amount, bool) and math.isfinite(float(amount)) else None, "grooves": grooves}
+
+    def _groove_revision(self) -> str:
+        return hashlib.sha256(self._bounded_canonical(self._groove_state()).encode("utf-8")).hexdigest()
+
+    def _groove_read(self, args: dict[str, Any]) -> dict[str, Any]:
+        set_ref = args.get("setRef")
+        if not isinstance(set_ref, str) or set_ref != self.refs.put("set", self.song, "song") or set(args) - {"setRef"}:
+            raise ValueError("groove read arguments are invalid")
+        state = self._groove_state()
+        return {**state, "revision": hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()}
+
+    def _groove_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        set_ref = args.get("setRef")
+        if not isinstance(set_ref, str) or set_ref != self.refs.put("set", self.song, "song"): raise ValueError("set reference is stale or invalid")
+        if set(args) - {"setRef", "grooveAmount", "expectedObjectIdentity", "expectedRevision"}: raise ValueError("groove fields are invalid")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(self.song), args["expectedObjectIdentity"]): raise ValueError("Set identity changed since preview")
+        if not isinstance(args.get("expectedRevision"), str) or not hmac.compare_digest(self._groove_revision(), args["expectedRevision"]): raise ValueError("groove state changed since preview")
+        value = args.get("grooveAmount")
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not 0 <= float(value) <= 1.3: raise ValueError("grooveAmount is invalid")
+        prior = self._read_attr(self.song, "groove_amount")
+        if not isinstance(prior, (int, float)) or isinstance(prior, bool): raise ValueError("groove amount is unavailable")
+        try:
+            self.song.groove_amount = float(value)
+            observed = self._read_attr(self.song, "groove_amount")
+            if not isinstance(observed, (int, float)) or float(observed) != float(value): raise ValueError("groove amount was not confirmed")
+        except BaseException as error:
+            try: self.song.groove_amount = prior
+            except BaseException: raise ValueError("groove amount change failed and exact rollback failed") from error
+            if self._read_attr(self.song, "groove_amount") != prior: raise ValueError("groove amount change failed and exact rollback failed") from error
+            raise
+        return {"changed": True, "revision": self._groove_revision()}
+
+    def _groove_edit(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:groove:"): raise ValueError("groove reference is stale or invalid")
+        allowed = {"ref", "name", "base", "quantizationAmount", "randomAmount", "timingAmount", "velocityAmount", "expectedObjectIdentity", "expectedRevision"}
+        if set(args) - allowed: raise ValueError("groove fields are invalid")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(self.refs.get(reference)), args["expectedObjectIdentity"]): raise ValueError("groove identity changed since preview")
+        if not isinstance(args.get("expectedRevision"), str) or not hmac.compare_digest(self._groove_revision(), args["expectedRevision"]): raise ValueError("groove state changed since preview")
+        groove = self.refs.get(reference)
+        proposals: list[tuple[str, Any]] = []
+        if "name" in args:
+            if not isinstance(args["name"], str) or not 1 <= len(args["name"]) <= 256: raise ValueError("name is invalid")
+            proposals.append(("name", args["name"]))
+        if "base" in args:
+            value = args["base"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 16: raise ValueError("base is invalid")
+            proposals.append(("base", value))
+        for field, attr in (("quantizationAmount", "quantization_amount"), ("randomAmount", "random_amount"), ("timingAmount", "timing_amount"), ("velocityAmount", "velocity_amount")):
+            if field in args:
+                value = args[field]
+                if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not 0 <= float(value) <= 1: raise ValueError(f"{field} is invalid")
+                proposals.append((attr, float(value)))
+        if not proposals: raise ValueError("groove mutation has no fields")
+        for attr, _ in proposals:
+            if self._read_attr(groove, attr) is None: raise ValueError(f"{attr} is unavailable on this groove")
+        assignments = [(attr, value, self._read_attr(groove, attr)) for attr, value in proposals]
+        before = self._groove_state()
+        try:
+            for attr, value, _ in assignments: setattr(groove, attr, value)
+            for attr, value, _ in assignments:
+                observed = self._read_attr(groove, attr)
+                if self._bounded_canonical(observed) != self._bounded_canonical(value): raise ValueError(f"groove field {attr} was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for attr, _, prior in reversed(assignments):
+                try: setattr(groove, attr, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or self._bounded_canonical(self._groove_state()) != self._bounded_canonical(before): raise ValueError("groove change failed and exact rollback failed") from error
+            raise
+        return {"changed": True, "revision": self._groove_revision()}
 
     def _mixer_row(self, track: Any, track_index: int) -> dict[str, Any]:
         mixer = self._read_attr(track, "mixer_device")

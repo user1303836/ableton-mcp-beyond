@@ -3098,6 +3098,14 @@
             "minLength": 64,
             "maxLength": 64,
             "pattern": "^[0-9a-f]{64}$"
+          },
+          "grooveRef": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 256
           }
         },
         "required": [
@@ -3854,6 +3862,261 @@
         ],
         "additionalProperties": true,
         "maxProperties": 64
+      }
+    },
+    {
+      "id": "groove.edit",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "base": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16
+          },
+          "quantizationAmount": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "randomAmount": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "timingAmount": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "velocityAmount": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "expectedObjectIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "ref",
+          "expectedObjectIdentity",
+          "expectedRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "boolean",
+            "const": true
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "changed",
+          "revision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "groove.read",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "setRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "setRef"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "grooveAmount": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 2
+          },
+          "grooves": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "objectIdentity": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                "base": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "maximum": 16
+                },
+                "quantizationAmount": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "randomAmount": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "timingAmount": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "velocityAmount": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "required": [
+                "ref",
+                "objectIdentity",
+                "name",
+                "base",
+                "quantizationAmount",
+                "randomAmount",
+                "timingAmount",
+                "velocityAmount"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 256
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "grooveAmount",
+          "grooves",
+          "revision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "groove.set",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "setRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "grooveAmount": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1.3
+          },
+          "expectedObjectIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "setRef",
+          "grooveAmount",
+          "expectedObjectIdentity",
+          "expectedRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "boolean",
+            "const": true
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "changed",
+          "revision"
+        ],
+        "additionalProperties": false
       }
     },
     {

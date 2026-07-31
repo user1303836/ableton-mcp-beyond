@@ -23,7 +23,7 @@ test("requires initialization and exposes only read-only tools", () => {
   assert.equal(initializedResponse.serverInfo.version, packageMetadata.version);
   assert.equal(host.handle(initialized), null);
   const tools = (host.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
-  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply"]);
+  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply"]);
   const auditionPreview = tools.find((tool: { name: string }) => tool.name === "live_session_audition_preview");
   assert.deepEqual(auditionPreview.inputSchema.properties.outputSafety.required, ["safe", "provenance"]);
   const auditionStop = tools.find((tool: { name: string }) => tool.name === "live_session_audition_stop");
@@ -440,7 +440,7 @@ test("cancels an in-flight audio worker without a response", async () => {
 test("rejects duplicates, unsupported methods, and unknown fields", () => {
   const host = new McpHost();
   ready(host);
-  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 93);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 95);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).error.message, "Duplicate request identifier");
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set", arguments: {} } }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 4, method: "tools/list", debug: true }) as any).error.code, -32600);
@@ -1767,4 +1767,33 @@ test("tuning and scale edits verify full state and guardedly undo", async () => 
   assert.equal(rowsApplied.state, "applied"); assert.equal(tuning.system.noteTunings[69].deviation, 5);
   assert.equal(((await call(8, "live_tuning_preview", { noteTunings: rows.slice(0, 4) })) as any).error.code, -32602);
   assert.equal(((await call(9, "live_tuning_preview", {})) as any).error.code, -32602);
+});
+
+test("groove amount and groove edits verify state and guardedly undo", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const amountPreview = JSON.parse(((await call(2, "live_groove_preview", { action: "set-amount", grooveAmount: 0.75 })) as any).result.content[0].text);
+  assert.equal(amountPreview.impact, "edits-global-groove-amount-audible"); assert.equal(amountPreview.prior.grooveAmount, 0);
+  const amountApplied = JSON.parse(((await call(3, "live_groove_apply", { transactionId: amountPreview.transactionId, confirmation: "apply", idempotencyKey: "groove-amt-1" })) as any).result.content[0].text);
+  assert.equal(amountApplied.state, "applied"); assert.equal((simulator as any).state.groovePool.amount, 0.75);
+  const amountUndone = JSON.parse(((await call(4, "live_undo", { transactionId: amountPreview.transactionId, confirmation: "undo", idempotencyKey: "groove-amt-undo" })) as any).result.content[0].text);
+  assert.equal(amountUndone.state, "undone"); assert.equal((simulator as any).state.groovePool.amount, 0);
+  const editPreview = JSON.parse(((await call(5, "live_groove_preview", { action: "edit", grooveRef: "groove:groove-1", name: "MPC 57", timingAmount: 0.57 })) as any).result.content[0].text);
+  const editApplied = JSON.parse(((await call(6, "live_groove_apply", { transactionId: editPreview.transactionId, confirmation: "apply", idempotencyKey: "groove-edit-1" })) as any).result.content[0].text);
+  assert.equal(editApplied.state, "applied");
+  const groove = (simulator as any).state.groovePool.grooves[0];
+  assert.equal(groove.name, "MPC 57"); assert.equal(groove.timingAmount, 0.57);
+  const editUndone = JSON.parse(((await call(7, "live_undo", { transactionId: editPreview.transactionId, confirmation: "undo", idempotencyKey: "groove-edit-undo" })) as any).result.content[0].text);
+  assert.equal(editUndone.state, "undone"); assert.equal(groove.name, "Swing 16"); assert.equal(groove.timingAmount, 0.6);
+  assert.equal(((await call(8, "live_groove_preview", { action: "set-amount", grooveAmount: 2 })) as any).error.code, -32602);
+  assert.equal(((await call(9, "live_groove_preview", { action: "edit", grooveRef: "groove:bogus", name: "X" })) as any).result.isError, true);
+  const clipPreview = JSON.parse(((await call(10, "live_clip_properties_preview", { clipRef: "clip:clip-1", grooveRef: "groove:groove-1" })) as any).result.content[0].text);
+  const clipApplied = JSON.parse(((await call(11, "live_clip_properties_apply", { transactionId: clipPreview.transactionId, confirmation: "apply", idempotencyKey: "clip-groove-1" })) as any).result.content[0].text);
+  assert.equal(clipApplied.state, "applied");
+  const clip = (simulator as any).state.tracks[0].clips[0];
+  assert.equal(clip.groove.ref, "groove:groove-1"); assert.equal(clip.hasGroove, true);
+  const clipUndone = JSON.parse(((await call(12, "live_undo", { transactionId: clipPreview.transactionId, confirmation: "undo", idempotencyKey: "clip-groove-undo" })) as any).result.content[0].text);
+  assert.equal(clipUndone.state, "undone"); assert.equal(clip.groove, null); assert.equal(clip.hasGroove, false);
 });

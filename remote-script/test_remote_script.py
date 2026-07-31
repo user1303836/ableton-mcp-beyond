@@ -609,7 +609,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "4a9ef5c572e53d07b26a2dc3cd130030c1ab7db20f8025ae6d37de8ac6f15ce5")
+        self.assertEqual(digest, "aa27b1cf31bf8cc380695ca8ed395e138e018a0fb59e331b816d8457ef5056cf")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -2619,7 +2619,7 @@ class ViewLocatorClipExpansionTests(unittest.TestCase):
         song.tracks[0].clip_slots[0].clip = clip
         mapper = LiveObjectMapper(song); row = mapper.snapshot()["tracks"][0]["clips"][0]
         self.assertEqual((row["muted"], row["colorIndex"], row["looping"], row["loopStart"], row["loopEnd"]), (False, 1, False, 0.0, 8.0))
-        fields = ("muted", "colorIndex", "looping", "loopStart", "loopEnd")
+        fields = ("muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove")
         def payload(**changes):
             current = mapper.get(row["ref"])
             return {"ref": row["ref"], **changes, "expectedObjectIdentity": row["objectIdentity"],
@@ -2640,7 +2640,7 @@ class ViewLocatorClipExpansionTests(unittest.TestCase):
         song.tracks[0].clip_slots[0].clip = clip
         mapper = LiveObjectMapper(song); row = mapper.snapshot()["tracks"][0]["clips"][0]
         self.assertEqual((row["loopStart"], row["loopEnd"]), (0.0, 4.0))
-        fields = ("muted", "colorIndex", "looping", "loopStart", "loopEnd")
+        fields = ("muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove")
         def payload(**changes):
             current = mapper.get(row["ref"])
             return {"ref": row["ref"], **changes, "expectedObjectIdentity": row["objectIdentity"],
@@ -2673,7 +2673,7 @@ class ViewLocatorClipExpansionTests(unittest.TestCase):
         clip = FakeClip(4.0); clip.name = "Arr"; clip.start_time = 4.0; clip.is_audio_clip = False; clip.muted = False; clip.color_index = 1; clip.looping = True; clip.loop_start = 0.0; clip.loop_end = 4.0
         track.arrangement_clips = [clip]
         mapper = LiveObjectMapper(song); row = mapper.snapshot()["arrangement"]["clips"][0]
-        fields = ("muted", "colorIndex", "looping", "loopStart", "loopEnd")
+        fields = ("muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove")
         current = mapper.get(row["ref"])
         args = {"ref": row["ref"], "muted": True, "expectedObjectIdentity": row["objectIdentity"],
                 "expectedAuthorityRevision": mapper._arrangement_clip_authority_revision(row["ref"]),
@@ -3014,7 +3014,7 @@ class TakeLaneExpansionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "absolute path"): mapper.invoke("take-lane.audio-clip.create", {**base, "filePath": "demo.wav", "position": 20.0})
         clip_row = mapper.snapshot()["tracks"][0]["takeLanes"][0]["clips"][1]
         self.assertTrue(clip_row["isTakeLaneClip"])
-        fields = ("muted", "colorIndex", "looping", "loopStart", "loopEnd")
+        fields = ("muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove")
         current = mapper.get(clip_row["ref"])
         args = {"ref": clip_row["ref"], "muted": True, "expectedObjectIdentity": clip_row["objectIdentity"], "expectedAuthorityRevision": mapper._clip_authority_digest(clip_row["ref"]), "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({field: current.get(field) for field in fields}).encode()).hexdigest()}
         lane.arrangement_clips[1].muted = False; lane.arrangement_clips[1].color_index = 1; lane.arrangement_clips[1].looping = True; lane.arrangement_clips[1].loop_start = 0.0; lane.arrangement_clips[1].loop_end = 4.0
@@ -3077,3 +3077,81 @@ class TuningScaleTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "tuning rejected"):
             mapper.invoke("tuning.set", {**fences(), "referencePitch": 415.0, "rootNote": 2})
         self.assertEqual(failing.reference_pitch, 440.0); self.assertEqual(song.root_note, 9)
+
+
+class FakeGroove:
+    def __init__(self, name="Swing 16"):
+        self.name = name
+        self.base = 3
+        self.quantization_amount = 0.5
+        self.random_amount = 0.1
+        self.timing_amount = 0.6
+        self.velocity_amount = 0.2
+
+
+class FakeGroovePool:
+    def __init__(self, grooves=None):
+        self.grooves = grooves if grooves is not None else [FakeGroove()]
+
+
+class GroovePoolTests(unittest.TestCase):
+    def _mapper_with_groove(self):
+        song = FakeSong()
+        song.groove_pool = FakeGroovePool()
+        song.groove_amount = 0.0
+        return song, LiveObjectMapper(song)
+
+    def test_groove_read_exposes_pool_and_amount(self):
+        song, mapper = self._mapper_with_groove()
+        self.assertTrue(mapper._operation_supported("groove.read")); self.assertTrue(mapper._operation_supported("groove.set")); self.assertTrue(mapper._operation_supported("groove.edit"))
+        set_ref = mapper.snapshot()["set"]["ref"]
+        result = mapper.invoke("groove.read", {"setRef": set_ref})
+        self.assertEqual(result["grooveAmount"], 0.0); self.assertEqual(len(result["grooves"]), 1)
+        row = result["grooves"][0]
+        self.assertEqual((row["name"], row["base"], row["quantizationAmount"], row["timingAmount"]), ("Swing 16", 3, 0.5, 0.6))
+        validate_operation_payload("groove.read", "result", result)
+
+    def test_groove_set_amount_with_rollback(self):
+        song, mapper = self._mapper_with_groove()
+        set_ref = mapper.snapshot()["set"]["ref"]; identity = mapper.snapshot()["set"]["objectIdentity"]
+        def fences(): return {"setRef": set_ref, "expectedObjectIdentity": identity, "expectedRevision": mapper._groove_revision()}
+        result = mapper.invoke("groove.set", {**fences(), "grooveAmount": 0.75})
+        self.assertTrue(result["changed"]); validate_operation_payload("groove.set", "result", result); self.assertEqual(song.groove_amount, 0.75)
+        with self.assertRaisesRegex(ValueError, "is invalid"): mapper.invoke("groove.set", {**fences(), "grooveAmount": 2.0})
+        stale = fences(); stale["expectedRevision"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "changed since preview"): mapper.invoke("groove.set", {**stale, "grooveAmount": 0.5})
+
+    def test_groove_edit_fields_with_rollback(self):
+        song, mapper = self._mapper_with_groove()
+        set_ref = mapper.snapshot()["set"]["ref"]; identity = mapper.snapshot()["set"]["objectIdentity"]
+        groove_ref = mapper.invoke("groove.read", {"setRef": set_ref})["grooves"][0]["ref"]
+        groove = song.groove_pool.grooves[0]
+        object_identity = mapper._capture_object_identity(groove)
+        def fences(): return {"ref": groove_ref, "expectedObjectIdentity": object_identity, "expectedRevision": mapper._groove_revision()}
+        result = mapper.invoke("groove.edit", {**fences(), "name": "MPC 57", "timingAmount": 0.57, "velocityAmount": 0.3})
+        self.assertTrue(result["changed"]); validate_operation_payload("groove.edit", "result", result)
+        self.assertEqual((groove.name, groove.timing_amount, groove.velocity_amount), ("MPC 57", 0.57, 0.3))
+        with self.assertRaisesRegex(ValueError, "is invalid"): mapper.invoke("groove.edit", {**fences(), "timingAmount": 1.5})
+        with self.assertRaisesRegex(ValueError, "no fields"): mapper.invoke("groove.edit", fences())
+
+    def test_clip_groove_assignment_and_has_groove(self):
+        song, mapper = self._mapper_with_groove()
+        clip = FakeClip(4.0); clip.is_audio_clip = False; clip.muted = False; clip.color_index = 0; clip.looping = True; clip.loop_start = 0.0; clip.loop_end = 4.0; clip.groove = None
+        song.tracks[0].clip_slots[0].clip = clip
+        groove = song.groove_pool.grooves[0]
+        set_ref = mapper.snapshot()["set"]["ref"]
+        groove_ref = mapper.invoke("groove.read", {"setRef": set_ref})["grooves"][0]["ref"]
+        row = mapper.snapshot()["tracks"][0]["clips"][0]
+        self.assertIsNone(row["groove"]); self.assertFalse(row["hasGroove"])
+        fields = ("muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove")
+        def fences():
+            current = mapper.get(row["ref"])
+            return {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedAuthorityRevision": mapper._clip_authority_digest(row["ref"]),
+                    "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({field: current.get(field) for field in fields}).encode()).hexdigest()}
+        result = mapper.invoke("clip.set", {**fences(), "grooveRef": groove_ref})
+        self.assertTrue(result["changed"]); self.assertIs(clip.groove, groove)
+        row = mapper.snapshot()["tracks"][0]["clips"][0]
+        self.assertEqual(row["groove"]["name"], "Swing 16"); self.assertTrue(row["hasGroove"])
+        result = mapper.invoke("clip.set", {**fences(), "grooveRef": None})
+        self.assertTrue(result["changed"]); self.assertIsNone(clip.groove)
+        with self.assertRaisesRegex(ValueError, "grooveRef is invalid"): mapper.invoke("clip.set", {**fences(), "grooveRef": "bogus"})

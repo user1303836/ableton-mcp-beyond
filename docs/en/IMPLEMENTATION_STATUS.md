@@ -62,6 +62,15 @@ are. Source, schemas, and tests are the final authority.
   Tuning edits affect playback pitch globally and say so. Verified at the
   host, simulator, Python contract, and packaged fake-Live levels;
   exact-candidate real-Live proof is pending.
+- `Song.groove_pool` and `groove_amount` exposure with pool discovery and
+  read/write of groove name, base, quantization/random/timing/velocity
+  amounts, plus `Clip.groove` assignment and `Clip.has_groove` on clip rows.
+  Amount and groove edits restore exactly through `live_undo`; clip groove
+  assignment rides the clip-properties transaction. The public API provides
+  no complete groove import/extract workflow, so grooves must already exist
+  in the pool — documented, not worked around. Verified at the host,
+  simulator, Python contract, and packaged fake-Live levels; exact-candidate
+  real-Live proof is pending.
 - Purpose-specific preview/apply/verify/undo or cleanup workflows with exact
   object and hierarchy identities, state/content revisions, creation-time
   fingerprints, epochs, expiry, idempotency, fresh postconditions, bounded

@@ -31,6 +31,7 @@
 | 裁剪、复制与刮擦剪辑 | `live_clip_action_preview/apply` | 按循环裁剪、复制循环或区域、刮擦以及移动播放位置;内容操作被诚实标记为不可撤销 |
 | 量化与复制音符 | `live_note_edit_preview/apply` | 时间或音高量化,以及按稳定音符 ID 定向复制,带精确先前内容撤销 |
 | 编辑律制与音阶 | `live_tuning_preview/apply` | 律制名称、音域、参考音高与全部 128 个音符偏差,以及根音、音阶名称/模式与音程。验证覆盖长度/范围约束并带精确回滚;更改全局影响播放音高,并经 `live_undo` 精确恢复 |
+| 使用律动池 | `live_groove_preview/apply`、`live_clip_properties_preview/apply`(`grooveRef`) | 全局律动感量与逐 groove 的名称/base/量化/随机/时值/力度编辑,带精确撤销;经剪辑属性分配或清除剪辑 groove(剪辑行暴露 `hasGroove`)。公共 API 没有完整的 groove 导入/提取工作流 —— groove 必须已存在于池中 |
 | 按 ID 或选择读取音符 | `live_note_read` | 只读定向音符读取,包括 Live 暴露时的当前选择 |
 | 清除剪辑全部包络 | `live_automation_preview/apply` 加 `clear-envelopes` | 对剪辑上全部包络(设备、rack 与混音器参数)的计数、存在性栅栏清除;诚实不可撤销 |
 | 静音、着色和循环剪辑 | `live_clip_properties_preview/apply` | 任意剪辑的静音和颜色;MIDI 剪辑的循环边界(音频循环在 `live_audio_clip_*` 中) |

@@ -81,7 +81,7 @@ function validStatus(value: unknown): value is LiveStatus {
     "devices": readableHierarchy, "racks": readableHierarchy, "chains": readableHierarchy, "parameters": readableHierarchy,
     "browser": all("browser.search"), "device.parameter.write": all("device.parameter.set"), "routing": all("routing.set"),
     "recording": any("recording.session", "recording.arrangement"), "projects": all("snapshot"), "mixing": all("mixer.set"),
-    "transport": all("transport.set", "tempo.set"), "tuning": any("tuning.read", "tuning.set"), "max": false,
+    "transport": all("transport.set", "tempo.set"), "tuning": any("tuning.read", "tuning.set"), "groove": all("groove.read"), "max": false,
     "view": any("view.set", "view.control"),
     "osc": all("realtime.arm", "realtime.disarm", "realtime.stats"), "realtime.events": all("realtime.arm", "realtime.disarm", "realtime.stats"),
     "plugins": readableHierarchy, "subscriptions": all("subscribe"), "reconnect": all("reconnect"),

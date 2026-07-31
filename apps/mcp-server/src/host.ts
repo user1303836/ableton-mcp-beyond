@@ -178,7 +178,7 @@ interface NoteEditTransaction {
 interface ClipLifecycleTransaction {
   id: string;
   epoch: number;
-  kind: "rename" | "duplicate" | "arrangement-create" | "arrangement-delete" | "arrangement-audio-create" | "arrangement-take-lane-create" | "move" | "audio-set" | "mixer-set" | "automation" | "browser-load" | "device" | "routing-set" | "recording" | "backup" | "realtime-arm" | "capture-midi" | "scene-capture" | "view" | "locator-jump" | "clip-set" | "session-audio-create" | "warp-marker" | "clip-action" | "note-target" | "tuning";
+  kind: "rename" | "duplicate" | "arrangement-create" | "arrangement-delete" | "arrangement-audio-create" | "arrangement-take-lane-create" | "move" | "audio-set" | "mixer-set" | "automation" | "browser-load" | "device" | "routing-set" | "recording" | "backup" | "realtime-arm" | "capture-midi" | "scene-capture" | "view" | "locator-jump" | "clip-set" | "session-audio-create" | "warp-marker" | "clip-action" | "note-target" | "tuning" | "groove";
   fence: string;
   clipRef?: LiveRef;
   payload: Record<string, unknown>;
@@ -861,6 +861,18 @@ const implementedTools = [
     inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   },
+  {
+    name: "live_groove_preview",
+    description: "Read-only preflight for the global groove amount and editing one groove in the pool. Clip groove assignment lives in live_clip_properties_preview (grooveRef).",
+    inputSchema: { type: "object", properties: { action: { type: "string", enum: ["set-amount", "edit"] }, grooveAmount: { type: "number", minimum: 0, maximum: 1.3 }, grooveRef: { type: "string", minLength: 1, maxLength: 256 }, name: { type: "string", minLength: 1, maxLength: 256 }, base: { type: "integer", minimum: 0, maximum: 16 }, quantizationAmount: { type: "number", minimum: 0, maximum: 1 }, randomAmount: { type: "number", minimum: 0, maximum: 1 }, timingAmount: { type: "number", minimum: 0, maximum: 1 }, velocityAmount: { type: "number", minimum: 0, maximum: 1 } }, required: ["action"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_groove_apply",
+    description: "Apply an exact, unexpired groove preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
 ] as const;
 
 const hostUnavailableCapabilities = ["resources.subscribe", "filesystem", "network", "delivery"] as const;
@@ -1023,7 +1035,7 @@ export class McpHost {
     if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handle(input);
     const name = input.params.name;
     const toolArguments = input.params.arguments;
-    if (![ "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply"].includes(name)) return this.handle(input);
+    if (![ "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply"].includes(name)) return this.handle(input);
     // Reuse the synchronous validator and request bookkeeping, then execute the
     // adapter operation asynchronously. Invalid requests never reach Live.
     const id = this.requestId(input.id);
@@ -1095,6 +1107,8 @@ export class McpHost {
       if (name === "live_note_read") return await this.liveNoteReadAsync(id, toolArguments);
       if (name === "live_tuning_preview") return await this.liveTuningPreviewAsync(id, toolArguments);
       if (name === "live_tuning_apply") return await this.liveTuningApplyAsync(id, toolArguments, signal);
+      if (name === "live_groove_preview") return await this.liveGroovePreviewAsync(id, toolArguments);
+      if (name === "live_groove_apply") return await this.liveGrooveApplyAsync(id, toolArguments, signal);
       if (name === "live_automation_preview") return await this.liveAutomationPreviewAsync(id, toolArguments);
       if (name === "live_automation_apply") return await this.liveAutomationApplyAsync(id, toolArguments, signal);
       if (name === "live_browser_search") return await this.liveBrowserSearchAsync(id, toolArguments);
@@ -3145,7 +3159,7 @@ export class McpHost {
   }
 
   private clipPropertiesMutationAuthority(snapshot: LiveSnapshot, clipRef: LiveRef): JsonObject {
-    const located = this.clipRow(snapshot, clipRef); const fields = ["muted", "colorIndex", "looping", "loopStart", "loopEnd"];
+    const located = this.clipRow(snapshot, clipRef); const fields = ["muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove"];
     const state = Object.fromEntries(fields.map((field) => [field, located.clip[field] ?? null]));
     const expectedAuthorityRevision = this.clipAuthorityDigest(snapshot, clipRef);
     return { expectedObjectIdentity: located.clip.objectIdentity, expectedAuthorityRevision, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") };
@@ -3153,7 +3167,7 @@ export class McpHost {
 
   private async liveClipPropertiesPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
     const fields = ["muted", "colorIndex", "looping", "loopStart", "loopEnd"] as const;
-    if (!isObject(params) || !hasOnly(params, ["clipRef", ...fields]) || !isNonEmptyString(params.clipRef, 256)) return error(id, -32602, "clipRef is required");
+    if (!isObject(params) || !hasOnly(params, ["clipRef", "grooveRef", ...fields]) || !isNonEmptyString(params.clipRef, 256)) return error(id, -32602, "clipRef is required");
     const proposed: Record<string, unknown> = {};
     for (const field of fields) {
       const value = params[field];
@@ -3163,6 +3177,8 @@ export class McpHost {
       else if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return error(id, -32602, `${field} is out of bounds`);
       proposed[field] = value;
     }
+    if (params.grooveRef !== undefined && params.grooveRef !== null && !isNonEmptyString(params.grooveRef, 256)) return error(id, -32602, "grooveRef must be a groove reference or null");
+    if (params.grooveRef !== undefined) proposed.grooveRef = params.grooveRef;
     if (Object.keys(proposed).length === 0) return error(id, -32602, "at least one clip field is required");
     try {
       const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
@@ -3171,11 +3187,12 @@ export class McpHost {
       const snapshot = await this.asyncAdapter().snapshotAsync();
       const row = this.clipRow(snapshot, params.clipRef as LiveRef);
       if (row.clip.isAudio === true && Object.keys(proposed).some((field) => field === "looping" || field === "loopStart" || field === "loopEnd")) return this.transactionError(id, "audio clip loop editing uses live_audio_clip_preview");
-      if (Object.keys(proposed).some((field) => row.clip[field] === null || row.clip[field] === undefined)) return this.transactionError(id, "one or more requested clip fields are unavailable on this exact clip");
+      if (fields.some((field) => proposed[field] !== undefined && (row.clip[field] === null || row.clip[field] === undefined))) return this.transactionError(id, "one or more requested clip fields are unavailable on this exact clip");
+      if (params.grooveRef !== undefined && params.grooveRef !== null) { const grooves = (snapshot.groovePool?.grooves ?? []); if (!grooves.some((groove) => groove.ref === params.grooveRef)) return this.transactionError(id, "groove reference is unknown"); }
       const finalStart = (proposed.loopStart ?? row.clip.loopStart ?? null) as number | null; const finalEnd = (proposed.loopEnd ?? row.clip.loopEnd ?? null) as number | null;
       if (finalStart !== null && finalEnd !== null && finalStart > finalEnd) return error(id, -32602, "loopStart must not exceed loopEnd");
       const prior: Record<string, unknown> = {};
-      for (const field of Object.keys(proposed)) prior[field] = row.clip[field] ?? null;
+      for (const field of Object.keys(proposed)) { if (field === "grooveRef") prior.groove = structuredClone(row.clip.groove ?? null); else prior[field] = row.clip[field] ?? null; }
       const authority = this.clipPropertiesMutationAuthority(snapshot, params.clipRef as LiveRef);
       const fence = JSON.stringify({ ref: params.clipRef, objectIdentity: authority.expectedObjectIdentity, fields: fields.map((field) => row.clip[field] ?? null) });
       const transaction: ClipLifecycleTransaction = { id: `clipset_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "clip-set", fence, clipRef: params.clipRef as LiveRef, payload: { ref: params.clipRef, ...proposed, ...authority }, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
@@ -3205,6 +3222,7 @@ export class McpHost {
       const result = await adapter.invokeAsync({ operation: "clip.set", args: transaction.payload }, context) as { changed?: unknown; revision?: unknown };
       if (result.changed !== true) throw new Error("clip change was not confirmed");
       const verified = this.clipRow(await adapter.snapshotAsync(context), transaction.clipRef!).clip; for (const field of fields) if (Object.prototype.hasOwnProperty.call(transaction.payload, field) && verified[field] !== transaction.payload[field]) throw new Error("clip postcondition was not confirmed");
+      if (Object.prototype.hasOwnProperty.call(transaction.payload, "grooveRef")) { const observedRef = (verified.groove as { ref?: unknown } | null | undefined)?.ref ?? null; if (observedRef !== transaction.payload.grooveRef) throw new Error("clip groove assignment was not confirmed"); }
       transaction.applyKey = params.idempotencyKey as string;
       transaction.state = "applied";
       return this.successText(id, { transactionId: transaction.id, state: "applied", revision: result.revision, idempotent: false });
@@ -3628,6 +3646,91 @@ export class McpHost {
       transaction.state = "applied";
       return this.successText(id, { transactionId: transaction.id, state: "applied", revision: verified.revision, idempotent: false });
     } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Tuning state is uncertain; perform fresh discovery before retrying."); }
+  }
+
+  private async liveGroovePreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, ["action", "grooveAmount", "grooveRef", "name", "base", "quantizationAmount", "randomAmount", "timingAmount", "velocityAmount"])) return error(id, -32602, "action is required");
+    if (params.action !== "set-amount" && params.action !== "edit") return error(id, -32602, "action must be set-amount or edit");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      const operation = params.action === "set-amount" ? "groove.set" : "groove.edit";
+      if (!(status.operations ?? []).includes(operation) || !(status.operations ?? []).includes("groove.read")) throw new Error(`${operation} is unavailable`);
+      const adapter = this.asyncAdapter();
+      const snapshot = await adapter.snapshotAsync();
+      if (!isNonEmptyString(snapshot.set.objectIdentity, 256)) throw new Error("Set identity is not authoritative");
+      const context = { deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
+      const read = await adapter.invokeAsync({ operation: "groove.read", args: { setRef: snapshot.set.ref } }, context) as { grooveAmount?: unknown; grooves?: Array<Record<string, unknown>>; revision?: unknown };
+      if (!isNonEmptyString(read.revision, 64)) throw new Error("groove revision is unavailable");
+      let payload: Record<string, unknown>;
+      let prior: Record<string, unknown>;
+      if (params.action === "set-amount") {
+        if (typeof params.grooveAmount !== "number" || !Number.isFinite(params.grooveAmount) || params.grooveAmount < 0 || params.grooveAmount > 1.3) return error(id, -32602, "grooveAmount must be 0-1.3");
+        payload = { action: params.action, setRef: snapshot.set.ref, grooveAmount: params.grooveAmount, expectedObjectIdentity: snapshot.set.objectIdentity, expectedRevision: read.revision };
+        prior = { grooveAmount: read.grooveAmount ?? null };
+      } else {
+        if (!isNonEmptyString(params.grooveRef, 256)) return error(id, -32602, "grooveRef is required for edit");
+        const groove = (read.grooves ?? []).find((candidate) => candidate.ref === params.grooveRef);
+        if (!groove || !isNonEmptyString(groove.objectIdentity, 256)) return this.transactionError(id, "groove reference is unknown");
+        const fields = ["name", "base", "quantizationAmount", "randomAmount", "timingAmount", "velocityAmount"] as const;
+        if (fields.every((field) => params[field] === undefined)) return error(id, -32602, "at least one groove field is required");
+        const proposed: Record<string, unknown> = {};
+        for (const field of fields) {
+          const value = params[field];
+          if (value === undefined) continue;
+          if (field === "name" && !isNonEmptyString(value, 256)) return error(id, -32602, "name is invalid");
+          if (field === "base" && (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 16)) return error(id, -32602, "base is invalid");
+          if (field !== "name" && field !== "base" && (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1)) return error(id, -32602, `${field} must be 0-1`);
+          proposed[field] = value;
+        }
+        payload = { action: params.action, ref: params.grooveRef, ...proposed, expectedObjectIdentity: groove.objectIdentity, expectedRevision: read.revision };
+        prior = Object.fromEntries(fields.map((field) => [field, groove[field] ?? null]));
+      }
+      const fence = JSON.stringify({ action: params.action, payload, revision: read.revision });
+      const transaction: ClipLifecycleTransaction = { id: `groove_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "groove", fence, payload, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "groove");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, action: params.action, prior, impact: params.action === "set-amount" ? "edits-global-groove-amount-audible" : "edits-groove-pool-entry", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Groove preview requires fresh authoritative state."); }
+  }
+
+  private async liveGrooveApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "groove" || (transaction.state === "previewed" && transaction.expiresAt <= Date.now())) return this.transactionError(id, "Unknown or expired groove transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    const reconciliation = transaction.state === "uncertain" && transaction.applyKey === params.idempotencyKey;
+    if (transaction.state !== "previewed" && !reconciliation) return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      if (reconciliation) await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
+      if (!reconciliation) {
+        const snapshot = await adapter.snapshotAsync(context);
+        const before = await adapter.invokeAsync({ operation: "groove.read", args: { setRef: snapshot.set.ref } }, context) as { revision?: unknown };
+        if (JSON.stringify({ action: transaction.payload.action, payload: transaction.payload, revision: before.revision }) !== transaction.fence) return this.transactionError(id, "groove state changed since preview; preview again");
+      }
+      const action = transaction.payload.action as string;
+      const operation = action === "set-amount" ? "groove.set" : "groove.edit";
+      transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
+      const args = Object.fromEntries(Object.entries(transaction.payload).filter(([key]) => key !== "action"));
+      const result = await adapter.invokeAsync({ operation, args }, context) as { changed?: unknown; revision?: unknown };
+      if (result.changed !== true) throw new Error("groove change was not confirmed");
+      const snapshot = await adapter.snapshotAsync(context);
+      const verified = await adapter.invokeAsync({ operation: "groove.read", args: { setRef: snapshot.set.ref } }, context) as { grooveAmount?: unknown; grooves?: Array<Record<string, unknown>>; revision?: unknown };
+      if (action === "set-amount") {
+        if (verified.grooveAmount !== transaction.payload.grooveAmount) throw new Error("groove amount postcondition was not confirmed");
+      } else {
+        const groove = (verified.grooves ?? []).find((candidate) => candidate.ref === transaction.payload.ref);
+        if (!groove) throw new Error("edited groove disappeared after apply");
+        for (const field of ["name", "base", "quantizationAmount", "randomAmount", "timingAmount", "velocityAmount"]) if (transaction.payload[field] !== undefined && JSON.stringify(groove[field]) !== JSON.stringify(transaction.payload[field])) throw new Error("groove postcondition was not confirmed");
+      }
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", revision: verified.revision, idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Groove state is uncertain; perform fresh discovery before retrying."); }
   }
 
   private automationAuthorityDigest(snapshot: LiveSnapshot, clipRef: LiveRef, parameterRef: LiveRef): string {
@@ -4704,6 +4807,47 @@ export class McpHost {
         noteTarget.state = "undone"; return this.successText(id, { transactionId: noteTarget.id, state: "undone", idempotent: false });
       } catch (cause) { noteTarget.state = "uncertain"; return this.adapterToolError(id, cause, "Note-edit undo is uncertain; perform fresh discovery."); }
     }
+    if (!transaction && String(params.transactionId).startsWith("groove_")) {
+      const groove = this.clipLifecycleTransactions.get(params.transactionId as string);
+      if (!groove || groove.kind !== "groove") return this.transactionError(id, "Unknown or expired groove transaction");
+      if (groove.state === "undone" && groove.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: groove.id, state: "undone", idempotent: true });
+      const reconciliation = groove.state === "uncertain" && groove.undoKey === params.idempotencyKey;
+      if ((groove.state !== "applied" && !reconciliation) || !groove.prior) return this.transactionError(id, "Only an applied or exact-key uncertain groove transaction can be undone");
+      try {
+        this.beginUndoRecovery(groove, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== groove.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+        const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; groove.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(groove, adapter, context);
+        const snapshot = await adapter.snapshotAsync(context);
+        if (!isNonEmptyString(snapshot.set.objectIdentity, 256)) throw new Error("Set identity is not authoritative");
+        const action = groove.payload.action as string;
+        if (!reconciliation) {
+          const current = await adapter.invokeAsync({ operation: "groove.read", args: { setRef: snapshot.set.ref } }, context) as { grooveAmount?: unknown; grooves?: Array<Record<string, unknown>> };
+          if (action === "set-amount") { if (current.grooveAmount !== groove.payload.grooveAmount) return this.transactionError(id, "groove amount changed after apply; undo refused"); }
+          else {
+            const row = (current.grooves ?? []).find((candidate) => candidate.ref === groove.payload.ref);
+            if (!row) return this.transactionError(id, "edited groove disappeared after apply");
+            for (const field of ["name", "base", "quantizationAmount", "randomAmount", "timingAmount", "velocityAmount"]) if (groove.payload[field] !== undefined && JSON.stringify(row[field]) !== JSON.stringify(groove.payload[field])) return this.transactionError(id, "groove changed after apply; undo refused");
+          }
+        }
+        const before = await adapter.invokeAsync({ operation: "groove.read", args: { setRef: snapshot.set.ref } }, context) as { revision?: unknown };
+        if (!isNonEmptyString(before.revision, 64)) throw new Error("groove undo authority is unavailable");
+        groove.state = "undoing";
+        if (action === "set-amount") {
+          const priorAmount = (groove.prior as { grooveAmount: number | null }).grooveAmount;
+          if (typeof priorAmount !== "number") return this.transactionError(id, "prior groove amount is unavailable");
+          const result = await this.invokeUndoRecovery(groove, adapter, "groove.set", { setRef: snapshot.set.ref, grooveAmount: priorAmount, expectedObjectIdentity: snapshot.set.objectIdentity, expectedRevision: before.revision }, context) as { changed?: unknown };
+          if (result.changed !== true) throw new Error("groove amount restoration was not confirmed");
+        } else {
+          const row = ((before as { grooves?: Array<Record<string, unknown>> }).grooves ?? []).find((candidate) => candidate.ref === groove.payload.ref);
+          if (!row || !isNonEmptyString(row.objectIdentity, 256)) throw new Error("edited groove identity is unavailable");
+          const result = await this.invokeUndoRecovery(groove, adapter, "groove.edit", { ref: groove.payload.ref, ...(groove.prior as Record<string, unknown>), expectedObjectIdentity: row.objectIdentity, expectedRevision: before.revision }, context) as { changed?: unknown };
+          if (result.changed !== true) throw new Error("groove restoration was not confirmed");
+        }
+        const verified = await adapter.invokeAsync({ operation: "groove.read", args: { setRef: snapshot.set.ref } }, context) as { grooveAmount?: unknown; grooves?: Array<Record<string, unknown>> };
+        if (action === "set-amount") { if (verified.grooveAmount !== (groove.prior as { grooveAmount: number | null }).grooveAmount) throw new Error("groove amount undo did not restore the exact prior value"); }
+        else { const row = (verified.grooves ?? []).find((candidate) => candidate.ref === groove.payload.ref); if (!row) throw new Error("edited groove disappeared after undo"); for (const field of ["name", "base", "quantizationAmount", "randomAmount", "timingAmount", "velocityAmount"]) if (JSON.stringify(row[field]) !== JSON.stringify((groove.prior as Record<string, unknown>)[field])) throw new Error("groove undo did not restore the exact prior fields"); }
+        groove.state = "undone"; return this.successText(id, { transactionId: groove.id, state: "undone", idempotent: false });
+      } catch (cause) { groove.state = "uncertain"; return this.adapterToolError(id, cause, "Groove undo is uncertain; perform fresh discovery."); }
+    }
     if (!transaction && String(params.transactionId).startsWith("tuning_")) {
       const tuning = this.clipLifecycleTransactions.get(params.transactionId as string);
       if (!tuning || tuning.kind !== "tuning") return this.transactionError(id, "Unknown or expired tuning transaction");
@@ -4742,9 +4886,9 @@ export class McpHost {
       try {
         this.beginUndoRecovery(clipset, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== clipset.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
         const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; clipset.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(clipset, adapter, context); const snapshot = await adapter.snapshotAsync(context); const row = this.clipRow(snapshot, clipset.clipRef);
-        const expected = reconciliation ? clipset.prior : clipset.payload; for (const [field, value] of Object.entries(expected)) if (field !== "ref" && !field.startsWith("expected") && row.clip[field] !== value) return this.transactionError(id, reconciliation ? "Clip-properties undo replay did not restore exact prior state" : "Clip changed after apply; undo refused");
-        if (!reconciliation) { clipset.state = "undoing"; const result = await this.invokeUndoRecovery(clipset, adapter, "clip.set", { ref: clipset.clipRef, ...clipset.prior, ...this.clipPropertiesMutationAuthority(snapshot, clipset.clipRef) }, context) as JsonObject; if (result.changed !== true) throw new Error("Clip-properties restoration was not confirmed"); }
-        const restoredRow = this.clipRow(await adapter.snapshotAsync(context), clipset.clipRef); for (const [field, value] of Object.entries(clipset.prior)) if (restoredRow.clip[field] !== value) throw new Error("Clip exact prior state was not restored");
+        const expected = reconciliation ? clipset.prior : clipset.payload; for (const [field, value] of Object.entries(expected)) { if (field === "ref" || field.startsWith("expected")) continue; if (field === "grooveRef") { const observedRef = (row.clip.groove as { ref?: unknown } | null | undefined)?.ref ?? null; if (observedRef !== value) return this.transactionError(id, reconciliation ? "Clip-properties undo replay did not restore exact prior state" : "Clip changed after apply; undo refused"); continue; } if (field === "groove") { if (JSON.stringify(row.clip.groove ?? null) !== JSON.stringify(value)) return this.transactionError(id, reconciliation ? "Clip-properties undo replay did not restore exact prior state" : "Clip changed after apply; undo refused"); continue; } if (row.clip[field] !== value) return this.transactionError(id, reconciliation ? "Clip-properties undo replay did not restore exact prior state" : "Clip changed after apply; undo refused"); }
+        if (!reconciliation) { clipset.state = "undoing"; const priorFields = { ...(clipset.prior as Record<string, unknown>) }; if (Object.prototype.hasOwnProperty.call(priorFields, "groove")) { const priorGroove = priorFields.groove as { ref?: unknown } | null; delete priorFields.groove; priorFields.grooveRef = priorGroove?.ref ?? null; } const result = await this.invokeUndoRecovery(clipset, adapter, "clip.set", { ref: clipset.clipRef, ...priorFields, ...this.clipPropertiesMutationAuthority(snapshot, clipset.clipRef) }, context) as JsonObject; if (result.changed !== true) throw new Error("Clip-properties restoration was not confirmed"); }
+        const restoredRow = this.clipRow(await adapter.snapshotAsync(context), clipset.clipRef); for (const [field, value] of Object.entries(clipset.prior)) { if (field === "groove") { if (JSON.stringify(restoredRow.clip.groove ?? null) !== JSON.stringify(value)) throw new Error("Clip exact prior state was not restored"); } else if (restoredRow.clip[field] !== value) throw new Error("Clip exact prior state was not restored"); }
         clipset.state = "undone"; return this.successText(id, { transactionId: clipset.id, state: "undone", restored: clipset.prior, idempotent: false });
       } catch (cause) { clipset.state = "uncertain"; return this.adapterToolError(id, cause, "Clip-properties undo is uncertain; inspect the exact clip."); }
     }
@@ -5062,7 +5206,7 @@ export class McpHost {
     }
     if (params.arguments !== undefined && !isObject(params.arguments)) return error(id, -32602, "Tool arguments must be an object");
     if (this.recoveryFinalizationInFlight && !["server_status", "capabilities", "plan_user_journey", "live_status", "live_snapshot", "live_discover"].includes(params.name)) return this.adapterToolError(id, new Error("recovery finalization safety barrier is in progress"), "Wait for terminal recovery finalization before any synchronous mutation.");
-    const argumentTools = new Set(["plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply"]);
+    const argumentTools = new Set(["plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply"]);
     if (!argumentTools.has(params.name) && params.arguments !== undefined && Object.keys(params.arguments as JsonObject).length !== 0) {
       return error(id, -32602, "Tool arguments must be an empty object");
     }
@@ -5087,7 +5231,7 @@ export class McpHost {
     if (params.name === "live_status") return this.liveStatus(id);
     if (params.name === "live_snapshot") return this.liveSnapshot(id);
     if (params.name === "live_discover") return this.liveDiscover(id, params.arguments);
-    if (["audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_backup_preview", "live_project_backup_apply", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply"].includes(params.name)) return error(id, -32001, "This operation requires the asynchronous host request path");
+    if (["audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_backup_preview", "live_project_backup_apply", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply"].includes(params.name)) return error(id, -32001, "This operation requires the asynchronous host request path");
     if (params.name === "live_device_parameter_preview") return this.liveDeviceParameterPreview(id, params.arguments);
     if (params.name === "live_device_parameter_apply") return this.liveDeviceParameterApply(id, params.arguments);
     if (params.name === "live_session_structure_preview") return this.liveSessionStructurePreview(id, params.arguments);
@@ -5148,6 +5292,7 @@ export class McpHost {
       if (name.startsWith("live_note_edit_")) return hasAll("session.midi_note.write") && hasOperations("snapshot") && hasAnyOperation("note.quantize", "note.duplicate");
       if (name === "live_note_read") return hasAll("session.midi_note.read") && hasAnyOperation("note.read-by-id", "note.read-selected");
       if (name.startsWith("live_tuning_")) return hasAll("tuning") && hasOperations("tuning.read", "tuning.set");
+      if (name.startsWith("live_groove_")) return hasAll("groove") && hasOperations("groove.read") && hasAnyOperation("groove.set", "groove.edit");
       if (name.startsWith("live_clip_move_")) return hasOperations("snapshot", "clip.move", "arrangement.clip.move");
       if (name.startsWith("live_clip_duplicate_")) return hasAll("clips") && hasOperations("snapshot", "clip.duplicate", "clip.delete", "arrangement.clip.delete");
       if (name.startsWith("live_audio_clip_")) return hasAll("audio") && hasOperations("snapshot", "audio.clip.set");

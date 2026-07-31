@@ -13,7 +13,7 @@ Source, schemas, and tests are authoritative. Documentation must not promote a c
 - `apps/mcp-server/src/transactions/`: bounded MIDI transaction and async discovery helpers.
 - `apps/mcp-server/src/analysis.ts`: bounded PCM decoding and privacy-preserving analysis.
 - `apps/mcp-server/src/delivery.ts`: configuration, secret validation, packaging, installation, and diagnostics.
-- `protocol/ableton-live-v1.operations.json`: canonical version-1 operation registry. Its canonical registry hash is `4a9ef5c572e53d07b26a2dc3cd130030c1ab7db20f8025ae6d37de8ac6f15ce5` for the current contract.
+- `protocol/ableton-live-v1.operations.json`: canonical version-1 operation registry. Its canonical registry hash is `aa27b1cf31bf8cc380695ca8ed395e138e018a0fb59e331b816d8457ef5056cf` for the current contract.
 - `remote-script/AbletonMcpBridge/__init__.py`: one-argument Control Surface entrypoint and fail-closed reference loading.
 - `remote-script/ableton_mcp_remote_script.py`: authenticated transport, bounded main-thread dispatch, epoch-scoped references, shape-dependent operation advertisement, hierarchical discovery, structure, MIDI, locator, and published device-parameter mapping.
 

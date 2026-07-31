@@ -49,6 +49,13 @@
   恢复。律制编辑全局影响播放音高,已明确标注。已在宿主、模拟器、
   Python 契约与打包 fake-Live 层面验证;精确候选的真实 Live 证明待
   完成。
+- `Song.groove_pool` 与 `groove_amount` 暴露,含池发现与 groove 名称、
+  base、量化/随机/时值/力度量的读写,以及 `Clip.groove` 分配与剪辑行
+  的 `Clip.has_groove`。量与 groove 编辑经 `live_undo` 精确恢复;剪辑
+  groove 分配走剪辑属性事务。公共 API 没有完整的 groove 导入/提取
+  工作流,因此 groove 必须已存在于池中 —— 如实记录,不做变通。已在
+  宿主、模拟器、Python 契约与打包 fake-Live 层面验证;精确候选的真实
+  Live 证明待完成。
 - 用途特定的 preview/apply/verify/undo 或清理工作流:精确的对象与层级
   身份、状态/内容修订、创建时指纹、epoch、过期、幂等、新鲜事后状态、
   有界补偿与显式不确定状态。原子 Session 剪辑移动在 Live 主线程上运行
