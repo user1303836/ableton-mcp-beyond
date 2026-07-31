@@ -22,7 +22,7 @@
 | ミックス: ボリューム、パン、ミュート、ソロ、キュー、センド | `live_mixer_preview/apply` | 事前値を先にキャプチャするため、ミックスの変更を正確に取り消せます |
 | Session クリップを起動・停止 | `live_clip_launch_preview/apply/stop` | 一度に 1 つの確認済み起動。マッパー所有の再生のみ停止 |
 | シーンを安全にオーディション | `live_session_audition_preview/apply/stop`、`live_session_emergency_stop` | 出力セーフティの確認と、停止済み・非アーム・非モニターのベースラインが必要。独立した緊急停止が常に利用可能 |
-| 再生の開始/停止、位置、ループ、メトロノーム、パンチ、カウントイン | `live_transport_preview/apply` | リビジョンフェンス付き。アンドゥ可能 |
+| 再生の開始/停止、位置、ループ、メトロノーム、パンチ | `live_transport_preview/apply` | リビジョンフェンス付き。アンドゥ可能。カウントインは読み取り専用で報告 |
 | テンポを変更 | `live_tempo_preview/apply` | 有界 BPM、事後条件検証付き |
 | ロケーター操作と再生ヘッドのジャンプ | `live_arrangement_section_preview/apply`、`live_locator_jump_preview/apply` | ロケーターの作成/削除/名前変更。再生ヘッドフェンス付きで次/前のロケーターへジャンプ |
 | タイムライン上でクリップを編成 | `live_arrangement_clip_preview/apply`、`live_clip_duplicate_preview/apply`、`live_clip_move_preview/apply` | クリップの作成、複製、移動。トランザクション作成クリップのクリーンアップは正確。任意の Arrangement 削除は拒否 |
@@ -64,7 +64,7 @@
 | 正規 Live 契約 | `ableton-live/v1`、操作レジストリ、マニフェスト/ハッシュ | `registry.ts`、`live.ts`、Python マッパー。R/G/A/RT。厳密スキーマと単一正規ダイジェスト | `registry.test.ts`、Python 契約テスト、パッケージ/候補検証 | 過去の macOS 実 Live ネゴシエーションは古いレジストリダイジェストを使用。現在のダイジェストでの正確な候補証明が必要 | `DEVELOPER_GUIDE.md`、`LIVE_SAFETY.md`。未サポートの形状は利用不可のまま |
 | 認証ブリッジ | status/snapshot/discover/get と用途別操作 | `remote-adapter.ts`、Python リスナー。ループバックチャレンジ、HMAC、エポック/シーケンス/デッドラインフェンス | `registry.test.ts`、`live.test.ts`、パッケージジャーニー | パッケージ fake-Live と macOS 実 Live | `OPERATIONS.md`、`RECOVERY.md`。リモートネットワークモードなし |
 | 参照、ディスカバリ、選択 | set、track/return/main、scene、slot、clip、note、locator、device、parameter、routing、playback、selection | レジストリ + マッパー走査。R。親スコープの参照/カーソル/リビジョン。選択は正規の参照可能な track/scene/slot 参照を再利用 | レジストリ、ホスト、Python テスト | `phase-3-readonly-live-discovery.json` と以降の実 Live フェーズエビデンス | `USER_GUIDE.md`。古い参照/エポックは拒否 |
-| トランスポート、ループ、メトロノーム、パンチ、カウントイン | `transport.set`、transport preview/apply/undo | ホストトランザクション + マッパー。再生が変化しうる場合は G/A | ホスト/Python/パッケージジャーニー | `phase-5a-transport-clip-live.txt`(macOS 実 Live) | `LIVE_SAFETY.md`。新鮮な再生/録音状態が必要 |
+| トランスポート、ループ、メトロノーム、パンチ | `transport.set`、transport preview/apply/undo | ホストトランザクション + マッパー。再生が変化しうる場合は G/A | ホスト/Python/パッケージジャーニー | `phase-5a-transport-clip-live.txt`(macOS 実 Live) | `LIVE_SAFETY.md`。新鮮な再生/録音状態が必要。`Song.count_in_duration` は公開 LOM で get/observe であり、報告のみで書き込まない |
 | 再生ヘッドキューナビゲーション | `locator.jump` 次/前 | 再生ヘッドとロケーターのフェンス付きホスト preview/apply。G | ホストと Python テスト | パッケージ fake-Live とシミュレーター。現在の候補での実 Live 証明は保留中 | `USER_GUIDE.md`。絶対位置指定は `transport.set`。ナビゲーション自体にアンドゥは提供しない |
 | Session オーディションと緊急停止 | `session.audition-launch/stop`、`session.emergency-stop`、再生ディスカバリ | 専用ホスト/マッパートランザクション。A。予測不可能トークン、正確なターゲット、リプレイ、所有停止 | ホスト、Python、パッケージジャーニー | `phase-4-guarded-audition.json` と外部保持の正確な候補読み取り専用ステータス | `LIVE_SAFETY.md`、`RECOVERY.md`。外部再生は所有として主張されない |
 | Session 構造 | track/scene 作成/削除/名前変更と clip/device/locator 名前変更。スロットと Session クリップのディスカバリ | preview/apply/undo マネージャー + マッパー。G。挿入インデックスは変更前にレギュラートラックとシーンに対して有界チェック | ホスト/Python/パッケージジャーニー | 実 Live フェーズ 5 エビデンス。パッケージ fake-Live | `USER_GUIDE.md`。作成は return/main トラックをレギュラートラックの挿入位置として扱わない。group/return/main の編集は正規操作が存在する場合のみ公開 |
@@ -134,3 +134,21 @@
 候補ホスト結果、同じ Git SHA と成果物 SHA-256 を名指しする外部保持の
 実 Live 観測が必要です。Windows Server ホストエビデンスが Windows
 Live/Windows 11 のセルを埋めることはありません。
+
+## 実行可能と予約済みレジストリ契約
+
+正規レジストリには、マッパーが現在アドバタイズする数より多くの操作 ID
+が含まれます。ネゴシエート済みの実行可能な操作のみが `live_status` /
+`capabilities` の `operations.executable` に表示されます。残り
+(`operations.reserved`)は厳密な契約であり、アダプターが実行・検証
+できるまでフェイルクローズします。予約済み ID は動作するケイパビリティ
+のエビデンスではありません。
+
+| 予約済み操作 ID | ディスポジション |
+|---|---|
+| `audio.warp-marker.read/add/move/delete` | 現在のブランチで実装中(ワープマーカーファミリー)。スキーマはビートタイムでマーカーをアドレス — 整数 ID は捏造しない |
+| `audio.take-lane.read`、`audio.comp.read` | テイクレーンは `Track.take_lanes` の下で実装中。コンプ領域編集は制限されたまま(公開 API なし) |
+| `arrangement.automation.*` | Arrangement オートメーション作成には安定した公開 API がない。予約済み・フェイルクローズのまま |
+| `browser.preview.start/stop` | Browser プレビューは非公式 Python バインディングを使用。ディスポジションは Browser ファミリー作業で決定 |
+| `project.new/open/save/save-as/collect/export/bounce` | 公開 Remote Script API なし。`live_project_save` / `live_project_open` は明示的な制限レポーターのまま |
+| `session.discover` | 予約済みエイリアス。ディスカバリは `discover`/`snapshot`/`get` が提供 |

@@ -1161,14 +1161,14 @@
       "request": {
         "type": "object",
         "properties": {
-          "clipRef": {
+          "trackRef": {
             "type": "string",
             "minLength": 1,
             "maxLength": 256
           }
         },
         "required": [
-          "clipRef"
+          "trackRef"
         ],
         "additionalProperties": false
       },
@@ -1216,23 +1216,10 @@
             "minLength": 1,
             "maxLength": 256
           },
-          "id": {
-            "type": "integer",
-            "minimum": 0
-          },
           "beatTime": {
             "type": "number",
-            "minimum": 0,
-            "maximum": 1000000000
-          },
-          "sampleTime": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1000000000
-          },
-          "expectedRevision": {
-            "type": "integer",
-            "minimum": 1
+            "minimum": -1000000,
+            "maximum": 1000000
           },
           "expectedClipAuthorityDigest": {
             "type": "string",
@@ -1249,10 +1236,7 @@
         },
         "required": [
           "ref",
-          "id",
           "beatTime",
-          "sampleTime",
-          "expectedRevision",
           "expectedClipAuthorityDigest",
           "expectedMarkerCollectionRevision"
         ],
@@ -1288,13 +1272,10 @@
             "minLength": 1,
             "maxLength": 256
           },
-          "id": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "expectedRevision": {
-            "type": "integer",
-            "minimum": 1
+          "beatTime": {
+            "type": "number",
+            "minimum": -1000000,
+            "maximum": 1000000
           },
           "expectedClipAuthorityDigest": {
             "type": "string",
@@ -1307,20 +1288,13 @@
             "minLength": 64,
             "maxLength": 64,
             "pattern": "^[0-9a-f]{64}$"
-          },
-          "expectedMarkerIdentity": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
           }
         },
         "required": [
           "ref",
-          "id",
-          "expectedRevision",
+          "beatTime",
           "expectedClipAuthorityDigest",
-          "expectedMarkerCollectionRevision",
-          "expectedMarkerIdentity"
+          "expectedMarkerCollectionRevision"
         ],
         "additionalProperties": false
       },
@@ -1354,23 +1328,15 @@
             "minLength": 1,
             "maxLength": 256
           },
-          "id": {
-            "type": "integer",
-            "minimum": 0
-          },
           "beatTime": {
             "type": "number",
-            "minimum": 0,
-            "maximum": 1000000000
+            "minimum": -1000000,
+            "maximum": 1000000
           },
-          "sampleTime": {
+          "distance": {
             "type": "number",
-            "minimum": 0,
-            "maximum": 1000000000
-          },
-          "expectedRevision": {
-            "type": "integer",
-            "minimum": 1
+            "minimum": -1000000,
+            "maximum": 1000000
           },
           "expectedClipAuthorityDigest": {
             "type": "string",
@@ -1383,22 +1349,14 @@
             "minLength": 64,
             "maxLength": 64,
             "pattern": "^[0-9a-f]{64}$"
-          },
-          "expectedMarkerIdentity": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
           }
         },
         "required": [
           "ref",
-          "id",
           "beatTime",
-          "sampleTime",
-          "expectedRevision",
+          "distance",
           "expectedClipAuthorityDigest",
-          "expectedMarkerCollectionRevision",
-          "expectedMarkerIdentity"
+          "expectedMarkerCollectionRevision"
         ],
         "additionalProperties": false
       },
@@ -7695,14 +7653,6 @@
               "boolean",
               "null"
             ]
-          },
-          "countIn": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "minimum": 0,
-            "maximum": 1000
           },
           "expectedRevision": {
             "type": "string",

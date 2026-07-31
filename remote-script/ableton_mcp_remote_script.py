@@ -649,9 +649,9 @@ class LiveObjectMapper:
         if operation == "device.delete":
             return any(callable(getattr(track, "delete_device", None)) for track in self._items(getattr(self.song, "tracks", [])))
         if operation == "device.enable":
-            return any(any(isinstance(self._read_attr(device, attr), bool) for attr in ("is_active", "is_enabled", "enabled")) for track in self._items(getattr(self.song, "tracks", [])) for device in self._items(getattr(track, "devices", [])))
+            return any(self._device_on_parameter(device) is not None for track in self._items(getattr(self.song, "tracks", [])) for device in self._items(getattr(track, "devices", [])))
         if operation == "device.move":
-            return any(callable(getattr(track, "move_device", None)) for track in self._items(getattr(self.song, "tracks", [])))
+            return callable(getattr(self.song, "move_device", None))
         if operation in {"browser.search", "browser.inspect", "browser.load"}:
             try:
                 browser = self._browser()
@@ -927,7 +927,7 @@ class LiveObjectMapper:
                 "filePath": None, "availableAudioFields": [], "warpMarkers": [],
                 "warpMarkerEditingAvailable": False,
             }
-        warp_mode = self._read_attr(clip, "warping_mode")
+        warp_mode = self._read_attr(clip, "warp_mode")
         if isinstance(warp_mode, int) and not isinstance(warp_mode, bool):
             warp = int(warp_mode)
         elif isinstance(warp_mode, str):
@@ -1693,7 +1693,7 @@ class LiveObjectMapper:
         expected = args.get("expectedRevision"); set_ref = args.get("setRef"); expected_identity = args.get("expectedObjectIdentity"); set_target = self.refs.get(set_ref) if isinstance(set_ref, str) else None
         if not isinstance(expected, str) or not 1 <= len(expected) <= 256 or not isinstance(set_ref, str) or not isinstance(expected_identity, str) or not self._capture_same_object(set_target, self.song, expected_identity) or not hmac.compare_digest(self._capture_object_identity(self.song), expected_identity):
             raise ValueError("transport Set identity or revision authority is invalid")
-        allowed = {"position", "loopEnabled", "loopStart", "loopLength", "metronome", "punchIn", "punchOut", "countIn", "expectedRevision", "setRef", "expectedObjectIdentity"}
+        allowed = {"position", "loopEnabled", "loopStart", "loopLength", "metronome", "punchIn", "punchOut", "expectedRevision", "setRef", "expectedObjectIdentity"}
         if set(args) - allowed:
             raise ValueError("transport fields are invalid")
         playback = self._playback()
@@ -1723,10 +1723,11 @@ class LiveObjectMapper:
         metronome = flag("metronome")
         punch_in = flag("punchIn")
         punch_out = flag("punchOut")
-        count_in = number("countIn", 1000)
+        # count_in_duration is get/observe in the public LOM; it is read in the
+        # transport row but never written here.
         if loop_length is not None and loop_length <= 0:
             raise ValueError("loopLength is invalid")
-        proposed = [("current_song_time", position), ("loop", loop_enabled), ("loop_start", loop_start), ("loop_length", loop_length), ("metronome", metronome), ("punch_in", punch_in), ("punch_out", punch_out), ("count_in_duration", count_in)]; assignments = []
+        proposed = [("current_song_time", position), ("loop", loop_enabled), ("loop_start", loop_start), ("loop_length", loop_length), ("metronome", metronome), ("punch_in", punch_in), ("punch_out", punch_out)]; assignments = []
         for attribute, value in proposed:
             if value is None: continue
             prior = self._read_attr(self.song, attribute)
@@ -1746,7 +1747,6 @@ class LiveObjectMapper:
             if metronome is not None: checks.append(transport["metronome"] is metronome)
             if punch_in is not None: checks.append(transport["punchIn"] is punch_in)
             if punch_out is not None: checks.append(transport["punchOut"] is punch_out)
-            if count_in is not None: checks.append(isinstance(transport["countIn"], (int, float)) and float(transport["countIn"]) == count_in)
             if not all(checks): raise ValueError("transport change was not confirmed by fresh state")
             after_revision = self._playback()["revision"]
         except BaseException as error:
@@ -2811,7 +2811,7 @@ class LiveObjectMapper:
         if "warpMode" in args:
             value = args["warpMode"]
             if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 16: raise ValueError("warpMode is invalid")
-            proposals.append(("warpMode", "warping_mode", value))
+            proposals.append(("warpMode", "warp_mode", value))
         if "warping" in args:
             value = args["warping"]
             if not isinstance(value, bool): raise ValueError("warping is invalid")
@@ -3547,6 +3547,22 @@ class LiveObjectMapper:
         if [self._capture_object_identity(candidate) for candidate in self._items(getattr(owner, "devices", []))] != expected_order: raise ValueError("device deletion did not preserve the exact authorized siblings") from deletion_error
         self.refs.delete(str(reference)); return {"deleted": reference}
 
+    def _device_on_parameter(self, device: Any) -> Any | None:
+        """Name-independent structural probe for the conventional first
+        'Device On' parameter. Device.is_active is get/observe in the public
+        LOM and is never written; this is the only writable bypass surface,
+        and it never matches on localized parameter names."""
+        parameters = self._items(getattr(device, "parameters", []))
+        if not parameters: return None
+        candidate = parameters[0]
+        if self._read_attr(candidate, "is_enabled", "enabled") is not True: return None
+        minimum = self._read_attr(candidate, "min", "min_value"); maximum = self._read_attr(candidate, "max", "max_value"); value = self._read_attr(candidate, "value")
+        if not all(isinstance(item, (int, float)) and not isinstance(item, bool) and math.isfinite(float(item)) for item in (minimum, maximum, value)): return None
+        if float(maximum) - float(minimum) != 1.0 or float(value) not in (float(minimum), float(maximum)): return None
+        quantization = self._read_attr(candidate, "quantization")
+        if not isinstance(quantization, (int, float)) or isinstance(quantization, bool) or float(quantization) != 1.0: return None
+        return candidate
+
     def _device_enable(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")
         enabled = args.get("enabled")
@@ -3555,42 +3571,28 @@ class LiveObjectMapper:
         _, device, _, _, _ = self._device_location(str(reference), args.get("expectedObjectIdentity"), args.get("expectedOwnerRef"), args.get("expectedOwnerIdentity"), args.get("expectedSiblings"), args.get("expectedTrackRef"), args.get("expectedTrackIdentity"))
         current_enabled = self._read_attr(device, "is_active", "is_enabled", "enabled"); expected_state = args.get("expectedStateRevision"); state_revision = hashlib.sha256(self._bounded_canonical({"enabled": current_enabled if isinstance(current_enabled, bool) else None}).encode("utf-8")).hexdigest()
         if not isinstance(expected_state, str) or not hmac.compare_digest(state_revision, expected_state): raise ValueError("device enable state changed since preview")
-        for attribute in ("is_active", "is_enabled", "enabled"):
-            current = self._read_attr(device, attribute)
-            if not isinstance(current, bool): continue
-            if current is enabled:
-                revision = self.refs.touch(reference); return {"changed": True, "enabled": enabled, "revision": revision}
-            setter_error: BaseException | None = None
-            try: setattr(device, attribute, enabled)
-            except BaseException as error: setter_error = error
-            observed = self._read_attr(device, attribute)
-            authoritative_enabled = self._read_attr(device, "is_active", "is_enabled", "enabled")
-            if setter_error is None and observed is enabled and authoritative_enabled is enabled:
-                revision = self.refs.touch(reference); return {"changed": True, "enabled": enabled, "revision": revision}
-            if observed is not current:
-                try: setattr(device, attribute, current)
-                except BaseException: pass
-                if self._read_attr(device, attribute) is not current: raise ValueError("device enable failed and exact rollback failed") from setter_error
-        # Enable state commonly lives on the "Device On" parameter.
-        for parameter in self._items(getattr(device, "parameters", [])):
-            parameter_name = str(self._read_attr(parameter, "name") or "")
-            if parameter_name.lower() in {"device on", "on"} or parameter_name.lower().startswith("device on"):
-                minimum = self._read_attr(parameter, "min", "min_value"); maximum = self._read_attr(parameter, "max", "max_value"); prior_value = self._read_attr(parameter, "value")
-                target = float(maximum if enabled else minimum) if isinstance(minimum, (int, float)) and isinstance(maximum, (int, float)) else (1.0 if enabled else 0.0)
-                setter_error: BaseException | None = None
-                try: parameter.value = target
-                except BaseException as error: setter_error = error
-                observed = self._read_attr(parameter, "value")
-                authoritative_enabled = self._read_attr(device, "is_active", "is_enabled", "enabled")
-                if setter_error is None and isinstance(observed, (int, float)) and float(observed) == target and (not isinstance(authoritative_enabled, bool) or authoritative_enabled is enabled):
-                    revision = self.refs.touch(reference); return {"changed": True, "enabled": enabled, "revision": revision}
-                if isinstance(prior_value, (int, float)) and observed != prior_value:
-                    try: parameter.value = prior_value
-                    except BaseException: pass
-                    restored = self._read_attr(parameter, "value")
-                    if not isinstance(restored, (int, float)) or float(restored) != float(prior_value): raise ValueError("device enable failed and exact rollback failed") from setter_error
+        if current_enabled is enabled:
+            revision = self.refs.touch(reference); return {"changed": True, "enabled": enabled, "revision": revision}
+        parameter = self._device_on_parameter(device)
+        if parameter is None:
+            raise ValueError("device enable is unavailable")
+        minimum = float(self._read_attr(parameter, "min", "min_value")); maximum = float(self._read_attr(parameter, "max", "max_value"))
+        target = maximum if enabled else minimum
+        prior_value = self._read_attr(parameter, "value")
+        setter_error: BaseException | None = None
+        try: parameter.value = target
+        except BaseException as error: setter_error = error
+        observed = self._read_attr(parameter, "value")
+        authoritative_enabled = self._read_attr(device, "is_active", "is_enabled", "enabled")
+        if setter_error is None and isinstance(observed, (int, float)) and float(observed) == target and (not isinstance(authoritative_enabled, bool) or authoritative_enabled is enabled):
+            revision = self.refs.touch(reference); return {"changed": True, "enabled": enabled, "revision": revision}
+        if isinstance(prior_value, (int, float)) and observed != prior_value:
+            try: parameter.value = prior_value
+            except BaseException: pass
+            restored = self._read_attr(parameter, "value")
+            if not isinstance(restored, (int, float)) or float(restored) != float(prior_value): raise ValueError("device enable failed and exact rollback failed") from setter_error
         if self._read_attr(device, "is_active", "is_enabled", "enabled") is not current_enabled: raise ValueError("device enable failed and exact authoritative rollback failed")
-        raise ValueError("device enable is unavailable")
+        raise ValueError("device enable is unavailable") from setter_error
 
     def _device_move(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref"); index = args.get("index")
@@ -3599,11 +3601,11 @@ class LiveObjectMapper:
         devices_before = self._items(getattr(owner, "devices", [])); expected_identity = str(args.get("expectedObjectIdentity"))
         if index >= len(devices_before): raise ValueError("device index is outside the exact sibling collection")
         if index == current: return {"ref": reference, "objectIdentity": self._capture_object_identity(device), "index": index}
-        mover = getattr(owner, "move_device", None)
+        mover = getattr(self.song, "move_device", None)
         if not callable(mover): raise ValueError("device move is unavailable")
         before_identities = [self._capture_object_identity(candidate) for candidate in devices_before]
         try:
-            mover(current, index)
+            mover(device, owner, index)
             devices = self._items(getattr(owner, "devices", []))
             if len(devices) != len(devices_before) or index >= len(devices) or not self._capture_same_object(devices[index], device, expected_identity): raise ValueError("device move was not confirmed")
             after_identities = [self._capture_object_identity(candidate) for candidate in devices]
@@ -3613,7 +3615,7 @@ class LiveObjectMapper:
             rollback_failed = False; current_devices = self._items(getattr(owner, "devices", [])); moved_index = self._capture_index(current_devices, device, expected_identity)
             if moved_index is None: rollback_failed = True
             elif moved_index != current:
-                try: mover(moved_index, current)
+                try: mover(device, owner, current)
                 except BaseException: rollback_failed = True
             if [self._capture_object_identity(candidate) for candidate in self._items(getattr(owner, "devices", []))] != before_identities: rollback_failed = True
             if rollback_failed: raise ValueError("device move failed and exact rollback failed") from error
@@ -5285,7 +5287,7 @@ def _authority_state_digest(mapper: LiveObjectMapper, args: dict[str, Any], oper
             references.append(value)
     collect(args)
     observed = []
-    attributes = ("name", "value", "min", "max", "is_enabled", "is_automatable", "arm", "mute", "solo", "current_monitoring_state", "input_routing_type", "input_routing_channel", "output_routing_type", "output_routing_channel", "gain", "pitch_coarse", "pitch_fine", "warping", "warping_mode", "fade_in_length", "fade_out_length", "loop_start", "loop_end", "start_time", "length", "is_playing", "is_triggered", "is_recording")
+    attributes = ("name", "value", "min", "max", "is_enabled", "is_automatable", "arm", "mute", "solo", "current_monitoring_state", "input_routing_type", "input_routing_channel", "output_routing_type", "output_routing_channel", "gain", "pitch_coarse", "pitch_fine", "warping", "warp_mode", "fade_in_length", "fade_out_length", "loop_start", "loop_end", "start_time", "length", "is_playing", "is_triggered", "is_recording")
     for reference in sorted(set(references)):
         try:
             revision = mapper.refs.revision(reference); row = mapper.get(reference)

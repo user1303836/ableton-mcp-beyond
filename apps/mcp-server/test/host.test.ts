@@ -92,7 +92,6 @@ function auditionFixture() {
         if (typeof args.metronome === "boolean") transport.metronome = args.metronome;
         if (typeof args.punchIn === "boolean") transport.punchIn = args.punchIn;
         if (typeof args.punchOut === "boolean") transport.punchOut = args.punchOut;
-        if (typeof args.countIn === "number") transport.countIn = args.countIn;
         state.playback.revision = `transport:${counts.launches}:${Math.random().toString(36).slice(2, 10)}`;
         return { changed: true, revision: state.playback.revision };
       }

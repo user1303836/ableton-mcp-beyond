@@ -22,7 +22,7 @@ most content edits can be undone with `live_undo`.
 | Mix: volume, pan, mute, solo, cue, sends | `live_mixer_preview/apply` | Prior values are captured first, so a mix move can be undone exactly |
 | Launch and stop Session clips | `live_clip_launch_preview/apply/stop` | One confirmed launch at a time; only mapper-owned playback is stopped |
 | Audition a scene safely | `live_session_audition_preview/apply/stop`, `live_session_emergency_stop` | Requires an output-safety confirmation and a stopped, unarmed, unmonitored baseline; independent emergency stop always remains available |
-| Start/stop playback, set position, loop, metronome, punch, count-in | `live_transport_preview/apply` | Revision-fenced; undoable |
+| Start/stop playback, set position, loop, metronome, punch | `live_transport_preview/apply` | Revision-fenced; undoable; count-in is reported read-only |
 | Change tempo | `live_tempo_preview/apply` | Bounded BPM with postcondition verification |
 | Work with locators and jump the playhead | `live_arrangement_section_preview/apply`, `live_locator_jump_preview/apply` | Create/delete/rename locators; jump to the next or previous locator with playhead fencing |
 | Arrange clips on the timeline | `live_arrangement_clip_preview/apply`, `live_clip_duplicate_preview/apply`, `live_clip_move_preview/apply` | Create, duplicate, and move clips; cleanup of transaction-created clips is exact; arbitrary Arrangement deletion is refused |
@@ -63,7 +63,7 @@ installation authority.
 | Canonical Live contract | `ableton-live/v1`, operation registry, manifest/hash | `registry.ts`, `live.ts`, Python mapper; R/G/A/RT; strict schemas and one canonical digest | `registry.test.ts`, Python contract tests, package/candidate verifiers | Historical macOS real-Live negotiation used an older registry digest; current-digest exact-candidate proof is required | `DEVELOPER_GUIDE.md`, `LIVE_SAFETY.md`; unsupported shapes stay unavailable |
 | Authenticated bridge | status/snapshot/discover/get plus purpose-specific operations | `remote-adapter.ts`, Python listener; loopback challenge, HMAC, epoch/sequence/deadline fences | `registry.test.ts`, `live.test.ts`, package journey | Packaged fake-Live and macOS real-Live | `OPERATIONS.md`, `RECOVERY.md`; no remote-network mode |
 | References, discovery, selection | set, track/return/main, scene, slot, clip, note, locator, device, parameter, routing, playback, selection | registry + mapper traversal; R; parent-scoped refs/cursors/revisions; selection reuses canonical dereferenceable track/scene/slot refs | registry, host, Python tests | `phase-3-readonly-live-discovery.json` and later real-Live phase evidence | `USER_GUIDE.md`; stale refs/epochs are rejected |
-| Transport, loop, metronome, punch, count-in | `transport.set`, transport preview/apply/undo | host transactions + mapper; G/A where playback can change | host/Python/package journey | `phase-5a-transport-clip-live.txt` (macOS real-Live) | `LIVE_SAFETY.md`; fresh playback/recording state required |
+| Transport, loop, metronome, punch | `transport.set`, transport preview/apply/undo | host transactions + mapper; G/A where playback can change | host/Python/package journey | `phase-5a-transport-clip-live.txt` (macOS real-Live) | `LIVE_SAFETY.md`; fresh playback/recording state required; `Song.count_in_duration` is get/observe in the public LOM and is reported but never written |
 | Playhead cue navigation | `locator.jump` next/previous | host preview/apply with playhead and locator fencing; G | host and Python tests | Packaged fake-Live and simulator; current-candidate real-Live proof pending | `USER_GUIDE.md`; absolute positioning stays in `transport.set`; no undo is offered for navigation itself |
 | Session audition and emergency stop | `session.audition-launch/stop`, `session.emergency-stop`, playback discovery | dedicated host/mapper transaction; A; unpredictable token, exact targets, replay, owned stop | host, Python, package journey | `phase-4-guarded-audition.json` and exact-candidate read-only status externally retained | `LIVE_SAFETY.md`, `RECOVERY.md`; external playback is never claimed as owned |
 | Session structure | track/scene create/delete/rename plus clip/device/locator rename; slot and Session clip discovery | preview/apply/undo manager + mapper; G; insertion indexes are bounded against regular tracks and scenes before mutation | host/Python/package journey | Real-Live phase 5 evidence; packaged fake-Live | `USER_GUIDE.md`; creation never treats return/main tracks as regular-track insertion positions, and group/return/main edits are only exposed where canonical operations exist |
@@ -133,3 +133,21 @@ requires the pushed-head CI artifact metadata, exact-candidate host results, and
 an externally retained real-Live observation naming that same Git SHA and
 artifact SHA-256. Windows Server host evidence never fills a Windows
 Live/Windows 11 cell.
+
+## Executable versus reserved registry contracts
+
+The canonical registry contains more operation IDs than the mapper currently
+advertises. Only negotiated, executable operations appear in `live_status` /
+`capabilities` under `operations.executable`; the remainder
+(`operations.reserved`) are strict contracts that fail closed until an adapter
+can execute and verify them. Reserved IDs are never evidence of a working
+capability.
+
+| Reserved operation IDs | Disposition |
+|---|---|
+| `audio.warp-marker.read/add/move/delete` | Being implemented on the current branch (warp-marker family); schemas address markers by beat time — no invented integer IDs |
+| `audio.take-lane.read`, `audio.comp.read` | Take lanes are being implemented under `Track.take_lanes`; comp-region editing stays limited (no public API) |
+| `arrangement.automation.*` | Arrangement automation authoring has no stable public API; stays reserved and fail-closed |
+| `browser.preview.start/stop` | Browser preview uses an unofficial Python binding; disposition decided with the Browser family work |
+| `project.new/open/save/save-as/collect/export/bounce` | No public Remote Script API; `live_project_save` / `live_project_open` remain explicit limitation reporters |
+| `session.discover` | Reserved alias; discovery is served by `discover`/`snapshot`/`get` |

@@ -20,7 +20,7 @@
 | 混音:音量、声像、静音、独奏、cue、发送 | `live_mixer_preview/apply` | 先捕获先前值,混音改动可以精确撤销 |
 | 触发和停止 Session 剪辑 | `live_clip_launch_preview/apply/stop` | 一次一个已确认触发;只停止映射器拥有的播放 |
 | 安全地试听场景 | `live_session_audition_preview/apply/stop`、`live_session_emergency_stop` | 需要输出安全确认以及已停止、未 armed、未监听的基线;独立紧急停止始终可用 |
-| 开始/停止播放、设置位置、循环、节拍器、穿入穿出、预备拍 | `live_transport_preview/apply` | 修订栅栏;可撤销 |
+| 开始/停止播放、设置位置、循环、节拍器、穿入穿出 | `live_transport_preview/apply` | 修订栅栏;可撤销;预备拍为只读上报 |
 | 更改速度 | `live_tempo_preview/apply` | 有界 BPM,带后置条件验证 |
 | 使用定位点并跳转播放头 | `live_arrangement_section_preview/apply`、`live_locator_jump_preview/apply` | 创建/删除/重命名定位点;跳转到下一个或上一个定位点,带播放头栅栏 |
 | 在时间线上编排剪辑 | `live_arrangement_clip_preview/apply`、`live_clip_duplicate_preview/apply`、`live_clip_move_preview/apply` | 创建、复制和移动剪辑;事务创建剪辑的清理是精确的;拒绝任意 Arrangement 删除 |
@@ -59,7 +59,7 @@
 | 规范 Live 契约 | `ableton-live/v1`、操作注册表、清单/哈希 | `registry.ts`、`live.ts`、Python 映射器;R/G/A/RT;严格模式与单一规范摘要 | `registry.test.ts`、Python 契约测试、包/候选验证器 | 历史 macOS 真实 Live 协商使用旧注册表摘要;需要当前摘要精确候选证明 | `DEVELOPER_GUIDE.md`、`LIVE_SAFETY.md`;不支持的形态保持不可用 |
 | 认证桥接 | status/snapshot/discover/get 及用途专用操作 | `remote-adapter.ts`、Python 监听器;回环质询、HMAC、epoch/序列/截止时间栅栏 | `registry.test.ts`、`live.test.ts`、打包旅程 | 打包 fake-Live 与 macOS 真实 Live | `OPERATIONS.md`、`RECOVERY.md`;无远程网络模式 |
 | 引用、发现、选择 | set、track/return/main、scene、slot、clip、note、locator、device、parameter、routing、playback、selection | 注册表 + 映射器遍历;R;父级作用域引用/游标/修订;选择复用规范可解引用的 track/scene/slot 引用 | 注册表、宿主、Python 测试 | `phase-3-readonly-live-discovery.json` 及后续真实 Live 阶段证据 | `USER_GUIDE.md`;过时引用/epoch 被拒绝 |
-| 走带、循环、节拍器、穿入穿出、预备拍 | `transport.set`、transport preview/apply/undo | 宿主事务 + 映射器;播放可变时为 G/A | 宿主/Python/打包旅程 | `phase-5a-transport-clip-live.txt`(macOS 真实 Live) | `LIVE_SAFETY.md`;需要新鲜播放/录音状态 |
+| 走带、循环、节拍器、穿入穿出 | `transport.set`、transport preview/apply/undo | 宿主事务 + 映射器;播放可变时为 G/A | 宿主/Python/打包旅程 | `phase-5a-transport-clip-live.txt`(macOS 真实 Live) | `LIVE_SAFETY.md`;需要新鲜播放/录音状态;`Song.count_in_duration` 在公共 LOM 中为 get/observe,只上报不写入 |
 | 播放头 cue 导航 | `locator.jump` 下一个/上一个 | 宿主 preview/apply,带播放头与定位点栅栏;G | 宿主与 Python 测试 | 打包 fake-Live 与模拟器;当前候选真实 Live 证明待完成 | `USER_GUIDE.md`;绝对定位仍在 `transport.set`;导航本身不提供撤销 |
 | Session 试听与紧急停止 | `session.audition-launch/stop`、`session.emergency-stop`、播放发现 | 专用宿主/映射器事务;A;不可预测令牌、精确目标、重放、拥有的停止 | 宿主、Python、打包旅程 | `phase-4-guarded-audition.json` 及外部保留的精确候选只读状态 | `LIVE_SAFETY.md`、`RECOVERY.md`;外部播放绝不声称拥有 |
 | Session 结构 | track/scene 创建/删除/重命名及 clip/device/locator 重命名;槽位与 Session 剪辑发现 | preview/apply/undo 管理器 + 映射器;G;插入索引在变更前对照常规轨道和场景有界检查 | 宿主/Python/打包旅程 | 真实 Live 阶段 5 证据;打包 fake-Live | `USER_GUIDE.md`;创建绝不把 return/main 轨道当作常规轨道插入位置,group/return/main 编辑只在存在规范操作时暴露 |
@@ -126,3 +126,19 @@
 产物。最终就绪还要求推送头的 CI 产物元数据、精确候选宿主结果,以及
 命名同一 Git SHA 与产物 SHA-256 的外部保留真实 Live 观察。Windows
 Server 宿主证据绝不填补 Windows Live/Windows 11 单元格。
+
+## 可执行与保留注册表契约
+
+规范注册表包含的操作 ID 多于映射器当前宣告的数量。只有已协商、可执行的
+操作出现在 `live_status` / `capabilities` 的 `operations.executable` 中;
+其余(`operations.reserved`)是严格契约,在适配器能够执行并验证之前
+故障关闭。保留 ID 绝不是可用能力的证据。
+
+| 保留操作 ID | 处置 |
+|---|---|
+| `audio.warp-marker.read/add/move/delete` | 正在当前分支实现(warp 标记家族);模式按节拍时间寻址标记 —— 不虚构整数 ID |
+| `audio.take-lane.read`、`audio.comp.read` | take lane 正在 `Track.take_lanes` 下实现;comp 区域编辑保持受限(无公共 API) |
+| `arrangement.automation.*` | Arrangement 自动化编写无稳定公共 API;保持保留并故障关闭 |
+| `browser.preview.start/stop` | Browser 预览使用非官方 Python 绑定;处置随 Browser 家族工作决定 |
+| `project.new/open/save/save-as/collect/export/bounce` | 无公共 Remote Script API;`live_project_save` / `live_project_open` 保持为显式限制报告器 |
+| `session.discover` | 保留别名;发现由 `discover`/`snapshot`/`get` 提供 |

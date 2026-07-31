@@ -263,7 +263,7 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         const transport = this.state.playback.transport;
         const finite = (name: string): number | undefined => { const value = args[name]; if (value === null || value === undefined) return undefined; if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new TypeError(`${name} is invalid`); return value; };
         const bool = (name: string): boolean | undefined => { const value = args[name]; if (value === null || value === undefined) return undefined; if (typeof value !== "boolean") throw new TypeError(`${name} is invalid`); return value; };
-        const position = finite("position"); const loopStart = finite("loopStart"); const loopLength = finite("loopLength"); const countIn = finite("countIn");
+        const position = finite("position"); const loopStart = finite("loopStart"); const loopLength = finite("loopLength");
         const loopEnabled = bool("loopEnabled"); const metronome = bool("metronome"); const punchIn = bool("punchIn"); const punchOut = bool("punchOut");
         if (loopLength !== undefined && loopLength <= 0) throw new RangeError("loopLength is invalid");
         if (position !== undefined) { transport.position = position; this.state.set.position = position; }
@@ -273,7 +273,6 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         if (metronome !== undefined) transport.metronome = metronome;
         if (punchIn !== undefined) transport.punchIn = punchIn;
         if (punchOut !== undefined) transport.punchOut = punchOut;
-        if (countIn !== undefined) transport.countIn = countIn;
         this.state.playback.revision = `${this.epoch}:transport:${++this.sequence}`;
         this.emit({ type: "transport", payload: { operation } });
         return { changed: true, revision: this.state.playback.revision };

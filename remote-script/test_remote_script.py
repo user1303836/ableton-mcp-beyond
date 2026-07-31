@@ -609,7 +609,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "faca649767d097f20c138d522fd8e5526fd6a8a8d73fcb9672f03709f2d8b846")
+        self.assertEqual(digest, "499b91bf9c6871b6de2acd067e4252754768968c38bea62f65e212de1dfaad1b")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -1229,7 +1229,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertFalse(row["isAudio"]); self.assertEqual(row["availableAudioFields"], []); self.assertEqual(row["warpMarkers"], [])
 
     def test_audio_fields_are_discovered_and_mutated_only_when_writable(self):
-        song = FakeSong(); clip = FakeCapturedAudioClip(); clip.is_recording = False; clip.pitch_coarse = 0.0; clip.pitch_fine = 0.0; clip.loop_start = 0.0; clip.loop_end = 2.0; clip.warping_mode = 1; clip.warping = True; clip.fade_in_length = 0.0; clip.fade_out_length = 0.0
+        song = FakeSong(); clip = FakeCapturedAudioClip(); clip.is_recording = False; clip.pitch_coarse = 0.0; clip.pitch_fine = 0.0; clip.loop_start = 0.0; clip.loop_end = 2.0; clip.warp_mode = 1; clip.warping = True; clip.fade_in_length = 0.0; clip.fade_out_length = 0.0
         song.tracks[0].clip_slots[0].clip = clip; mapper = LiveObjectMapper(song); row = mapper.snapshot()["tracks"][0]["clips"][0]
         self.assertIn("fadeInLength", row["availableAudioFields"]); self.assertEqual(row["warpMarkers"], [])
         fields = ("gain", "pitchCoarse", "pitchFine", "loopStart", "loopEnd", "warpMode", "warping", "fadeInLength", "fadeOutLength")
@@ -1248,7 +1248,7 @@ class ControlSurfaceTests(unittest.TestCase):
             def fade_out_length(self, value):
                 if value == 0.5: raise RuntimeError("injected fade failure")
                 self._fade_out = value
-        song = FakeSong(); clip = FailingAudioClip(); clip.is_recording = False; clip.pitch_coarse = 0.0; clip.pitch_fine = 0.0; clip.loop_start = 0.0; clip.loop_end = 2.0; clip.warping_mode = 1; clip.warping = True; clip.fade_in_length = 0.0
+        song = FakeSong(); clip = FailingAudioClip(); clip.is_recording = False; clip.pitch_coarse = 0.0; clip.pitch_fine = 0.0; clip.loop_start = 0.0; clip.loop_end = 2.0; clip.warp_mode = 1; clip.warping = True; clip.fade_in_length = 0.0
         song.tracks[0].clip_slots[0].clip = clip; mapper = LiveObjectMapper(song); row = mapper.snapshot()["tracks"][0]["clips"][0]; fields = ("gain", "pitchCoarse", "pitchFine", "loopStart", "loopEnd", "warpMode", "warping", "fadeInLength", "fadeOutLength"); authority = hashlib.sha256(mapper._bounded_canonical(mapper._session_clip_authority(row["ref"])).encode()).hexdigest(); state = hashlib.sha256(mapper._bounded_canonical({field: row.get(field) for field in fields}).encode()).hexdigest()
         with self.assertRaisesRegex(ValueError, "loopStart"):
             mapper.invoke("audio.clip.set", {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedAuthorityRevision": authority, "expectedStateRevision": state, "gain": 0.25, "loopStart": 3.0, "loopEnd": 2.0})
@@ -1258,7 +1258,16 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(clip.gain, 1.0); self.assertEqual(clip.fade_out_length, 0.0)
 
     def test_nested_chain_devices_and_parameters_are_first_class(self):
-        song = FakeSong(); nested = FakeDevice(); nested.name = "Nested Utility"; sibling = FakeDevice(); sibling.name = "Sibling"
+        class EnableableDevice(FakeDevice):
+            def __init__(self):
+                super().__init__()
+                on = FakeParameter(); on.value = 1.0; on.quantization = 1.0
+                self.parameters = [on, FakeParameter()]
+            @property
+            def enabled(self): return self.parameters[0].value == 1.0
+            @enabled.setter
+            def enabled(self, _value): pass  # enable state is owned by the Device On parameter
+        song = FakeSong(); nested = EnableableDevice(); nested.name = "Nested Utility"; sibling = FakeDevice(); sibling.name = "Sibling"
         chain_one = type("Chain", (), {"name": "Chain 1", "devices": [nested, sibling], "mute": False, "solo": False})(); chain_two = type("Chain", (), {"name": "Chain 2", "devices": [], "mute": False, "solo": False})()
         rack = FakeDevice(); rack.name = "Rack"; rack.can_have_chains = True; rack.chains = [chain_one, chain_two]
         song.tracks[0].devices = [rack]; mapper = LiveObjectMapper(song)
@@ -1952,6 +1961,26 @@ class ControlSurfaceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unavailable"): mapper.invoke("device.enable", args)
         self.assertFalse(alias.is_active); self.assertFalse(alias.enabled)
 
+    def test_device_enable_device_on_parameter_failure_rolls_back_exactly(self):
+        class FailingOnParameter(FakeParameter):
+            def __init__(self): self._armed = False; super().__init__(); self.quantization = 1.0; self._value = 1.0
+            @property
+            def value(self): return self._value
+            @value.setter
+            def value(self, target):
+                self._value = target
+                if self._armed: raise RuntimeError("injected setter acknowledgement loss")
+        class ToggleDevice(FakeDevice):
+            def __init__(self):
+                super().__init__(); on = FailingOnParameter(); on._armed = True; self.parameters = [on, FakeParameter()]
+            @property
+            def enabled(self): return self.parameters[0].value == 1.0
+            @enabled.setter
+            def enabled(self, _value): pass  # enable state is owned by the Device On parameter
+        song = FakeSong(); device = ToggleDevice(); song.tracks[0].devices = [device]; mapper = LiveObjectMapper(song); track = mapper.snapshot()["tracks"][0]; row = track["devices"][0]; siblings = [{"ref": item["ref"], "objectIdentity": item["objectIdentity"]} for item in track["devices"]]; args = {"ref": row["ref"], "enabled": False, "expectedObjectIdentity": row["objectIdentity"], "expectedOwnerRef": track["ref"], "expectedOwnerIdentity": track["objectIdentity"], "expectedSiblings": siblings, "expectedTrackRef": track["ref"], "expectedTrackIdentity": track["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({"enabled": True}).encode()).hexdigest()}
+        with self.assertRaisesRegex(ValueError, "unavailable"): mapper.invoke("device.enable", args)
+        self.assertTrue(device.enabled)
+
     def test_browser_search_skips_unrepresentable_live_names(self):
         class Item:
             def __init__(self, name, children=None): self.name = name; self.children = children or []; self.is_loadable = not bool(children); self.is_device = not bool(children)
@@ -2036,16 +2065,16 @@ class ControlSurfaceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "sole sibling"): mapper.invoke("device.delete", {"ref": device["ref"], "expectedObjectIdentity": device["objectIdentity"], "expectedOwnerRef": track["ref"], "expectedOwnerIdentity": track["objectIdentity"], "expectedSiblings": siblings, "expectedTrackRef": track["ref"], "expectedTrackIdentity": track["objectIdentity"]})
         self.assertIn(target, song.tracks[0].devices)
         class FailingTransportSong(FakeSong):
-            def __init__(self): self._count = 1; self.reject_count = False; super().__init__(); self.reject_count = True
+            def __init__(self): self._loop = False; self.reject_loop = False; super().__init__(); self.reject_loop = True
             @property
-            def count_in_duration(self): return self._count
-            @count_in_duration.setter
-            def count_in_duration(self, value): self._count = value
-        failing = FailingTransportSong(); failing.loop = False; failing.loop_start = 0.0; failing.loop_length = 4.0; failing.current_song_time = 0.0; failing.metronome = False; failing.punch_in = False; failing.punch_out = False; original_loop = failing.loop
-        def reject_count(value): failing._count = value; raise RuntimeError("injected late transport failure")
-        type(failing).count_in_duration = property(lambda self: self._count, lambda self, value: reject_count(value) if self.reject_count else setattr(self, "_count", value)); mapper = LiveObjectMapper(failing); snapshot = mapper.snapshot(); set_ref = snapshot["set"]["ref"]
-        with self.assertRaisesRegex(RuntimeError, "late transport failure"): mapper.invoke("transport.set", {"setRef": set_ref, "expectedObjectIdentity": snapshot["set"]["objectIdentity"], "expectedRevision": snapshot["playback"]["revision"], "loopEnabled": not original_loop, "countIn": 2})
-        self.assertIs(failing.loop, original_loop); self.assertEqual(failing.count_in_duration, 1)
+            def loop(self): return self._loop
+            @loop.setter
+            def loop(self, value): self._loop = value
+        failing = FailingTransportSong(); failing.loop_start = 0.0; failing.loop_length = 4.0; failing.current_song_time = 0.0; failing.metronome = False; failing.punch_in = False; failing.punch_out = False
+        def reject_loop(value): failing._loop = value; raise RuntimeError("injected late transport failure")
+        type(failing).loop = property(lambda self: self._loop, lambda self, value: reject_loop(value) if self.reject_loop else setattr(self, "_loop", value)); mapper = LiveObjectMapper(failing); snapshot = mapper.snapshot(); set_ref = snapshot["set"]["ref"]
+        with self.assertRaisesRegex(RuntimeError, "late transport failure"): mapper.invoke("transport.set", {"setRef": set_ref, "expectedObjectIdentity": snapshot["set"]["objectIdentity"], "expectedRevision": snapshot["playback"]["revision"], "loopEnabled": True, "metronome": True})
+        self.assertIs(failing.loop, False); self.assertFalse(failing.metronome)
 
     def test_mixer_and_routing_mutations_compare_atomic_prior_state(self):
         song = FakeSong(); track = song.tracks[0]; track.mute = False; track.solo = False

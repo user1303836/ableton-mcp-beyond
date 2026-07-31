@@ -13,7 +13,7 @@ Source, schemas, and tests are authoritative. Documentation must not promote a c
 - `apps/mcp-server/src/transactions/`: bounded MIDI transaction and async discovery helpers.
 - `apps/mcp-server/src/analysis.ts`: bounded PCM decoding and privacy-preserving analysis.
 - `apps/mcp-server/src/delivery.ts`: configuration, secret validation, packaging, installation, and diagnostics.
-- `protocol/ableton-live-v1.operations.json`: canonical version-1 operation registry. Its canonical registry hash is `faca649767d097f20c138d522fd8e5526fd6a8a8d73fcb9672f03709f2d8b846` for the current contract.
+- `protocol/ableton-live-v1.operations.json`: canonical version-1 operation registry. Its canonical registry hash is `499b91bf9c6871b6de2acd067e4252754768968c38bea62f65e212de1dfaad1b` for the current contract.
 - `remote-script/AbletonMcpBridge/__init__.py`: one-argument Control Surface entrypoint and fail-closed reference loading.
 - `remote-script/ableton_mcp_remote_script.py`: authenticated transport, bounded main-thread dispatch, epoch-scoped references, shape-dependent operation advertisement, hierarchical discovery, structure, MIDI, locator, and published device-parameter mapping.
 
@@ -31,6 +31,13 @@ exposes generic `set`; mutation is available only through canonical,
 purpose-specific operations.
 
 The Python worker performs framing, authentication, sequencing, and queueing only. Live-facing traversal and mutation are drained by the scheduled main-thread callback. A fresh connection epoch invalidates prior references and cursors. Unsupported Live shapes are unavailable, never fabricated. Device control is limited to an authoritative published numeric parameter with valid bounds, quantization, enabled state, automatable state, parentage, and post-mutation readback. Discovery rows retain parent references; empty clip slots are explicit rows and must not be inferred as clips.
+
+Decision: bridge `get(ref)` remains an internal bounded serializer over fixed
+rows, not a generic Live Object Model property reader, and it is not exposed
+as a generic MCP read surface. MCP reads stay purpose-specific
+(`live_status`, `live_snapshot`, `live_discover`, capability/status rows);
+requested fields in discovery are a projection over those fixed rows. This is
+a deliberate boundary, not an unimplemented generic reader.
 
 ## Commands
 

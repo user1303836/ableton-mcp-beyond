@@ -39,7 +39,7 @@ MIT ライセンスで、ローカル配布・未公開・未署名であり、�
 - `server_status` と `capabilities` はホスト状態とネゴシエート済みカタログを報告します。
 - `live_status` はプロトコル、アダプター、エポック、レジストリハッシュ、操作、接続状態を報告します。
 - `live_snapshot` は `session.read` がネゴシエートされている場合に有界な Set スナップショットを返します。偽の不完全な Live 形状でのフォールバック値は、Live 状態の証拠ではなく利用不可の証拠として扱ってください。
-- `live_discover` はネゴシエート済みのすべての種別を検証し、子種別には親を要求します。アダプターがマッパーディスカバリを公開する場合、`set`、`track`、`return-track`、`main-track`、`scene`、`clip-slot`、`session-clip`、`arrangement-clip`、`note`、`locator`、`device`、`parameter`、`selection`、`routing-choice`、`session-playback` を受け付け、有界な親、最大 8 つのスカラーフィルター、要求フィールド、走査バジェット、ページング、エポック/リビジョン bound のカーソルをサポートします。互換フォールバックは `track`、`scene`、`clip`、`note` に限定されます。
+- `live_discover` はネゴシエート済みのすべての種別を検証し、子種別には親を要求します。アダプターがマッパーディスカバリを公開する場合、`set`、`track`、`return-track`、`main-track`、`scene`、`clip-slot`、`session-clip`、`arrangement-clip`、`note`、`locator`、`device`、`parameter`、`selection`、`routing-choice`、`session-playback` を受け付け、有界な親、最大 8 つのスカラーフィルター、要求フィールド、走査バジェット、ページング、エポック/リビジョン bound のカーソルをサポートします。要求フィールドは各種別の固定行シリアライザー上の投影であり、計算済みフィールドのどれを返すかを選ぶだけで、Live Object Model プロパティの任意の取得ではありません。互換フォールバックは `track`、`scene`、`clip`、`note` に限定されます。
 - `audio_analyze` は呼び出し側提供の float32 PCM を解析し、有界な集約、波形、スペクトル、トランジェント、ダイナミクス、クリッピング、ITU-R BS.1770-5/EBU ラウドネス、LRA、検証済み 44.1/48 kHz トゥルーピークの要約を返します。分離されたキャンセル可能なワーカーで実行され、Live のオーディオをキャプチャせず、生サンプルを返しません。
 - `audio_compare_reference` は 2 つの有界 PCM ソースを、帯域制限リサンプリング、粗から精への(または明示的な手動/無効)アライメント、規格ベースのレベルマッチ助言、集約デルタで比較します。自動アライメントが弱い場合、個別のソース解析は保持されますが、オーバーラップと比較デルタは保留されます。アライン済み PCM は返しません。
 - `audio_diagnose_live_context` は呼び出し側 PCM の測定値を 1 つの新鮮な正確な Live トラックスナップショットに関連付けます。この関係は呼び出し側の宣言であり未検証です。観測されたデバイスはコンテキストであり、原因とは断言されません。
