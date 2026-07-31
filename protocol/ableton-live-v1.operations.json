@@ -1400,21 +1400,19 @@
         "type": "object",
         "properties": {
           "revision": {
-            "type": "integer",
-            "minimum": 1
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
           },
           "markers": {
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
-                "id": {
-                  "type": "integer",
-                  "minimum": 0
-                },
                 "beatTime": {
                   "type": "number",
-                  "minimum": 0,
+                  "minimum": -1000000,
                   "maximum": 1000000000
                 },
                 "sampleTime": {
@@ -1424,7 +1422,6 @@
                 }
               },
               "required": [
-                "id",
                 "beatTime",
                 "sampleTime"
               ],
@@ -1638,6 +1635,59 @@
         },
         "required": [
           "retired"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "automation.envelope.clear",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "clipRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedAuthorityDigest": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "expectedEnvelopesRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "clipRef",
+          "expectedAuthorityDigest",
+          "expectedEnvelopesRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "cleared": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1024
+          },
+          "envelopesRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "cleared",
+          "envelopesRevision"
         ],
         "additionalProperties": false
       }
@@ -2279,6 +2329,101 @@
         },
         "required": [
           "items"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "clip.action",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "crop",
+              "duplicate-loop",
+              "duplicate-region",
+              "scrub-start",
+              "scrub-stop",
+              "move-playing-position"
+            ]
+          },
+          "regionStart": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000000
+          },
+          "regionEnd": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000000
+          },
+          "destination": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000000
+          },
+          "offset": {
+            "type": "number",
+            "minimum": -1000000,
+            "maximum": 1000000
+          },
+          "expectedObjectIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedAuthorityRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "expectedStateRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "expectedContentFingerprint": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "ref",
+          "action",
+          "expectedObjectIdentity",
+          "expectedAuthorityRevision",
+          "expectedStateRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "boolean",
+            "const": true
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "changed",
+          "revision"
         ],
         "additionalProperties": false
       }
@@ -3708,7 +3853,7 @@
           "ref"
         ],
         "additionalProperties": true,
-        "maxProperties": 32
+        "maxProperties": 64
       }
     },
     {
@@ -4482,6 +4627,328 @@
         },
         "required": [
           "deleted"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "note.duplicate",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "noteIds": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "minItems": 1,
+            "maxItems": 1024
+          },
+          "expectedClipAuthority": {
+            "type": "object",
+            "properties": {
+              "expectedObjectIdentity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "expectedTrackRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "expectedTrackIdentity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "expectedSlotRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "expectedSlotIdentity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "expectedSceneRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "expectedSceneIdentity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            },
+            "required": [
+              "expectedObjectIdentity",
+              "expectedTrackRef",
+              "expectedTrackIdentity",
+              "expectedSlotRef",
+              "expectedSlotIdentity",
+              "expectedSceneRef",
+              "expectedSceneIdentity"
+            ],
+            "additionalProperties": false
+          },
+          "expectedNotesRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "ref",
+          "noteIds",
+          "expectedClipAuthority",
+          "expectedNotesRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "duplicated": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1024
+          },
+          "notesRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "duplicated",
+          "notesRevision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "note.quantize",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "grid": {
+            "type": "number",
+            "minimum": 0.0001,
+            "maximum": 1000000
+          },
+          "amount": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "pitch": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 127
+          },
+          "expectedClipAuthority": {
+            "type": "object",
+            "properties": {
+              "expectedObjectIdentity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "expectedTrackRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "expectedTrackIdentity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "expectedSlotRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "expectedSlotIdentity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "expectedSceneRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "expectedSceneIdentity": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            },
+            "required": [
+              "expectedObjectIdentity",
+              "expectedTrackRef",
+              "expectedTrackIdentity",
+              "expectedSlotRef",
+              "expectedSlotIdentity",
+              "expectedSceneRef",
+              "expectedSceneIdentity"
+            ],
+            "additionalProperties": false
+          },
+          "expectedNotesRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "ref",
+          "grid",
+          "amount",
+          "expectedClipAuthority",
+          "expectedNotesRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "boolean",
+            "const": true
+          },
+          "notesRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "changed",
+          "notesRevision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "note.read-by-id",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "noteIds": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "minItems": 1,
+            "maxItems": 1024
+          }
+        },
+        "required": [
+          "ref",
+          "noteIds"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "notes": {
+            "type": "array",
+            "maxItems": 1024,
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "maxProperties": 16
+            }
+          },
+          "notesRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "notes",
+          "notesRevision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "note.read-selected",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "array",
+            "maxItems": 1024,
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "maxProperties": 16
+            }
+          },
+          "notesRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "available",
+          "notes",
+          "notesRevision"
         ],
         "additionalProperties": false
       }
@@ -5956,6 +6423,121 @@
         "required": [
           "renamed",
           "name"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "session.audio-clip.create",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "trackRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "sceneIndex": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "filePath": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedTrackIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedSlotRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedSlotIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedSceneRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedSceneIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "trackRef",
+          "sceneIndex",
+          "filePath",
+          "expectedTrackIdentity",
+          "expectedSlotRef",
+          "expectedSlotIdentity",
+          "expectedSceneRef",
+          "expectedSceneIdentity"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "objectIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "length": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000000
+          },
+          "filePath": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "createdFingerprint": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "ownershipToken": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{32,128}$"
+          }
+        },
+        "required": [
+          "ref",
+          "objectIdentity",
+          "name",
+          "length",
+          "filePath",
+          "createdFingerprint"
         ],
         "additionalProperties": false
       }

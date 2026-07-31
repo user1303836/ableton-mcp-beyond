@@ -232,7 +232,7 @@ def _debug_trace(context: str) -> None:
 
 METHODS = {"status", "snapshot", "discover", "get", "preflight", "prepare", "invoke", "subscribe", "reconnect", "retire"}
 _READ_ONLY_INVOKES = {"session.playback", "automation.envelope.read", "browser.search", "browser.inspect", "audio.capture.inspect", "audio.capture.status", "realtime.stats", "session.reconnect"}
-_TRANSACTION_CREATIONS = {"track.create", "scene.create", "clip.create", "clip.duplicate", "arrangement.clip.create", "arrangement.audio-clip.create", "browser.load", "device.insert", "session.capture-midi", "scene.capture", "locator.add"}
+_TRANSACTION_CREATIONS = {"track.create", "scene.create", "clip.create", "clip.duplicate", "arrangement.clip.create", "arrangement.audio-clip.create", "session.audio-clip.create", "browser.load", "device.insert", "session.capture-midi", "scene.capture", "locator.add"}
 _TRANSACTION_DELETIONS = {"track.delete", "scene.delete", "clip.delete", "arrangement.clip.delete", "device.delete", "locator.delete"}
 _OWNED_CONTENT_MUTATIONS = {"note.add", "note.add-batch", "note.update", "note.delete"}
 def _mutation_authority_required(operation: str) -> bool: return operation not in _READ_ONLY_INVOKES
@@ -719,6 +719,27 @@ class LiveObjectMapper:
             if operation == "view.set": return callable(getattr(view, "show_view", None)) and callable(getattr(view, "is_view_visible", None))
             song_view = getattr(self.song, "view", None)
             return callable(getattr(view, "zoom_view", None)) and callable(getattr(view, "scroll_view", None)) and song_view is not None and self._read_attr(song_view, "follow_song") is not None
+        if operation == "session.audio-clip.create":
+            return any(not bool(getattr(track, "has_midi_input", False)) and any(callable(getattr(slot, "create_audio_clip", None)) for slot in self._items(getattr(track, "clip_slots", []))) for track in tracks)
+        if operation == "clip.action":
+            return any(clip is not None and (callable(getattr(clip, "crop", None)) or callable(getattr(clip, "duplicate_loop", None)) or callable(getattr(clip, "start_scrub", None))) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])) for clip in [getattr(slot, "clip", None)])
+        if operation == "automation.envelope.clear":
+            return any(callable(getattr(getattr(slot, "clip", None), "clear_all_envelopes", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation == "note.read-by-id":
+            return any(callable(getattr(getattr(slot, "clip", None), "get_notes_by_id", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation == "note.read-selected":
+            return any(callable(getattr(getattr(slot, "clip", None), "get_selected_notes", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation == "note.duplicate":
+            return any(callable(getattr(getattr(slot, "clip", None), "duplicate_notes_by_id", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation == "note.quantize":
+            return any(callable(getattr(getattr(slot, "clip", None), "quantize", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation in {"audio.warp-marker.read", "audio.warp-marker.add", "audio.warp-marker.move", "audio.warp-marker.delete"}:
+            clips = [getattr(slot, "clip", None) for track in tracks for slot in self._items(getattr(track, "clip_slots", []))]
+            clips += [clip for track in tracks for clip in self._items(self._read_attr(track, "arrangement_clips") or [])]
+            audio_clips = [clip for clip in clips if clip is not None and self._read_attr(clip, "is_audio_clip") is True]
+            if operation == "audio.warp-marker.read": return any(self._read_attr(clip, "warp_markers") is not None for clip in audio_clips)
+            method = {"audio.warp-marker.add": "add_warp_marker", "audio.warp-marker.move": "move_warp_marker", "audio.warp-marker.delete": "remove_warp_marker"}[operation]
+            return any(callable(getattr(clip, method, None)) for clip in audio_clips)
         return False
 
     def capabilities(self, operations: set[str] | None = None) -> list[str]:
@@ -758,6 +779,7 @@ class LiveObjectMapper:
             class_names = [str(self._read_attr(item, "class_name") or item.__class__.__name__).lower() for item in device_objects]
             if any(any(marker in name for marker in ("plugin", "vst", "audio_unit")) for name in class_names): capabilities.append("plugins")
         if supports("audio.clip.set"): capabilities.append("audio")
+        if supports("audio.warp-marker.read"): capabilities.append("warp")
         if supports("audio.capture.inspect") and supports("audio.capture.start") and supports("audio.capture.stop") and supports("audio.capture.cleanup"): capabilities.append("audio.capture.resampling")
         if supports("automation.envelope.read"): capabilities.append("automation")
         if supports("view.set") or supports("view.control"): capabilities.append("view")
@@ -944,6 +966,10 @@ class LiveObjectMapper:
             "filePath": str(file_path) if isinstance(file_path, str) and file_path else None,
         }
         values["availableAudioFields"] = [field for field in ("gain", "pitchCoarse", "pitchFine", "warpMode", "warping", "fadeInLength", "fadeOutLength", "loopStart", "loopEnd") if values.get(field) is not None]
+        available_warp_modes = self._read_attr(clip, "available_warp_modes")
+        values["availableWarpModes"] = [int(mode) for mode in self._items(available_warp_modes) if isinstance(mode, int) and not isinstance(mode, bool)][:32] if available_warp_modes is not None else None
+        sample_length = self._read_attr(clip, "sample_length")
+        values["sampleLength"] = float(sample_length) if isinstance(sample_length, (int, float)) and not isinstance(sample_length, bool) and math.isfinite(float(sample_length)) else None
         try:
             markers = list(getattr(clip, "warp_markers", None) or [])
         except Exception as error:
@@ -1228,6 +1254,9 @@ class LiveObjectMapper:
         except (AttributeError, RuntimeError, TypeError) as error:
             raise ValueError("complete MIDI note enumeration failed") from error
         if len(raw) > MAX_WIRE_ARRAY_LENGTH: raise ValueError("MIDI note collection exceeds its authoritative bound")
+        return self._note_rows_from(raw)
+
+    def _note_rows_from(self, raw: Any) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for item in self._items(raw):
             if isinstance(item, dict):
@@ -2018,6 +2047,24 @@ class LiveObjectMapper:
             return self._audio_clip_set(args)
         if operation == "clip.set":
             return self._clip_set(args)
+        if operation == "clip.action":
+            return self._clip_action(args)
+        if operation == "session.audio-clip.create":
+            return self._session_audio_clip_create(args)
+        if operation == "automation.envelope.clear":
+            return self._automation_envelope_clear(args)
+        if operation == "note.read-by-id":
+            return self._note_read_by_id(args)
+        if operation == "note.read-selected":
+            return self._note_read_selected(args)
+        if operation == "note.duplicate":
+            return self._note_duplicate(args)
+        if operation == "note.quantize":
+            return self._note_quantize(args)
+        if operation == "audio.warp-marker.read":
+            return self._warp_marker_read(args)
+        if operation in {"audio.warp-marker.add", "audio.warp-marker.move", "audio.warp-marker.delete"}:
+            return self._warp_marker_mutate(operation, args)
         if operation == "arrangement.audio-clip.create":
             return self._arrangement_audio_clip_create(args)
         if operation == "locator.jump":
@@ -2860,6 +2907,29 @@ class LiveObjectMapper:
             for name, key in (("loop_start", "loopStart"), ("loop_end", "loopEnd")):
                 value = self._read_attr(clip, name)
                 fields[key] = float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+        def optional_bool(name: str) -> bool | None:
+            value = self._read_attr(clip, name)
+            return value if isinstance(value, bool) else None
+        def optional_float(name: str) -> float | None:
+            value = self._read_attr(clip, name)
+            return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+        def optional_int(name: str) -> int | None:
+            value = self._read_attr(clip, name)
+            return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+        fields["launchMode"] = optional_int("launch_mode")
+        fields["legato"] = optional_bool("legato")
+        fields["playingPosition"] = optional_float("playing_position")
+        fields["isPlaying"] = optional_bool("is_playing")
+        fields["isTriggered"] = optional_bool("is_triggered")
+        fields["isRecording"] = optional_bool("is_recording")
+        fields["ramMode"] = optional_bool("ram_mode")
+        fields["signatureNumerator"] = optional_int("signature_numerator")
+        fields["signatureDenominator"] = optional_int("signature_denominator")
+        fields["velocityAmount"] = optional_float("velocity_amount")
+        fields["willRecordOnStart"] = optional_bool("will_record_on_start")
+        fields["fireButtonState"] = optional_bool("fire_button_state")
+        end_time = self._read_attr(clip, "end_time")
+        fields["endTime"] = float(end_time) if isinstance(end_time, (int, float)) and not isinstance(end_time, bool) and math.isfinite(float(end_time)) else None
         return fields
 
     def _clip_set(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -3042,6 +3112,336 @@ class LiveObjectMapper:
             if [self._capture_object_identity(item) for item in self._items(self._read_attr(track, "arrangement_clips") or [])] != before_identity_order: rollback_failed = True
             if rollback_failed: raise ValueError("arrangement audio clip creation failed and exact cleanup failed") from error
             self.refs.restore(checkpoint); raise
+
+    def _clip_authority_digest(self, reference: str) -> str:
+        if reference.startswith(f"{self.refs.epoch}:clip:"): return hashlib.sha256(self._bounded_canonical(self._session_clip_authority(reference)).encode("utf-8")).hexdigest()
+        if reference.startswith(f"{self.refs.epoch}:arrangement_clip:"): return self._arrangement_clip_authority_revision(reference)
+        raise ValueError("clip hierarchy is unavailable")
+
+    def _warp_marker_rows(self, clip: Any) -> list[dict[str, Any]]:
+        markers = list(getattr(clip, "warp_markers", None) or [])
+        if len(markers) > 256: raise ValueError("complete warp-marker collection exceeds its authoritative bound")
+        rows = []
+        for marker in markers:
+            beat_time = self._read_attr(marker, "beat_time"); sample_time = self._read_attr(marker, "sample_time")
+            if not all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) for value in (beat_time, sample_time)):
+                raise ValueError("complete warp-marker content is unreadable")
+            rows.append({"beatTime": float(beat_time), "sampleTime": float(sample_time)})
+        rows.sort(key=lambda row: row["beatTime"])
+        return rows
+
+    def _warp_marker_collection_revision(self, clip: Any) -> str:
+        return hashlib.sha256(self._bounded_canonical(self._warp_marker_rows(clip)).encode("utf-8")).hexdigest()
+
+    def _warp_marker_read(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or set(args) - {"ref"}:
+            raise ValueError("warp-marker read arguments are invalid")
+        clip = self.refs.get(reference)
+        if self._read_attr(clip, "is_audio_clip") is not True:
+            raise ValueError("warp markers require an audio clip")
+        return {"revision": self._warp_marker_collection_revision(clip), "markers": self._warp_marker_rows(clip)}
+
+    def _warp_marker_mutate(self, operation: str, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:"):
+            raise ValueError("clip reference is stale or invalid")
+        if set(args) - {"ref", "beatTime", "distance", "expectedClipAuthorityDigest", "expectedMarkerCollectionRevision"}:
+            raise ValueError("warp-marker arguments are invalid")
+        clip = self.refs.get(reference)
+        if self._read_attr(clip, "is_audio_clip") is not True:
+            raise ValueError("warp markers require an audio clip")
+        expected_authority = args.get("expectedClipAuthorityDigest")
+        if not isinstance(expected_authority, str) or not hmac.compare_digest(self._clip_authority_digest(reference), expected_authority):
+            raise ValueError("clip hierarchy changed since preview")
+        before_rows = self._warp_marker_rows(clip)
+        expected_collection = args.get("expectedMarkerCollectionRevision")
+        if not isinstance(expected_collection, str) or not hmac.compare_digest(hashlib.sha256(self._bounded_canonical(before_rows).encode("utf-8")).hexdigest(), expected_collection):
+            raise ValueError("warp-marker collection changed since preview")
+        beat_time = args.get("beatTime")
+        if not isinstance(beat_time, (int, float)) or isinstance(beat_time, bool) or not math.isfinite(float(beat_time)):
+            raise ValueError("beatTime is invalid")
+        beat_time = float(beat_time)
+        before_beats = {row["beatTime"] for row in before_rows}
+        distance = 0.0
+        if operation == "audio.warp-marker.add":
+            method = getattr(clip, "add_warp_marker", None)
+            if not callable(method): raise ValueError("warp-marker creation is unavailable")
+            if beat_time < 0 or beat_time in before_beats: raise ValueError("a warp marker already exists at that beat time")
+            call = lambda: method(beat_time)
+            expected_beats = before_beats | {beat_time}
+        elif operation == "audio.warp-marker.move":
+            method = getattr(clip, "move_warp_marker", None)
+            raw_distance = args.get("distance")
+            if not callable(method): raise ValueError("warp-marker move is unavailable")
+            if not isinstance(raw_distance, (int, float)) or isinstance(raw_distance, bool) or not math.isfinite(float(raw_distance)): raise ValueError("distance is invalid")
+            if beat_time not in before_beats: raise ValueError("no warp marker exists at that beat time")
+            distance = float(raw_distance); target = beat_time + distance
+            if target < 0 or (target in before_beats and target != beat_time): raise ValueError("warp-marker move target collides with an existing marker")
+            call = lambda: method(beat_time, distance)
+            expected_beats = (before_beats - {beat_time}) | {target}
+        else:
+            method = getattr(clip, "remove_warp_marker", None)
+            if not callable(method): raise ValueError("warp-marker deletion is unavailable")
+            if beat_time not in before_beats: raise ValueError("no warp marker exists at that beat time")
+            native_markers = list(getattr(clip, "warp_markers", None) or [])
+            target_marker = next((marker for marker in native_markers if self._read_attr(marker, "beat_time") == beat_time), None)
+            if target_marker is None: raise ValueError("warp marker identity is unavailable")
+            call = lambda: method(target_marker)
+            expected_beats = before_beats - {beat_time}
+        try:
+            call()
+            after_rows = self._warp_marker_rows(clip)
+            if len(after_rows) != len(expected_beats) or {row["beatTime"] for row in after_rows} != expected_beats: raise ValueError("warp-marker change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            try:
+                if operation == "audio.warp-marker.add":
+                    native_markers = list(getattr(clip, "warp_markers", None) or [])
+                    created = next((marker for marker in native_markers if self._read_attr(marker, "beat_time") == beat_time), None)
+                    remover = getattr(clip, "remove_warp_marker", None)
+                    if created is not None and callable(remover): remover(created)
+                elif operation == "audio.warp-marker.move":
+                    mover = getattr(clip, "move_warp_marker", None)
+                    if callable(mover): mover(beat_time + distance, -distance)
+                else:
+                    adder = getattr(clip, "add_warp_marker", None)
+                    if callable(adder): adder(beat_time)
+            except BaseException: rollback_failed = True
+            try:
+                restored_beats = {row["beatTime"] for row in self._warp_marker_rows(clip)}
+            except BaseException:
+                rollback_failed = True; restored_beats = set()
+            if rollback_failed or restored_beats != before_beats: raise ValueError("warp-marker change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _session_audio_clip_create(self, args: dict[str, Any]) -> dict[str, Any]:
+        file_path = args.get("filePath")
+        if not isinstance(file_path, str) or not 1 <= len(file_path) <= 1024 or not (file_path.startswith("/") or (len(file_path) > 2 and file_path[1] == ":" and file_path[0].isalpha())): raise ValueError("filePath must be an absolute path")
+        name = args.get("name")
+        if name is not None and (not isinstance(name, str) or not 1 <= len(name) <= 256): raise ValueError("name is invalid")
+        track_ref = args.get("trackRef")
+        if not isinstance(track_ref, str): raise ValueError("track reference is invalid")
+        self.snapshot(); track = self.refs.get(track_ref)
+        if bool(getattr(track, "has_midi_input", False)):
+            raise ValueError("target track is not an audio track")
+        slots = self._items(getattr(track, "clip_slots", [])); scenes = self._items(getattr(self.song, "scenes", []))
+        if not isinstance(args.get("sceneIndex"), int) or isinstance(args["sceneIndex"], bool): raise ValueError("scene index is invalid")
+        index = args["sceneIndex"]
+        if not 0 <= index < len(slots) or index >= len(scenes): raise ValueError("scene index is invalid")
+        slot = slots[index]; scene = scenes[index]; track_index = self._capture_index(self._items(getattr(self.song, "tracks", [])), track)
+        if track_index is None or track_ref != f"{self.refs.epoch}:track:{track_index}": raise ValueError("audio import track hierarchy is stale")
+        current_authority = {"trackIdentity": self._capture_object_identity(track), "slotRef": self.refs.put("clip_slot", slot, f"{track_index}:{index}"), "slotIdentity": self._capture_object_identity(slot), "sceneRef": self.refs.put("scene", scene, str(index)), "sceneIdentity": self._capture_object_identity(scene)}
+        expected_authority = {"trackIdentity": args.get("expectedTrackIdentity"), "slotRef": args.get("expectedSlotRef"), "slotIdentity": args.get("expectedSlotIdentity"), "sceneRef": args.get("expectedSceneRef"), "sceneIdentity": args.get("expectedSceneIdentity")}
+        if not all(isinstance(value, str) for value in expected_authority.values()) or not hmac.compare_digest(self._bounded_canonical(current_authority), self._bounded_canonical(expected_authority)):
+            raise ValueError("audio import target identity changed since preview")
+        if getattr(slot, "clip", None) is not None: raise ValueError("session slot is occupied")
+        creator = getattr(slot, "create_audio_clip", None)
+        if not callable(creator): raise ValueError("session audio import is unavailable")
+        checkpoint = self.refs.checkpoint()
+        try:
+            clip = creator(file_path); clip = clip if clip is not None else getattr(slot, "clip", None)
+            if clip is None: raise ValueError("audio import was not confirmed")
+            if name is not None and hasattr(clip, "name"): clip.name = name
+            actual_path = self._read_attr(clip, "file_path"); actual_length = self._read_attr(clip, "length")
+            if name is not None and str(getattr(clip, "name", "")) != name: raise ValueError("audio import name was not confirmed")
+            if not isinstance(actual_path, str) or not actual_path: raise ValueError("audio import file path was not confirmed")
+            if not isinstance(actual_length, (int, float)) or isinstance(actual_length, bool) or not math.isfinite(float(actual_length)) or float(actual_length) <= 0: raise ValueError("audio import length was not confirmed")
+            created_ref = self.refs.put("clip", clip, f"{track_index}:{index}"); created_identity = self._capture_object_identity(clip); fingerprint = self._mapped_fingerprint(created_ref)
+            return {"ref": created_ref, "objectIdentity": created_identity, "name": str(getattr(clip, "name", "")), "length": float(actual_length), "filePath": actual_path, "createdFingerprint": fingerprint}
+        except BaseException as error:
+            rollback_failed = False; current = getattr(slot, "clip", None); deleter = getattr(slot, "delete_clip", None)
+            if current is not None:
+                if not callable(deleter): rollback_failed = True
+                else:
+                    try: deleter()
+                    except BaseException: pass
+            if getattr(slot, "clip", None) is not None: rollback_failed = True
+            if rollback_failed: raise ValueError("audio import failed and exact transaction-owned cleanup failed") from error
+            self.refs.restore(checkpoint); raise
+
+    _CLIP_ACTIONS = {"crop", "duplicate-loop", "duplicate-region", "scrub-start", "scrub-stop", "move-playing-position"}
+
+    def _clip_action(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref"); action = args.get("action")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:") or action not in self._CLIP_ACTIONS:
+            raise ValueError("clip action is invalid")
+        allowed = {"ref", "action", "regionStart", "regionEnd", "destination", "offset", "expectedObjectIdentity", "expectedAuthorityRevision", "expectedStateRevision", "expectedContentFingerprint"}
+        if set(args) - allowed: raise ValueError("clip action arguments are invalid")
+        current = self.get(reference); clip = self.refs.get(reference)
+        expected_identity = args.get("expectedObjectIdentity")
+        if not isinstance(expected_identity, str) or not hmac.compare_digest(str(current.get("objectIdentity", "")), expected_identity):
+            raise ValueError("clip identity changed since preview")
+        if not isinstance(args.get("expectedAuthorityRevision"), str) or not hmac.compare_digest(self._clip_authority_digest(reference), args["expectedAuthorityRevision"]):
+            raise ValueError("clip hierarchy changed since preview")
+        content_actions = {"crop", "duplicate-loop", "duplicate-region"}
+        if action in content_actions:
+            fingerprint = self._mapped_fingerprint(reference)
+            if not isinstance(args.get("expectedContentFingerprint"), str) or not hmac.compare_digest(fingerprint, args["expectedContentFingerprint"]):
+                raise ValueError("clip content changed since preview")
+        state_revision = hashlib.sha256(self._bounded_canonical({"isPlaying": current.get("isPlaying"), "playingPosition": current.get("playingPosition"), "length": current.get("length"), "loopStart": current.get("loopStart"), "loopEnd": current.get("loopEnd")}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]):
+            raise ValueError("clip state changed since preview")
+        before_length = self._read_attr(clip, "length"); loop_start = self._read_attr(clip, "loop_start"); loop_end = self._read_attr(clip, "loop_end")
+        if action == "crop":
+            method = getattr(clip, "crop", None)
+            if not callable(method): raise ValueError("clip crop is unavailable")
+            call = lambda: method()
+        elif action == "duplicate-loop":
+            method = getattr(clip, "duplicate_loop", None)
+            if not callable(method): raise ValueError("clip loop duplication is unavailable")
+            call = lambda: method()
+        elif action == "duplicate-region":
+            method = getattr(clip, "duplicate_region", None)
+            if not callable(method): raise ValueError("clip region duplication is unavailable")
+            region_start, region_end, destination = args.get("regionStart"), args.get("regionEnd"), args.get("destination")
+            for value in (region_start, region_end, destination):
+                if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or float(value) < 0: raise ValueError("duplicate-region bounds are invalid")
+            if float(region_end) <= float(region_start): raise ValueError("duplicate-region end must exceed start")
+            call = lambda: method(float(region_start), float(region_end), float(destination))
+        elif action == "scrub-start":
+            method = getattr(clip, "start_scrub", None)
+            if not callable(method): raise ValueError("clip scrub is unavailable")
+            position = args.get("offset")
+            if not isinstance(position, (int, float)) or isinstance(position, bool) or not math.isfinite(float(position)): raise ValueError("scrub position is invalid")
+            call = lambda: method(float(position))
+        elif action == "scrub-stop":
+            method = getattr(clip, "stop_scrub", None)
+            if not callable(method): raise ValueError("clip scrub stop is unavailable")
+            call = lambda: method()
+        else:
+            method = getattr(clip, "move_playing_pos", None)
+            if not callable(method): raise ValueError("playing-position move is unavailable")
+            offset = args.get("offset")
+            if not isinstance(offset, (int, float)) or isinstance(offset, bool) or not math.isfinite(float(offset)): raise ValueError("playing-position offset is invalid")
+            call = lambda: method(float(offset))
+        call()
+        if action == "crop":
+            new_length = self._read_attr(clip, "length")
+            expected_length = None
+            if isinstance(loop_start, (int, float)) and isinstance(loop_end, (int, float)): expected_length = float(loop_end) - float(loop_start)
+            if expected_length is not None and (not isinstance(new_length, (int, float)) or abs(float(new_length) - expected_length) > 1e-6): raise ValueError("clip crop was not confirmed")
+        if action == "duplicate-loop":
+            new_length = self._read_attr(clip, "length")
+            if isinstance(before_length, (int, float)) and (not isinstance(new_length, (int, float)) or float(new_length) < float(before_length)): raise ValueError("clip loop duplication was not confirmed")
+        if action == "duplicate-region":
+            new_length = self._read_attr(clip, "length")
+            if isinstance(before_length, (int, float)) and isinstance(new_length, (int, float)) and float(new_length) < float(before_length) + (float(args["regionEnd"]) - float(args["regionStart"])) - 1e-6: raise ValueError("clip region duplication was not confirmed")
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _automation_envelope_clear(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("clipRef")
+        if not isinstance(reference, str) or set(args) - {"clipRef", "expectedAuthorityDigest", "expectedEnvelopesRevision"}:
+            raise ValueError("envelope clear arguments are invalid")
+        if not hmac.compare_digest(self._clip_authority_digest(reference), str(args.get("expectedAuthorityDigest"))):
+            raise ValueError("clip hierarchy changed since preview")
+        _, slot, track_index, _ = self._clip_location(reference)
+        clip = getattr(slot, "clip", None)
+        if clip is None: raise ValueError("envelope clear requires a Session clip")
+        clearer = getattr(clip, "clear_all_envelopes", None)
+        reader = getattr(clip, "automation_envelope", None)
+        if not callable(clearer) or not callable(reader): raise ValueError("envelope clear is unavailable")
+        track = self._items(getattr(self.song, "tracks", []))[track_index]
+        def walk(device: Any) -> list[Any]:
+            collected = list(self._items(getattr(device, "parameters", [])))
+            for chain in self._items(self._read_attr(device, "chains") or []):
+                for nested in self._items(self._read_attr(chain, "devices") or []): collected.extend(walk(nested))
+            for pad in self._items(self._read_attr(device, "drum_pads") or []):
+                for chain in self._items(self._read_attr(pad, "chains") or []):
+                    for nested in self._items(self._read_attr(chain, "devices") or []): collected.extend(walk(nested))
+            return collected
+        parameters = [parameter for device in self._items(getattr(track, "devices", [])) for parameter in walk(device)]
+        mixer = self._read_attr(track, "mixer_device")
+        if mixer is not None:
+            parameters.extend(param for param in (self._read_attr(mixer, "volume"), self._read_attr(mixer, "panning"), self._read_attr(mixer, "cue_volume")) if param is not None)
+            parameters.extend(self._items(self._read_attr(mixer, "sends") or []))
+        if len(parameters) > 512: raise ValueError("parameter collection exceeds its envelope bound")
+        def presence() -> list[bool]:
+            rows = []
+            for parameter in parameters:
+                try: rows.append(reader(parameter) is not None)
+                except BaseException: rows.append(False)
+            return rows
+        before = presence()
+        if not hmac.compare_digest(hashlib.sha256(self._bounded_canonical(before).encode("utf-8")).hexdigest(), str(args.get("expectedEnvelopesRevision"))):
+            raise ValueError("clip envelope collection changed since preview")
+        clear_error: BaseException | None = None
+        try: clearer()
+        except BaseException as error: clear_error = error
+        after = presence()
+        if clear_error is not None or any(after): raise ValueError("envelope clear was not confirmed") from clear_error
+        return {"cleared": sum(1 for present in before if present), "envelopesRevision": hashlib.sha256(self._bounded_canonical(after).encode("utf-8")).hexdigest()}
+
+    def _note_read_by_id(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref"); note_ids = args.get("noteIds")
+        if not isinstance(reference, str) or set(args) - {"ref", "noteIds"}: raise ValueError("note read arguments are invalid")
+        if not isinstance(note_ids, list) or not 1 <= len(note_ids) <= 1024 or not all(isinstance(item, int) and not isinstance(item, bool) and item >= 0 for item in note_ids): raise ValueError("note ids are invalid")
+        clip = self.refs.get(reference)
+        if not callable(getattr(clip, "get_notes_by_id", None)): raise ValueError("targeted note reads are unavailable on this Live shape")
+        try: raw = list(clip.get_notes_by_id(note_ids))
+        except BaseException as error: raise ValueError("targeted note read failed") from error
+        if len(raw) > 1024: raise ValueError("note read exceeds its bound")
+        rows = self._note_rows_from(raw)
+        return {"notes": rows, "notesRevision": hashlib.sha256(self._bounded_canonical(self._read_notes(clip)).encode("utf-8")).hexdigest()}
+
+    def _note_read_selected(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or set(args) - {"ref"}: raise ValueError("note read arguments are invalid")
+        clip = self.refs.get(reference)
+        reader = getattr(clip, "get_selected_notes", None)
+        if not callable(reader): return {"available": False, "notes": [], "notesRevision": hashlib.sha256(self._bounded_canonical(self._read_notes(clip)).encode("utf-8")).hexdigest()}
+        try: raw = list(reader())
+        except BaseException as error: raise ValueError("selected note read failed") from error
+        if len(raw) > 1024: raise ValueError("selected note read exceeds its bound")
+        return {"available": True, "notes": self._note_rows_from(raw), "notesRevision": hashlib.sha256(self._bounded_canonical(self._read_notes(clip)).encode("utf-8")).hexdigest()}
+
+    def _note_duplicate(self, args: dict[str, Any]) -> dict[str, Any]:
+        clip = self._guard_note_clip(args)
+        note_ids = args.get("noteIds")
+        if not isinstance(note_ids, list) or not 1 <= len(note_ids) <= 512 or len(set(note_ids)) != len(note_ids) or not all(isinstance(item, int) and not isinstance(item, bool) and item >= 0 for item in note_ids):
+            raise ValueError("note ids are invalid")
+        if not callable(getattr(clip, "duplicate_notes_by_id", None)): raise ValueError("note duplication is unavailable on this Live shape")
+        before_rows = self._read_notes(clip); existing = {int(row["id"]) for row in before_rows if isinstance(row.get("id"), int)}
+        if len(existing) != len(before_rows) or any(note_id not in existing for note_id in note_ids): raise ValueError("complete stable note identity is required for duplication")
+        duplicate_error: BaseException | None = None
+        try: clip.duplicate_notes_by_id(note_ids)
+        except BaseException as error: duplicate_error = error
+        try: after_rows = self._read_notes(clip)
+        except BaseException as error:
+            if duplicate_error is None: duplicate_error = error
+            after_rows = []
+        if duplicate_error is None and len(after_rows) == len(before_rows) + len(note_ids):
+            return {"duplicated": len(note_ids), "notesRevision": hashlib.sha256(self._bounded_canonical(after_rows).encode("utf-8")).hexdigest()}
+        raise ValueError("note duplication was not confirmed") from duplicate_error
+
+    def _note_quantize(self, args: dict[str, Any]) -> dict[str, Any]:
+        clip = self._guard_note_clip(args)
+        grid = args.get("grid"); amount = args.get("amount"); pitch = args.get("pitch")
+        if not isinstance(grid, (int, float)) or isinstance(grid, bool) or not math.isfinite(float(grid)) or not 0 < float(grid) <= 1000000: raise ValueError("grid is invalid")
+        if not isinstance(amount, (int, float)) or isinstance(amount, bool) or not math.isfinite(float(amount)) or not 0 <= float(amount) <= 1: raise ValueError("amount is invalid")
+        if pitch is not None and (not isinstance(pitch, int) or isinstance(pitch, bool) or not 0 <= pitch <= 127): raise ValueError("pitch is invalid")
+        before_rows = self._read_notes(clip)
+        if pitch is not None:
+            method = getattr(clip, "quantize_to_pitch", None)
+            if not callable(method): raise ValueError("pitch quantization is unavailable on this Live shape")
+            call = lambda: method(pitch, float(grid), float(amount))
+        else:
+            method = getattr(clip, "quantize", None)
+            if not callable(method): raise ValueError("quantization is unavailable on this Live shape")
+            call = lambda: method(float(grid), float(amount))
+        quantize_error: BaseException | None = None
+        try: call()
+        except BaseException as error: quantize_error = error
+        try: after_rows = self._read_notes(clip)
+        except BaseException as error:
+            if quantize_error is None: quantize_error = error
+            after_rows = []
+        if quantize_error is None and len(after_rows) == len(before_rows):
+            return {"changed": True, "notesRevision": hashlib.sha256(self._bounded_canonical(after_rows).encode("utf-8")).hexdigest()}
+        raise ValueError("quantization was not confirmed") from quantize_error
 
     def _mixer_row(self, track: Any, track_index: int) -> dict[str, Any]:
         mixer = self._read_attr(track, "mixer_device")

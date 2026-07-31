@@ -27,6 +27,12 @@
 | ロケーター操作と再生ヘッドのジャンプ | `live_arrangement_section_preview/apply`、`live_locator_jump_preview/apply` | ロケーターの作成/削除/名前変更。再生ヘッドフェンス付きで次/前のロケーターへジャンプ |
 | タイムライン上でクリップを編成 | `live_arrangement_clip_preview/apply`、`live_clip_duplicate_preview/apply`、`live_clip_move_preview/apply` | クリップの作成、複製、移動。トランザクション作成クリップのクリーンアップは正確。任意の Arrangement 削除は拒否 |
 | オーディオファイルを Arrangement にインポート | `live_arrangement_clip_preview/apply` に `kind: "audio"` | ファイルバックのオーディオクリップを選択したトラックの正確な位置に配置し、作成されたアイデンティティを検証 |
+| オーディオファイルを Session スロットにインポート | `live_audio_import_preview/apply` | 明示的なファイル権限: 許可ルート、正規パス、サイズ/タイプチェック、SHA-256 と適用時再検証(anti-TOCTOU)、インポートしたクリップのガード付きクリーンアップ |
+| ワープマーカーを編集 | `live_warp_marker_preview/apply` | ビートタイムでマーカーを追加/移動/削除(サンプルタイムマッピングは Live が所有)。マーカーコレクションフェンス、正確なロールバック、ガード付きアンドゥ |
+| クリップのクロップ、複製、スクラブ | `live_clip_action_preview/apply` | ループへのクロップ、ループ/リージョンの複製、スクラブ、再生位置の移動。コンテンツアクションは正直にアンドゥ不可と表示 |
+| ノートのクオンタイズと複製 | `live_note_edit_preview/apply` | タイミングまたはピッチのクオンタイズ、安定ノート ID による対象複製。正確な事前コンテンツアンドゥ付き |
+| ID または選択でノートを読む | `live_note_read` | 読み取り専用の対象ノート読み取り。Live が公開する場合は現在の選択も |
+| クリップの全エンベロープをクリア | `live_automation_preview/apply` に `clear-envelopes` | クリップ上の全エンベロープ(デバイス、ラック、ミキサーパラメータ)のカウント済み・プレゼンスフェンス付きクリア。正直にアンドゥ不可 |
 | クリップのミュート、カラー、ループ | `live_clip_properties_preview/apply` | 任意のクリップのミュートとカラー。MIDI クリップのループ境界(オーディオループは `live_audio_clip_*`) |
 | オーディオクリップのサウンドを編集: ゲイン、ピッチ、ワープ、フェード | `live_audio_clip_preview/apply` | 正確なクリップがアドバタイズするフィールドのみ書き込み。ワープモードとフェードを含む |
 | クリップオートメーションを書く | `live_automation_preview/apply` | エンベロープ作成、ポイント挿入、範囲削除、エンベロープリビジョンフェンス付き |
@@ -146,7 +152,7 @@ Live/Windows 11 のセルを埋めることはありません。
 
 | 予約済み操作 ID | ディスポジション |
 |---|---|
-| `audio.warp-marker.read/add/move/delete` | 現在のブランチで実装中(ワープマーカーファミリー)。スキーマはビートタイムでマーカーをアドレス — 整数 ID は捏造しない |
+| `audio.warp-marker.read/add/move/delete` | 実装済み(ワープマーカーファミリーはこのブランチで出荷)。スキーマはビートタイムでマーカーをアドレス — 整数 ID は捏造しない |
 | `audio.take-lane.read`、`audio.comp.read` | テイクレーンは `Track.take_lanes` の下で実装中。コンプ領域編集は制限されたまま(公開 API なし) |
 | `arrangement.automation.*` | Arrangement オートメーション作成には安定した公開 API がない。予約済み・フェイルクローズのまま |
 | `browser.preview.start/stop` | Browser プレビューは非公式 Python バインディングを使用。ディスポジションは Browser ファミリー作業で決定 |

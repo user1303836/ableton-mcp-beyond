@@ -37,6 +37,16 @@ are. Source, schemas, and tests are the final authority.
   where state is recoverable. These are verified at the host, simulator,
   Python contract, and packaged fake-Live levels; exact-candidate real-Live
   proof is pending.
+- Warp-marker reads and native add/move/delete addressed by beat time with
+  collection fencing and exact rollback; Session audio import with explicit
+  file authority (allowed roots, canonical paths, size/type checks, SHA-256
+  with apply-time re-verification, and transaction-owned cleanup); clip crop,
+  loop/region duplication, scrub, and playing-position moves; note
+  read-by-ID/selected, targeted duplication, and time/pitch quantization with
+  exact prior-content undo; and counted, presence-fenced clearing of all clip
+  envelopes. Content-destroying actions (crop, envelope clear) are honestly
+  non-undoable. Verified at the host, simulator, Python contract, and packaged
+  fake-Live levels; exact-candidate real-Live proof is pending.
 - Purpose-specific preview/apply/verify/undo or cleanup workflows with exact
   object and hierarchy identities, state/content revisions, creation-time
   fingerprints, epochs, expiry, idempotency, fresh postconditions, bounded

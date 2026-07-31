@@ -34,7 +34,7 @@ export const LIVE_UNAVAILABLE_CAPABILITIES = [
 ] as const;
 
 export const SIMULATOR_CAPABILITIES = [
-  "session.read", "tracks", "scenes", "clips", "notes", "session.discovery", "session.structure", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write", "arrangement.read", "arrangement.write", "transport", "devices", "parameters", "device.parameter.write", "subscriptions", "reconnect", "view",
+  "session.read", "tracks", "scenes", "clips", "notes", "session.discovery", "session.structure", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write", "arrangement.read", "arrangement.write", "transport", "devices", "parameters", "device.parameter.write", "subscriptions", "reconnect", "view", "warp",
 ] as const satisfies readonly LiveCapability[];
 
 export type LiveCapability = typeof LIVE_CAPABILITIES[number];
@@ -89,7 +89,7 @@ export interface Parameter { ref: LiveRef; objectIdentity?: string; name: string
 export interface DeviceChain { ref: LiveRef; parentRef: LiveRef; objectIdentity?: string; index: number; name: string; mute: boolean | null; solo: boolean | null; devices: Device[]; }
 export interface DrumPad { ref: LiveRef; parentRef: LiveRef; index: number; name: string; mute: boolean | null; chains: DeviceChain[]; }
 export interface Device { ref: LiveRef; parentRef?: LiveRef; name: string; kind: "instrument" | "audio-effect" | "midi-effect" | "plugin" | "rack" | "device"; parameters: Parameter[]; objectIdentity?: string; enabled?: boolean; className?: string; canHaveChains?: boolean | null; canHaveDrumPads?: boolean | null; chains?: DeviceChain[]; drumPads?: DrumPad[]; macros?: { ref: LiveRef; objectIdentity?: string; name: string; value: unknown }[]; variationCount?: number; chainSelector?: unknown; }
-export interface Clip { ref: LiveRef; objectIdentity?: string; name: string; kind: "midi" | "audio"; start: number; length: number; notes: Note[]; notesRevision?: string; warp: boolean; takes: string[]; automation: AutomationPoint[]; envelopes?: Record<string, AutomationPoint[]>; isAudio?: boolean | null; gain?: number | null; pitchCoarse?: number | null; pitchFine?: number | null; warpMode?: number | null; warping?: boolean | null; fadeInLength?: number | null; fadeOutLength?: number | null; availableAudioFields?: string[]; loopStart?: number | null; loopEnd?: number | null; filePath?: string | null; muted?: boolean | null; colorIndex?: number | null; looping?: boolean | null; }
+export interface Clip { ref: LiveRef; objectIdentity?: string; name: string; kind: "midi" | "audio"; start: number; length: number; notes: Note[]; notesRevision?: string; warp: boolean; takes: string[]; automation: AutomationPoint[]; envelopes?: Record<string, AutomationPoint[]>; isAudio?: boolean | null; gain?: number | null; pitchCoarse?: number | null; pitchFine?: number | null; warpMode?: number | null; warping?: boolean | null; fadeInLength?: number | null; fadeOutLength?: number | null; availableAudioFields?: string[]; loopStart?: number | null; loopEnd?: number | null; filePath?: string | null; muted?: boolean | null; colorIndex?: number | null; looping?: boolean | null; launchMode?: number | null; legato?: boolean | null; playingPosition?: number | null; isPlaying?: boolean | null; isTriggered?: boolean | null; isRecording?: boolean | null; ramMode?: boolean | null; signatureNumerator?: number | null; signatureDenominator?: number | null; velocityAmount?: number | null; willRecordOnStart?: boolean | null; fireButtonState?: boolean | null; endTime?: number | null; availableWarpModes?: number[] | null; sampleLength?: number | null; warpMarkers?: Array<{ beatTime: number; sampleTime: number }> | null; }
 export interface RoutingState { inputType: string | null; inputSubRouting: string | null; outputType: string | null; outputSubRouting: string | null; availableInputTypes: number; availableInputChannels: number; availableOutputTypes: number; availableOutputChannels: number; }
 export interface MixerState { volume: number | null; pan: number | null; cueVolume: number | null; mute: boolean | null; solo: boolean | null; sends: (number | null)[]; volumeRef: LiveRef | null; volumeIdentity?: string | null; panRef: LiveRef | null; panIdentity?: string | null; cueRef: LiveRef | null; cueIdentity?: string | null; sendRefs: LiveRef[]; sendIdentities?: string[]; }
 export interface ClipSlot { ref: LiveRef; parentRef: LiveRef; objectIdentity?: string; sceneIndex: number; clipRef?: LiveRef | null; empty: boolean; }
@@ -111,13 +111,13 @@ export interface LiveEvent { epoch: number; sequence: number; type: "state" | "t
 export type LiveOperation =
   | "arrangement.clip.create" | "arrangement.clip.delete" | "arrangement.clip.move" | "arrangement.audio-clip.create" | "arrangement.automation.read" | "arrangement.automation.create" | "arrangement.automation.delete" | "arrangement.automation.point.insert" | "arrangement.automation.point.delete"
   | "audio.capture.cleanup" | "audio.capture.emergency-stop" | "audio.capture.inspect" | "audio.capture.start" | "audio.capture.status" | "audio.capture.stop" | "audio.clip.set" | "audio.warp-marker.read" | "audio.warp-marker.add" | "audio.warp-marker.move" | "audio.warp-marker.delete" | "audio.take-lane.read" | "audio.comp.read"
-  | "automation.envelope.create" | "automation.envelope.delete" | "automation.envelope.read" | "automation.point.delete" | "automation.point.insert"
-  | "browser.inspect" | "browser.load" | "browser.search" | "browser.preview.start" | "browser.preview.stop" | "clip.create" | "clip.delete" | "clip.duplicate" | "clip.move" | "clip.rename" | "clip.set"
+  | "automation.envelope.clear" | "automation.envelope.create" | "automation.envelope.delete" | "automation.envelope.read" | "automation.point.delete" | "automation.point.insert"
+  | "browser.inspect" | "browser.load" | "browser.search" | "browser.preview.start" | "browser.preview.stop" | "clip.action" | "clip.create" | "clip.delete" | "clip.duplicate" | "clip.move" | "clip.rename" | "clip.set"
   | "device.delete" | "device.enable" | "device.insert" | "device.move" | "device.parameter.set" | "device.rename"
-  | "locator.add" | "locator.delete" | "locator.jump" | "locator.rename" | "mixer.set" | "note.add" | "note.add-batch" | "note.delete" | "note.update"
+  | "locator.add" | "locator.delete" | "locator.jump" | "locator.rename" | "mixer.set" | "note.add" | "note.add-batch" | "note.delete" | "note.duplicate" | "note.quantize" | "note.read-by-id" | "note.read-selected" | "note.update"
   | "project.bounce" | "project.collect" | "project.export" | "project.new" | "project.open" | "project.save" | "project.save-as"
   | "realtime.arm" | "realtime.disarm" | "realtime.stats" | "recording.arrangement" | "recording.session" | "routing.set"
-  | "scene.capture" | "scene.create" | "scene.delete" | "scene.rename" | "session.audition-launch" | "session.audition-stop" | "session.capture-midi" | "session.clip-launch" | "session.clip-stop" | "session.discover" | "session.emergency-stop"
+  | "scene.capture" | "scene.create" | "scene.delete" | "scene.rename" | "session.audio-clip.create" | "session.audition-launch" | "session.audition-stop" | "session.capture-midi" | "session.clip-launch" | "session.clip-stop" | "session.discover" | "session.emergency-stop"
   | "tempo.set" | "track.create" | "track.delete" | "track.rename" | "transport.set" | "view.control" | "view.set" | "subscribe";
 
 export interface LiveInvocation { operation: LiveOperation; args: Record<string, unknown>; }
@@ -172,7 +172,7 @@ function createSimulatorState(): LiveSnapshot {
   };
 }
 
-export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "transport.set", "tempo.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "session.clip-launch", "session.clip-stop", "clip.create", "clip.delete", "track.create", "track.delete", "track.rename", "scene.create", "scene.delete", "scene.rename", "clip.rename", "device.rename", "locator.rename", "scene.capture", "note.add", "note.add-batch", "note.update", "note.delete", "locator.add", "locator.delete", "locator.jump", "session.capture-midi", "device.parameter.set", "clip.duplicate", "clip.move", "clip.set", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "arrangement.audio-clip.create", "audio.clip.set", "mixer.set", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.point.insert", "automation.point.delete", "device.insert", "device.delete", "device.enable", "device.move", "browser.search", "browser.inspect", "browser.load", "routing.set", "recording.session", "recording.arrangement", "view.set", "view.control"] as const;
+export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "transport.set", "tempo.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "session.clip-launch", "session.clip-stop", "clip.create", "clip.delete", "track.create", "track.delete", "track.rename", "scene.create", "scene.delete", "scene.rename", "clip.rename", "device.rename", "locator.rename", "scene.capture", "note.add", "note.add-batch", "note.update", "note.delete", "note.duplicate", "note.quantize", "note.read-by-id", "note.read-selected", "locator.add", "locator.delete", "locator.jump", "session.capture-midi", "device.parameter.set", "clip.duplicate", "clip.move", "clip.set", "clip.action", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "arrangement.audio-clip.create", "session.audio-clip.create", "audio.clip.set", "audio.warp-marker.read", "audio.warp-marker.add", "audio.warp-marker.move", "audio.warp-marker.delete", "mixer.set", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.envelope.clear", "automation.point.insert", "automation.point.delete", "device.insert", "device.delete", "device.enable", "device.move", "browser.search", "browser.inspect", "browser.load", "routing.set", "recording.session", "recording.arrangement", "view.set", "view.control"] as const;
 
 export class DeterministicLiveSimulator implements LiveAdapter {
   private state = createSimulatorState();
@@ -740,6 +740,140 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         }
         this.emit({ type: "object", ref: clip.ref, payload: { operation } });
         return { changed: true, revision: ++this.sequence };
+      }
+      case "audio.warp-marker.read": {
+        const clip = this.findClip(objectRef("ref"));
+        const markers = [...(clip.warpMarkers ?? [])].sort((a, b) => a.beatTime - b.beatTime);
+        return { revision: simulatorRevision(markers), markers };
+      }
+      case "audio.warp-marker.add":
+      case "audio.warp-marker.move":
+      case "audio.warp-marker.delete": {
+        const clip = this.findClip(objectRef("ref"));
+        if (clip.kind !== "audio") throw new Error("warp markers require an audio clip");
+        const clipAuthorityRevision = clip.ref.startsWith("arrangement-clip:") ? arrangementAuthorityRevision(clip.ref) : simulatorRevision(this.sessionClipAuthority(clip.ref));
+        if (clip.objectIdentity !== args.expectedObjectIdentity && args.expectedObjectIdentity !== undefined) throw new Error("clip identity changed since preview");
+        if (args.expectedClipAuthorityDigest !== clipAuthorityRevision) throw new Error("clip hierarchy changed since preview");
+        const markers = [...(clip.warpMarkers ?? [])].sort((a, b) => a.beatTime - b.beatTime);
+        if (args.expectedMarkerCollectionRevision !== simulatorRevision(markers)) throw new Error("warp-marker collection changed since preview");
+        const beatTime = args.beatTime;
+        if (typeof beatTime !== "number" || !Number.isFinite(beatTime)) throw new RangeError("beatTime is invalid");
+        clip.warpMarkers = markers;
+        if (operation === "audio.warp-marker.add") {
+          if (beatTime < 0 || markers.some((marker) => marker.beatTime === beatTime)) throw new RangeError("a warp marker already exists at that beat time");
+          clip.warpMarkers = [...markers, { beatTime, sampleTime: beatTime * 44100 }].sort((a, b) => a.beatTime - b.beatTime);
+        } else if (operation === "audio.warp-marker.move") {
+          const distance = args.distance;
+          if (typeof distance !== "number" || !Number.isFinite(distance)) throw new RangeError("distance is invalid");
+          const marker = markers.find((candidate) => candidate.beatTime === beatTime);
+          if (!marker) throw new Error("no warp marker exists at that beat time");
+          const target = beatTime + distance;
+          if (target < 0 || markers.some((candidate) => candidate !== marker && candidate.beatTime === target)) throw new RangeError("warp-marker move target collides with an existing marker");
+          marker.beatTime = target; marker.sampleTime = target * 44100;
+          clip.warpMarkers = [...markers].sort((a, b) => a.beatTime - b.beatTime);
+        } else {
+          if (!markers.some((candidate) => candidate.beatTime === beatTime)) throw new Error("no warp marker exists at that beat time");
+          clip.warpMarkers = markers.filter((candidate) => candidate.beatTime !== beatTime);
+        }
+        this.emit({ type: "object", ref: clip.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "session.audio-clip.create": {
+        const track = this.findTrack(objectRef("trackRef"));
+        const sceneIndex = args.sceneIndex;
+        if (!track || !Number.isInteger(sceneIndex) || (sceneIndex as number) < 0) throw new Error("audio import target is invalid");
+        const slot = (track.clipSlots ?? []).find((candidate) => candidate.sceneIndex === sceneIndex);
+        const scene = this.state.scenes.find((candidate) => candidate.index === sceneIndex);
+        if (!slot || !scene || args.expectedTrackIdentity !== track.objectIdentity || args.expectedSlotRef !== slot.ref || args.expectedSlotIdentity !== slot.objectIdentity || args.expectedSceneRef !== scene.ref || args.expectedSceneIdentity !== scene.objectIdentity) throw new Error("audio import target identity changed since preview");
+        if (slot.clipRef) throw new Error("session slot is occupied");
+        const filePath = args.filePath;
+        if (typeof filePath !== "string" || filePath.length < 1 || filePath.length > 1024 || !(filePath.startsWith("/") || /^[A-Za-z]:/.test(filePath))) throw new RangeError("filePath must be an absolute path");
+        const name = args.name;
+        if (name !== undefined && (typeof name !== "string" || name.length < 1 || name.length > 256)) throw new RangeError("name is invalid");
+        const clip: Clip = { ref: ref("clip", `${track.ref}:${sceneIndex}`), objectIdentity: `simulator:clip:${this.sequence + 1}`, name: (name as string | undefined) ?? filePath.split("/").pop() ?? "Audio Clip", kind: "audio", start: (sceneIndex as number) * 4, length: 4, notes: [], notesRevision: simulatorRevision([]), warp: true, takes: [], automation: [], isAudio: true, filePath, muted: false, warpMarkers: [{ beatTime: 1, sampleTime: 44100 }] };
+        track.clips.push(clip); slot.clipRef = clip.ref; slot.empty = false;
+        this.emit({ type: "object", ref: track.ref, payload: { operation, clip } });
+        return { ref: clip.ref, objectIdentity: clip.objectIdentity, name: clip.name, length: clip.length, filePath, createdFingerprint: simulatorRevision(clip) };
+      }
+      case "clip.action": {
+        const clip = this.findClip(objectRef("ref"));
+        if (clip.objectIdentity !== args.expectedObjectIdentity) throw new Error("clip identity changed since preview");
+        const clipAuthorityRevision = clip.ref.startsWith("arrangement-clip:") ? arrangementAuthorityRevision(clip.ref) : simulatorRevision(this.sessionClipAuthority(clip.ref));
+        if (args.expectedAuthorityRevision !== clipAuthorityRevision) throw new Error("clip hierarchy changed since preview");
+        const clipStateRevision = simulatorRevision({ isPlaying: clip.isPlaying ?? null, playingPosition: clip.playingPosition ?? null, length: clip.length ?? null, loopStart: clip.loopStart ?? null, loopEnd: clip.loopEnd ?? null });
+        if (args.expectedStateRevision !== clipStateRevision) throw new Error("clip state changed since preview");
+        const action = args.action;
+        if (["crop", "duplicate-loop", "duplicate-region"].includes(action as string) && args.expectedContentFingerprint !== simulatorRevision(clip)) throw new Error("clip content changed since preview");
+        if (action === "crop") { clip.length = (clip.loopEnd ?? clip.length) - (clip.loopStart ?? 0); }
+        else if (action === "duplicate-loop") { clip.length = clip.length * 2; }
+        else if (action === "duplicate-region") {
+          const start = args.regionStart; const end = args.regionEnd;
+          if (typeof start !== "number" || !Number.isFinite(start) || start < 0 || typeof end !== "number" || !Number.isFinite(end) || end <= start) throw new RangeError("duplicate-region bounds are invalid");
+          clip.length = clip.length + (end - start);
+        } else if (action === "scrub-start") { const offset = args.offset; if (typeof offset !== "number" || !Number.isFinite(offset)) throw new RangeError("scrub position is invalid"); clip.playingPosition = offset; }
+        else if (action === "scrub-stop") { clip.playingPosition = 0; }
+        else if (action === "move-playing-position") { const offset = args.offset; if (typeof offset !== "number" || !Number.isFinite(offset)) throw new RangeError("playing-position offset is invalid"); clip.playingPosition = (clip.playingPosition ?? 0) + offset; }
+        else throw new RangeError("clip action is invalid");
+        this.emit({ type: "object", ref: clip.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "automation.envelope.clear": {
+        const clip = this.findClip(objectRef("clipRef"));
+        const clipAuthorityRevision = clip.ref.startsWith("arrangement-clip:") ? arrangementAuthorityRevision(clip.ref) : simulatorRevision(this.sessionClipAuthority(clip.ref));
+        if (args.expectedAuthorityDigest !== clipAuthorityRevision) throw new Error("clip hierarchy changed since preview");
+        const track = this.state.tracks.find((candidate) => candidate.clips.some((row) => row.ref === clip.ref));
+        if (!track) throw new Error("envelope clear requires a Session clip");
+        const walk = (devices: Device[]): Parameter[] => devices.flatMap((device) => [...(device.parameters ?? []), ...walk(device.chains?.flatMap((chain) => chain.devices ?? []) ?? []), ...walk(device.drumPads?.flatMap((pad) => pad.chains?.flatMap((chain) => chain.devices ?? []) ?? []) ?? [])]);
+        const parameters: Array<{ ref: string }> = walk(track.devices ?? []);
+        if (track.mixer) for (const ref of [track.mixer.volumeRef, track.mixer.panRef, track.mixer.cueRef, ...track.mixer.sendRefs]) if (ref) parameters.push({ ref });
+        const presence = parameters.map((parameter) => (clip.envelopes ?? {})[parameter.ref] !== undefined);
+        if (args.expectedEnvelopesRevision !== simulatorRevision(presence)) throw new Error("clip envelope collection changed since preview");
+        const cleared = presence.filter(Boolean).length;
+        clip.envelopes = {};
+        this.emit({ type: "object", ref: clip.ref, payload: { operation } });
+        return { cleared, envelopesRevision: simulatorRevision(parameters.map(() => false)) };
+      }
+      case "note.read-by-id": {
+        const clip = this.findClip(objectRef("ref"));
+        const noteIds = args.noteIds;
+        if (!Array.isArray(noteIds) || noteIds.length < 1 || noteIds.length > 1024 || !noteIds.every((value) => Number.isInteger(value) && (value as number) >= 0)) throw new RangeError("note ids are invalid");
+        const wanted = new Set(noteIds as number[]);
+        return { notes: clip.notes.filter((note) => wanted.has(note.id as number)), notesRevision: clip.notesRevision ?? simulatorRevision(clip.notes) };
+      }
+      case "note.read-selected": {
+        const clip = this.findClip(objectRef("ref"));
+        return { available: true, notes: clip.notes.slice(0, 0), notesRevision: clip.notesRevision ?? simulatorRevision(clip.notes) };
+      }
+      case "note.duplicate": {
+        const clip = this.findClip(objectRef("ref"));
+        const noteIds = args.noteIds;
+        if (simulatorCanonical(this.sessionClipAuthority(clip.ref)) !== simulatorCanonical(args.expectedClipAuthority)) throw new Error("note clip hierarchy identity changed since preview");
+        if (args.expectedNotesRevision !== (clip.notesRevision ?? simulatorRevision(clip.notes))) throw new Error("clip notes changed since preview");
+        if (!Array.isArray(noteIds) || noteIds.length < 1 || noteIds.length > 512 || new Set(noteIds).size !== noteIds.length || !noteIds.every((value) => Number.isInteger(value) && (value as number) >= 0)) throw new RangeError("note ids are invalid");
+        const wanted = new Set(noteIds as number[]);
+        const sources = clip.notes.filter((note) => wanted.has(note.id as number));
+        if (sources.length !== wanted.size) throw new Error("complete stable note identity is required for duplication");
+        let nextId = Math.max(0, ...clip.notes.map((note) => (note.id as number) ?? 0)) + 1;
+        for (const source of sources) clip.notes.push({ ...structuredClone(source), id: nextId++ });
+        clip.notesRevision = simulatorRevision(clip.notes);
+        this.emit({ type: "object", ref: clip.ref, payload: { operation } });
+        return { duplicated: sources.length, notesRevision: clip.notesRevision };
+      }
+      case "note.quantize": {
+        const clip = this.findClip(objectRef("ref"));
+        if (simulatorCanonical(this.sessionClipAuthority(clip.ref)) !== simulatorCanonical(args.expectedClipAuthority)) throw new Error("note clip hierarchy identity changed since preview");
+        if (args.expectedNotesRevision !== (clip.notesRevision ?? simulatorRevision(clip.notes))) throw new Error("clip notes changed since preview");
+        const grid = args.grid; const amount = args.amount;
+        if (typeof grid !== "number" || !Number.isFinite(grid) || grid <= 0 || typeof amount !== "number" || !Number.isFinite(amount) || amount < 0 || amount > 1) throw new RangeError("quantize arguments are invalid");
+        const pitch = args.pitch;
+        if (pitch !== undefined && (!Number.isInteger(pitch) || (pitch as number) < 0 || (pitch as number) > 127)) throw new RangeError("pitch is invalid");
+        for (const note of clip.notes) {
+          note.start = Math.round(note.start / grid) * grid * amount + note.start * (1 - amount);
+          if (pitch !== undefined) note.pitch = pitch as number;
+        }
+        clip.notesRevision = simulatorRevision(clip.notes);
+        this.emit({ type: "object", ref: clip.ref, payload: { operation } });
+        return { changed: true, notesRevision: clip.notesRevision };
       }
       case "locator.jump": {
         const direction = args.direction;

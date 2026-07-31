@@ -77,7 +77,7 @@ function validStatus(value: unknown): value is LiveStatus {
     "arrangement.read": any("locator.add", "arrangement.clip.delete"),
     "arrangement.write": any("locator.add", "locator.delete", "arrangement.clip.create", "arrangement.audio-clip.create", "arrangement.clip.delete"),
     "audio": all("audio.clip.set"), "audio.capture.resampling": all("audio.capture.inspect", "audio.capture.start", "audio.capture.stop", "audio.capture.cleanup"),
-    "warp": false, "takes": false, "automation": all("automation.envelope.read"),
+    "warp": all("audio.warp-marker.read"), "takes": false, "automation": all("automation.envelope.read"),
     "devices": readableHierarchy, "racks": readableHierarchy, "chains": readableHierarchy, "parameters": readableHierarchy,
     "browser": all("browser.search"), "device.parameter.write": all("device.parameter.set"), "routing": all("routing.set"),
     "recording": any("recording.session", "recording.arrangement"), "projects": all("snapshot"), "mixing": all("mixer.set"),

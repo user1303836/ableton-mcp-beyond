@@ -25,6 +25,12 @@
 | 使用定位点并跳转播放头 | `live_arrangement_section_preview/apply`、`live_locator_jump_preview/apply` | 创建/删除/重命名定位点;跳转到下一个或上一个定位点,带播放头栅栏 |
 | 在时间线上编排剪辑 | `live_arrangement_clip_preview/apply`、`live_clip_duplicate_preview/apply`、`live_clip_move_preview/apply` | 创建、复制和移动剪辑;事务创建剪辑的清理是精确的;拒绝任意 Arrangement 删除 |
 | 把音频文件导入 Arrangement | `live_arrangement_clip_preview/apply` 加 `kind: "audio"` | 把文件支持的音频剪辑放到选定轨道的确切位置,并验证创建身份 |
+| 把音频文件导入 Session 槽位 | `live_audio_import_preview/apply` | 显式文件权限:允许根、规范化路径、大小/类型检查、SHA-256 并在应用时重新验证(防 TOCTOU),以及对已导入剪辑的受护栏清理 |
+| 编辑 warp 标记 | `live_warp_marker_preview/apply` | 按节拍时间添加、移动或删除标记(采样时间映射由 Live 负责);标记集合栅栏、精确回滚与受护栏撤销 |
+| 裁剪、复制与刮擦剪辑 | `live_clip_action_preview/apply` | 按循环裁剪、复制循环或区域、刮擦以及移动播放位置;内容操作被诚实标记为不可撤销 |
+| 量化与复制音符 | `live_note_edit_preview/apply` | 时间或音高量化,以及按稳定音符 ID 定向复制,带精确先前内容撤销 |
+| 按 ID 或选择读取音符 | `live_note_read` | 只读定向音符读取,包括 Live 暴露时的当前选择 |
+| 清除剪辑全部包络 | `live_automation_preview/apply` 加 `clear-envelopes` | 对剪辑上全部包络(设备、rack 与混音器参数)的计数、存在性栅栏清除;诚实不可撤销 |
 | 静音、着色和循环剪辑 | `live_clip_properties_preview/apply` | 任意剪辑的静音和颜色;MIDI 剪辑的循环边界(音频循环在 `live_audio_clip_*` 中) |
 | 编辑音频剪辑声音:增益、音高、warp、淡变 | `live_audio_clip_preview/apply` | 只写入确切剪辑宣告的字段;含 warp 模式和淡变 |
 | 编写剪辑自动化 | `live_automation_preview/apply` | 创建包络、插入点、删除范围,带包络修订栅栏 |
@@ -136,7 +142,7 @@ Server 宿主证据绝不填补 Windows Live/Windows 11 单元格。
 
 | 保留操作 ID | 处置 |
 |---|---|
-| `audio.warp-marker.read/add/move/delete` | 正在当前分支实现(warp 标记家族);模式按节拍时间寻址标记 —— 不虚构整数 ID |
+| `audio.warp-marker.read/add/move/delete` | 已实现(warp 标记家族已随本分支交付);模式按节拍时间寻址标记 —— 不虚构整数 ID |
 | `audio.take-lane.read`、`audio.comp.read` | take lane 正在 `Track.take_lanes` 下实现;comp 区域编辑保持受限(无公共 API) |
 | `arrangement.automation.*` | Arrangement 自动化编写无稳定公共 API;保持保留并故障关闭 |
 | `browser.preview.start/stop` | Browser 预览使用非官方 Python 绑定;处置随 Browser 家族工作决定 |
