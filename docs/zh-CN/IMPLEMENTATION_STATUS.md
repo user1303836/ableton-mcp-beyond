@@ -24,6 +24,11 @@
   搜索/加载;路由;Session 与 Arrangement 录音;工程路径/清单/备份;
   订阅;以及实时 UDP JSON/OSC/XY 和有界的 `max` 标签扩展数据包(不是
   Max 能力)。
+- 应用视图控制(Session/Arranger 切换、Arrangement 缩放/滚动/跟随、
+  轨道折叠)、定位点下一个/上一个播放头导航、剪辑静音/颜色/MIDI 循环
+  编辑,以及文件支持的 Arrangement 音频导入,均带 preview/confirm/verify
+  事务,并在状态可恢复处提供受护栏撤销。这些已在宿主、模拟器、Python
+  契约与打包 fake-Live 层面验证;精确候选的真实 Live 证明待完成。
 - 用途特定的 preview/apply/verify/undo 或清理工作流:精确的对象与层级
   身份、状态/内容修订、创建时指纹、epoch、过期、幂等、新鲜事后状态、
   有界补偿与显式不确定状态。原子 Session 剪辑移动在 Live 主线程上运行

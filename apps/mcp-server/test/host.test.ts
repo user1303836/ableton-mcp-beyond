@@ -23,7 +23,7 @@ test("requires initialization and exposes only read-only tools", () => {
   assert.equal(initializedResponse.serverInfo.version, packageMetadata.version);
   assert.equal(host.handle(initialized), null);
   const tools = (host.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
-  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize"]);
+  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply"]);
   const auditionPreview = tools.find((tool: { name: string }) => tool.name === "live_session_audition_preview");
   assert.deepEqual(auditionPreview.inputSchema.properties.outputSafety.required, ["safe", "provenance"]);
   const auditionStop = tools.find((tool: { name: string }) => tool.name === "live_session_audition_stop");
@@ -441,7 +441,7 @@ test("cancels an in-flight audio worker without a response", async () => {
 test("rejects duplicates, unsupported methods, and unknown fields", () => {
   const host = new McpHost();
   ready(host);
-  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 76);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 82);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).error.message, "Duplicate request identifier");
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set", arguments: {} } }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 4, method: "tools/list", debug: true }) as any).error.code, -32600);
@@ -1090,6 +1090,104 @@ test("mixer edits fence on the mixer row and guardedly undo", async () => {
   assert.equal(undone.state, "undone");
   assert.equal(track.mixer.volume, 0.85);
   assert.equal(track.mixer.solo, false);
+});
+
+test("view switching and arrangement view control apply with confirmation and idempotency", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(2, "live_view_preview", { view: "Arranger" })) as any).result.content[0].text);
+  assert.equal(preview.operation, "view.set"); assert.equal(preview.prior.view.visibleView, "Session");
+  const applied = JSON.parse(((await call(3, "live_view_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "view-key-1" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied"); assert.equal((simulator as any).state.view.visibleView, "Arranger");
+  const replay = JSON.parse(((await call(4, "live_view_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "view-key-1" })) as any).result.content[0].text);
+  assert.equal(replay.idempotent, true);
+  const followPreview = JSON.parse(((await call(5, "live_view_preview", { action: "follow-on" })) as any).result.content[0].text);
+  assert.equal(followPreview.operation, "view.control");
+  await call(6, "live_view_apply", { transactionId: followPreview.transactionId, confirmation: "apply", idempotencyKey: "view-key-2" });
+  assert.equal((simulator as any).state.view.follow, true);
+  const zoom = JSON.parse(((await call(7, "live_view_preview", { action: "zoom-in" })) as any).result.content[0].text);
+  const zoomed = JSON.parse(((await call(8, "live_view_apply", { transactionId: zoom.transactionId, confirmation: "apply", idempotencyKey: "view-key-3" })) as any).result.content[0].text);
+  assert.equal(zoomed.result.done, true);
+  const collapse = JSON.parse(((await call(9, "live_view_preview", { action: "collapse-track", trackRef: "track:track-1" })) as any).result.content[0].text);
+  const collapsed = JSON.parse(((await call(10, "live_view_apply", { transactionId: collapse.transactionId, confirmation: "apply", idempotencyKey: "view-key-4" })) as any).result.content[0].text);
+  assert.equal(collapsed.state, "applied");
+  assert.equal(((await call(11, "live_view_preview", {})) as any).error.code, -32602);
+  assert.equal(((await call(12, "live_view_preview", { view: "Session", action: "zoom-in" })) as any).error.code, -32602);
+  assert.equal(((await call(13, "live_view_preview", { action: "detonate" })) as any).error.code, -32602);
+  assert.equal(((await call(14, "live_view_preview", { action: "collapse-track" })) as any).error.code, -32602);
+  assert.equal(((await call(15, "live_view_preview", { action: "collapse-track", trackRef: "track:bogus" })) as any).result.isError, true);
+});
+
+test("locator jump preview fences the playhead and applies with exact position verification", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  (simulator as any).state.arrangement.locators.push({ ref: "locator:locator-2", objectIdentity: "simulator:locator:locator-2", name: "B", position: 8 });
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(2, "live_locator_jump_preview", { direction: "next" })) as any).result.content[0].text);
+  assert.equal(preview.target, 8); assert.equal(preview.current, 0);
+  const applied = JSON.parse(((await call(3, "live_locator_jump_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "jump-key-1" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied"); assert.equal(applied.result.position, 8);
+  assert.equal((simulator as any).state.playback.transport.position, 8);
+  const replay = JSON.parse(((await call(4, "live_locator_jump_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "jump-key-1" })) as any).result.content[0].text);
+  assert.equal(replay.idempotent, true);
+  const backPreview = JSON.parse(((await call(5, "live_locator_jump_preview", { direction: "previous" })) as any).result.content[0].text);
+  const backApplied = JSON.parse(((await call(6, "live_locator_jump_apply", { transactionId: backPreview.transactionId, confirmation: "apply", idempotencyKey: "jump-key-2" })) as any).result.content[0].text);
+  assert.equal(backApplied.result.position, 0);
+  const stale = JSON.parse(((await call(7, "live_locator_jump_preview", { direction: "next" })) as any).result.content[0].text);
+  (simulator as any).state.playback.transport.position = 4;
+  assert.equal(((await call(8, "live_locator_jump_apply", { transactionId: stale.transactionId, confirmation: "apply", idempotencyKey: "jump-key-3" })) as any).result.isError, true);
+  (simulator as any).state.playback.transport.position = 0;
+  assert.equal(((await call(9, "live_locator_jump_preview", { direction: "sideways" })) as any).error.code, -32602);
+});
+
+test("clip properties edit mutes, colors, and MIDI loops with fenced apply and guarded undo", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const clipRef = "clip:clip-1";
+  const preview = JSON.parse(((await call(2, "live_clip_properties_preview", { clipRef, muted: true, colorIndex: 42, looping: true, loopStart: 1, loopEnd: 3 })) as any).result.content[0].text);
+  assert.equal(preview.prior.muted, false); assert.equal(preview.prior.colorIndex, 0);
+  const applied = JSON.parse(((await call(3, "live_clip_properties_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "clipset-key-1" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied");
+  const clip = (simulator as any).state.tracks[0].clips[0];
+  assert.equal(clip.muted, true); assert.equal(clip.colorIndex, 42); assert.equal(clip.looping, true);
+  assert.equal(clip.loopStart, 1); assert.equal(clip.loopEnd, 3);
+  const replay = JSON.parse(((await call(4, "live_clip_properties_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "clipset-key-1" })) as any).result.content[0].text);
+  assert.equal(replay.idempotent, true);
+  const undone = JSON.parse(((await call(5, "live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "clipset-undo-key" })) as any).result.content[0].text);
+  assert.equal(undone.state, "undone");
+  assert.equal(clip.muted, false); assert.equal(clip.colorIndex, 0); assert.equal(clip.loopStart, 0); assert.equal(clip.loopEnd, 4);
+  const audioRef = "clip:audio-1";
+  (simulator as any).state.tracks[0].clips.push({ ref: audioRef, objectIdentity: "simulator:clip:audio-1", name: "Audio", kind: "audio", isAudio: true, start: 0, length: 4, notes: [], warp: true, takes: [], automation: [], muted: false, colorIndex: 1 });
+  const audioLoopRefusal = JSON.parse(((await call(6, "live_clip_properties_preview", { clipRef: audioRef, looping: false })) as any).result.content[0].text);
+  assert.match(audioLoopRefusal.reason, /audio clip loop editing/i);
+  assert.equal(((await call(9, "live_clip_properties_preview", { clipRef, loopStart: 3.5, loopEnd: 2 })) as any).error.code, -32602);
+  assert.equal(((await call(10, "live_clip_properties_preview", { clipRef })) as any).error.code, -32602);
+  assert.equal(((await call(11, "live_clip_properties_preview", { clipRef, colorIndex: 70 })) as any).error.code, -32602);
+});
+
+test("arrangement audio import creates a file-backed clip with exact fencing and guarded cleanup", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(2, "live_arrangement_clip_preview", { action: "create", kind: "audio", trackRef: "track:track-1", position: 4, filePath: "/tmp/demo.wav", name: "Imported" })) as any).result.content[0].text);
+  assert.equal(preview.kind, "audio"); assert.equal(preview.impact, "creates-arrangement-audio-clip");
+  const applied = JSON.parse(((await call(3, "live_arrangement_clip_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "arr-audio-key-1" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied"); assert.equal(applied.result.filePath, "/tmp/demo.wav");
+  const row = (simulator as any).state.arrangementClips.find((item: any) => item.clip.filePath === "/tmp/demo.wav");
+  assert.ok(row); assert.equal(row.clip.kind, "audio"); assert.equal(row.clip.start, 4); assert.equal(row.clip.name, "Imported");
+  const undone = JSON.parse(((await call(4, "live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "arr-audio-undo-key" })) as any).result.content[0].text);
+  assert.equal(undone.state, "undone");
+  assert.equal((simulator as any).state.arrangementClips.some((item: any) => item.clip.filePath === "/tmp/demo.wav"), false);
+  assert.equal(((await call(5, "live_arrangement_clip_preview", { action: "create", kind: "audio", trackRef: "track:track-1", position: 0 })) as any).error.code, -32602);
+  const midiPreview = JSON.parse(((await call(6, "live_arrangement_clip_preview", { action: "create", trackRef: "track:track-1", position: 12, length: 4, name: "Midi Clip" })) as any).result.content[0].text);
+  const midiApplied = JSON.parse(((await call(7, "live_arrangement_clip_apply", { transactionId: midiPreview.transactionId, confirmation: "apply", idempotencyKey: "arr-midi-key-1" })) as any).result.content[0].text);
+  assert.equal(midiApplied.state, "applied");
 });
 
 test("automation envelope lifecycle inserts, reads, deletes, and restores points", async () => {

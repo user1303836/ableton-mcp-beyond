@@ -21,7 +21,7 @@
 - `apps/mcp-server/src/delivery.ts`:配置、密钥验证、打包、安装与诊断。
 - `protocol/ableton-live-v1.operations.json`:规范版本 1 操作注册表。当前
   契约的规范注册表哈希为
-  `682943f39b7cccf80242f2be00e57ddfe4231701863b8ab71d98fbfb3ef1dff6`。
+  `faca649767d097f20c138d522fd8e5526fd6a8a8d73fcb9672f03709f2d8b846`。
 - `remote-script/AbletonMcpBridge/__init__.py`:单参数 Control Surface
   入口与故障关闭的引用加载。
 - `remote-script/ableton_mcp_remote_script.py`:已认证传输、有界主线程

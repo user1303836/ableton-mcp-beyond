@@ -82,7 +82,7 @@ Live を再起動し、検証します: `npm run diagnostics -- --config /abs/pa
 | [AUDIO_INTELLIGENCE](docs/ja/AUDIO_INTELLIGENCE.md) | DSP 規格、キャプチャ同意、プライバシー制限 |
 | [USER_JOURNEYS](docs/ja/USER_JOURNEYS.md) | 5 つのガイド付き作曲ワークフロー |
 | [REALTIME_CONTROL](docs/ja/REALTIME_CONTROL.md) | アームされた UDP/OSC/XY コントロールプレーン |
-| [CAPABILITY_MATRIX](docs/ja/CAPABILITY_MATRIX.md) | ツールごとのケイパビリティと操作要件 |
+| [CAPABILITY_MATRIX](docs/ja/CAPABILITY_MATRIX.md) | エージェントにできることの早見表と、ドメイン別のケイパビリティ/エビデンス詳細 |
 | [DELIVERY](docs/ja/DELIVERY.md) | パッケージ成果物のインストール、アップグレード、ロールバック、アンインストール |
 | [DISTRIBUTION_POLICY](docs/ja/DISTRIBUTION_POLICY.md) | ローカル MIT 成果物、必須チェック、緊急手順 |
 | [IMPLEMENTATION_STATUS](docs/ja/IMPLEMENTATION_STATUS.md) | 検証済みの内容と現在の制限 |

@@ -30,6 +30,13 @@ are. Source, schemas, and tests are the final authority.
   Arrangement recording; project path/manifest/backup; subscriptions; and
   realtime UDP JSON/OSC/XY plus bounded `max`-label extension packets (not a
   Max capability).
+- Application view control (Session/Arranger switching, Arrangement
+  zoom/scroll/follow, track collapse), next/previous locator playhead
+  navigation, clip mute/color/MIDI-loop editing, and file-backed Arrangement
+  audio import, each with preview/confirm/verify transactions and guarded undo
+  where state is recoverable. These are verified at the host, simulator,
+  Python contract, and packaged fake-Live levels; exact-candidate real-Live
+  proof is pending.
 - Purpose-specific preview/apply/verify/undo or cleanup workflows with exact
   object and hierarchy identities, state/content revisions, creation-time
   fingerprints, epochs, expiry, idempotency, fresh postconditions, bounded

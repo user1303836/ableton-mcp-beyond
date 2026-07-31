@@ -232,7 +232,7 @@ def _debug_trace(context: str) -> None:
 
 METHODS = {"status", "snapshot", "discover", "get", "preflight", "prepare", "invoke", "subscribe", "reconnect", "retire"}
 _READ_ONLY_INVOKES = {"session.playback", "automation.envelope.read", "browser.search", "browser.inspect", "audio.capture.inspect", "audio.capture.status", "realtime.stats", "session.reconnect"}
-_TRANSACTION_CREATIONS = {"track.create", "scene.create", "clip.create", "clip.duplicate", "arrangement.clip.create", "browser.load", "device.insert", "session.capture-midi", "scene.capture", "locator.add"}
+_TRANSACTION_CREATIONS = {"track.create", "scene.create", "clip.create", "clip.duplicate", "arrangement.clip.create", "arrangement.audio-clip.create", "browser.load", "device.insert", "session.capture-midi", "scene.capture", "locator.add"}
 _TRANSACTION_DELETIONS = {"track.delete", "scene.delete", "clip.delete", "arrangement.clip.delete", "device.delete", "locator.delete"}
 _OWNED_CONTENT_MUTATIONS = {"note.add", "note.add-batch", "note.update", "note.delete"}
 def _mutation_authority_required(operation: str) -> bool: return operation not in _READ_ONLY_INVOKES
@@ -702,6 +702,23 @@ class LiveObjectMapper:
                 any(device.get("parameters") for device in self._device_items(track, track_index))
                 for track_index, track in enumerate(tracks)
             )
+        if operation == "arrangement.audio-clip.create":
+            return any(callable(getattr(track, "create_audio_clip", None)) for track in tracks)
+        if operation == "clip.set":
+            clips = [getattr(slot, "clip", None) for track in tracks for slot in self._items(getattr(track, "clip_slots", []))]
+            clips += [clip for track in tracks for clip in self._items(self._read_attr(track, "arrangement_clips") or [])]
+            return any(clip is not None and (self._read_attr(clip, "muted") is not None or isinstance(self._read_attr(clip, "color_index"), int) or self._read_attr(clip, "looping") is not None) for clip in clips)
+        if operation == "locator.jump":
+            return callable(getattr(self.song, "jump_to_next_cue", None)) and callable(getattr(self.song, "jump_to_prev_cue", None))
+        if operation in {"view.set", "view.control"}:
+            try:
+                view = getattr(self._application(), "view", None)
+            except ValueError:
+                return False
+            if view is None: return False
+            if operation == "view.set": return callable(getattr(view, "show_view", None)) and callable(getattr(view, "is_view_visible", None))
+            song_view = getattr(self.song, "view", None)
+            return callable(getattr(view, "zoom_view", None)) and callable(getattr(view, "scroll_view", None)) and song_view is not None and self._read_attr(song_view, "follow_song") is not None
         return False
 
     def capabilities(self, operations: set[str] | None = None) -> list[str]:
@@ -743,6 +760,7 @@ class LiveObjectMapper:
         if supports("audio.clip.set"): capabilities.append("audio")
         if supports("audio.capture.inspect") and supports("audio.capture.start") and supports("audio.capture.stop") and supports("audio.capture.cleanup"): capabilities.append("audio.capture.resampling")
         if supports("automation.envelope.read"): capabilities.append("automation")
+        if supports("view.set") or supports("view.control"): capabilities.append("view")
         if supports("browser.search"): capabilities.append("browser")
         if supports("routing.set"): capabilities.append("routing")
         if supports("recording.session") or supports("recording.arrangement"): capabilities.append("recording")
@@ -952,7 +970,10 @@ class LiveObjectMapper:
 
     def _arrangement_clip_row(self, track: Any, clip: Any, track_index: int, clip_index: int) -> dict[str, Any]:
         track_ref = self.refs.put("track", track, str(track_index)); reference = self.refs.put("arrangement_clip", clip, f"{track_index}:{clip_index}"); notes = self._read_notes(clip)
-        return {"ref": reference, "objectIdentity": self._capture_object_identity(clip), "parentRef": track_ref, "trackRef": track_ref, "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": float(getattr(clip, "start_time", getattr(clip, "start", 0.0)) or 0.0), "length": float(getattr(clip, "length", 0.0) or 0.0), "notes": notes, "notesRevision": hashlib.sha256(self._bounded_canonical(notes).encode("utf-8")).hexdigest(), **self._audio_fields(clip)}
+        row = {"ref": reference, "objectIdentity": self._capture_object_identity(clip), "parentRef": track_ref, "trackRef": track_ref, "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": float(getattr(clip, "start_time", getattr(clip, "start", 0.0)) or 0.0), "length": float(getattr(clip, "length", 0.0) or 0.0), "notes": notes, "notesRevision": hashlib.sha256(self._bounded_canonical(notes).encode("utf-8")).hexdigest(), **self._audio_fields(clip)}
+        for key, value in self._clip_state_fields(clip).items():
+            if value is not None or key not in row: row[key] = value
+        return row
 
     def _arrangement_clip_items(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -1170,7 +1191,10 @@ class LiveObjectMapper:
                     continue
                 clip_ref = self.refs.put("clip", clip, f"{index}:{slot_index}")
                 notes = self._read_notes(clip)
-                clips.append({"ref": clip_ref, "parentRef": slot_ref, "objectIdentity": self._capture_object_identity(clip), "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": slot_index * 4, "length": float(getattr(clip, "length", 0.0)), "notes": notes, "notesRevision": hashlib.sha256(self._bounded_canonical(notes).encode("utf-8")).hexdigest(), **self._audio_fields(clip)})
+                clip_row = {"ref": clip_ref, "parentRef": slot_ref, "objectIdentity": self._capture_object_identity(clip), "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": slot_index * 4, "length": float(getattr(clip, "length", 0.0)), "notes": notes, "notesRevision": hashlib.sha256(self._bounded_canonical(notes).encode("utf-8")).hexdigest(), **self._audio_fields(clip)}
+                for key, value in self._clip_state_fields(clip).items():
+                    if value is not None or key not in clip_row: clip_row[key] = value
+                clips.append(clip_row)
                 slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "objectIdentity": self._capture_object_identity(slot), "sceneIndex": slot_index, "clipRef": clip_ref, "empty": False})
             armed_value = self._read_attr(track, "arm", "armed")
             track_rows.append({
@@ -1992,6 +2016,16 @@ class LiveObjectMapper:
             return self._arrangement_clip_move(args)
         if operation == "audio.clip.set":
             return self._audio_clip_set(args)
+        if operation == "clip.set":
+            return self._clip_set(args)
+        if operation == "arrangement.audio-clip.create":
+            return self._arrangement_audio_clip_create(args)
+        if operation == "locator.jump":
+            return self._locator_jump(args)
+        if operation == "view.set":
+            return self._view_set(args)
+        if operation == "view.control":
+            return self._view_control(args)
         if operation == "audio.capture.inspect":
             return self._capture_inspect(args)
         if operation == "audio.capture.start":
@@ -2812,6 +2846,203 @@ class LiveObjectMapper:
         revision = self.refs.touch(reference)
         return {"changed": True, "revision": revision}
 
+    _CLIP_SET_FIELDS = ("muted", "colorIndex", "looping", "loopStart", "loopEnd")
+
+    def _clip_state_fields(self, clip: Any) -> dict[str, Any]:
+        """Muted/color/loop clip state, honestly null when unavailable."""
+        muted = self._read_attr(clip, "muted"); color = self._read_attr(clip, "color_index"); looping = self._read_attr(clip, "looping")
+        fields: dict[str, Any] = {
+            "muted": muted if isinstance(muted, bool) else None,
+            "colorIndex": int(color) if isinstance(color, int) and not isinstance(color, bool) and 0 <= color <= 69 else None,
+            "looping": looping if isinstance(looping, bool) else None,
+        }
+        if self._read_attr(clip, "is_audio_clip") is not True:
+            for name, key in (("loop_start", "loopStart"), ("loop_end", "loopEnd")):
+                value = self._read_attr(clip, name)
+                fields[key] = float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+        return fields
+
+    def _clip_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:"):
+            raise ValueError("clip reference is stale or invalid")
+        current = self.get(reference); expected_identity = args.get("expectedObjectIdentity"); expected_authority = args.get("expectedAuthorityRevision"); expected_state = args.get("expectedStateRevision")
+        if not isinstance(current, dict) or not isinstance(expected_identity, str) or not hmac.compare_digest(str(current.get("objectIdentity", "")), expected_identity):
+            raise ValueError("clip identity changed since preview")
+        if reference.startswith(f"{self.refs.epoch}:clip:"): authority_revision = hashlib.sha256(self._bounded_canonical(self._session_clip_authority(reference)).encode("utf-8")).hexdigest()
+        elif reference.startswith(f"{self.refs.epoch}:arrangement_clip:"): authority_revision = self._arrangement_clip_authority_revision(reference)
+        else: raise ValueError("clip hierarchy is unavailable")
+        state_revision = hashlib.sha256(self._bounded_canonical({field: current.get(field) for field in self._CLIP_SET_FIELDS}).encode("utf-8")).hexdigest()
+        if not isinstance(expected_authority, str) or not hmac.compare_digest(authority_revision, expected_authority) or not isinstance(expected_state, str) or not hmac.compare_digest(state_revision, expected_state): raise ValueError("clip hierarchy or state changed since preview")
+        clip = self.refs.get(reference)
+        is_audio = self._read_attr(clip, "is_audio_clip") is True
+        allowed = {"ref", "muted", "colorIndex", "looping", "loopStart", "loopEnd", "expectedObjectIdentity", "expectedAuthorityRevision", "expectedStateRevision"}
+        if set(args) - allowed:
+            raise ValueError("clip fields are invalid")
+        proposals: list[tuple[str, str, Any]] = []
+        if "muted" in args:
+            value = args["muted"]
+            if not isinstance(value, bool): raise ValueError("muted is invalid")
+            proposals.append(("muted", "muted", value))
+        if "colorIndex" in args:
+            value = args["colorIndex"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 69: raise ValueError("colorIndex is invalid")
+            proposals.append(("colorIndex", "color_index", value))
+        if "looping" in args:
+            value = args["looping"]
+            if not isinstance(value, bool): raise ValueError("looping is invalid")
+            if is_audio: raise ValueError("audio clip loop editing uses audio.clip.set")
+            proposals.append(("looping", "looping", value))
+        for field, attribute in (("loopStart", "loop_start"), ("loopEnd", "loop_end")):
+            if field in args:
+                value = args[field]
+                if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or float(value) < 0: raise ValueError(f"{field} is invalid")
+                if is_audio: raise ValueError("audio clip loop editing uses audio.clip.set")
+                proposals.append((field, attribute, float(value)))
+        if not proposals: raise ValueError("clip mutation has no fields")
+        final_loop_start = args.get("loopStart", current.get("loopStart")); final_loop_end = args.get("loopEnd", current.get("loopEnd"))
+        if isinstance(final_loop_start, (int, float)) and isinstance(final_loop_end, (int, float)) and float(final_loop_start) > float(final_loop_end): raise ValueError("clip loopStart must not exceed loopEnd")
+        for _, attribute, _ in proposals:
+            if self._read_attr(clip, attribute) is None: raise ValueError(f"{attribute} is unavailable on this clip")
+        if "loopStart" in args and "loopEnd" in args:
+            current_end = self._read_attr(clip, "loop_end"); new_start = float(args["loopStart"])
+            if isinstance(current_end, (int, float)) and new_start > float(current_end): proposals.sort(key=lambda item: 0 if item[0] == "loopEnd" else 1)
+        assignments = [(field, attribute, value, self._read_attr(clip, attribute)) for field, attribute, value in proposals]
+        applied = {field: value for field, _, value, _ in assignments}
+        try:
+            for _, attribute, value, _ in assignments: setattr(clip, attribute, value)
+            observed = self.get(reference); checks = []
+            for key, value in applied.items():
+                observed_value = observed.get(key)
+                if isinstance(value, bool): checks.append(observed_value is value)
+                else: checks.append(isinstance(observed_value, (int, float)) and not isinstance(observed_value, bool) and float(observed_value) == float(value))
+            if not all(checks): raise ValueError("clip change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for _, attribute, _, prior in reversed(assignments):
+                try: setattr(clip, attribute, prior)
+                except BaseException: rollback_failed = True
+            restored = self.get(reference)
+            if any(self._bounded_canonical(restored.get(field)) != self._bounded_canonical(current.get(field)) for field, _, _, _ in assignments): rollback_failed = True
+            if rollback_failed: raise ValueError("clip change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _locator_jump(self, args: dict[str, Any]) -> dict[str, Any]:
+        direction = args.get("direction")
+        if direction not in {"next", "previous"} or set(args) - {"direction"}:
+            raise ValueError("locator jump direction is invalid")
+        method = getattr(self.song, "jump_to_next_cue" if direction == "next" else "jump_to_prev_cue", None)
+        if not callable(method):
+            raise ValueError("locator jump is unavailable")
+        before = self._read_attr(self.song, "current_song_time")
+        if not isinstance(before, (int, float)) or isinstance(before, bool) or not math.isfinite(float(before)) or float(before) < 0:
+            raise ValueError("current song time is unreadable")
+        method()
+        after = self._read_attr(self.song, "current_song_time")
+        if not isinstance(after, (int, float)) or isinstance(after, bool) or not math.isfinite(float(after)) or float(after) < 0:
+            raise ValueError("locator jump did not report a readable song position")
+        return {"direction": direction, "before": float(before), "position": float(after)}
+
+    _VIEW_CONTROL_ACTIONS = {"zoom-in", "zoom-out", "scroll-left", "scroll-right", "follow-on", "follow-off", "collapse-track", "expand-track"}
+
+    def _view_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        view_name = args.get("view")
+        if not isinstance(view_name, str) or not 1 <= len(view_name) <= 64 or set(args) - {"view"}:
+            raise ValueError("view name is invalid")
+        view = getattr(self._application(), "view", None)
+        if view is None or not callable(getattr(view, "show_view", None)):
+            raise ValueError("view control is unavailable")
+        try:
+            view.show_view(view_name)
+        except BaseException as error:
+            raise ValueError("view change was rejected") from error
+        visible = view.is_view_visible(view_name) if callable(getattr(view, "is_view_visible", None)) else None
+        if visible is not True:
+            raise ValueError("view change was not confirmed")
+        return {"view": view_name, "visible": True}
+
+    def _view_control(self, args: dict[str, Any]) -> dict[str, Any]:
+        action = args.get("action")
+        if action not in self._VIEW_CONTROL_ACTIONS or set(args) - {"action", "trackRef"}:
+            raise ValueError("view control action is invalid")
+        view = getattr(self._application(), "view", None)
+        if view is None:
+            raise ValueError("view control is unavailable")
+        if action in {"zoom-in", "zoom-out"}:
+            zoom = getattr(view, "zoom_view", None)
+            if not callable(zoom): raise ValueError("arrangement zoom is unavailable")
+            zoom(1 if action == "zoom-in" else 0, "Arranger", False)
+            return {"action": action, "done": True}
+        if action in {"scroll-left", "scroll-right"}:
+            scroll = getattr(view, "scroll_view", None)
+            if not callable(scroll): raise ValueError("arrangement scroll is unavailable")
+            scroll(1 if action == "scroll-right" else 0, "Arranger", False)
+            return {"action": action, "done": True}
+        if action in {"follow-on", "follow-off"}:
+            song_view = getattr(self.song, "view", None)
+            if song_view is None or self._read_attr(song_view, "follow_song") is None: raise ValueError("arrangement follow is unavailable")
+            song_view.follow_song = action == "follow-on"
+            if self._read_attr(song_view, "follow_song") is not (action == "follow-on"): raise ValueError("arrangement follow change was not confirmed")
+            return {"action": action, "done": True}
+        track_ref = args.get("trackRef")
+        if not isinstance(track_ref, str) or not track_ref.startswith(f"{self.refs.epoch}:track:"):
+            raise ValueError("track reference is stale or invalid")
+        self.snapshot(); track = self.refs.get(track_ref)
+        track_view = getattr(track, "view", None)
+        if track_view is None or self._read_attr(track_view, "is_collapsed") is None: raise ValueError("track collapse is unavailable")
+        track_view.is_collapsed = action == "collapse-track"
+        if self._read_attr(track_view, "is_collapsed") is not (action == "collapse-track"): raise ValueError("track collapse change was not confirmed")
+        return {"action": action, "done": True}
+
+    def _arrangement_audio_clip_create(self, args: dict[str, Any]) -> dict[str, Any]:
+        track_ref = args.get("trackRef")
+        if not isinstance(track_ref, str) or not track_ref.startswith(f"{self.refs.epoch}:track:"):
+            raise ValueError("track reference is stale or invalid")
+        self.snapshot(); track = self.refs.get(track_ref)
+        expected_track_identity = args.get("expectedTrackIdentity"); track_index = self._capture_index(self._items(getattr(self.song, "tracks", [])), track, expected_track_identity if isinstance(expected_track_identity, str) else None)
+        if track_index is None or track_ref != f"{self.refs.epoch}:track:{track_index}": raise ValueError("arrangement audio clip target track hierarchy is stale")
+        if not isinstance(expected_track_identity, str) or not hmac.compare_digest(self._capture_object_identity(track), expected_track_identity):
+            raise ValueError("arrangement audio clip target track identity changed since preview")
+        expected_collection = args.get("expectedCollectionRevision")
+        if not isinstance(expected_collection, str) or not hmac.compare_digest(self._arrangement_collection_revision(track, track_index), expected_collection): raise ValueError("Arrangement clip collection changed since preview")
+        position = args.get("position"); file_path = args.get("filePath"); name = args.get("name")
+        if not isinstance(position, (int, float)) or isinstance(position, bool) or not math.isfinite(float(position)) or float(position) < 0:
+            raise ValueError("position is invalid")
+        if not isinstance(file_path, str) or not 1 <= len(file_path) <= 1024:
+            raise ValueError("filePath is invalid")
+        if name is not None and (not isinstance(name, str) or not 1 <= len(name) <= 256):
+            raise ValueError("name is invalid")
+        creator = getattr(track, "create_audio_clip", None)
+        if not callable(creator):
+            raise ValueError("arrangement audio clip creation is unavailable")
+        before_clips = self._items(self._read_attr(track, "arrangement_clips") or []); before_identity_order = [self._capture_object_identity(item) for item in before_clips]; before_identities = set(before_identity_order); checkpoint = self.refs.checkpoint()
+        try:
+            clip = creator(file_path, float(position)); clips = self._items(self._read_attr(track, "arrangement_clips") or []); created_rows = [(index, candidate) for index, candidate in enumerate(clips) if self._capture_object_identity(candidate) not in before_identities]
+            if clip is None or len(clips) != len(before_clips) + 1 or len(created_rows) != 1: raise ValueError("arrangement audio clip creation did not produce one identity-distinct clip")
+            clip_index, created = created_rows[0]; created_identity = self._capture_object_identity(created); expected_identity_order = list(before_identity_order); expected_identity_order.insert(clip_index, created_identity)
+            if [self._capture_object_identity(candidate) for candidate in clips] != expected_identity_order: raise ValueError("arrangement audio clip creation reordered pre-existing clips")
+            if not self._capture_same_object(created, clip, self._capture_object_identity(clip)): raise ValueError("arrangement audio clip creator returned a different object")
+            if name is not None and hasattr(created, "name"): created.name = name
+            actual_start = self._read_attr(created, "start_time"); actual_length = self._read_attr(created, "length"); actual_path = self._read_attr(created, "file_path")
+            if name is not None and str(getattr(created, "name", "")) != name: raise ValueError("arrangement audio clip requested name was not confirmed")
+            if not isinstance(actual_start, (int, float)) or isinstance(actual_start, bool) or float(actual_start) != float(position): raise ValueError("arrangement audio clip position was not confirmed")
+            if not isinstance(actual_length, (int, float)) or isinstance(actual_length, bool) or not math.isfinite(float(actual_length)) or float(actual_length) <= 0: raise ValueError("arrangement audio clip length was not confirmed")
+            if not isinstance(actual_path, str) or not actual_path: raise ValueError("arrangement audio clip file path was not confirmed")
+            created_ref = self.refs.put("arrangement_clip", created, f"{track_index}:{clip_index}"); created_identity = self._capture_object_identity(created); fingerprint = self._mapped_fingerprint(created_ref)
+            return {"ref": created_ref, "objectIdentity": created_identity, "name": str(getattr(created, "name", "")), "start": float(actual_start), "length": float(actual_length), "filePath": actual_path, "createdFingerprint": fingerprint}
+        except BaseException as error:
+            rollback_failed = False; deleter = getattr(track, "delete_clip", None); current = self._items(self._read_attr(track, "arrangement_clips") or []); owned = [candidate for candidate in current if self._capture_object_identity(candidate) not in before_identities]
+            if owned and not callable(deleter): rollback_failed = True
+            if callable(deleter):
+                for candidate in owned:
+                    try: deleter(candidate)
+                    except BaseException: pass
+            if [self._capture_object_identity(item) for item in self._items(self._read_attr(track, "arrangement_clips") or [])] != before_identity_order: rollback_failed = True
+            if rollback_failed: raise ValueError("arrangement audio clip creation failed and exact cleanup failed") from error
+            self.refs.restore(checkpoint); raise
+
     def _mixer_row(self, track: Any, track_index: int) -> dict[str, Any]:
         mixer = self._read_attr(track, "mixer_device")
 
@@ -3400,6 +3631,16 @@ class LiveObjectMapper:
         if browser is None:
             raise ValueError("the Live Browser is unavailable")
         return browser
+
+    def _application(self) -> Any:
+        try:
+            import Live  # type: ignore[import-not-found]
+            application = Live.Application.get_application()
+        except Exception as error:
+            raise ValueError("the Live application is unavailable") from error
+        if application is None:
+            raise ValueError("the Live application is unavailable")
+        return application
 
     _BROWSER_CATEGORIES = {"instruments", "audio_effects", "midi_effects", "drums", "plugins", "packs", "max_for_live", "clips"}
     _DEVICE_BROWSER_CATEGORIES = {"instruments", "audio_effects", "midi_effects", "plugins"}
