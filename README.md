@@ -81,7 +81,7 @@ Capabilities are negotiated at connect time, so your agent always knows exactly 
 | [AUDIO_INTELLIGENCE](docs/en/AUDIO_INTELLIGENCE.md) | DSP standards, capture consent, privacy limits |
 | [USER_JOURNEYS](docs/en/USER_JOURNEYS.md) | The five guided composition workflows |
 | [REALTIME_CONTROL](docs/en/REALTIME_CONTROL.md) | The armed UDP/OSC/XY control plane |
-| [CAPABILITY_MATRIX](docs/en/CAPABILITY_MATRIX.md) | Per-tool capability and operation requirements |
+| [CAPABILITY_MATRIX](docs/en/CAPABILITY_MATRIX.md) | What the agent can do, plus per-domain capability and evidence detail |
 | [DELIVERY](docs/en/DELIVERY.md) | Install, upgrade, rollback, uninstall of packed artifacts |
 | [DISTRIBUTION_POLICY](docs/en/DISTRIBUTION_POLICY.md) | Local MIT artifact, required checks, and emergency procedure |
 | [IMPLEMENTATION_STATUS](docs/en/IMPLEMENTATION_STATUS.md) | What's verified and what's still limited |

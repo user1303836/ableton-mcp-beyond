@@ -609,7 +609,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "682943f39b7cccf80242f2be00e57ddfe4231701863b8ab71d98fbfb3ef1dff6")
+        self.assertEqual(digest, "faca649767d097f20c138d522fd8e5526fd6a8a8d73fcb9672f03709f2d8b846")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -2581,3 +2581,152 @@ class RealtimePlaneTests(unittest.TestCase):
             self.assertEqual(stats["lastSequence"], 40)
         finally:
             plane.close()
+
+
+class ViewLocatorClipExpansionTests(unittest.TestCase):
+    def test_clip_set_mutes_colors_and_loops_midi_clips_with_fail_closed_rollback(self):
+        song = FakeSong(); clip = FakeClip(8.0)
+        clip.is_audio_clip = False; clip.muted = False; clip.color_index = 1; clip.looping = False; clip.loop_start = 0.0; clip.loop_end = 8.0
+        song.tracks[0].clip_slots[0].clip = clip
+        mapper = LiveObjectMapper(song); row = mapper.snapshot()["tracks"][0]["clips"][0]
+        self.assertEqual((row["muted"], row["colorIndex"], row["looping"], row["loopStart"], row["loopEnd"]), (False, 1, False, 0.0, 8.0))
+        fields = ("muted", "colorIndex", "looping", "loopStart", "loopEnd")
+        def payload(**changes):
+            current = mapper.get(row["ref"])
+            return {"ref": row["ref"], **changes, "expectedObjectIdentity": row["objectIdentity"],
+                    "expectedAuthorityRevision": hashlib.sha256(mapper._bounded_canonical(mapper._session_clip_authority(row["ref"])).encode()).hexdigest(),
+                    "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({field: current.get(field) for field in fields}).encode()).hexdigest()}
+        stale = payload(muted=True, colorIndex=5, looping=True, loopStart=1.0, loopEnd=5.0)
+        result = mapper.invoke("clip.set", stale)
+        self.assertTrue(result["changed"]); validate_operation_payload("clip.set", "result", result)
+        self.assertTrue(clip.muted); self.assertEqual(clip.color_index, 5); self.assertTrue(clip.looping); self.assertEqual((clip.loop_start, clip.loop_end), (1.0, 5.0))
+        with self.assertRaisesRegex(ValueError, "changed since preview"): mapper.invoke("clip.set", stale)
+        with self.assertRaisesRegex(ValueError, "no fields"): mapper.invoke("clip.set", payload())
+        with self.assertRaisesRegex(ValueError, "colorIndex is invalid"): mapper.invoke("clip.set", payload(colorIndex=70))
+        with self.assertRaisesRegex(ValueError, "loopStart must not exceed loopEnd"): mapper.invoke("clip.set", payload(loopStart=7.0, loopEnd=6.0))
+
+    def test_clip_set_rejects_loop_edits_on_audio_clips_and_rolls_back_exactly(self):
+        song = FakeSong(); clip = FakeClip(4.0)
+        clip.is_audio_clip = True; clip.muted = False; clip.color_index = 2; clip.looping = True; clip.loop_start = 0.0; clip.loop_end = 4.0
+        song.tracks[0].clip_slots[0].clip = clip
+        mapper = LiveObjectMapper(song); row = mapper.snapshot()["tracks"][0]["clips"][0]
+        self.assertEqual((row["loopStart"], row["loopEnd"]), (0.0, 4.0))
+        fields = ("muted", "colorIndex", "looping", "loopStart", "loopEnd")
+        def payload(**changes):
+            current = mapper.get(row["ref"])
+            return {"ref": row["ref"], **changes, "expectedObjectIdentity": row["objectIdentity"],
+                    "expectedAuthorityRevision": hashlib.sha256(mapper._bounded_canonical(mapper._session_clip_authority(row["ref"])).encode()).hexdigest(),
+                    "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({field: current.get(field) for field in fields}).encode()).hexdigest()}
+        with self.assertRaisesRegex(ValueError, "audio clip loop editing"): mapper.invoke("clip.set", payload(looping=False))
+        result = mapper.invoke("clip.set", payload(muted=True))
+        self.assertTrue(result["changed"]); self.assertTrue(clip.muted)
+
+        class FailingClip(FakeClip):
+            @property
+            def muted(self): return self._muted
+            @muted.setter
+            def muted(self, value):
+                if value is True: raise RuntimeError("Live rejected the write")
+                self._muted = value
+        failing = FailingClip(4.0); failing._muted = False; failing.is_audio_clip = False; failing.color_index = 3; failing.looping = False; failing.loop_start = 0.0; failing.loop_end = 4.0
+        song.tracks[0].clip_slots[0].clip = failing; mapper = LiveObjectMapper(song); failing_row = mapper.snapshot()["tracks"][0]["clips"][0]
+        def failing_payload(**changes):
+            current = mapper.get(failing_row["ref"])
+            return {"ref": failing_row["ref"], **changes, "expectedObjectIdentity": failing_row["objectIdentity"],
+                    "expectedAuthorityRevision": hashlib.sha256(mapper._bounded_canonical(mapper._session_clip_authority(failing_row["ref"])).encode()).hexdigest(),
+                    "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({field: current.get(field) for field in fields}).encode()).hexdigest()}
+        with self.assertRaises(RuntimeError):
+            mapper.invoke("clip.set", failing_payload(colorIndex=9, muted=True))
+        self.assertEqual(failing.color_index, 3); self.assertFalse(failing.muted)
+
+    def test_clip_set_arrangement_clip_uses_arrangement_authority(self):
+        song = FakeSong(); track = song.tracks[0]
+        clip = FakeClip(4.0); clip.name = "Arr"; clip.start_time = 4.0; clip.is_audio_clip = False; clip.muted = False; clip.color_index = 1; clip.looping = True; clip.loop_start = 0.0; clip.loop_end = 4.0
+        track.arrangement_clips = [clip]
+        mapper = LiveObjectMapper(song); row = mapper.snapshot()["arrangement"]["clips"][0]
+        fields = ("muted", "colorIndex", "looping", "loopStart", "loopEnd")
+        current = mapper.get(row["ref"])
+        args = {"ref": row["ref"], "muted": True, "expectedObjectIdentity": row["objectIdentity"],
+                "expectedAuthorityRevision": mapper._arrangement_clip_authority_revision(row["ref"]),
+                "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({field: current.get(field) for field in fields}).encode()).hexdigest()}
+        result = mapper.invoke("clip.set", args)
+        self.assertTrue(result["changed"]); self.assertTrue(clip.muted)
+
+    def test_locator_jump_navigates_cue_points(self):
+        song = FakeArrangementSong()
+        song.cue_points = [FakeLocator(8.0, "A"), FakeLocator(16.0, "B")]
+        def jump_next():
+            later = [locator.time for locator in song.cue_points if locator.time > song.current_song_time]
+            if later: song.current_song_time = min(later)
+        def jump_previous():
+            earlier = [locator.time for locator in song.cue_points if locator.time < song.current_song_time - 1e-9]
+            song.current_song_time = max(earlier) if earlier else 0.0
+        song.jump_to_next_cue = jump_next; song.jump_to_prev_cue = jump_previous
+        mapper = LiveObjectMapper(song)
+        self.assertTrue(mapper._operation_supported("locator.jump"))
+        result = mapper.invoke("locator.jump", {"direction": "next"})
+        self.assertEqual((result["before"], result["position"]), (0.0, 8.0)); validate_operation_payload("locator.jump", "result", result)
+        self.assertEqual(mapper.invoke("locator.jump", {"direction": "previous"})["position"], 0.0)
+        with self.assertRaisesRegex(ValueError, "direction is invalid"): mapper.invoke("locator.jump", {"direction": "sideways"})
+        without = LiveObjectMapper(FakeSong())
+        self.assertFalse(without._operation_supported("locator.jump"))
+        with self.assertRaisesRegex(ValueError, "unavailable"): without.invoke("locator.jump", {"direction": "next"})
+
+    def test_view_set_and_control_use_application_view_with_readback(self):
+        class FakeAppView:
+            def __init__(self): self.visible = "Session"; self.zooms = []; self.scrolls = []
+            def show_view(self, name): self.visible = name
+            def is_view_visible(self, name): return self.visible == name
+            def zoom_view(self, direction, surface, animate): self.zooms.append((direction, surface, animate))
+            def scroll_view(self, direction, surface, animate): self.scrolls.append((direction, surface, animate))
+        class FakeApplication: pass
+        song = FakeSong(); song.view = type("SongView", (), {"follow_song": False})()
+        song.tracks[0].view = type("TrackView", (), {"is_collapsed": False})()
+        application = FakeApplication(); application.view = FakeAppView()
+        mapper = LiveObjectMapper(song); mapper._application = lambda: application
+        self.assertTrue(mapper._operation_supported("view.set")); self.assertTrue(mapper._operation_supported("view.control"))
+        result = mapper.invoke("view.set", {"view": "Arranger"})
+        self.assertEqual(result, {"view": "Arranger", "visible": True}); validate_operation_payload("view.set", "result", result)
+        application.view.is_view_visible = lambda name: False
+        with self.assertRaisesRegex(ValueError, "not confirmed"): mapper.invoke("view.set", {"view": "Session"})
+        self.assertEqual(mapper.invoke("view.control", {"action": "zoom-in"}), {"action": "zoom-in", "done": True})
+        self.assertEqual(application.view.zooms, [(1, "Arranger", False)])
+        self.assertEqual(mapper.invoke("view.control", {"action": "scroll-right"}), {"action": "scroll-right", "done": True})
+        self.assertEqual(application.view.scrolls, [(1, "Arranger", False)])
+        mapper.invoke("view.control", {"action": "follow-on"}); self.assertTrue(song.view.follow_song)
+        mapper.invoke("view.control", {"action": "follow-off"}); self.assertFalse(song.view.follow_song)
+        track_ref = mapper.snapshot()["tracks"][0]["ref"]
+        mapper.invoke("view.control", {"action": "collapse-track", "trackRef": track_ref}); self.assertTrue(song.tracks[0].view.is_collapsed)
+        mapper.invoke("view.control", {"action": "expand-track", "trackRef": track_ref}); self.assertFalse(song.tracks[0].view.is_collapsed)
+        with self.assertRaisesRegex(ValueError, "action is invalid"): mapper.invoke("view.control", {"action": "detonate"})
+        with self.assertRaisesRegex(ValueError, "track reference is stale"): mapper.invoke("view.control", {"action": "collapse-track", "trackRef": "bogus"})
+        without = LiveObjectMapper(FakeSong())
+        self.assertFalse(without._operation_supported("view.set")); self.assertFalse(without._operation_supported("view.control"))
+        with self.assertRaisesRegex(ValueError, "unavailable"): without.invoke("view.set", {"view": "Arranger"})
+
+    def test_arrangement_audio_clip_create_places_file_and_cleans_up_exactly(self):
+        song = FakeSong(); track = song.tracks[0]; track.arrangement_clips = []
+        def create_audio_clip(file_path, position):
+            clip = FakeClip(4.0); clip.start_time = position; clip.file_path = file_path; track.arrangement_clips.append(clip); return clip
+        track.create_audio_clip = create_audio_clip
+        track.delete_clip = lambda candidate: track.arrangement_clips.remove(candidate)
+        mapper = LiveObjectMapper(song); track_row = mapper.snapshot()["tracks"][0]
+        args = {"trackRef": track_row["ref"], "filePath": "/tmp/demo.wav", "position": 8.0, "name": "Imported",
+                "expectedTrackIdentity": track_row["objectIdentity"], "expectedCollectionRevision": mapper._arrangement_collection_revision(track, 0)}
+        result = mapper.invoke("arrangement.audio-clip.create", args)
+        self.assertEqual((result["filePath"], result["start"], result["length"], result["name"]), ("/tmp/demo.wav", 8.0, 4.0, "Imported"))
+        validate_operation_payload("arrangement.audio-clip.create", "result", result)
+        self.assertEqual(len(track.arrangement_clips), 1)
+        with self.assertRaisesRegex(ValueError, "collection changed since preview"):
+            mapper.invoke("arrangement.audio-clip.create", args)
+        self.assertEqual(len(track.arrangement_clips), 1)
+
+        def broken_creator(file_path, position):
+            clip = FakeClip(4.0); clip.start_time = position; clip.file_path = ""; track.arrangement_clips.append(clip); return clip
+        track.create_audio_clip = broken_creator
+        broken_args = dict(args, expectedCollectionRevision=mapper._arrangement_collection_revision(track, 0))
+        with self.assertRaisesRegex(ValueError, "file path was not confirmed"):
+            mapper.invoke("arrangement.audio-clip.create", broken_args)
+        self.assertEqual(len(track.arrangement_clips), 1)
+        with self.assertRaisesRegex(ValueError, "filePath is invalid"):
+            mapper.invoke("arrangement.audio-clip.create", dict(broken_args, filePath=""))

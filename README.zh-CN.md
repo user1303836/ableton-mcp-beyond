@@ -82,7 +82,7 @@ node dist/src/install-remote-script.js --destination '/abs/.../Remote Scripts/Ab
 | [AUDIO_INTELLIGENCE](docs/zh-CN/AUDIO_INTELLIGENCE.md) | DSP 标准、捕获同意、隐私限制 |
 | [USER_JOURNEYS](docs/zh-CN/USER_JOURNEYS.md) | 五个引导式创作工作流 |
 | [REALTIME_CONTROL](docs/zh-CN/REALTIME_CONTROL.md) | 已布防的 UDP/OSC/XY 控制平面 |
-| [CAPABILITY_MATRIX](docs/zh-CN/CAPABILITY_MATRIX.md) | 每个工具的能力与操作要求 |
+| [CAPABILITY_MATRIX](docs/zh-CN/CAPABILITY_MATRIX.md) | 代理能力速览,以及按域划分的能力与证据细节 |
 | [DELIVERY](docs/zh-CN/DELIVERY.md) | 打包产物的安装、升级、回滚与卸载 |
 | [DISTRIBUTION_POLICY](docs/zh-CN/DISTRIBUTION_POLICY.md) | 本地 MIT 产物、必需检查与紧急流程 |
 | [IMPLEMENTATION_STATUS](docs/zh-CN/IMPLEMENTATION_STATUS.md) | 已验证内容与当前限制 |
