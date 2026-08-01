@@ -68,6 +68,9 @@ API 的地方,保留的协议操作故障关闭并报告实际限制。
 | Follow Action 编写 | Live API 未暴露 |
 | 交叉淡化/淡化曲线编辑 | 无公共 API |
 | 完整 MPE 逐音符表情文档编辑 | 无权威 API;绝不声称(probability/velocity/deviation/release-velocity/mute 保持为协商音符字段) |
+| RoarDevice、ShifterDevice、SpectralResonatorDevice、WavetableDevice 语义表面 | 延期,不声称。通用 DeviceParameter 控制仍可用;只有在取得真实 Live 形态后才提供专用族 |
+| Sample 表面(片段行之外的切片/warp/采样元数据) | 延期,不声称 |
+| Simpler 的其余表面(包络、滤波器、LFO、回放模式) | 延期,不声称;按能力门控的 `Simpler.replace_sample` 是唯一交付的 Simpler 语义 |
 | Browser 标签、相似度搜索、Pack 安装/更新、Cloud/Splice 管理 | 无公共 API;`live_browser_search` 明确是有界名称匹配,`live_browser_roots` 报告绑定层级,而非假装这些存在 |
 | 偏好设置、音频驱动/缓冲配置、MIDI 端口偏好 | 无公共 API;应用级配置保持操作者所有 |
 | 超出已暴露参数、预置与编辑器可见性的任意插件不透明状态或 GUI 控制 | 无公共 API;插件参数、预置与 `is_editor_open` 是类型化边界 |

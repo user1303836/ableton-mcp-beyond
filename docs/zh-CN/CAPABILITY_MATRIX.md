@@ -25,7 +25,8 @@
 | 加载乐器、效果和预置 | `live_browser_search`、`live_browser_load_preview/apply` | 把确切的 Browser 项目加载到选定轨道;插件必须在 Live 自己的 Browser 中可见 |
 | 插入、启用、移动或移除设备 | `live_device_preview/apply`、`live_device_delete_preview/apply` | 移除仅限于事务自身创建的设备(精确清理);显式删除现有设备带栅栏且诚实不可撤销 |
 | Deep device and parameter control | `live_device_advanced_preview/apply`、`live_device_parameter_preview/apply` | 每行参数暴露元数据(默认值、原名、状态、枚举项、显示值);参数库带精确撤销;自动化重启用与 A/B 对比保存(瞬时);链设备插入(空链守卫);经 `Song.move_device` 的跨轨道/链设备移动,带精确反向移动撤销。Bypass 绝不从只读 `Device.is_active` 推断可写 —— 只使用探针验证的 Device On 参数 |
-| 专用设备 API | `live_device_specialized_preview/apply`、`live_looper_preview/apply`、`live_simpler_preview/apply` | Drift 调制矩阵列表(行)、弯音范围、复音数/模式;鼓单元语义增益;Eq8 编辑/全局模式、过采样与所选频段;Hybrid Reverb IR 类别/文件选择与 attack/decay/size/time 塑形;Meld 引擎、齐奏、单/复音与复音数;插件预置发现/选择与编辑器窗口状态(读/写);Looper 传输动作(瞬时)与速度/循环长度/速度/固定录音长度属性(精确撤销);Simpler 采样替换,带与音频导入同级的文件权限与经逆向替换的撤销。全部按设备类与成员存在性按形态协商 |
+| 专用设备 API | `live_device_specialized_preview/apply`、`live_looper_preview/apply`、`live_simpler_preview/apply` | Drift 弯音范围与复音数/模式的 index-and-list 成员(调制矩阵列表在设备行);鼓单元语义增益;Eq8 编辑/全局模式、`oversample` 与视图所选频段;Hybrid Reverb 以 index-and-list 选择 IR 类别/文件,以及 IR attack/decay/size 塑形;Meld 引擎、unison voices、单/复音与 poly voices;插件预置发现/选择与编辑器窗口状态(读/写);Looper 传输动作含 double/half speed(瞬时)、导出到精确空白 Clip 槽,以及可写的 `overdubAfterRecord`/`recordLengthIndex`(精确撤销),`loopLength`/`tempo` 在设备行上只读;Simpler 采样替换带暂存文件权限与经逆向替换的撤销。全部按设备类与成员存在性按形态协商 |
+| 未覆盖的专用设备 | — | RoarDevice、ShifterDevice、SpectralResonatorDevice、WavetableDevice 尚无语义映射;其通用参数仍可通过标准设备参数工作流使用,只有在取得真实 Live 形态后才会提供专用族(明确处置:延期,不声称覆盖)。Sample 表面(片段行之外的切片/warp/采样元数据)与 Simpler 的其余表面(包络、滤波器、LFO、回放模式)同样延期且如实不声称 |
 | 混音:音量、声像、静音、独奏、cue、发送 | `live_mixer_preview/apply` | 先捕获先前值,混音改动可以精确撤销 |
 | 扩展混音与交叉淡化 | `live_mixer_extended_preview/apply` | 轨道激活器、交叉推子、交叉分配、声像模式与分离立体声左/右声像,带精确撤销。主轨道的语义速度参数在其混音行上只读暴露;速度更改仍走速度工作流 |
 | Rack 链混音器 | `live_chain_mixer_preview/apply` | 链音量、声像、发送与链激活器,带精确撤销 |

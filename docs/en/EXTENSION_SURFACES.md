@@ -74,6 +74,9 @@ and reports the actual limitation.
 | Follow Action authoring | Not exposed by the Live API |
 | Crossfade/fade-curve editing | No public API |
 | Full MPE per-note expression document editing | No authoritative API; never claimed (probability/velocity/deviation/release-velocity/mute remain the negotiated note fields) |
+| RoarDevice, ShifterDevice, SpectralResonatorDevice, WavetableDevice semantic surfaces | Deferred, not claimed. Generic DeviceParameter control remains available; a specialized family ships only with exact captured Live shapes |
+| Sample surface (slice/warp/sample metadata beyond clip rows) | Deferred, not claimed |
+| Remaining Simpler surface (envelopes, filter, LFO, playback modes) | Deferred, not claimed; capability-gated `Simpler.replace_sample` is the only shipped Simpler semantic |
 | Browser tags, similarity search, Pack install/update, Cloud/Splice management | No public API; `live_browser_search` is explicitly a bounded name match, and `live_browser_roots` reports binding tiers instead of pretending these exist |
 | Preferences, audio driver/buffer configuration, MIDI-port preferences | No public API; application-level configuration stays operator-owned |
 | Licensing/account/authorization | Out of scope permanently |

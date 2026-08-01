@@ -73,6 +73,9 @@ Live Object Model の全領域をカバーしました。残る Max 専用サー
 | Follow Action 作成 | Live API で公開されていない |
 | クロスフェード/フェードカーブ編集 | 公開 API なし |
 | 完全な MPE ノートごと表現ドキュメント編集 | 権威ある API なし。主張しない(probability/velocity/deviation/release-velocity/mute がネゴシエートされたノートフィールドのまま) |
+| RoarDevice、ShifterDevice、SpectralResonatorDevice、WavetableDevice のセマンティックサーフェス | 延期、主張しない。汎用 DeviceParameter 制御は引き続き利用可能。正確に取得した Live 形状が揃った場合にのみ専用ファミリーを提供 |
+| Sample サーフェス(クリップ行を超えるスライス/warp/サンプルメタデータ) | 延期、主張しない |
+| Simpler の残りのサーフェス(エンベロープ、フィルター、LFO、再生モード) | 延期、主張しない。ケイパビリティゲート付きの `Simpler.replace_sample` のみが出荷された Simpler セマンティック |
 | Browser タグ、類似検索、Pack インストール/更新、Cloud/Splice 管理 | 公開 API なし。`live_browser_search` は明示的に有界な名前マッチであり、`live_browser_roots` は存在を偽装せずバインディング階層を報告 |
 | 環境設定、オーディオドライバー/バッファ設定、MIDI ポート設定 | 公開 API なし。アプリケーションレベルの設定はオペレーター所有のまま |
 | 公開パラメータ、プリセット、エディター可視性を超えた任意のプラグイン不透明状態や GUI コントロール | 公開 API なし。プラグインパラメータ、プリセット、`is_editor_open` が型付き境界 |

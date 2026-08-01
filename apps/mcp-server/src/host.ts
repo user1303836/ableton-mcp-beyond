@@ -1,7 +1,9 @@
 import type { Readable, Writable } from "node:stream";
 import { createHash, randomBytes } from "node:crypto";
-import { realpathSync, statSync, createReadStream } from "node:fs";
-import { dirname, sep } from "node:path";
+import { realpathSync, statSync, createReadStream, constants as fsConstants, mkdtempSync, chmodSync, unlinkSync } from "node:fs";
+import { dirname, extname, join as joinPath } from "node:path";
+import { sep } from "node:path";
+import { tmpdir } from "node:os";
 import { AnalysisRunner, type EncodedAnalysisSource } from "./analysis-runner.js";
 import type { PcmAnalysis } from "./analysis.js";
 import type { ConventionalChannelLabel } from "./audio-standards.js";
@@ -852,7 +854,7 @@ const implementedTools = [
   {
     name: "live_tuning_preview",
     description: "Read-only preflight for tuning-system and scale edits (name, note range, reference pitch, note tunings, root note, scale). Changes affect playback pitch globally.",
-    inputSchema: { type: "object", properties: { name: { type: "string", minLength: 1, maxLength: 256 }, lowestNote: { type: "integer", minimum: 0, maximum: 127 }, highestNote: { type: "integer", minimum: 0, maximum: 127 }, referencePitch: { type: "number", minimum: 20, maximum: 20000 }, noteTunings: { type: "array", minItems: 128, maxItems: 128, items: { type: "object", properties: { note: { type: "integer", minimum: 0, maximum: 127 }, deviation: { type: "number", minimum: -1200, maximum: 1200 } }, required: ["note", "deviation"], additionalProperties: false } }, rootNote: { type: "integer", minimum: 0, maximum: 11 }, scaleName: { type: "string", minLength: 1, maxLength: 256 }, scaleMode: { type: "string", minLength: 1, maxLength: 256 }, scaleIntervals: { type: "array", minItems: 1, maxItems: 32, items: { type: "integer", minimum: -24, maximum: 24 } } }, additionalProperties: false },
+    inputSchema: { type: "object", properties: { name: { type: "string", minLength: 1, maxLength: 256 }, lowestNote: { type: "object", maxProperties: 8 }, highestNote: { type: "object", maxProperties: 8 }, referencePitch: { type: "object", maxProperties: 8 }, noteTunings: { type: "array", minItems: 128, maxItems: 128, items: { type: "object", properties: { note: { type: "integer", minimum: 0, maximum: 127 }, deviation: { type: "number", minimum: -1200, maximum: 1200 } }, required: ["note", "deviation"], additionalProperties: false } }, rootNote: { type: "integer", minimum: 0, maximum: 11 }, scaleName: { type: "string", minLength: 1, maxLength: 256 }, scaleMode: { type: "boolean" } }, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   },
   {
@@ -899,8 +901,8 @@ const implementedTools = [
   },
   {
     name: "live_song_state",
-    description: "Read the comprehensive Song state (tracks, devices, signature, swing, overdub/record/arm/solo/Link states) and optionally convert beat/SMPTE times and read loop-time conversions.",
-    inputSchema: { type: "object", properties: { beatTime: { type: "number" }, smpteSeconds: { type: "number", minimum: 0 } }, additionalProperties: false },
+    description: "Read the comprehensive Song state (tracks, devices, signature, swing, overdub/record/arm/solo/Link states) and optionally run the documented loop-beats or current-SMPTE-time queries.",
+    inputSchema: { type: "object", properties: { conversion: { type: "string", enum: ["beats-loop", "current-smpte"] }, smpteFormat: { type: "string", enum: ["smpte-24", "smpte-25", "smpte-29", "smpte-30", "smpte-30-drop"] } }, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   },
   {
@@ -966,7 +968,7 @@ const implementedTools = [
   {
     name: "live_clip_view_preview",
     description: "Read-only preflight for clip view state: grid quantization, triplet grid, envelope visibility, and show-loop.",
-    inputSchema: { type: "object", properties: { clipRef: { type: "string", minLength: 1, maxLength: 256 }, gridQuantization: { type: "integer", minimum: 0, maximum: 16 }, tripletGrid: { type: "boolean" }, showEnvelope: { type: "boolean" }, showLoop: { type: "boolean" } }, required: ["clipRef"], additionalProperties: false },
+    inputSchema: { type: "object", properties: { clipRef: { type: "string", minLength: 1, maxLength: 256 }, gridQuantization: { type: "integer", minimum: 0, maximum: 16 }, gridIsTriplet: { type: "boolean" }, showEnvelope: { type: "boolean" }, showLoop: { type: "boolean" } }, required: ["clipRef"], additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   },
   {
@@ -1031,7 +1033,7 @@ const implementedTools = [
   },
   {
     name: "live_application_dialog_preview",
-    description: "Read the current application dialog state and preflight one guarded dialog-button press. Dialog buttons can be destructive (save/discard); the press fences on the exact observed state.",
+    description: "Read the current application dialog (message, button count, open-dialog count) and preflight one guarded dialog-button press. Dialog buttons can be destructive (save/discard); the press fences on the exact message content and dialog instance counts, and the preview returns the message so the operator confirms the semantic.",
     inputSchema: { type: "object", properties: { button: { type: "integer", minimum: 0, maximum: 16 } }, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: true, openWorldHint: true },
   },
@@ -1044,7 +1046,7 @@ const implementedTools = [
   {
     name: "live_device_advanced_preview",
     description: "Read-only preflight for device parameter banks, automation re-enable, A/B comparison save, chain insertion, and cross-track/chain device moves.",
-    inputSchema: { type: "object", properties: { action: { type: "string", enum: ["set-bank", "re-enable-automation", "save-comparison", "insert-chain", "move-cross"] }, ref: { type: "string", minLength: 1, maxLength: 256 }, bank: { type: "integer", minimum: 0, maximum: 32 }, slot: { type: "integer", minimum: 0, maximum: 1 }, trackRef: { type: "string", minLength: 1, maxLength: 256 }, chainRef: { type: "string", minLength: 1, maxLength: 256 }, deviceName: { type: "string", minLength: 1, maxLength: 256 }, index: { type: "integer", minimum: 0, maximum: 256 }, targetTrackRef: { type: "string", minLength: 1, maxLength: 256 }, targetChainRef: { type: "string", minLength: 1, maxLength: 256 } }, required: ["action"], additionalProperties: false },
+    inputSchema: { type: "object", properties: { action: { type: "string", enum: ["set-bank", "re-enable-automation", "save-comparison", "insert-chain", "move-cross"] }, ref: { type: "string", minLength: 1, maxLength: 256 }, bank: { type: "integer", minimum: 0, maximum: 32 }, scriptIndex: { type: "integer", minimum: 0, maximum: 16 }, trackRef: { type: "string", minLength: 1, maxLength: 256 }, chainRef: { type: "string", minLength: 1, maxLength: 256 }, deviceName: { type: "string", minLength: 1, maxLength: 256 }, index: { type: "integer", minimum: 0, maximum: 256 }, targetTrackRef: { type: "string", minLength: 1, maxLength: 256 }, targetChainRef: { type: "string", minLength: 1, maxLength: 256 } }, required: ["action"], additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   },
   {
@@ -1080,7 +1082,7 @@ const implementedTools = [
   {
     name: "live_rack_preview",
     description: "Read-only preflight for rack visible macro count and selected variation (exact undo), plus rack actions: add/remove/randomize macros, insert chain, copy pad, and variation store/recall/delete (momentary, non-undoable).",
-    inputSchema: { type: "object", properties: { action: { type: "string", enum: ["set", "add-macro", "remove-macro", "randomize-macros", "insert-chain", "copy-pad", "store-variation", "recall-variation", "delete-variation"] }, rackRef: { type: "string", minLength: 1, maxLength: 256 }, visibleMacroCount: { type: "integer", minimum: 1, maximum: 16 }, selectedVariationIndex: { type: "integer", minimum: -1, maximum: 256 }, index: { type: "integer", minimum: -1, maximum: 256 }, sourceIndex: { type: "integer", minimum: 0, maximum: 127 }, targetIndex: { type: "integer", minimum: 0, maximum: 127 } }, required: ["action", "rackRef"], additionalProperties: false },
+    inputSchema: { type: "object", properties: { action: { type: "string", enum: ["set", "add-macro", "remove-macro", "randomize-macros", "insert-chain", "copy-pad", "store-variation", "recall-variation", "delete-variation"] }, rackRef: { type: "string", minLength: 1, maxLength: 256 }, selectedVariationIndex: { type: "integer", minimum: -1, maximum: 256 }, index: { type: "integer", minimum: -1, maximum: 256 }, sourceIndex: { type: "integer", minimum: 0, maximum: 127 }, targetIndex: { type: "integer", minimum: 0, maximum: 127 } }, required: ["action", "rackRef"], additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   },
   {
@@ -1115,8 +1117,8 @@ const implementedTools = [
   },
   {
     name: "live_looper_preview",
-    description: "Read-only preflight for Looper transport actions (record, overdub, play, stop, clear, undo, export — momentary) and properties (speed, loop length, tempo, fixed record length — exact undo).",
-    inputSchema: { type: "object", properties: { action: { type: "string", enum: ["set", "record", "overdub", "play", "stop", "clear", "undo", "undo-all", "export"] }, deviceRef: { type: "string", minLength: 1, maxLength: 256 }, speed: { type: "number", minimum: -4, maximum: 4 }, loopLength: { type: "number", minimum: 0 }, tempo: { type: "number", minimum: 20, maximum: 999 }, fixedRecordLength: { type: "number", minimum: 0 } }, required: ["action", "deviceRef"], additionalProperties: false },
+    description: "Read-only preflight for Looper actions (record, overdub, play, stop, clear, undo, double-speed, half-speed, export to an exact empty clip slot — momentary) and writable properties (overdubAfterRecord, recordLengthIndex — exact undo). loopLength and tempo are read-only and reported in the looper device row.",
+    inputSchema: { type: "object", properties: { action: { type: "string", enum: ["set", "record", "overdub", "play", "stop", "clear", "undo", "double-speed", "half-speed", "export"] }, deviceRef: { type: "string", minLength: 1, maxLength: 256 }, slotRef: { type: "string", minLength: 1, maxLength: 256 }, overdubAfterRecord: { type: "boolean" }, recordLengthIndex: { type: "integer", minimum: 0, maximum: 8 } }, required: ["action", "deviceRef"], additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   },
   {
@@ -1224,11 +1226,29 @@ function textContent(text: string): JsonObject {
 const ACTIVE_TRANSACTION_STATES = new Set(["applying", "stopping", "undoing", "capturing", "analyzing"]);
 const IN_FLIGHT_TRANSACTION_IDS = new Set<string>();
 const RECOVERY_PROTECTED_STATES = new Set([...ACTIVE_TRANSACTION_STATES, "applied", "uncertain"]);
+
+function isRetirableAppliedTransaction(candidate: unknown): boolean {
+  const record = candidate as { state?: unknown; kind?: unknown; payload?: Record<string, unknown> };
+  if (record.state !== "applied" || typeof record.kind !== "string") return false;
+  const action = record.payload?.action as string | undefined;
+  switch (record.kind) {
+    case "scene-fire": case "transport-action": case "dialog": case "clip-action": return true;
+    case "looper": return action !== "set";
+    case "rack": return action !== undefined && action !== "set";
+    case "device-advanced": return ["re-enable-automation", "save-comparison", "set-bank"].includes(action ?? "");
+    case "drum-pad": return action === "delete-all-chains";
+    default: return false;
+  }
+}
 class BoundedTransactionMap<T extends { expiresAt: number; state: string }> extends Map<string, T> {
   public constructor(private readonly capacity = MAX_AUDITION_TRANSACTIONS) { super(); }
   public override set(key: string, value: T): this {
     const now = Date.now();
-    for (const [candidateKey, candidate] of this) if (candidate.expiresAt <= now && !RECOVERY_PROTECTED_STATES.has(candidate.state) && !IN_FLIGHT_TRANSACTION_IDS.has(candidateKey)) this.delete(candidateKey);
+    // Applied non-undoable records retire at their advertised TTL so
+    // acknowledged momentary actions cannot exhaust protected capacity
+    // permanently; undoable applied records keep their replay/undo authority,
+    // and uncertain records stay protected until explicit recovery.
+    for (const [candidateKey, candidate] of this) if (candidate.expiresAt <= now && (!RECOVERY_PROTECTED_STATES.has(candidate.state) || isRetirableAppliedTransaction(candidate)) && !IN_FLIGHT_TRANSACTION_IDS.has(candidateKey)) this.delete(candidateKey);
     if (!this.has(key)) while (this.size >= this.capacity) {
       const oldest = [...this].find(([candidateKey, candidate]) => !RECOVERY_PROTECTED_STATES.has(candidate.state) && !IN_FLIGHT_TRANSACTION_IDS.has(candidateKey));
       if (!oldest) throw new Error("transaction capacity is exhausted by recovery-protected work");
@@ -3612,6 +3632,71 @@ export class McpHost {
     return { canonicalPath, size: stats.size, mtimeMs: stats.mtimeMs, sha256 };
   }
 
+  private importStagingRoot(): string {
+    // Canonicalize once: tmpdir may contain symlinks (/var -> /private/var on
+    // macOS), and containment checks compare canonical paths.
+    this.importStagingDir ??= realpathSync(mkdtempSync(joinPath(tmpdir(), "ableton-mcp-import-")));
+    return this.importStagingDir;
+  }
+  private importStagingDir: string | undefined;
+
+  /** Re-verify the authorized source through one no-follow descriptor (identity
+      and size checked before and after a byte-bounded read), then copy the
+      verified bytes through that same descriptor into a transaction-owned
+      non-writable staging file. Live only ever receives the staged path, so a
+      rename-swap in the allowed directory cannot substitute unauthorized bytes. */
+  private async stageVerifiedImportFile(canonicalPath: string, expected: { size: number; sha256: string }): Promise<string> {
+    const { open } = await import("node:fs/promises");
+    const source = await open(canonicalPath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+    try {
+      const before = await source.stat();
+      if (!before.isFile() || before.size !== expected.size || before.size <= 0 || before.size > McpHost.AUDIO_IMPORT_MAX_BYTES) throw new Error("audio file changed since preview");
+      const hash = createHash("sha256");
+      let read = 0;
+      for await (const chunk of source.createReadStream({ autoClose: false })) {
+        read += (chunk as Buffer).length;
+        if (read > McpHost.AUDIO_IMPORT_MAX_BYTES) throw new Error("audio file exceeds the import bound");
+        hash.update(chunk as Buffer);
+      }
+      const after = await source.stat();
+      if (after.dev !== before.dev || after.ino !== before.ino || after.size !== before.size) throw new Error("audio file changed since preview");
+      if (hash.digest("hex") !== expected.sha256) throw new Error("audio file changed since preview");
+      const stagingPath = joinPath(this.importStagingRoot(), `${randomBytes(12).toString("base64url")}${extname(canonicalPath).toLowerCase()}`);
+      const staging = await open(stagingPath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL, 0o444);
+      try {
+        const copyHash = createHash("sha256");
+        for await (const chunk of source.createReadStream({ autoClose: false, start: 0 })) {
+          copyHash.update(chunk as Buffer);
+          await staging.write(chunk as Buffer);
+        }
+        if (copyHash.digest("hex") !== expected.sha256) throw new Error("audio file changed since preview");
+      } finally { await staging.close(); }
+      chmodSync(stagingPath, 0o444);
+      return stagingPath;
+    } finally { await source.close(); }
+  }
+
+  /** Apply-time check of the immutable staged copy: containment, size, and
+      hash must still match the preview authority. */
+  private async verifyStagedImportFile(stagingPath: string, expected: { size: number; sha256: string }): Promise<void> {
+    const canonical = realpathSync(stagingPath);
+    if (!canonical.startsWith(this.importStagingRoot() + sep)) throw new Error("staged import path escapes the transaction staging root");
+    const stats = statSync(canonical);
+    if (!stats.isFile() || stats.size !== expected.size) throw new Error("staged audio file changed since preview");
+    const hash = createHash("sha256");
+    await new Promise<void>((resolvePromise, rejectPromise) => {
+      const stream = createReadStream(canonical);
+      stream.on("data", (chunk) => hash.update(chunk));
+      stream.on("end", () => { if (hash.digest("hex") !== expected.sha256) { rejectPromise(new Error("staged audio file changed since preview")); return; } resolvePromise(); });
+      stream.on("error", rejectPromise);
+    });
+  }
+
+  private releaseStagedImportFile(stagingPath: unknown): void {
+    if (typeof stagingPath !== "string" || this.importStagingDir === undefined) return;
+    try { if (stagingPath.startsWith(this.importStagingDir + sep)) { chmodSync(stagingPath, 0o600); unlinkSync(stagingPath); } } catch { /* best-effort staging cleanup */ }
+  }
+
   private clipAuthorityDigest(snapshot: LiveSnapshot, clipRef: LiveRef): string {
     const located = this.clipRow(snapshot, clipRef);
     if (located.takeLane) {
@@ -3656,6 +3741,7 @@ export class McpHost {
     if (params.name !== undefined && !isNonEmptyString(params.name, 256)) return error(id, -32602, "name is invalid");
     try {
       const authority = await this.audioImportFileAuthority(params.filePath, params.allowedRoot);
+      const stagingPath = await this.stageVerifiedImportFile(authority.canonicalPath, authority);
       const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
       if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
       if (params.takeLaneRef !== undefined) {
@@ -3664,7 +3750,7 @@ export class McpHost {
         const lane = this.takeLaneRow(snapshot, params.takeLaneRef as LiveRef);
         if (!isNonEmptyString(lane.lane.objectIdentity, 256)) throw new Error("take-lane identity is not authoritative");
         const laneSiblings = lane.lane.clips.map((clip) => ({ ref: clip.ref, objectIdentity: clip.objectIdentity }));
-        const payload: Record<string, unknown> = { takeLaneRef: params.takeLaneRef, filePath: authority.canonicalPath, position: params.position, ...(params.name !== undefined ? { name: params.name } : {}), expectedTakeLaneIdentity: lane.lane.objectIdentity, expectedCollectionRevision: createHash("sha256").update(canonicalMutationIdentity(laneSiblings)).digest("hex") };
+        const payload: Record<string, unknown> = { takeLaneRef: params.takeLaneRef, filePath: stagingPath, position: params.position, ...(params.name !== undefined ? { name: params.name } : {}), expectedTakeLaneIdentity: lane.lane.objectIdentity, expectedCollectionRevision: createHash("sha256").update(canonicalMutationIdentity(laneSiblings)).digest("hex") };
         const fence = JSON.stringify({ takeLaneRef: params.takeLaneRef, laneIdentity: lane.lane.objectIdentity, siblings: laneSiblings });
         const transaction: ClipLifecycleTransaction = { id: `audioimport_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "session-audio-create", fence, payload, prior: { file: authority, destination: "take-lane" }, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
         this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "audio import");
@@ -3678,7 +3764,7 @@ export class McpHost {
       const scene = (snapshot.scenes as unknown as JsonObject[]).find((candidate) => candidate.index === params.sceneIndex);
       if (!slot || !isNonEmptyString(slot.ref, 256) || !isNonEmptyString(slot.objectIdentity, 256) || !scene || !isNonEmptyString(scene.ref, 256) || !isNonEmptyString(scene.objectIdentity, 256)) throw new Error("Session import target identity is incomplete");
       if (slot.clipRef) return this.transactionError(id, "Session slot is occupied");
-      const payload: Record<string, unknown> = { trackRef: params.trackRef, sceneIndex: params.sceneIndex, filePath: authority.canonicalPath, ...(params.name !== undefined ? { name: params.name } : {}), expectedTrackIdentity: track.objectIdentity, expectedSlotRef: slot.ref, expectedSlotIdentity: slot.objectIdentity, expectedSceneRef: scene.ref, expectedSceneIdentity: scene.objectIdentity };
+      const payload: Record<string, unknown> = { trackRef: params.trackRef, sceneIndex: params.sceneIndex, filePath: stagingPath, ...(params.name !== undefined ? { name: params.name } : {}), expectedTrackIdentity: track.objectIdentity, expectedSlotRef: slot.ref, expectedSlotIdentity: slot.objectIdentity, expectedSceneRef: scene.ref, expectedSceneIdentity: scene.objectIdentity };
       const fence = JSON.stringify({ trackRef: params.trackRef, trackIdentity: track.objectIdentity, slotRef: slot.ref, slotIdentity: slot.objectIdentity, sceneRef: scene.ref, sceneIdentity: scene.objectIdentity });
       const transaction: ClipLifecycleTransaction = { id: `audioimport_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "session-audio-create", fence, clipRef: params.trackRef as LiveRef, payload, prior: { file: authority }, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
       this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "audio import");
@@ -3700,8 +3786,9 @@ export class McpHost {
       if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
       const previewFile = (transaction.prior as { file?: { canonicalPath: string; size: number; mtimeMs: number; sha256: string } }).file;
       if (!previewFile) return this.transactionError(id, "audio import file authority is missing; preview again");
-      const currentFile = await this.audioImportFileAuthority(transaction.payload.filePath, dirname(previewFile.canonicalPath));
-      if (currentFile.canonicalPath !== previewFile.canonicalPath || currentFile.size !== previewFile.size || currentFile.mtimeMs !== previewFile.mtimeMs || currentFile.sha256 !== previewFile.sha256) return this.transactionError(id, "audio file changed since preview; preview again");
+      // The bytes Live opens are the transaction-owned staged copy verified at
+      // preview; the source path is never re-trusted after staging.
+      await this.verifyStagedImportFile(transaction.payload.filePath as string, previewFile);
       const adapter = this.asyncAdapter();
       const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
       if (!reconciliation && transaction.payload.takeLaneRef !== undefined) {
@@ -3721,6 +3808,23 @@ export class McpHost {
       transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
       const result = await adapter.invokeAsync({ operation: (transaction.payload.takeLaneRef !== undefined ? "take-lane.audio-clip.create" : "session.audio-clip.create") as "session.audio-clip.create" | "take-lane.audio-clip.create", args: transaction.payload }, context) as Record<string, unknown>;
       if (!isNonEmptyString(result.ref, 256) || !isNonEmptyString(result.objectIdentity, 256) || !isNonEmptyString(result.createdFingerprint, 64) || !isNonEmptyString(result.filePath, 1024)) throw new Error("Session audio import did not return exact identity");
+      // Verify the returned ref, destination, identity, and file in a fresh
+      // snapshot (and that the ref resolves mapper-side) before marking the
+      // transaction applied; the created fingerprint is fenced again at undo.
+      const verifiedSnapshot = await adapter.snapshotAsync(context);
+      const located = this.clipRow(verifiedSnapshot, result.ref as LiveRef);
+      if (located.clip.objectIdentity !== result.objectIdentity) throw new Error("created clip identity was not confirmed by a fresh snapshot");
+      if (!isNonEmptyString(located.clip.filePath, 1024)) throw new Error("created clip file was not confirmed by a fresh snapshot");
+      if (transaction.payload.takeLaneRef !== undefined) {
+        if (located.takeLane?.ref !== transaction.payload.takeLaneRef) throw new Error("created clip destination was not confirmed by a fresh snapshot");
+      } else {
+        const ownerTrack = located.track;
+        if (!ownerTrack || ownerTrack.ref !== transaction.payload.trackRef) throw new Error("created clip destination was not confirmed by a fresh snapshot");
+        const ownerSlot = ((ownerTrack.clipSlots as unknown[]) ?? []).filter(isObject).find((slot) => slot.clipRef === result.ref);
+        if (!ownerSlot || ownerSlot.sceneIndex !== transaction.payload.sceneIndex) throw new Error("created clip destination was not confirmed by a fresh snapshot");
+      }
+      const mapperRow = await adapter.getAsync(result.ref as LiveRef, context) as Record<string, unknown> | undefined;
+      if (!mapperRow || mapperRow.objectIdentity !== result.objectIdentity) throw new Error("created clip ref does not resolve against the authoritative mapper");
       transaction.created = result;
       transaction.applyKey = params.idempotencyKey as string;
       transaction.state = "applied";
@@ -3824,7 +3928,7 @@ export class McpHost {
       const state = { isPlaying: row.clip.isPlaying ?? null, playingPosition: row.clip.playingPosition ?? null, length: row.clip.length ?? null, loopStart: row.clip.loopStart ?? null, loopEnd: row.clip.loopEnd ?? null };
       payload.expectedStateRevision = createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex");
       if (contentActions.includes(params.action as string)) payload.expectedContentFingerprint = this.captureObjectFingerprint(row.clip);
-      const prior = { length: row.clip.length, playingPosition: row.clip.playingPosition ?? null };
+      const prior = { length: row.clip.length, playingPosition: row.clip.playingPosition ?? null, loopStart: row.clip.loopStart ?? null, loopEnd: row.clip.loopEnd ?? null };
       const fence = JSON.stringify({ ref: params.clipRef, objectIdentity: row.clip.objectIdentity, state, contentFingerprint: payload.expectedContentFingerprint ?? null });
       const transaction: ClipLifecycleTransaction = { id: `clipaction_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "clip-action", fence, clipRef: params.clipRef as LiveRef, payload, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
       this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "clip action");
@@ -3854,10 +3958,24 @@ export class McpHost {
       const result = await adapter.invokeAsync({ operation: "clip.action", args: transaction.payload }, context) as { changed?: unknown; revision?: unknown };
       if (result.changed !== true) throw new Error("clip action was not confirmed");
       const verified = this.clipRow(await adapter.snapshotAsync(context), transaction.clipRef!).clip;
-      const action = transaction.payload.action as string; const verifiedLength = verified.length as number; const prior = transaction.prior as { length: number; playingPosition: number | null };
-      if (action === "crop" && verifiedLength >= prior.length) throw new Error("clip crop postcondition was not confirmed");
-      if (action === "duplicate-loop" && verifiedLength < prior.length * 2 - 1e-6) throw new Error("clip loop duplication postcondition was not confirmed");
-      if (action === "duplicate-region" && verifiedLength < prior.length + ((transaction.payload.regionEnd as number) - (transaction.payload.regionStart as number)) - 1e-6) throw new Error("clip region duplication postcondition was not confirmed");
+      const action = transaction.payload.action as string; const verifiedLength = verified.length as number; const prior = transaction.prior as { length: number; playingPosition: number | null; loopStart: number | null; loopEnd: number | null };
+      // Verify the documented outcome of each action instead of an assumed
+      // length formula: cropping lands on the loop extent (a full-loop crop
+      // preserves length), duplicate-loop appends the loop region, and
+      // duplicate-region grows the clip only when the destination extends it.
+      if (action === "crop") {
+        if (typeof prior.loopStart !== "number" || typeof prior.loopEnd !== "number" || !(prior.loopEnd > prior.loopStart)) throw new Error("clip crop loop state is unavailable");
+        if (Math.abs(verifiedLength - (prior.loopEnd - prior.loopStart)) > 1e-6) throw new Error("clip crop postcondition was not confirmed");
+      }
+      if (action === "duplicate-loop") {
+        if (typeof prior.loopStart !== "number" || typeof prior.loopEnd !== "number") throw new Error("clip loop state is unavailable");
+        if (Math.abs(verifiedLength - (prior.length + (prior.loopEnd - prior.loopStart))) > 1e-6) throw new Error("clip loop duplication postcondition was not confirmed");
+      }
+      if (action === "duplicate-region") {
+        const span = (transaction.payload.regionEnd as number) - (transaction.payload.regionStart as number);
+        const destination = (transaction.payload.destination as number | undefined) ?? prior.length;
+        if (Math.abs(verifiedLength - Math.max(prior.length, destination + span)) > 1e-6) throw new Error("clip region duplication postcondition was not confirmed");
+      }
       transaction.applyKey = params.idempotencyKey as string;
       transaction.state = "applied";
       return this.successText(id, { transactionId: transaction.id, state: "applied", revision: result.revision, idempotent: false });
@@ -3952,7 +4070,7 @@ export class McpHost {
   }
 
   private async liveTuningPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
-    const fields = ["name", "lowestNote", "highestNote", "referencePitch", "noteTunings", "rootNote", "scaleName", "scaleMode", "scaleIntervals"] as const;
+    const fields = ["name", "lowestNote", "highestNote", "referencePitch", "noteTunings", "rootNote", "scaleName", "scaleMode"] as const;
     if (!isObject(params) || !hasOnly(params, [...fields])) return error(id, -32602, "only bounded tuning and scale fields are accepted");
     if (fields.every((field) => params[field] === undefined)) return error(id, -32602, "at least one tuning field is required");
     if (params.noteTunings !== undefined && (!Array.isArray(params.noteTunings) || params.noteTunings.length !== 128 || !params.noteTunings.every((row) => isObject(row) && hasOnly(row, ["note", "deviation"]) && Number.isInteger(row.note) && (row.note as number) >= 0 && (row.note as number) <= 127 && typeof row.deviation === "number" && Number.isFinite(row.deviation) && Math.abs(row.deviation) <= 1200))) return error(id, -32602, "noteTunings must contain exactly 128 valid entries");
@@ -4203,8 +4321,19 @@ export class McpHost {
       transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
       const result = await adapter.invokeAsync({ operation: "scene.fire-selected", args: transaction.payload }, context) as { fired?: unknown };
       if (result.fired !== true) throw new Error("scene fire was not confirmed");
-      const verified = (await adapter.snapshotAsync(context)).scenes.find((candidate) => candidate.ref === transaction.payload.ref);
-      if (!verified || verified.isTriggered !== true) throw new Error("scene fire postcondition was not confirmed");
+      // Scene.is_triggered is transient (queued for launch); with immediate
+      // quantization it can already be false after a successful audible fire.
+      // Accept the queued flag or durable playing evidence over a bounded
+      // window before declaring the outcome uncertain.
+      let confirmed = false;
+      for (let attempt = 0; attempt < 4 && !confirmed; attempt += 1) {
+        if (attempt > 0) await this.waitFor(200);
+        const verified = await adapter.snapshotAsync(context);
+        const scene = (verified.scenes as unknown as JsonObject[]).find((candidate) => candidate.ref === transaction.payload.ref);
+        const targets = [...(verified.playback.firedTargets ?? []), ...(verified.playback.playingTargets ?? [])] as unknown as JsonObject[];
+        confirmed = scene?.isTriggered === true || verified.playback.transport.playing === true || targets.some((target) => target.sceneRef === transaction.payload.ref);
+      }
+      if (!confirmed) throw new Error("scene fire postcondition was not confirmed");
       transaction.applyKey = params.idempotencyKey as string;
       transaction.state = "applied";
       return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: false });
@@ -4212,9 +4341,11 @@ export class McpHost {
   }
 
   private async liveSongStateAsync(id: RequestId, params: unknown): Promise<JsonObject> {
-    if (!isObject(params) || !hasOnly(params, ["beatTime", "smpteSeconds"])) return error(id, -32602, "only beatTime and smpteSeconds are accepted");
-    if (params.beatTime !== undefined && (typeof params.beatTime !== "number" || !Number.isFinite(params.beatTime))) return error(id, -32602, "beatTime is invalid");
-    if (params.smpteSeconds !== undefined && (typeof params.smpteSeconds !== "number" || !Number.isFinite(params.smpteSeconds) || params.smpteSeconds < 0)) return error(id, -32602, "smpteSeconds is invalid");
+    const conversions = ["beats-loop", "current-smpte"] as const;
+    const smpteFormats = ["smpte-24", "smpte-25", "smpte-29", "smpte-30", "smpte-30-drop"] as const;
+    if (!isObject(params) || !hasOnly(params, ["conversion", "smpteFormat"])) return error(id, -32602, "only conversion and smpteFormat are accepted");
+    if (params.conversion !== undefined && !conversions.includes(params.conversion as typeof conversions[number])) return error(id, -32602, "conversion is invalid");
+    if (params.smpteFormat !== undefined && !smpteFormats.includes(params.smpteFormat as typeof smpteFormats[number])) return error(id, -32602, "smpteFormat is invalid");
     try {
       const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
       if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
@@ -4223,10 +4354,9 @@ export class McpHost {
       const snapshot = await adapter.snapshotAsync();
       const context = { deadlineMs: Date.now() + AUDITION_DEADLINE_MS };
       const state = await adapter.invokeAsync({ operation: "song.read", args: { setRef: snapshot.set.ref } }, context) as Record<string, unknown>;
-      if ((params.beatTime !== undefined || params.smpteSeconds !== undefined) && (status.operations ?? []).includes("song.time-convert")) {
-        const args: Record<string, unknown> = { setRef: snapshot.set.ref };
-        if (params.beatTime !== undefined) args.beatTime = params.beatTime;
-        if (params.smpteSeconds !== undefined) args.smpteSeconds = params.smpteSeconds;
+      if (params.conversion !== undefined && (status.operations ?? []).includes("song.time-convert")) {
+        const args: Record<string, unknown> = { setRef: snapshot.set.ref, query: params.conversion };
+        if (params.smpteFormat !== undefined) args.smpteFormat = params.smpteFormat;
         state.conversions = await adapter.invokeAsync({ operation: "song.time-convert", args }, context);
       }
       return this.successText(id, state);
@@ -4249,7 +4379,7 @@ export class McpHost {
     const actions = ["start", "continue", "stop", "play-selection", "scrub", "tap-tempo", "nudge-up", "nudge-down", "re-enable-automation", "trigger-session-record", "force-link-beat-time", "stop-all-clips"] as const;
     const audible = ["start", "continue", "play-selection", "scrub", "trigger-session-record", "force-link-beat-time"];
     if (!isObject(params) || !hasOnly(params, ["action", "beatTime"]) || !actions.includes(params.action as typeof actions[number])) return error(id, -32602, "a valid action is required");
-    if (params.action === "force-link-beat-time" && (typeof params.beatTime !== "number" || !Number.isFinite(params.beatTime))) return error(id, -32602, "beatTime is required for force-link-beat-time");
+    if ((params.action === "force-link-beat-time" || params.action === "scrub") && (typeof params.beatTime !== "number" || !Number.isFinite(params.beatTime))) return error(id, -32602, `beatTime is required for ${params.action === "scrub" ? "the scrub distance" : "force-link-beat-time"}`);
     try {
       const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
       if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
@@ -4352,7 +4482,12 @@ export class McpHost {
         if (result.deleted !== transaction.payload.ref) throw new Error("return-track deletion was not confirmed");
       } else {
         if (!isNonEmptyString(result.ref, 256) || !isNonEmptyString(result.objectIdentity, 256) || !isNonEmptyString(result.createdFingerprint, 64)) throw new Error("track-structure creation did not return exact identity");
-        transaction.created = result;
+        // Bind the complete applied content (devices, clips, mixer, routing)
+        // so cleanup cannot delete a creation after nested content changed.
+        const appliedSnapshot = await adapter.snapshotAsync(context);
+        const appliedKind = action === "duplicate-scene" ? "scene" : "track";
+        const contentFingerprint = this.sessionStructureCreatedFingerprint(appliedSnapshot, appliedKind, result.ref as LiveRef);
+        transaction.created = { ...result, contentFingerprint };
       }
       transaction.applyKey = params.idempotencyKey as string;
       transaction.state = "applied";
@@ -4523,13 +4658,29 @@ export class McpHost {
         const proposed = Object.fromEntries(Object.entries(transaction.payload).filter(([key]) => !["expectedStateRevision", "drawMode"].includes(key)));
         if (JSON.stringify({ proposed, selectionRevision: this.selectionRevision(snapshot), drawMode: snapshot.view?.drawMode ?? null }) !== transaction.fence) return this.transactionError(id, "selection state changed since preview; preview again"); }
       transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
-      const selectionArgs = Object.fromEntries(Object.entries(transaction.payload).filter(([key]) => key !== "drawMode"));
-      const result = await adapter.invokeAsync({ operation: "selection.set", args: selectionArgs }, context) as { changed?: unknown; revision?: unknown };
-      if (result.changed !== true) throw new Error("selection change was not confirmed");
+      const selectionFields = Object.entries(transaction.payload).filter(([key]) => !["expectedStateRevision", "drawMode"].includes(key));
+      let selectionApplied = false;
+      if (selectionFields.length > 0) {
+        const selectionArgs = Object.fromEntries(Object.entries(transaction.payload).filter(([key]) => key !== "drawMode"));
+        const result = await adapter.invokeAsync({ operation: "selection.set", args: selectionArgs }, context) as { changed?: unknown; revision?: unknown };
+        if (result.changed !== true) throw new Error("selection change was not confirmed");
+        selectionApplied = true;
+      }
       if (transaction.payload.drawMode !== undefined) {
-        const drawRevision = createHash("sha256").update(canonicalMutationIdentity({ drawMode: transaction.payload.drawMode === true ? (transaction.prior as { drawMode?: unknown }).drawMode : !(transaction.payload.drawMode as boolean) })).digest("hex");
-        const drawResult = await adapter.invokeAsync({ operation: "song.view.set", args: { drawMode: transaction.payload.drawMode, expectedStateRevision: drawRevision } }, context) as { changed?: unknown };
-        if (drawResult.changed !== true) throw new Error("draw-mode change was not confirmed");
+        // Fence on the captured prior draw state, then compensate the selection
+        // dispatch if the draw change fails so the combined operation does not
+        // strand a half-applied edit behind an uncertain transaction.
+        const priorDraw = (transaction.prior as { drawMode?: unknown }).drawMode ?? null;
+        const drawRevision = createHash("sha256").update(canonicalMutationIdentity({ drawMode: priorDraw })).digest("hex");
+        try {
+          const drawResult = await adapter.invokeAsync({ operation: "song.view.set", args: { drawMode: transaction.payload.drawMode, expectedStateRevision: drawRevision } }, context) as { changed?: unknown };
+          if (drawResult.changed !== true) throw new Error("draw-mode change was not confirmed");
+        } catch (cause) {
+          if (selectionApplied && transaction.prior) {
+            try { await adapter.invokeAsync({ operation: "selection.set", args: { ...(transaction.prior as Record<string, unknown>), expectedStateRevision: this.selectionRevision(await adapter.snapshotAsync(context)) } }, context); } catch { throw new Error("draw-mode change failed and selection compensation failed"); }
+          }
+          throw cause;
+        }
       }
       const verified = await adapter.snapshotAsync(context);
       for (const [field, value] of Object.entries(transaction.payload)) {
@@ -4544,7 +4695,7 @@ export class McpHost {
   }
 
   private async liveClipViewPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
-    const fields = ["gridQuantization", "tripletGrid", "showEnvelope"] as const;
+    const fields = ["gridQuantization", "gridIsTriplet", "showEnvelope"] as const;
     if (!isObject(params) || !hasOnly(params, ["clipRef", "showLoop", ...fields]) || !isNonEmptyString(params.clipRef, 256)) return error(id, -32602, "clipRef is required");
     if (fields.every((field) => params[field] === undefined) && params.showLoop !== true) return error(id, -32602, "at least one clip view field or showLoop is required");
     try {
@@ -4553,13 +4704,13 @@ export class McpHost {
       if (!(status.operations ?? []).includes("clip.view.set")) throw new Error("clip view editing is unavailable");
       const snapshot = await this.asyncAdapter().snapshotAsync();
       const row = this.clipRow(snapshot, params.clipRef as LiveRef);
-      const viewState = { gridQuantization: (row.clip.clipView as JsonObject | undefined)?.gridQuantization ?? null, tripletGrid: (row.clip.clipView as JsonObject | undefined)?.tripletGrid ?? null, showEnvelope: (row.clip.clipView as JsonObject | undefined)?.showEnvelope ?? null };
+      const viewState = { gridQuantization: (row.clip.clipView as JsonObject | undefined)?.gridQuantization ?? null, gridIsTriplet: (row.clip.clipView as JsonObject | undefined)?.gridIsTriplet ?? null };
       const proposed: Record<string, unknown> = {};
       for (const field of fields) {
         const value = params[field];
         if (value === undefined) continue;
         if (field === "gridQuantization" && (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 16)) return error(id, -32602, "gridQuantization is invalid");
-        if ((field === "tripletGrid" || field === "showEnvelope") && typeof value !== "boolean") return error(id, -32602, `${field} must be boolean`);
+        if ((field === "gridIsTriplet" || field === "showEnvelope") && typeof value !== "boolean") return error(id, -32602, `${field} must be boolean`);
         proposed[field] = value;
       }
       const prior = { ...viewState };
@@ -4586,14 +4737,14 @@ export class McpHost {
       const adapter = this.asyncAdapter();
       const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
       if (!reconciliation) { const snapshot = await adapter.snapshotAsync(context); const row = this.clipRow(snapshot, transaction.clipRef!);
-        const viewState = { gridQuantization: (row.clip.clipView as JsonObject | undefined)?.gridQuantization ?? null, tripletGrid: (row.clip.clipView as JsonObject | undefined)?.tripletGrid ?? null, showEnvelope: (row.clip.clipView as JsonObject | undefined)?.showEnvelope ?? null };
+        const viewState = { gridQuantization: (row.clip.clipView as JsonObject | undefined)?.gridQuantization ?? null, gridIsTriplet: (row.clip.clipView as JsonObject | undefined)?.gridIsTriplet ?? null };
         if (JSON.stringify({ ref: transaction.clipRef, objectIdentity: row.clip.objectIdentity, viewState }) !== transaction.fence) return this.transactionError(id, "clip identity or view state changed since preview; preview again"); }
       transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
       const result = await adapter.invokeAsync({ operation: "clip.view.set", args: transaction.payload }, context) as { changed?: unknown };
       if (result.changed !== true) throw new Error("clip view change was not confirmed");
       const verified = this.clipRow(await adapter.snapshotAsync(context), transaction.clipRef!).clip;
       const view = verified.clipView as JsonObject | undefined;
-      for (const field of ["gridQuantization", "tripletGrid", "showEnvelope"]) if (transaction.payload[field] !== undefined && view?.[field] !== transaction.payload[field]) throw new Error("clip view postcondition was not confirmed");
+      for (const field of ["gridQuantization", "gridIsTriplet"]) if (transaction.payload[field] !== undefined && view?.[field] !== transaction.payload[field]) throw new Error("clip view postcondition was not confirmed");
       transaction.applyKey = params.idempotencyKey as string;
       transaction.state = "applied";
       return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: false });
@@ -4654,13 +4805,16 @@ export class McpHost {
       if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
       if (!(status.operations ?? []).includes("application.dialog")) throw new Error("application dialog surface is unavailable");
       const adapter = this.asyncAdapter();
-      const read = await adapter.invokeAsync({ operation: "application.dialog", args: { action: "read" } }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as { state?: unknown; done?: unknown };
-      if (params.button === undefined) return this.successText(id, { state: read.state ?? null, done: true });
-      const payload: Record<string, unknown> = { action: "press", button: params.button, expectedState: read.state };
-      const fence = JSON.stringify({ button: params.button, state: read.state });
-      const transaction: ClipLifecycleTransaction = { id: `dialog_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "dialog", fence, payload, prior: { state: read.state ?? null }, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      const read = await adapter.invokeAsync({ operation: "application.dialog", args: { action: "read" } }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as { buttonCount?: unknown; message?: unknown; openDialogCount?: unknown; done?: unknown };
+      const dialogState = { buttonCount: read.buttonCount ?? null, message: read.message ?? null, openDialogCount: read.openDialogCount ?? null };
+      if (params.button === undefined) return this.successText(id, { ...dialogState, done: true });
+      if (typeof dialogState.buttonCount !== "number" || typeof dialogState.openDialogCount !== "number") throw new Error("the current dialog shape is not observable; guarded presses are refused");
+      if ((params.button as number) >= dialogState.buttonCount) return error(id, -32602, "button is not present in the current dialog");
+      const payload: Record<string, unknown> = { action: "press", button: params.button, expectedMessage: dialogState.message, expectedButtonCount: dialogState.buttonCount, expectedOpenDialogCount: dialogState.openDialogCount };
+      const fence = JSON.stringify({ button: params.button, ...dialogState });
+      const transaction: ClipLifecycleTransaction = { id: `dialog_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "dialog", fence, payload, prior: dialogState, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
       this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "dialog");
-      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, state: read.state ?? null, button: params.button, impact: "presses-dialog-button-potentially-destructive", confirmation: "apply", expiresAt: transaction.expiresAt });
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, ...dialogState, button: params.button, impact: "presses-dialog-button-potentially-destructive", confirmation: "apply", expiresAt: transaction.expiresAt });
     } catch (cause) { return this.adapterToolError(id, cause, "Dialog preview requires a fresh connection."); }
   }
 
@@ -4678,14 +4832,14 @@ export class McpHost {
       if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
       const adapter = this.asyncAdapter();
       const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
-      const read = await adapter.invokeAsync({ operation: "application.dialog", args: { action: "read" } }, context) as { state?: unknown };
-      if (JSON.stringify({ button: transaction.payload.button, state: read.state }) !== transaction.fence) return this.transactionError(id, "dialog state changed since preview; the press was refused");
+      const read = await adapter.invokeAsync({ operation: "application.dialog", args: { action: "read" } }, context) as { buttonCount?: unknown; message?: unknown; openDialogCount?: unknown };
+      if (JSON.stringify({ button: transaction.payload.button, buttonCount: read.buttonCount ?? null, message: read.message ?? null, openDialogCount: read.openDialogCount ?? null }) !== transaction.fence) return this.transactionError(id, "dialog state changed since preview; the press was refused");
       transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
-      const result = await adapter.invokeAsync({ operation: "application.dialog", args: transaction.payload }, context) as { done?: unknown; state?: unknown };
+      const result = await adapter.invokeAsync({ operation: "application.dialog", args: transaction.payload }, context) as { done?: unknown; buttonCount?: unknown; message?: unknown; openDialogCount?: unknown };
       if (result.done !== true) throw new Error("dialog press was not confirmed");
       transaction.applyKey = params.idempotencyKey as string;
       transaction.state = "applied";
-      return this.successText(id, { transactionId: transaction.id, state: "applied", stateAfter: result.state ?? null, idempotent: false });
+      return this.successText(id, { transactionId: transaction.id, state: "applied", stateAfter: { buttonCount: result.buttonCount ?? null, message: result.message ?? null, openDialogCount: result.openDialogCount ?? null }, idempotent: false });
     } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Dialog state is uncertain; inspect Live before retrying."); }
   }
 
@@ -4910,10 +5064,12 @@ export class McpHost {
         if (!(status.operations ?? []).includes("device.bank.set")) throw new Error("parameter banks are unavailable");
         if (!isNonEmptyString(params.ref, 256) || !Number.isInteger(params.bank) || (params.bank as number) < 0 || (params.bank as number) > 32) return error(id, -32602, "ref and bank (0-32) are required");
         const row = this.deviceRow(snapshot, params.ref as LiveRef);
-        const current = row.device.parameterBank ?? null;
-        if (current === null) return this.transactionError(id, "parameter banks are unavailable on this exact device");
-        payload = { action: params.action, ref: params.ref, bank: params.bank, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity({ bank: current })).digest("hex") };
-        prior = { bank: current };
+        const bankCount = row.device.parameterBank ?? null;
+        if (bankCount === null) return this.transactionError(id, "parameter banks are unavailable on this exact device");
+        if ((params.bank as number) >= (bankCount as number)) return error(id, -32602, "bank exceeds the device's parameter bank count");
+        payload = { action: params.action, ref: params.ref, bank: params.bank, ...(Number.isInteger(params.scriptIndex) ? { scriptIndex: params.scriptIndex } : {}), expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity({ bankCount })).digest("hex") };
+        prior = { bankCount };
+        impact = "momentary-control-surface-bank-selection-no-undo";
       } else if (params.action === "re-enable-automation") {
         if (!(status.operations ?? []).includes("parameter.re-enable-automation")) throw new Error("automation re-enable is unavailable");
         if (!isNonEmptyString(params.ref, 256)) return error(id, -32602, "ref is required");
@@ -4922,10 +5078,11 @@ export class McpHost {
         impact = "momentary-no-undo";
       } else if (params.action === "save-comparison") {
         if (!(status.operations ?? []).includes("device.comparison.save-to-slot")) throw new Error("comparison save is unavailable");
-        if (!isNonEmptyString(params.ref, 256) || !Number.isInteger(params.slot) || ![0, 1].includes(params.slot as number)) return error(id, -32602, "ref and slot (0-1) are required");
+        if (!isNonEmptyString(params.ref, 256)) return error(id, -32602, "ref is required");
         const row = this.deviceRow(snapshot, params.ref as LiveRef);
         const comparison = row.device.comparison as JsonObject | undefined;
-        payload = { action: params.action, ref: params.ref, slot: params.slot, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity({ activeSide: comparison?.activeSide ?? null })).digest("hex") };
+        if (comparison?.capability !== true) return this.transactionError(id, "A/B comparison is unavailable on this exact device");
+        payload = { action: params.action, ref: params.ref, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity({ canCompareAb: comparison.capability, isUsingComparePresetB: comparison.activeSide === 1 })).digest("hex") };
         impact = "momentary-no-undo";
       } else if (params.action === "insert-chain") {
         if (!(status.operations ?? []).includes("device.insert")) throw new Error("device insertion is unavailable");
@@ -4984,9 +5141,7 @@ export class McpHost {
       const args = Object.fromEntries(Object.entries(transaction.payload).filter(([key]) => !["action", "priorOwnerRef", "priorIndex"].includes(key)));
       if (action === "set-bank") {
         const result = await adapter.invokeAsync({ operation: "device.bank.set", args }, context) as { changed?: unknown };
-        if (result.changed !== true) throw new Error("device bank change was not confirmed");
-        const verified = this.deviceRow(await adapter.snapshotAsync(context), transaction.payload.ref as LiveRef).device;
-        if (verified.parameterBank !== transaction.payload.bank) throw new Error("device bank postcondition was not confirmed");
+        if (result.changed !== true) throw new Error("device bank selection was not confirmed");
       } else if (action === "re-enable-automation") {
         const result = await adapter.invokeAsync({ operation: "parameter.re-enable-automation", args }, context) as { done?: unknown };
         if (result.done !== true) throw new Error("automation re-enable was not confirmed");
@@ -5095,7 +5250,7 @@ export class McpHost {
       if (params.action === "set") {
         if (!(status.operations ?? []).includes("drum-pad.set")) throw new Error("drum pad editing is unavailable");
         const proposed: Record<string, unknown> = {};
-        if (params.note !== undefined) { if (!Number.isInteger(params.note) || (params.note as number) < 0 || (params.note as number) > 127) return error(id, -32602, "note is invalid"); proposed.note = params.note; }
+        if (params.note !== undefined) return error(id, -32602, "DrumPad.note is read-only in the public LOM and cannot be assigned");
         if (params.solo !== undefined) { if (typeof params.solo !== "boolean") return error(id, -32602, "solo must be boolean"); proposed.solo = params.solo; }
         if (Object.keys(proposed).length === 0) return error(id, -32602, "at least one pad field is required");
         const state = { note: pad.note ?? null, solo: pad.solo ?? null };
@@ -5135,7 +5290,7 @@ export class McpHost {
         const result = await adapter.invokeAsync({ operation: "drum-pad.set", args }, context) as { changed?: unknown; revision?: unknown };
         if (result.changed !== true) throw new Error("drum pad change was not confirmed");
         const verified = this.drumPadRow(await adapter.snapshotAsync(context), transaction.payload.ref as LiveRef);
-        for (const field of ["note", "solo"]) if (transaction.payload[field] !== undefined && verified[field] !== transaction.payload[field]) throw new Error("drum pad postcondition was not confirmed");
+        if (transaction.payload.solo !== undefined && verified.solo !== transaction.payload.solo) throw new Error("drum pad postcondition was not confirmed");
       } else {
         const result = await adapter.invokeAsync({ operation: "drum-pad.delete-all-chains", args }, context) as { deleted?: unknown };
         if (result.deleted !== (transaction.prior as { chainCount: number }).chainCount) throw new Error("delete-all-chains count was not confirmed");
@@ -5150,7 +5305,7 @@ export class McpHost {
 
   private async liveRackPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
     const actions = ["set", "add-macro", "remove-macro", "randomize-macros", "insert-chain", "copy-pad", "store-variation", "recall-variation", "delete-variation"] as const;
-    if (!isObject(params) || !hasOnly(params, ["action", "rackRef", "visibleMacroCount", "selectedVariationIndex", "index", "sourceIndex", "targetIndex"]) || !actions.includes(params.action as typeof actions[number]) || !isNonEmptyString(params.rackRef, 256)) return error(id, -32602, "action and rackRef are required");
+    if (!isObject(params) || !hasOnly(params, ["action", "rackRef", "selectedVariationIndex", "index", "sourceIndex", "targetIndex"]) || !actions.includes(params.action as typeof actions[number]) || !isNonEmptyString(params.rackRef, 256)) return error(id, -32602, "action and rackRef are required");
     try {
       const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
       if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
@@ -5163,14 +5318,14 @@ export class McpHost {
       if (params.action === "set") {
         if (!(status.operations ?? []).includes("rack.set")) throw new Error("rack editing is unavailable");
         const proposed: Record<string, unknown> = {};
-        if (params.visibleMacroCount !== undefined) { if (!Number.isInteger(params.visibleMacroCount) || (params.visibleMacroCount as number) < 1 || (params.visibleMacroCount as number) > 16) return error(id, -32602, "visibleMacroCount is invalid"); proposed.visibleMacroCount = params.visibleMacroCount; }
+        if (params.visibleMacroCount !== undefined) return error(id, -32602, "visibleMacroCount is read-only in the public LOM; use add-macro/remove-macro actions to change it");
         if (params.selectedVariationIndex !== undefined) { if (!Number.isInteger(params.selectedVariationIndex) || (params.selectedVariationIndex as number) < -1 || (params.selectedVariationIndex as number) > 256) return error(id, -32602, "selectedVariationIndex is invalid"); proposed.selectedVariationIndex = params.selectedVariationIndex; }
         if (Object.keys(proposed).length === 0) return error(id, -32602, "at least one rack field is required");
-        prior = { visibleMacroCount: row.device.visibleMacroCount ?? null, selectedVariationIndex: row.device.selectedVariationIndex ?? null };
+        prior = { selectedVariationIndex: row.device.selectedVariationIndex ?? null };
         payload = { action: params.action, ref: params.rackRef, ...proposed, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: stateRevision };
       } else {
         if (!(status.operations ?? []).includes("rack.action")) throw new Error("rack actions are unavailable");
-        if (["remove-macro", "recall-variation", "delete-variation"].includes(params.action as string) && (!Number.isInteger(params.index) || (params.index as number) < 0)) return error(id, -32602, "index is required");
+        if (["remove-macro", "recall-variation", "delete-variation"].includes(params.action as string) && params.index !== undefined) return error(id, -32602, "remove-macro, recall-variation, and delete-variation take no index in the public LOM");
         if (params.action === "copy-pad" && (!Number.isInteger(params.sourceIndex) || !Number.isInteger(params.targetIndex) || (params.sourceIndex as number) < 0 || (params.targetIndex as number) < 0)) return error(id, -32602, "sourceIndex and targetIndex are required");
         payload = { action: params.action, ref: params.rackRef, ...(params.index !== undefined ? { index: params.index } : {}), ...(params.sourceIndex !== undefined ? { sourceIndex: params.sourceIndex } : {}), ...(params.targetIndex !== undefined ? { targetIndex: params.targetIndex } : {}), expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: stateRevision };
       }
@@ -5205,7 +5360,7 @@ export class McpHost {
         result = await adapter.invokeAsync({ operation: "rack.set", args }, context) as { changed?: unknown; revision?: unknown };
         if (result.changed !== true) throw new Error("rack change was not confirmed");
         const verified = this.deviceRow(await adapter.snapshotAsync(context), transaction.payload.ref as LiveRef).device;
-        for (const field of ["visibleMacroCount", "selectedVariationIndex"]) if (transaction.payload[field] !== undefined && verified[field] !== transaction.payload[field]) throw new Error("rack postcondition was not confirmed");
+        if (transaction.payload.selectedVariationIndex !== undefined && verified.selectedVariationIndex !== transaction.payload.selectedVariationIndex) throw new Error("rack postcondition was not confirmed");
       } else {
         result = await adapter.invokeAsync({ operation: "rack.action", args }, context) as { done?: unknown; revision?: unknown };
         if (result.done !== true) throw new Error("rack action was not confirmed");
@@ -5273,8 +5428,8 @@ export class McpHost {
   private static readonly SPECIALIZED_FAMILY_FIELDS: Record<string, string[]> = {
     drift: ["pitchBendRange", "voiceCount", "voiceMode"],
     "drum-cell": ["gain"],
-    eq8: ["editMode", "globalMode", "oversampling", "selectedBand"],
-    "hybrid-reverb": ["irCategory", "irFile", "attack", "decay", "size", "time"],
+    eq8: ["editMode", "globalMode", "oversample", "selectedBand"],
+    "hybrid-reverb": ["irCategory", "irFile", "attack", "decay", "size"],
     meld: ["engine", "unison", "monoPoly", "polyphony"],
     plugin: ["presetIndex", "isEditorOpen"],
   };
@@ -5286,6 +5441,10 @@ export class McpHost {
     attack: [0, 10000, false], decay: [0, 100000, false], size: [0, 10000, false], time: [0, 100000, false],
     engine: [0, 4, true], unison: [1, 16, true], polyphony: [1, 64, true], presetIndex: [0, 1024, true],
   };
+
+  private static specializedRowKey(family: string): string {
+    return { drift: "drift", "drum-cell": "drumCell", eq8: "eq8", "hybrid-reverb": "hybridReverb", meld: "meld", plugin: "plugin", max: "maxDevice", looper: "looper" }[family] ?? family;
+  }
 
   private async liveDeviceSpecializedPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
     const families = Object.keys(McpHost.SPECIALIZED_FAMILY_FIELDS);
@@ -5304,16 +5463,17 @@ export class McpHost {
       for (const field of fields) {
         const value = params[field];
         if (value === undefined) continue;
-        if (["oversampling", "monoPoly", "isEditorOpen"].includes(field) && typeof value !== "boolean") return error(id, -32602, `${field} must be boolean`);
+        if (["oversample", "monoPoly", "isEditorOpen"].includes(field) && typeof value !== "boolean") return error(id, -32602, `${field} must be boolean`);
         if (["irCategory", "irFile"].includes(field) && !isNonEmptyString(value, 256)) return error(id, -32602, `${field} is invalid`);
-        if (!["oversampling", "monoPoly", "isEditorOpen", "irCategory", "irFile"].includes(field) && typeof value !== "number") return error(id, -32602, `${field} must be a number`);
+        if (!["oversample", "monoPoly", "isEditorOpen", "irCategory", "irFile"].includes(field) && typeof value !== "number") return error(id, -32602, `${field} must be a number`);
         const bounds = McpHost.SPECIALIZED_FIELD_BOUNDS[field];
         if (bounds && typeof value === "number" && (value < bounds[0] || value > bounds[1] || (bounds[2] && !Number.isInteger(value)))) return error(id, -32602, `${field} is out of bounds`);
         proposed[field] = value;
       }
-      const state = Object.fromEntries(fields.map((field) => [field, (row.device as unknown as Record<string, unknown>)[field] ?? null]));
+      const familyRow = ((row.device as unknown as Record<string, unknown>)[McpHost.specializedRowKey(params.family as string)] ?? {}) as Record<string, unknown>;
+      const state = Object.fromEntries(fields.map((field) => [field, familyRow[field] ?? null]));
       const prior: Record<string, unknown> = {};
-      for (const field of Object.keys(proposed)) prior[field] = (row.device as unknown as Record<string, unknown>)[field] ?? null;
+      for (const field of Object.keys(proposed)) prior[field] = familyRow[field] ?? null;
       const payload: Record<string, unknown> = { family: params.family, ref: params.deviceRef, ...proposed, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") };
       const fence = JSON.stringify({ family: params.family, ref: params.deviceRef, objectIdentity: row.device.objectIdentity, state });
       const transaction: ClipLifecycleTransaction = { id: `devspec_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "device-specialized", fence, payload, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
@@ -5339,13 +5499,15 @@ export class McpHost {
       const family = transaction.payload.family as string;
       const fields = McpHost.SPECIALIZED_FAMILY_FIELDS[family]!;
       if (!reconciliation) { const snapshot = await adapter.snapshotAsync(context); const row = this.deviceRow(snapshot, transaction.payload.ref as LiveRef);
-        const state = Object.fromEntries(fields.map((field) => [field, (row.device as unknown as Record<string, unknown>)[field] ?? null]));
+        const familyRow = ((row.device as unknown as Record<string, unknown>)[McpHost.specializedRowKey(family)] ?? {}) as Record<string, unknown>;
+        const state = Object.fromEntries(fields.map((field) => [field, familyRow[field] ?? null]));
         if (JSON.stringify({ family, ref: transaction.payload.ref, objectIdentity: row.device.objectIdentity, state }) !== transaction.fence) return this.transactionError(id, "device identity or state changed since preview; preview again"); }
       transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
       const args = Object.fromEntries(Object.entries(transaction.payload).filter(([key]) => key !== "family"));
       const result = await adapter.invokeAsync({ operation: `${family}.set` as "drift.set" | "drum-cell.set" | "eq8.set" | "hybrid-reverb.set" | "meld.set" | "plugin.set", args }, context) as { changed?: unknown; revision?: unknown };
       if (result.changed !== true) throw new Error("specialized device change was not confirmed");
-      const verified = this.deviceRow(await adapter.snapshotAsync(context), transaction.payload.ref as LiveRef).device as unknown as Record<string, unknown>;
+      const verifiedDevice = this.deviceRow(await adapter.snapshotAsync(context), transaction.payload.ref as LiveRef).device as unknown as Record<string, unknown>;
+      const verified = ((verifiedDevice[McpHost.specializedRowKey(family)] ?? {}) as Record<string, unknown>);
       for (const field of fields) if (transaction.payload[field] !== undefined && JSON.stringify(verified[field]) !== JSON.stringify(transaction.payload[field])) throw new Error("specialized device postcondition was not confirmed");
       transaction.applyKey = params.idempotencyKey as string;
       transaction.state = "applied";
@@ -5354,42 +5516,41 @@ export class McpHost {
   }
 
   private async liveLooperPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
-    const actions = ["set", "record", "overdub", "play", "stop", "clear", "undo", "undo-all", "export"] as const;
-    const fields = ["speed", "loopLength", "tempo", "fixedRecordLength"] as const;
-    if (!isObject(params) || !hasOnly(params, ["action", "deviceRef", ...fields]) || !actions.includes(params.action as typeof actions[number]) || !isNonEmptyString(params.deviceRef, 256)) return error(id, -32602, "action and deviceRef are required");
+    const actions = ["set", "record", "overdub", "play", "stop", "clear", "undo", "double-speed", "half-speed", "export"] as const;
+    const fields = ["overdubAfterRecord", "recordLengthIndex"] as const;
+    if (!isObject(params) || !hasOnly(params, ["action", "deviceRef", "slotRef", ...fields]) || !actions.includes(params.action as typeof actions[number]) || !isNonEmptyString(params.deviceRef, 256)) return error(id, -32602, "action and deviceRef are required");
     try {
       const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
       if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
       const snapshot = await this.asyncAdapter().snapshotAsync();
       const row = this.deviceRow(snapshot, params.deviceRef as LiveRef);
-      const device = row.device as unknown as Record<string, unknown>;
+      const looperRow = (((row.device as unknown as Record<string, unknown>).looper) ?? {}) as Record<string, unknown>;
       let payload: Record<string, unknown>;
       let prior: Record<string, unknown> = {};
+      const writableState = () => ({ overdubAfterRecord: looperRow.overdubAfterRecord ?? null, recordLengthIndex: looperRow.recordLengthIndex ?? null });
+      const fullState = () => ({ ...writableState(), loopLength: looperRow.loopLength ?? null, tempo: looperRow.tempo ?? null, state: looperRow.state ?? null });
       if (params.action === "set") {
         if (!(status.operations ?? []).includes("looper.set")) throw new Error("looper properties are unavailable");
         const proposed: Record<string, unknown> = {};
-        for (const field of fields) {
-          const value = params[field];
-          if (value === undefined) continue;
-          if (typeof value !== "number" || !Number.isFinite(value)) return error(id, -32602, `${field} must be a number`);
-          if (field === "speed" && Math.abs(value) > 4) return error(id, -32602, "speed must be -4 to 4");
-          if (field === "tempo" && (value < 20 || value > 999)) return error(id, -32602, "tempo is out of bounds");
-          if ((field === "loopLength" || field === "fixedRecordLength") && value < 0) return error(id, -32602, `${field} is out of bounds`);
-          proposed[field] = value;
-        }
-        if (Object.keys(proposed).length === 0) return error(id, -32602, "at least one looper field is required");
-        for (const field of Object.keys(proposed)) prior[field] = device[field] ?? null;
-        const state = { speed: device.speed ?? null, loopLength: device.loopLength ?? null, tempo: device.tempo ?? null, fixedRecordLength: device.fixedRecordLength ?? null };
-        payload = { action: params.action, ref: params.deviceRef, ...proposed, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") };
+        if (params.overdubAfterRecord !== undefined) { if (typeof params.overdubAfterRecord !== "boolean") return error(id, -32602, "overdubAfterRecord must be boolean"); proposed.overdubAfterRecord = params.overdubAfterRecord; }
+        if (params.recordLengthIndex !== undefined) { if (!Number.isInteger(params.recordLengthIndex) || (params.recordLengthIndex as number) < 0 || (params.recordLengthIndex as number) > 8) return error(id, -32602, "recordLengthIndex is out of bounds"); proposed.recordLengthIndex = params.recordLengthIndex; }
+        if (Object.keys(proposed).length === 0) return error(id, -32602, "at least one looper field is required (loopLength and tempo are read-only; speed changes are double-speed/half-speed actions)");
+        for (const field of Object.keys(proposed)) prior[field] = looperRow[field] ?? null;
+        payload = { action: params.action, ref: params.deviceRef, ...proposed, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(writableState())).digest("hex") };
       } else {
         if (!(status.operations ?? []).includes("looper.action")) throw new Error("looper actions are unavailable");
-        const state = { speed: device.speed ?? null, loopLength: device.loopLength ?? null, state: device.state ?? null };
-        payload = { action: params.action, ref: params.deviceRef, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") };
+        if (params.action === "export") {
+          if (!isNonEmptyString(params.slotRef, 256)) return error(id, -32602, "export requires an exact empty target clip slot (slotRef)");
+          const slot = snapshot.tracks.flatMap((track) => track.clipSlots ?? []).find((candidate) => candidate.ref === params.slotRef);
+          if (!slot) throw new Error("export target clip slot is not authoritative");
+          if (slot.clipRef !== null && slot.clipRef !== undefined) return error(id, -32602, "export target clip slot is not empty");
+        } else if (params.slotRef !== undefined) return error(id, -32602, "slotRef is only valid for the export action");
+        payload = { action: params.action, ref: params.deviceRef, ...(params.slotRef !== undefined ? { slotRef: params.slotRef } : {}), expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(fullState())).digest("hex") };
       }
       const fence = JSON.stringify({ action: params.action, ref: params.deviceRef, objectIdentity: row.device.objectIdentity, payload });
       const transaction: ClipLifecycleTransaction = { id: `looper_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "looper", fence, payload, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
       this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "looper");
-      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, action: params.action, deviceRef: params.deviceRef, prior, impact: params.action === "set" ? "edits-looper" : "momentary-looper-action-no-undo", confirmation: "apply", expiresAt: transaction.expiresAt });
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, action: params.action, deviceRef: params.deviceRef, prior, impact: params.action === "set" ? "edits-looper" : params.action === "export" ? "exports-audio-to-exact-clip-slot-no-undo" : "momentary-looper-action-no-undo", confirmation: "apply", expiresAt: transaction.expiresAt });
     } catch (cause) { return this.adapterToolError(id, cause, "Looper preview requires fresh authoritative state."); }
   }
 
@@ -5413,8 +5574,9 @@ export class McpHost {
         const args = Object.fromEntries(Object.entries(transaction.payload).filter(([key]) => key !== "action"));
         const result = await adapter.invokeAsync({ operation: "looper.set", args }, context) as { changed?: unknown; revision?: unknown };
         if (result.changed !== true) throw new Error("looper change was not confirmed");
-        const verified = this.deviceRow(await adapter.snapshotAsync(context), transaction.payload.ref as LiveRef).device as unknown as Record<string, unknown>;
-        for (const field of ["speed", "loopLength", "tempo", "fixedRecordLength"]) if (transaction.payload[field] !== undefined && verified[field] !== transaction.payload[field]) throw new Error("looper postcondition was not confirmed");
+        const verifiedDevice = this.deviceRow(await adapter.snapshotAsync(context), transaction.payload.ref as LiveRef).device as unknown as Record<string, unknown>;
+        const verified = ((verifiedDevice.looper ?? {}) as Record<string, unknown>);
+        for (const field of ["overdubAfterRecord", "recordLengthIndex"]) if (transaction.payload[field] !== undefined && verified[field] !== transaction.payload[field]) throw new Error("looper postcondition was not confirmed");
       } else {
         const result = await adapter.invokeAsync({ operation: "looper.action", args: transaction.payload }, context) as { done?: unknown; revision?: unknown };
         if (result.done !== true) throw new Error("looper action was not confirmed");
@@ -5435,7 +5597,8 @@ export class McpHost {
       const snapshot = await this.asyncAdapter().snapshotAsync();
       const row = this.deviceRow(snapshot, params.deviceRef as LiveRef);
       const currentPath = ((row.device as unknown as { samplePath?: string }).samplePath) ?? "";
-      const payload: Record<string, unknown> = { ref: params.deviceRef, filePath: authority.canonicalPath, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity({ filePath: currentPath })).digest("hex") };
+      const stagingPath = await this.stageVerifiedImportFile(authority.canonicalPath, authority);
+      const payload: Record<string, unknown> = { ref: params.deviceRef, filePath: stagingPath, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity({ filePath: currentPath })).digest("hex") };
       const fence = JSON.stringify({ ref: params.deviceRef, objectIdentity: row.device.objectIdentity, filePath: currentPath });
       const transaction: ClipLifecycleTransaction = { id: `simpler_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "simpler", fence, payload, prior: { file: authority, samplePath: currentPath }, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
       this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "simpler");
@@ -5457,8 +5620,9 @@ export class McpHost {
       if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
       const prior = transaction.prior as { file?: { canonicalPath: string; size: number; mtimeMs: number; sha256: string }; samplePath: string };
       if (!prior.file) return this.transactionError(id, "simpler file authority is missing; preview again");
-      const currentFile = await this.audioImportFileAuthority(transaction.payload.filePath, dirname(prior.file.canonicalPath));
-      if (currentFile.canonicalPath !== prior.file.canonicalPath || currentFile.size !== prior.file.size || currentFile.mtimeMs !== prior.file.mtimeMs || currentFile.sha256 !== prior.file.sha256) return this.transactionError(id, "sample file changed since preview; preview again");
+      // The bytes Live opens are the transaction-owned staged copy verified at
+      // preview; the source path is never re-trusted after staging.
+      await this.verifyStagedImportFile(transaction.payload.filePath as string, prior.file);
       const adapter = this.asyncAdapter();
       const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
       if (!reconciliation) { const snapshot = await adapter.snapshotAsync(context); const row = this.deviceRow(snapshot, transaction.payload.ref as LiveRef);
@@ -6551,6 +6715,7 @@ export class McpHost {
         this.beginUndoRecovery(audioImport, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== audioImport.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
         const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; audioImport.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(audioImport, adapter, context); audioImport.state = "undoing";
         await this.deleteOwnedClipAsync(adapter, audioImport.created.ref as LiveRef, audioImport.created.objectIdentity as string, context, audioImport.created.createdFingerprint as string, audioImport, reconciliation);
+        this.releaseStagedImportFile(audioImport.payload.filePath);
         audioImport.state = "undone"; return this.successText(id, { transactionId: audioImport.id, state: "undone", deleted: audioImport.created.ref, idempotent: false });
       } catch (cause) { audioImport.state = "uncertain"; return this.adapterToolError(id, cause, "Audio-import undo is uncertain; inspect the exact created clip."); }
     }
@@ -6650,6 +6815,8 @@ export class McpHost {
         const action = trackstruct.payload.action as string;
         const snapshot = await adapter.snapshotAsync(context);
         const structureRevision = this.structureRevision(snapshot);
+        const currentFingerprint = this.sessionStructureCreatedFingerprint(snapshot, action === "duplicate-scene" ? "scene" : "track", trackstruct.created.ref as LiveRef);
+        if (!reconciliation && currentFingerprint !== (trackstruct.created as unknown as { contentFingerprint?: unknown }).contentFingerprint) return this.transactionError(id, "created structure content changed after apply; cleanup refused");
         if (action === "create-return") {
           const result = await this.invokeUndoRecovery(trackstruct, adapter, "track.delete-return", { ref: trackstruct.created.ref, expectedObjectIdentity: trackstruct.created.objectIdentity, expectedStructureRevision: structureRevision }, context) as { deleted?: unknown };
           if (result.deleted !== trackstruct.created.ref) throw new Error("return-track cleanup was not confirmed");
@@ -6718,18 +6885,18 @@ export class McpHost {
       if (clipview.state === "undone" && clipview.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: clipview.id, state: "undone", idempotent: true });
       const reconciliation = clipview.state === "uncertain" && clipview.undoKey === params.idempotencyKey;
       if ((clipview.state !== "applied" && !reconciliation) || !clipview.clipRef || !clipview.prior) return this.transactionError(id, "Only an applied or exact-key uncertain clip-view transaction can be undone");
-      if (clipview.payload.gridQuantization === undefined && clipview.payload.tripletGrid === undefined && clipview.payload.showEnvelope === undefined) return this.transactionError(id, "show-loop is momentary and not undoable");
+      if (clipview.payload.gridQuantization === undefined && clipview.payload.gridIsTriplet === undefined) return this.transactionError(id, "show-loop and envelope visibility are momentary and not undoable");
       try {
         this.beginUndoRecovery(clipview, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== clipview.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
         const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; clipview.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(clipview, adapter, context);
         const snapshot = await adapter.snapshotAsync(context); const row = this.clipRow(snapshot, clipview.clipRef);
         if (!reconciliation) { const view = row.clip.clipView as JsonObject | undefined;
-          for (const field of ["gridQuantization", "tripletGrid", "showEnvelope"]) if (clipview.payload[field] !== undefined && view?.[field] !== clipview.payload[field]) return this.transactionError(id, "clip view changed after apply; undo refused"); }
-        const viewState = { gridQuantization: (row.clip.clipView as JsonObject | undefined)?.gridQuantization ?? null, tripletGrid: (row.clip.clipView as JsonObject | undefined)?.tripletGrid ?? null, showEnvelope: (row.clip.clipView as JsonObject | undefined)?.showEnvelope ?? null };
+          for (const field of ["gridQuantization", "gridIsTriplet"]) if (clipview.payload[field] !== undefined && view?.[field] !== clipview.payload[field]) return this.transactionError(id, "clip view changed after apply; undo refused"); }
+        const viewState = { gridQuantization: (row.clip.clipView as JsonObject | undefined)?.gridQuantization ?? null, gridIsTriplet: (row.clip.clipView as JsonObject | undefined)?.gridIsTriplet ?? null };
         clipview.state = "undoing";
         const prior = clipview.prior as Record<string, unknown>;
         const args: Record<string, unknown> = { ref: clipview.clipRef, expectedObjectIdentity: row.clip.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(viewState)).digest("hex") };
-        for (const field of ["gridQuantization", "tripletGrid", "showEnvelope"]) if (clipview.payload[field] !== undefined && prior[field] !== null) args[field] = prior[field];
+        for (const field of ["gridQuantization", "gridIsTriplet"]) if (clipview.payload[field] !== undefined && prior[field] !== null && prior[field] !== undefined) args[field] = prior[field];
         const result = await this.invokeUndoRecovery(clipview, adapter, "clip.view.set", args, context) as { changed?: unknown };
         if (result.changed !== true) throw new Error("clip view restoration was not confirmed");
         clipview.state = "undone"; return this.successText(id, { transactionId: clipview.id, state: "undone", idempotent: false });
@@ -6821,7 +6988,7 @@ export class McpHost {
     if (!transaction && String(params.transactionId).startsWith("devadv_")) {
       const devadv = this.clipLifecycleTransactions.get(params.transactionId as string);
       if (!devadv || devadv.kind !== "device-advanced") return this.transactionError(id, "Unknown or expired device-advanced transaction");
-      if (["re-enable-automation", "save-comparison"].includes(devadv.payload.action as string)) return this.transactionError(id, "Momentary device actions are not undoable");
+      if (["re-enable-automation", "save-comparison", "set-bank"].includes(devadv.payload.action as string)) return this.transactionError(id, "Momentary device actions and control-surface bank selection are not undoable");
       if (devadv.payload.action === "insert-chain") return this.transactionError(id, "Chain device deletion is not exposed by the public LOM; undo is unavailable for this transaction");
       if (devadv.state === "undone" && devadv.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: devadv.id, state: "undone", idempotent: true });
       const reconciliation = devadv.state === "uncertain" && devadv.undoKey === params.idempotencyKey;
@@ -6829,20 +6996,10 @@ export class McpHost {
       try {
         this.beginUndoRecovery(devadv, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== devadv.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
         const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; devadv.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(devadv, adapter, context);
-        const action = devadv.payload.action as string;
-        if (action === "set-bank") {
-          const snapshot = await adapter.snapshotAsync(context); const row = this.deviceRow(snapshot, devadv.payload.ref as LiveRef);
-          if (!reconciliation && row.device.parameterBank !== devadv.payload.bank) return this.transactionError(id, "device bank changed after apply; undo refused");
-          const prior = (devadv.prior as { bank: number | null }).bank;
-          if (typeof prior !== "number") return this.transactionError(id, "prior device bank is unavailable");
-          devadv.state = "undoing";
-          const result = await this.invokeUndoRecovery(devadv, adapter, "device.bank.set", { ref: devadv.payload.ref, bank: prior, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity({ bank: row.device.parameterBank ?? null })).digest("hex") }, context) as { changed?: unknown };
-          if (result.changed !== true) throw new Error("device bank restoration was not confirmed");
-        } else {
-          const snapshot = await adapter.snapshotAsync(context);
-          const created = devadv.created as Record<string, unknown> | undefined;
-          if (!created || !isNonEmptyString(created.ref as string, 256) || !isNonEmptyString(created.objectIdentity as string, 256)) return this.transactionError(id, "device move lacks exact applied identity");
-          const row = this.deviceRow(snapshot, created.ref as LiveRef);
+        const snapshot = await adapter.snapshotAsync(context);
+        const created = devadv.created as Record<string, unknown> | undefined;
+        if (!created || !isNonEmptyString(created.ref as string, 256) || !isNonEmptyString(created.objectIdentity as string, 256)) return this.transactionError(id, "device move lacks exact applied identity");
+        const row = this.deviceRow(snapshot, created.ref as LiveRef);
           const prior = devadv.prior as { ownerRef: LiveRef; index: number };
           const targetRef = devadv.payload.targetTrackRef !== undefined ? devadv.payload.targetTrackRef : devadv.payload.targetChainRef;
           const target = devadv.payload.targetTrackRef !== undefined ? (snapshot.tracks as unknown as JsonObject[]).find((candidate) => candidate.ref === prior.ownerRef) : this.chainRow(snapshot, prior.ownerRef).chain;
@@ -6850,7 +7007,6 @@ export class McpHost {
           devadv.state = "undoing";
           const result = await this.invokeUndoRecovery(devadv, adapter, "device.move", { ref: created.ref, index: prior.index, targetTrackRef: devadv.payload.targetTrackRef !== undefined ? prior.ownerRef : undefined, targetChainRef: devadv.payload.targetTrackRef === undefined ? prior.ownerRef : undefined, expectedObjectIdentity: row.device.objectIdentity, expectedOwnerRef: row.ownerRef, expectedOwnerIdentity: row.ownerIdentity, expectedSiblings: row.siblings, expectedTrackRef: row.track.ref, expectedTrackIdentity: row.track.objectIdentity, expectedTargetIdentity: target.objectIdentity }, context) as Record<string, unknown>;
           if (result.index !== prior.index) throw new Error("device move-back was not confirmed");
-        }
         devadv.state = "undone"; return this.successText(id, { transactionId: devadv.id, state: "undone", idempotent: false });
       } catch (cause) { devadv.state = "uncertain"; return this.adapterToolError(id, cause, "Device-advanced undo is uncertain; perform fresh discovery."); }
     }
@@ -6883,10 +7039,12 @@ export class McpHost {
         this.beginUndoRecovery(drumpad, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== drumpad.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
         const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; drumpad.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(drumpad, adapter, context);
         const snapshot = await adapter.snapshotAsync(context); const pad = this.drumPadRow(snapshot, drumpad.payload.ref as LiveRef);
-        if (!reconciliation) { for (const field of ["note", "solo"]) if (drumpad.payload[field] !== undefined && pad[field] !== drumpad.payload[field]) return this.transactionError(id, "drum pad changed after apply; undo refused"); }
+        if (!reconciliation) { if (drumpad.payload.solo !== undefined && pad.solo !== drumpad.payload.solo) return this.transactionError(id, "drum pad changed after apply; undo refused"); }
         const state = { note: pad.note ?? null, solo: pad.solo ?? null };
         drumpad.state = "undoing";
-        const result = await this.invokeUndoRecovery(drumpad, adapter, "drum-pad.set", { ref: drumpad.payload.ref, ...(drumpad.prior as Record<string, unknown>), expectedObjectIdentity: pad.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") }, context) as { changed?: unknown };
+        const restore: Record<string, unknown> = { ref: drumpad.payload.ref, expectedObjectIdentity: pad.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") };
+        if ((drumpad.prior as Record<string, unknown>).solo !== undefined && (drumpad.prior as Record<string, unknown>).solo !== null) restore.solo = (drumpad.prior as Record<string, unknown>).solo;
+        const result = await this.invokeUndoRecovery(drumpad, adapter, "drum-pad.set", restore, context) as { changed?: unknown };
         if (result.changed !== true) throw new Error("drum pad restoration was not confirmed");
         drumpad.state = "undone"; return this.successText(id, { transactionId: drumpad.id, state: "undone", idempotent: false });
       } catch (cause) { drumpad.state = "uncertain"; return this.adapterToolError(id, cause, "Drum-pad undo is uncertain; perform fresh discovery."); }
@@ -6924,7 +7082,7 @@ export class McpHost {
         this.beginUndoRecovery(rack, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== rack.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
         const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; rack.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(rack, adapter, context);
         const snapshot = await adapter.snapshotAsync(context); const row = this.deviceRow(snapshot, rack.payload.ref as LiveRef);
-        if (!reconciliation) { for (const field of ["visibleMacroCount", "selectedVariationIndex"]) if (rack.payload[field] !== undefined && row.device[field] !== rack.payload[field]) return this.transactionError(id, "rack changed after apply; undo refused"); }
+        if (!reconciliation) { if (rack.payload.selectedVariationIndex !== undefined && row.device.selectedVariationIndex !== rack.payload.selectedVariationIndex) return this.transactionError(id, "rack changed after apply; undo refused"); }
         rack.state = "undoing";
         const result = await this.invokeUndoRecovery(rack, adapter, "rack.set", { ref: rack.payload.ref, ...(rack.prior as Record<string, unknown>), expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: this.rackStateRevision(row.device) }, context) as { changed?: unknown };
         if (result.changed !== true) throw new Error("rack restoration was not confirmed");
@@ -6943,8 +7101,9 @@ export class McpHost {
         const family = devspec.payload.family as string;
         const fields = McpHost.SPECIALIZED_FAMILY_FIELDS[family]!;
         const snapshot = await adapter.snapshotAsync(context); const row = this.deviceRow(snapshot, devspec.payload.ref as LiveRef);
-        if (!reconciliation) { for (const field of fields) if (devspec.payload[field] !== undefined && JSON.stringify((row.device as unknown as Record<string, unknown>)[field]) !== JSON.stringify(devspec.payload[field])) return this.transactionError(id, "device state changed after apply; undo refused"); }
-        const state = Object.fromEntries(fields.map((field) => [field, (row.device as unknown as Record<string, unknown>)[field] ?? null]));
+        const undoFamilyRow = ((row.device as unknown as Record<string, unknown>)[McpHost.specializedRowKey(family)] ?? {}) as Record<string, unknown>;
+        if (!reconciliation) { for (const field of fields) if (devspec.payload[field] !== undefined && JSON.stringify(undoFamilyRow[field]) !== JSON.stringify(devspec.payload[field])) return this.transactionError(id, "device state changed after apply; undo refused"); }
+        const state = Object.fromEntries(fields.map((field) => [field, undoFamilyRow[field] ?? null]));
         devspec.state = "undoing";
         const result = await this.invokeUndoRecovery(devspec, adapter, `${family}.set` as "drift.set" | "drum-cell.set" | "eq8.set" | "hybrid-reverb.set" | "meld.set" | "plugin.set", { ref: devspec.payload.ref, ...(devspec.prior as Record<string, unknown>), expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") }, context) as { changed?: unknown };
         if (result.changed !== true) throw new Error("specialized device restoration was not confirmed");
@@ -6982,9 +7141,9 @@ export class McpHost {
         this.beginUndoRecovery(looper, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== looper.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
         const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; looper.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(looper, adapter, context);
         const snapshot = await adapter.snapshotAsync(context); const row = this.deviceRow(snapshot, looper.payload.ref as LiveRef);
-        const device = row.device as unknown as Record<string, unknown>;
-        if (!reconciliation) { for (const field of ["speed", "loopLength", "tempo", "fixedRecordLength"]) if (looper.payload[field] !== undefined && device[field] !== looper.payload[field]) return this.transactionError(id, "looper changed after apply; undo refused"); }
-        const state = { speed: device.speed ?? null, loopLength: device.loopLength ?? null, tempo: device.tempo ?? null, fixedRecordLength: device.fixedRecordLength ?? null };
+        const looperRow = (((row.device as unknown as Record<string, unknown>).looper) ?? {}) as Record<string, unknown>;
+        if (!reconciliation) { for (const field of ["overdubAfterRecord", "recordLengthIndex"]) if (looper.payload[field] !== undefined && looperRow[field] !== looper.payload[field]) return this.transactionError(id, "looper changed after apply; undo refused"); }
+        const state = { overdubAfterRecord: looperRow.overdubAfterRecord ?? null, recordLengthIndex: looperRow.recordLengthIndex ?? null };
         looper.state = "undoing";
         const priorFields = Object.fromEntries(Object.entries(looper.prior as Record<string, unknown>).filter(([, value]) => value !== null));
         const result = await this.invokeUndoRecovery(looper, adapter, "looper.set", { ref: looper.payload.ref, ...priorFields, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") }, context) as { changed?: unknown };
@@ -7053,7 +7212,7 @@ export class McpHost {
         if (!isNonEmptyString(before.revision, 64) || !isNonEmptyString(snapshot.set.objectIdentity, 256)) throw new Error("tuning undo authority is unavailable");
         const restore: Record<string, unknown> = { setRef: tuning.payload.setRef, expectedObjectIdentity: snapshot.set.objectIdentity, expectedRevision: before.revision };
         for (const field of ["name", "lowestNote", "highestNote", "referencePitch", "noteTunings"]) if (prior.tuningSystem[field] !== undefined && prior.tuningSystem[field] !== null) restore[field] = structuredClone(prior.tuningSystem[field]);
-        for (const field of ["rootNote", "scaleName", "scaleMode", "scaleIntervals"]) if (prior.scale[field] !== undefined && prior.scale[field] !== null) restore[field] = structuredClone(prior.scale[field]);
+        for (const field of ["rootNote", "scaleName", "scaleMode"]) if (prior.scale[field] !== undefined && prior.scale[field] !== null) restore[field] = structuredClone(prior.scale[field]);
         tuning.state = "undoing";
         const result = await this.invokeUndoRecovery(tuning, adapter, "tuning.set", restore, context) as { changed?: unknown };
         if (result.changed !== true) throw new Error("tuning restoration was not confirmed");

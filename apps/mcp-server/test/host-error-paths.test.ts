@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,7 +20,7 @@ const previewArgs: Array<[string, unknown]> = [
   ["live_clip_action_preview", { clipRef: "clip:clip-1", action: "crop" }],
   ["live_note_edit_preview", { clipRef: "clip:clip-1", action: "duplicate", noteIds: [1] }],
   ["live_note_read", { clipRef: "clip:clip-1", noteIds: [1] }],
-  ["live_tuning_preview", { referencePitch: 432 }],
+  ["live_tuning_preview", { referencePitch: { note: 69, frequency: 432 } }],
   ["live_groove_preview", { action: "set-amount", grooveAmount: 0.5 }],
   ["live_scene_preview", { ref: "scene:scene-1", colorIndex: 5 }],
   ["live_scene_fire_preview", { ref: "scene:scene-1" }],
@@ -36,13 +37,13 @@ const previewArgs: Array<[string, unknown]> = [
   ["live_mixer_extended_preview", { trackRef: "track:track-1", trackActivator: false }],
   ["live_chain_mixer_preview", { chainRef: "chain:rack-1:0", volume: 0.5 }],
   ["live_device_io_preview", { action: "routing", deviceRef: "device:utility-1", routingType: "Main" }],
-  ["live_device_advanced_preview", { action: "set-bank", ref: "device:utility-1", bank: 2 }],
+  ["live_device_advanced_preview", { action: "set-bank", ref: "device:utility-1", bank: 0 }],
   ["live_chain_preview", { chainRef: "chain:rack-1:0", colorIndex: 9 }],
-  ["live_drum_pad_preview", { action: "set", padRef: "drum-pad:rack-1:0", note: 40 }],
-  ["live_rack_preview", { action: "set", rackRef: "device:utility-1", visibleMacroCount: 16 }],
+  ["live_drum_pad_preview", { action: "set", padRef: "drum-pad:rack-1:0", solo: true }],
+  ["live_rack_preview", { action: "set", rackRef: "device:utility-1", selectedVariationIndex: 0 }],
   ["live_rack_view_preview", { rackRef: "device:utility-1", padScrollPosition: 4 }],
   ["live_device_specialized_preview", { family: "drift", deviceRef: "device:drift-1", pitchBendRange: 24 }],
-  ["live_looper_preview", { action: "set", deviceRef: "device:looper-1", speed: 2 }],
+  ["live_looper_preview", { action: "set", deviceRef: "device:looper-1", overdubAfterRecord: true }],
   ["live_simpler_preview", { deviceRef: "device:simpler-1", filePath: "/nonexistent/sample.wav", allowedRoot: "/nonexistent" }],
   ["live_observe_unsubscribe", { subscriptionId: "obs_missing" }],
   ["live_browser_roots", {}],
@@ -81,8 +82,8 @@ function rackChainFixture(simulator: DeterministicLiveSimulator): void {
 
 function specializedFixture(simulator: DeterministicLiveSimulator): void {
   (simulator as any).state.tracks[0].devices.push(
-    { ref: "device:drift-1", parentRef: "track:track-1", name: "Drift", kind: "instrument", className: "DriftDevice", parameters: [], objectIdentity: "simulator:device:drift-1", enabled: true, pitchBendRange: 12, voiceCount: 8, voiceMode: 0 },
-    { ref: "device:looper-1", parentRef: "track:track-1", name: "Looper", kind: "audio-effect", className: "LooperDevice", parameters: [], objectIdentity: "simulator:device:looper-1", enabled: true, speed: 1, loopLength: 4, tempo: 120, fixedRecordLength: 0, state: 0 },
+    { ref: "device:drift-1", parentRef: "track:track-1", name: "Drift", kind: "instrument", className: "DriftDevice", parameters: [], objectIdentity: "simulator:device:drift-1", enabled: true, drift: { pitchBendRange: 12, voiceCount: 2, voiceMode: 0, voiceCountList: ["1", "4", "8", "16"], voiceModeList: ["Poly", "Mono"] } },
+    { ref: "device:looper-1", parentRef: "track:track-1", name: "Looper", kind: "audio-effect", className: "LooperDevice", parameters: [], objectIdentity: "simulator:device:looper-1", enabled: true, looper: { overdubAfterRecord: false, recordLengthIndex: 0, loopLength: 4, tempo: 120, state: 0 } },
     { ref: "device:simpler-1", parentRef: "track:track-1", name: "Simpler", kind: "instrument", className: "SimplerDevice", parameters: [], objectIdentity: "simulator:device:simpler-1", enabled: true, samplePath: "/old/a.wav" },
   );
 }
@@ -98,7 +99,7 @@ const applyCases: Array<{ preview: string; apply: string; args: unknown; setup?:
   { preview: "live_warp_marker_preview", apply: "live_warp_marker_apply", args: { clipRef: "clip:audio-1", action: "add", beatTime: 2 }, setup: warpFixture },
   { preview: "live_clip_action_preview", apply: "live_clip_action_apply", args: { clipRef: "clip:clip-1", action: "crop" } },
   { preview: "live_note_edit_preview", apply: "live_note_edit_apply", args: { clipRef: "clip:clip-1", action: "duplicate", noteIds: [1] } },
-  { preview: "live_tuning_preview", apply: "live_tuning_apply", args: { referencePitch: 432 } },
+  { preview: "live_tuning_preview", apply: "live_tuning_apply", args: { referencePitch: { note: 69, frequency: 432 } } },
   { preview: "live_groove_preview", apply: "live_groove_apply", args: { action: "set-amount", grooveAmount: 0.5 } },
   { preview: "live_scene_preview", apply: "live_scene_apply", args: { ref: "scene:scene-1", colorIndex: 5 } },
   { preview: "live_scene_fire_preview", apply: "live_scene_fire_apply", args: { ref: "scene:scene-1" } },
@@ -113,13 +114,13 @@ const applyCases: Array<{ preview: string; apply: string; args: unknown; setup?:
   { preview: "live_mixer_extended_preview", apply: "live_mixer_extended_apply", args: { trackRef: "track:track-1", trackActivator: false } },
   { preview: "live_chain_mixer_preview", apply: "live_chain_mixer_apply", args: { chainRef: "chain:rack-1:0", volume: 0.5 }, setup: rackChainFixture },
   { preview: "live_device_io_preview", apply: "live_device_io_apply", args: { action: "routing", deviceRef: "device:utility-1", routingType: "Main", routingChannel: "1/2" }, setup: rackChainFixture },
-  { preview: "live_device_advanced_preview", apply: "live_device_advanced_apply", args: { action: "set-bank", ref: "device:utility-1", bank: 2 } },
+  { preview: "live_device_advanced_preview", apply: "live_device_advanced_apply", args: { action: "set-bank", ref: "device:utility-1", bank: 0 } },
   { preview: "live_chain_preview", apply: "live_chain_apply", args: { chainRef: "chain:rack-1:0", colorIndex: 9 }, setup: rackChainFixture },
-  { preview: "live_drum_pad_preview", apply: "live_drum_pad_apply", args: { action: "set", padRef: "drum-pad:rack-1:0", note: 40 }, setup: rackChainFixture },
-  { preview: "live_rack_preview", apply: "live_rack_apply", args: { action: "set", rackRef: "device:utility-1", visibleMacroCount: 16 }, setup: rackChainFixture },
+  { preview: "live_drum_pad_preview", apply: "live_drum_pad_apply", args: { action: "set", padRef: "drum-pad:rack-1:0", solo: true }, setup: rackChainFixture },
+  { preview: "live_rack_preview", apply: "live_rack_apply", args: { action: "set", rackRef: "device:utility-1", selectedVariationIndex: 0 }, setup: rackChainFixture },
   { preview: "live_rack_view_preview", apply: "live_rack_view_apply", args: { rackRef: "device:utility-1", padScrollPosition: 4 }, setup: rackChainFixture },
   { preview: "live_device_specialized_preview", apply: "live_device_specialized_apply", args: { family: "drift", deviceRef: "device:drift-1", pitchBendRange: 24 }, setup: specializedFixture },
-  { preview: "live_looper_preview", apply: "live_looper_apply", args: { action: "set", deviceRef: "device:looper-1", speed: 2 }, setup: specializedFixture },
+  { preview: "live_looper_preview", apply: "live_looper_apply", args: { action: "set", deviceRef: "device:looper-1", overdubAfterRecord: true }, setup: specializedFixture },
 ];
 
 test("new-surface applies report uncertainty with bounded guidance when dispatch fails", async () => {
@@ -231,4 +232,96 @@ test("observer subscriptions reject unknown refs and enforce the subscription qu
   const ninth = await call(20, "live_observe_subscribe", { topics: [{ kind: "transport" }] });
   assert.ok((ninth as any).result?.isError === true || (ninth as any).error?.code === -32602, "the ninth subscription must be refused by quota");
   for (const [index, subscriptionId] of ids.entries()) await call(30 + index, "live_observe_unsubscribe", { subscriptionId });
+});
+
+test("applied non-undoable transactions retire at their TTL while undoable records survive", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = hostCall(host);
+  const firePreview = JSON.parse(((await call(2, "live_scene_fire_preview", { ref: "scene:scene-1" })) as any).result.content[0].text);
+  const fired = JSON.parse(((await call(3, "live_scene_fire_apply", { transactionId: firePreview.transactionId, confirmation: "apply", idempotencyKey: "fire-key-1" })) as any).result.content[0].text);
+  assert.equal(fired.state, "applied");
+  const tempoPreview = JSON.parse(((await call(4, "live_tempo_preview", { tempo: 125 })) as any).result.content[0].text);
+  await call(5, "live_tempo_apply", { transactionId: tempoPreview.transactionId, confirmation: "apply", idempotencyKey: "tempo-key-1" });
+  (host as any).clipLifecycleTransactions.get(firePreview.transactionId).expiresAt = 0;
+  (host as any).transactions.get(tempoPreview.transactionId).expiresAt = 0;
+  for (let index = 0; index < 8; index += 1) await call(10 + index, "live_scene_fire_preview", { ref: "scene:scene-1" });
+  const fireReplay = await call(30, "live_scene_fire_apply", { transactionId: firePreview.transactionId, confirmation: "apply", idempotencyKey: "fire-key-1" });
+  assert.equal((fireReplay as any).result.isError, true, "the retired non-undoable transaction must not replay");
+  const tempoReplay = JSON.parse(((await call(31, "live_tempo_apply", { transactionId: tempoPreview.transactionId, confirmation: "apply", idempotencyKey: "tempo-key-1" })) as any).result.content[0].text);
+  assert.equal(tempoReplay.idempotent, true, "the undoable applied transaction retains replay authority");
+});
+
+test("clip actions accept documented length outcomes (full-loop crop and in-extent region duplication)", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const clip = (simulator as any).state.tracks[0].clips[0];
+  clip.loopStart = 0; clip.loopEnd = 4;
+  const call = hostCall(host);
+  const cropPreview = JSON.parse(((await call(2, "live_clip_action_preview", { clipRef: "clip:clip-1", action: "crop" })) as any).result.content[0].text);
+  const cropped = JSON.parse(((await call(3, "live_clip_action_apply", { transactionId: cropPreview.transactionId, confirmation: "apply", idempotencyKey: "crop-full-1" })) as any).result.content[0].text);
+  assert.equal(cropped.state, "applied"); assert.equal(clip.length, 4, "a full-loop crop preserves length");
+  const regionPreview = JSON.parse(((await call(4, "live_clip_action_preview", { clipRef: "clip:clip-1", action: "duplicate-region", regionStart: 0, regionEnd: 2, destination: 1 })) as any).result.content[0].text);
+  const duplicated = JSON.parse(((await call(5, "live_clip_action_apply", { transactionId: regionPreview.transactionId, confirmation: "apply", idempotencyKey: "region-in-1" })) as any).result.content[0].text);
+  assert.equal(duplicated.state, "applied"); assert.equal(clip.length, 4, "an in-extent region duplication does not grow the clip");
+  const loopPreview = JSON.parse(((await call(6, "live_clip_action_preview", { clipRef: "clip:clip-1", action: "duplicate-loop" })) as any).result.content[0].text);
+  const looped = JSON.parse(((await call(7, "live_clip_action_apply", { transactionId: loopPreview.transactionId, confirmation: "apply", idempotencyKey: "duploop-1" })) as any).result.content[0].text);
+  assert.equal(looped.state, "applied"); assert.equal(clip.length, 8, "duplicate-loop appends exactly the loop region");
+});
+
+test("simulator duplication rebuilds subgraphs with globally unique refs and one slot per track and scene", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const structureRevision = () => createHash("sha256").update(JSON.stringify({
+    tracks: (simulator as any).state.tracks.map((item: any, index: number) => [item.ref, item.objectIdentity, item.name, item.kind, index]),
+    scenes: (simulator as any).state.scenes.map((item: any, index: number) => [item.ref, item.objectIdentity, item.name, index]),
+  })).digest("hex");
+  const track = (simulator as any).state.tracks[0];
+  const duplicated = simulator.invoke({ operation: "track.duplicate", args: { ref: track.ref, expectedObjectIdentity: track.objectIdentity, expectedStructureRevision: structureRevision() } }) as { ref: string };
+  const copy = (simulator as any).state.tracks[1];
+  assert.equal(copy.ref, duplicated.ref);
+  assert.notEqual(copy.clips[0]?.ref, track.clips[0]?.ref, "nested clip refs must be fresh");
+  assert.notEqual(copy.devices[0]?.ref, track.devices[0]?.ref, "nested device refs must be fresh");
+  assert.equal(copy.clipSlots[0]?.parentRef, copy.ref, "slot parents point at the copy");
+  const allRefs = new Set<string>();
+  const collect = (value: unknown): void => {
+    if (Array.isArray(value)) { for (const item of value) collect(item); return; }
+    if (value && typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      if (typeof record.ref === "string") { assert.equal(allRefs.has(record.ref), false, `global ref uniqueness violated by ${record.ref}`); allRefs.add(record.ref); }
+      for (const item of Object.values(record)) collect(item);
+    }
+  };
+  collect((simulator as any).state.tracks);
+  const scene = (simulator as any).state.scenes[0];
+  simulator.invoke({ operation: "scene.duplicate", args: { ref: scene.ref, expectedObjectIdentity: scene.objectIdentity, expectedStructureRevision: structureRevision() } });
+  for (const candidate of (simulator as any).state.tracks) {
+    const perScene = new Map<number, number>();
+    for (const slot of candidate.clipSlots ?? []) perScene.set(slot.sceneIndex, (perScene.get(slot.sceneIndex) ?? 0) + 1);
+    for (const [sceneIndex, count] of perScene) assert.equal(count, 1, `track ${candidate.ref} has ${count} slots for scene ${sceneIndex}`);
+  }
+  const originalTrack = (simulator as any).state.tracks[0];
+  assert.equal(originalTrack.clipSlots.filter((slot: any) => slot.sceneIndex === 1).length, 1);
+  assert.equal(originalTrack.clipSlots.find((slot: any) => slot.sceneIndex === 1)?.clipRef?.startsWith("clip:dup-"), true, "occupied source scenes duplicate their clips");
+});
+
+test("draw-mode-only selection previews apply without an empty selection dispatch", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const operations: string[] = [];
+  const original = (simulator as any).invokeAsync.bind(simulator);
+  (simulator as any).invokeAsync = async (invocation: any) => { operations.push(invocation.operation); return original(invocation); };
+  const call = hostCall(host);
+  const preview = JSON.parse(((await call(2, "live_selection_preview", { drawMode: true })) as any).result.content[0].text);
+  const applied = JSON.parse(((await call(3, "live_selection_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "draw-only-1" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied");
+  assert.equal((simulator as any).state.view.drawMode, true);
+  assert.equal(operations.includes("selection.set"), false, "a draw-mode-only apply must not dispatch an empty selection.set");
+  assert.equal(operations.includes("song.view.set"), true);
+  const offPreview = JSON.parse(((await call(4, "live_selection_preview", { drawMode: false })) as any).result.content[0].text);
+  const offApplied = JSON.parse(((await call(5, "live_selection_apply", { transactionId: offPreview.transactionId, confirmation: "apply", idempotencyKey: "draw-off-1" })) as any).result.content[0].text);
+  assert.equal(offApplied.state, "applied");
+  assert.equal((simulator as any).state.view.drawMode, false, "drawMode:false fences on the captured prior state");
 });

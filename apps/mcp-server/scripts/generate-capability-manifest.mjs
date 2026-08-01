@@ -5,13 +5,31 @@
 // first-tested evidence are curated honestly per family.
 import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
+
+const here = fileURLToPath(import.meta.url);
+const outputPath = process.argv[2];
+
+function canonical(value, depth = 0) {
+  if (depth > 32) throw new Error("registry is too deeply nested");
+  if (value === null || typeof value === "boolean" || typeof value === "string" || typeof value === "number") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => canonical(item, depth + 1)).join(",")}]`;
+  if (typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key], depth + 1)}`).join(",")}}`;
+  }
+  throw new Error("registry contains an unsupported value");
+}
+
+function canonicalRegistryHash(registry) {
+  return createHash("sha256").update(canonical(registry)).digest("hex");
+}
 
 const registry = JSON.parse(readFileSync(new URL("../../../protocol/ableton-live-v1.operations.json", import.meta.url), "utf8"));
 const allIds = registry.operations.map((operation) => operation.id).sort();
 
 const RESERVED = new Set([
   "arrangement.automation.create", "arrangement.automation.delete", "arrangement.automation.point.delete", "arrangement.automation.point.insert", "arrangement.automation.read",
-  "audio.comp.read", "audio.take-lane.read",
+  "audio.comp.read",
   "browser.preview.start", "browser.preview.stop",
   "project.bounce", "project.collect", "project.export", "project.new", "project.open", "project.save", "project.save-as",
   "session.discover",
@@ -55,14 +73,27 @@ for (const family of FAMILIES) {
 const missing = allIds.filter((id) => !operations[id]);
 if (missing.length > 0) throw new Error(`manifest is missing operations: ${missing.join(", ")}`);
 
+const READ_PREFIXES = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "performance.read", "browser.roots", "browser.search", "browser.inspect"];
+const OBSERVE_PREFIXES = ["observe.", "subscribe", "realtime."];
+const READ_SUFFIXES = [".read", ".read-by-id", ".read-selected"];
+function accessFor(id) {
+  const access = [];
+  if (READ_PREFIXES.some((prefix) => id === prefix || id.startsWith(prefix)) || READ_SUFFIXES.some((suffix) => id.endsWith(suffix)) || id.includes(".read")) access.push("read");
+  if (OBSERVE_PREFIXES.some((prefix) => id.startsWith(prefix))) access.push("observe");
+  if (id.includes(".set") || id.includes(".add") || id.includes(".delete") || id.includes(".create") || id.includes(".move") || id.includes(".rename") || id.includes(".update") || id.includes(".edit") || id.includes(".quantize") || id.includes(".duplicate") || id.includes(".insert") || id.includes(".replace-sample") || id.includes(".save-to-slot") || id.includes(".re-enable-automation")) access.push("write");
+  if (!access.includes("write") && !access.includes("read") && !access.includes("observe")) access.push("call");
+  else if (id.includes(".action") || id.includes(".jump") || id.includes(".jump-to") || id.includes(".fire-selected") || id.includes(".load") || id.includes(".capture") || id.includes(".audition") || id.includes(".emergency-stop") || id.includes(".capture-midi") || id.includes("recording.") || id.includes(".time-convert") || id.includes(".bank.set") || id.includes(".dialog") || id.includes(".control") || id.includes(".view.set") || id.includes(".enable") || id.includes(".duplicate") || id.includes(".prepare") || id.includes(".preflight") || id.includes(".retire") || id.includes(".clip-launch") || id.includes(".clip-stop") || id.includes("transport.action") || id.includes("locator.jump")) access.push("call");
+  return access;
+}
+
 const families = FAMILIES.map((family) => ({
   ...family,
-  operations: family.operations.map((id) => ({ id, status: RESERVED.has(id) ? "reserved-fail-closed" : "executable-negotiated" })),
+  operations: family.operations.map((id) => ({ id, status: RESERVED.has(id) ? "reserved-fail-closed" : "executable-negotiated", access: accessFor(id) })),
 }));
 
 const manifest = {
   schema: "ableton-mcp-capability-manifest/v1",
-  registryHash: createHash("sha256").update(JSON.stringify(registry, Object.keys(registry).sort())).digest("hex"),
+  registryHash: canonicalRegistryHash(registry),
   operationCount: allIds.length,
   coverageRules: [
     "Covered means reachable end to end from MCP through the negotiated bridge with a verified response.",
@@ -74,6 +105,6 @@ const manifest = {
   families,
 };
 
-const target = new URL("../../../docs/evidence/capability-manifest.json", import.meta.url);
+const target = outputPath ?? new URL("../../../docs/evidence/capability-manifest.json", import.meta.url);
 writeFileSync(target, JSON.stringify(manifest, null, 2) + "\n");
 console.log(JSON.stringify({ schema: manifest.schema, operationCount: manifest.operationCount, families: families.length, reserved: allIds.filter((id) => RESERVED.has(id)).length }));
