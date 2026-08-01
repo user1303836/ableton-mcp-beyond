@@ -6629,6 +6629,57 @@
       }
     },
     {
+      "id": "scene.fire-selected",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedObjectIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedAuthorityRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "expectedStateRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "ref",
+          "expectedObjectIdentity",
+          "expectedAuthorityRevision",
+          "expectedStateRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "fired": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "fired"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "id": "scene.rename",
       "method": "invoke",
       "request": {
@@ -6686,6 +6737,89 @@
         "required": [
           "renamed",
           "name"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "scene.set",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "colorIndex": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 69
+          },
+          "tempo": {
+            "type": "number",
+            "minimum": 20,
+            "maximum": 999
+          },
+          "tempoEnabled": {
+            "type": "boolean"
+          },
+          "signatureNumerator": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 99
+          },
+          "signatureDenominator": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 99
+          },
+          "timeSignatureEnabled": {
+            "type": "boolean"
+          },
+          "expectedObjectIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedAuthorityRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "expectedStateRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "ref",
+          "expectedObjectIdentity",
+          "expectedAuthorityRevision",
+          "expectedStateRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "boolean",
+            "const": true
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "changed",
+          "revision"
         ],
         "additionalProperties": false
       }

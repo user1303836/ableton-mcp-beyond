@@ -609,7 +609,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "aa27b1cf31bf8cc380695ca8ed395e138e018a0fb59e331b816d8457ef5056cf")
+        self.assertEqual(digest, "a3e6d4c05da7765e9414a8f2f3d409e5a0e67ccc2ab2ba0a1c616734f80e4435")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -3155,3 +3155,67 @@ class GroovePoolTests(unittest.TestCase):
         result = mapper.invoke("clip.set", {**fences(), "grooveRef": None})
         self.assertTrue(result["changed"]); self.assertIsNone(clip.groove)
         with self.assertRaisesRegex(ValueError, "grooveRef is invalid"): mapper.invoke("clip.set", {**fences(), "grooveRef": "bogus"})
+
+
+class SceneSlotExpansionTests(unittest.TestCase):
+    def _mapper_with_scene(self):
+        song = FakeSong()
+        scene = song.scenes[0]
+        scene.color_index = 1; scene.is_empty = False; scene.is_triggered = False
+        scene.tempo = 120.0; scene.tempo_enabled = False
+        scene.time_signature_numerator = 4; scene.time_signature_denominator = 4; scene.time_signature_enabled = False
+        slot = song.tracks[0].clip_slots[0]
+        slot.color_index = 2; slot.controls_other_clips = False; slot.has_stop_button = True; slot.is_group_slot = False; slot.playing_status = 0; slot.will_record_on_start = False
+        return song, scene, slot, LiveObjectMapper(song)
+
+    def test_scene_and_slot_rows_expose_state(self):
+        _, scene, slot, mapper = self._mapper_with_scene()
+        row = mapper.snapshot()["scenes"][0]
+        self.assertEqual((row["colorIndex"], row["isEmpty"], row["isTriggered"], row["tempo"], row["tempoEnabled"]), (1, False, False, 120.0, False))
+        self.assertEqual((row["signatureNumerator"], row["signatureDenominator"], row["timeSignatureEnabled"]), (4, 4, False))
+        slot_row = mapper.snapshot()["tracks"][0]["clipSlots"][0]
+        self.assertEqual((slot_row["colorIndex"], slot_row["controlsOtherClips"], slot_row["hasStopButton"], slot_row["isGroupSlot"], slot_row["playingStatus"], slot_row["willRecordOnStart"]), (2, False, True, False, 0, False))
+
+    def test_scene_set_with_validation_and_rollback(self):
+        song, scene, slot, mapper = self._mapper_with_scene()
+        row = mapper.snapshot()["scenes"][0]
+        def fences():
+            return {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedAuthorityRevision": mapper._scene_collection_revision(),
+                    "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical(mapper._scene_state_fields(scene)).encode()).hexdigest()}
+        self.assertTrue(mapper._operation_supported("scene.set"))
+        result = mapper.invoke("scene.set", {**fences(), "colorIndex": 5, "tempo": 90.0, "tempoEnabled": True, "signatureNumerator": 6, "signatureDenominator": 8, "timeSignatureEnabled": True})
+        self.assertTrue(result["changed"]); validate_operation_payload("scene.set", "result", result)
+        self.assertEqual((scene.color_index, scene.tempo, scene.tempo_enabled), (5, 90.0, True))
+        self.assertEqual((scene.time_signature_numerator, scene.time_signature_denominator, scene.time_signature_enabled), (6, 8, True))
+        with self.assertRaisesRegex(ValueError, "is invalid"): mapper.invoke("scene.set", {**fences(), "tempo": 10000.0})
+        with self.assertRaisesRegex(ValueError, "no fields"): mapper.invoke("scene.set", fences())
+        stale = fences(); stale["expectedStateRevision"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "changed since preview"): mapper.invoke("scene.set", {**stale, "colorIndex": 3})
+        class FailingScene(FakeScene):
+            @property
+            def tempo(self): return self._tempo
+            @tempo.setter
+            def tempo(self, value):
+                if value == 60.0: raise RuntimeError("tempo rejected")
+                self._tempo = value
+        failing = FailingScene(); failing._tempo = 120.0; failing.color_index = 1
+        failing.time_signature_numerator = 4; failing.time_signature_denominator = 4; failing.time_signature_enabled = False; failing.tempo_enabled = False
+        song.scenes = [failing]; mapper2 = LiveObjectMapper(song)
+        failing_row = mapper2.snapshot()["scenes"][0]
+        bad_args = {"ref": failing_row["ref"], "expectedObjectIdentity": failing_row["objectIdentity"], "expectedAuthorityRevision": mapper2._scene_collection_revision(),
+                    "expectedStateRevision": hashlib.sha256(mapper2._bounded_canonical(mapper2._scene_state_fields(failing)).encode()).hexdigest(), "tempo": 60.0, "colorIndex": 9}
+        with self.assertRaisesRegex(RuntimeError, "tempo rejected"): mapper2.invoke("scene.set", bad_args)
+        self.assertEqual(failing.tempo, 120.0); self.assertEqual(failing.color_index, 1)
+
+    def test_scene_fire_selected_requires_confirmation(self):
+        song, scene, slot, mapper = self._mapper_with_scene()
+        def fire_as_selected():
+            scene.is_triggered = True; song.is_playing = True
+        scene.fire_as_selected = fire_as_selected
+        row = mapper.snapshot()["scenes"][0]
+        self.assertTrue(mapper._operation_supported("scene.fire-selected"))
+        playback = mapper._playback()
+        state = hashlib.sha256(mapper._bounded_canonical({"isTriggered": False, "playing": playback["transport"]["playing"]}).encode()).hexdigest()
+        result = mapper.invoke("scene.fire-selected", {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedAuthorityRevision": mapper._scene_collection_revision(), "expectedStateRevision": state})
+        self.assertEqual(result, {"fired": True}); validate_operation_payload("scene.fire-selected", "result", result)
+        self.assertTrue(scene.is_triggered); self.assertTrue(song.is_playing)

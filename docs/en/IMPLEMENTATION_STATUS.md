@@ -71,6 +71,16 @@ are. Source, schemas, and tests are the final authority.
   in the pool — documented, not worked around. Verified at the host,
   simulator, Python contract, and packaged fake-Live levels; exact-candidate
   real-Live proof is pending.
+- Scene color, empty/triggered/fire-button state, tempo and `tempo_enabled`,
+  and time-signature numerator/denominator/enable — read on scene rows and
+  editable through one fenced transaction with exact rollback and `live_undo`
+  restore. Clip-slot rows now expose color, `controls_other_clips`, stop
+  button, group-slot, playing, and record-on-start state.
+  `Scene.fire_as_selected` ships as a distinct direct-fire action: fenced,
+  audible, explicitly not undoable, and documented as separate from the
+  guarded scene audition workflow. Verified at the host, simulator, Python
+  contract, and packaged fake-Live levels; exact-candidate real-Live proof is
+  pending.
 - Purpose-specific preview/apply/verify/undo or cleanup workflows with exact
   object and hierarchy identities, state/content revisions, creation-time
   fingerprints, epochs, expiry, idempotency, fresh postconditions, bounded

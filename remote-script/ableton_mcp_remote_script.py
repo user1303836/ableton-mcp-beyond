@@ -762,6 +762,10 @@ class LiveObjectMapper:
         if operation == "groove.edit":
             pool = getattr(self.song, "groove_pool", None)
             return any(self._read_attr(groove, "name") is not None for groove in self._items(self._read_attr(pool, "grooves") or [])) if pool is not None else False
+        if operation == "scene.set":
+            return any(self._read_attr(scene, "color_index") is not None or self._read_attr(scene, "tempo") is not None for scene in self._items(getattr(self.song, "scenes", [])))
+        if operation == "scene.fire-selected":
+            return any(callable(getattr(scene, "fire_as_selected", None)) for scene in self._items(getattr(self.song, "scenes", [])))
         return False
 
     def capabilities(self, operations: set[str] | None = None) -> list[str]:
@@ -1238,7 +1242,7 @@ class LiveObjectMapper:
                 clip = getattr(slot, "clip", None)
                 slot_ref = self.refs.put("clip_slot", slot, f"{index}:{slot_index}")
                 if clip is None:
-                    slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "objectIdentity": self._capture_object_identity(slot), "sceneIndex": slot_index, "empty": True})
+                    slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "objectIdentity": self._capture_object_identity(slot), "sceneIndex": slot_index, "empty": True, **self._slot_state_fields(slot)})
                     continue
                 clip_ref = self.refs.put("clip", clip, f"{index}:{slot_index}")
                 notes = self._read_notes(clip)
@@ -1246,7 +1250,7 @@ class LiveObjectMapper:
                 for key, value in self._clip_state_fields(clip).items():
                     if value is not None or key not in clip_row: clip_row[key] = value
                 clips.append(clip_row)
-                slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "objectIdentity": self._capture_object_identity(slot), "sceneIndex": slot_index, "clipRef": clip_ref, "empty": False})
+                slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "objectIdentity": self._capture_object_identity(slot), "sceneIndex": slot_index, "clipRef": clip_ref, "empty": False, **self._slot_state_fields(slot)})
             armed_value = self._read_attr(track, "arm", "armed")
             track_rows.append({
                 "ref": track_ref, "parentRef": self.refs.put("set", self.song, "song"), "objectIdentity": self._capture_object_identity(track),
@@ -1260,7 +1264,7 @@ class LiveObjectMapper:
                 "routing": self._routing_row(track),
                 "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track, index), "takeLanes": self._take_lane_rows(track, index),
             })
-        scene_rows = [{"ref": self.refs.put("scene", scene, str(i)), "parentRef": self.refs.put("set", self.song, "song"), "objectIdentity": self._capture_object_identity(scene), "name": str(getattr(scene, "name", f"Scene {i + 1}")), "index": i, "triggerable": callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None))} for i, scene in enumerate(scenes)]
+        scene_rows = [self._scene_row(scene, i) for i, scene in enumerate(scenes)]
         locators = self._locator_items()
         return {"set": set_row, "tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators, "locatorRevision": hashlib.sha256(self._bounded_canonical(locators).encode("utf-8")).hexdigest(), "clips": self._arrangement_clip_items()}, "playback": self._playback(track_rows, scene_rows), "epoch": self.refs.epoch}
 
@@ -2106,6 +2110,10 @@ class LiveObjectMapper:
             return self._groove_set(args)
         if operation == "groove.edit":
             return self._groove_edit(args)
+        if operation == "scene.set":
+            return self._scene_set(args)
+        if operation == "scene.fire-selected":
+            return self._scene_fire_selected(args)
         if operation == "take-lane.create":
             return self._take_lane_create(args)
         if operation == "take-lane.rename":
@@ -3859,6 +3867,144 @@ class LiveObjectMapper:
             if rollback_failed or self._bounded_canonical(self._groove_state()) != self._bounded_canonical(before): raise ValueError("groove change failed and exact rollback failed") from error
             raise
         return {"changed": True, "revision": self._groove_revision()}
+
+    def _scene_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:scene:"): raise ValueError("scene reference is stale or invalid")
+        allowed = {"ref", "colorIndex", "tempo", "tempoEnabled", "signatureNumerator", "signatureDenominator", "timeSignatureEnabled", "expectedObjectIdentity", "expectedAuthorityRevision", "expectedStateRevision"}
+        if set(args) - allowed: raise ValueError("scene fields are invalid")
+        scenes = self._items(getattr(self.song, "scenes", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+        if not 0 <= index < len(scenes): raise ValueError("scene hierarchy changed")
+        scene = scenes[index]
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(scene), args["expectedObjectIdentity"]): raise ValueError("scene identity changed since preview")
+        if not isinstance(args.get("expectedAuthorityRevision"), str) or not hmac.compare_digest(self._scene_collection_revision(), args["expectedAuthorityRevision"]): raise ValueError("scene collection changed since preview")
+        state_revision = hashlib.sha256(self._bounded_canonical(self._scene_state_fields(scene)).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("scene state changed since preview")
+        proposals: list[tuple[str, str, Any]] = []
+        if "colorIndex" in args:
+            value = args["colorIndex"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 69: raise ValueError("colorIndex is invalid")
+            proposals.append(("colorIndex", "color_index", value))
+        if "tempo" in args:
+            value = args["tempo"]
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not 20 <= float(value) <= 999: raise ValueError("tempo is invalid")
+            proposals.append(("tempo", "tempo", float(value)))
+        if "tempoEnabled" in args:
+            value = args["tempoEnabled"]
+            if not isinstance(value, bool): raise ValueError("tempoEnabled is invalid")
+            proposals.append(("tempoEnabled", "tempo_enabled", value))
+        for field, attr in (("signatureNumerator", "time_signature_numerator"), ("signatureDenominator", "time_signature_denominator")):
+            if field in args:
+                value = args[field]
+                if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 99: raise ValueError(f"{field} is invalid")
+                proposals.append((field, attr, value))
+        if "timeSignatureEnabled" in args:
+            value = args["timeSignatureEnabled"]
+            if not isinstance(value, bool): raise ValueError("timeSignatureEnabled is invalid")
+            proposals.append(("timeSignatureEnabled", "time_signature_enabled", value))
+        if not proposals: raise ValueError("scene mutation has no fields")
+        for _, attribute, _ in proposals:
+            if self._read_attr(scene, attribute) is None: raise ValueError(f"{attribute} is unavailable on this scene")
+        assignments = [(field, attribute, value, self._read_attr(scene, attribute)) for field, attribute, value in proposals]
+        before = self._scene_state_fields(scene)
+        try:
+            for _, attribute, value, _ in assignments: setattr(scene, attribute, value)
+            observed = self._scene_state_fields(scene)
+            for field, _, value, _ in assignments:
+                observed_value = observed.get(field)
+                if isinstance(value, bool):
+                    if observed_value is not value: raise ValueError("scene change was not confirmed")
+                elif not isinstance(observed_value, (int, float)) or isinstance(observed_value, bool) or float(observed_value) != float(value): raise ValueError("scene change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for _, attribute, _, prior in reversed(assignments):
+                try: setattr(scene, attribute, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or self._bounded_canonical(self._scene_state_fields(scene)) != self._bounded_canonical(before): raise ValueError("scene change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _scene_fire_selected(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:scene:") or set(args) - {"ref", "expectedObjectIdentity", "expectedAuthorityRevision", "expectedStateRevision"}: raise ValueError("scene fire authority is invalid")
+        scenes = self._items(getattr(self.song, "scenes", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+        if not 0 <= index < len(scenes): raise ValueError("scene hierarchy changed")
+        scene = scenes[index]
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(scene), args["expectedObjectIdentity"]): raise ValueError("scene identity changed since preview")
+        if not isinstance(args.get("expectedAuthorityRevision"), str) or not hmac.compare_digest(self._scene_collection_revision(), args["expectedAuthorityRevision"]): raise ValueError("scene collection changed since preview")
+        playback = self._playback()
+        state_revision = hashlib.sha256(self._bounded_canonical({"isTriggered": self._read_attr(scene, "is_triggered"), "playing": playback["transport"]["playing"]}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("scene fire state changed since preview")
+        fire = getattr(scene, "fire_as_selected", None)
+        if not callable(fire): raise ValueError("scene fire-as-selected is unavailable")
+        fire()
+        observed = self._read_attr(scene, "is_triggered")
+        if observed is not True: raise ValueError("scene fire was not confirmed")
+        return {"fired": True}
+
+    def _slot_state_fields(self, slot: Any) -> dict[str, Any]:
+        def optional_bool(name: str) -> bool | None:
+            value = self._read_attr(slot, name)
+            return value if isinstance(value, bool) else None
+        color = self._read_attr(slot, "color_index")
+        playing = self._read_attr(slot, "playing_status")
+        return {
+            "colorIndex": int(color) if isinstance(color, int) and not isinstance(color, bool) and 0 <= color <= 69 else None,
+            "controlsOtherClips": optional_bool("controls_other_clips"),
+            "hasStopButton": optional_bool("has_stop_button"),
+            "isGroupSlot": optional_bool("is_group_slot"),
+            "playingStatus": int(playing) if isinstance(playing, int) and not isinstance(playing, bool) else None,
+            "willRecordOnStart": optional_bool("will_record_on_start"),
+            "fireButtonState": optional_bool("fire_button_state"),
+        }
+
+    def _scene_row(self, scene: Any, index: int) -> dict[str, Any]:
+        def optional_bool(name: str) -> bool | None:
+            value = self._read_attr(scene, name)
+            return value if isinstance(value, bool) else None
+        def optional_int(name: str) -> int | None:
+            value = self._read_attr(scene, name)
+            return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+        color = self._read_attr(scene, "color_index")
+        tempo = self._read_attr(scene, "tempo")
+        return {
+            "ref": self.refs.put("scene", scene, str(index)), "parentRef": self.refs.put("set", self.song, "song"), "objectIdentity": self._capture_object_identity(scene),
+            "name": str(getattr(scene, "name", f"Scene {index + 1}")), "index": index,
+            "triggerable": callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None)),
+            "colorIndex": int(color) if isinstance(color, int) and not isinstance(color, bool) and 0 <= color <= 69 else None,
+            "isEmpty": optional_bool("is_empty"),
+            "isTriggered": optional_bool("is_triggered"),
+            "tempo": float(tempo) if isinstance(tempo, (int, float)) and not isinstance(tempo, bool) and math.isfinite(float(tempo)) else None,
+            "tempoEnabled": optional_bool("tempo_enabled"),
+            "signatureNumerator": optional_int("time_signature_numerator"),
+            "signatureDenominator": optional_int("time_signature_denominator"),
+            "timeSignatureEnabled": optional_bool("time_signature_enabled"),
+            "fireButtonState": optional_bool("fire_button_state"),
+        }
+
+    def _scene_state_fields(self, scene: Any) -> dict[str, Any]:
+        def optional_bool(name: str) -> bool | None:
+            value = self._read_attr(scene, name)
+            return value if isinstance(value, bool) else None
+        def optional_int(name: str) -> int | None:
+            value = self._read_attr(scene, name)
+            return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+        color = self._read_attr(scene, "color_index"); tempo = self._read_attr(scene, "tempo")
+        return {
+            "colorIndex": int(color) if isinstance(color, int) and not isinstance(color, bool) and 0 <= color <= 69 else None,
+            "tempo": float(tempo) if isinstance(tempo, (int, float)) and not isinstance(tempo, bool) and math.isfinite(float(tempo)) else None,
+            "tempoEnabled": optional_bool("tempo_enabled"),
+            "signatureNumerator": optional_int("time_signature_numerator"),
+            "signatureDenominator": optional_int("time_signature_denominator"),
+            "timeSignatureEnabled": optional_bool("time_signature_enabled"),
+        }
+
+    def _scene_collection_revision(self) -> str:
+        scenes = self._items(getattr(self.song, "scenes", []))
+        rows = [{"ref": self.refs.put("scene", scene, str(index)), "objectIdentity": self._capture_object_identity(scene), "name": str(getattr(scene, "name", "")), **self._scene_state_fields(scene)} for index, scene in enumerate(scenes)]
+        if len(rows) > 512: raise ValueError("scene collection exceeds authority bound")
+        return hashlib.sha256(self._bounded_canonical(rows).encode("utf-8")).hexdigest()
 
     def _mixer_row(self, track: Any, track_index: int) -> dict[str, Any]:
         mixer = self._read_attr(track, "mixer_device")
