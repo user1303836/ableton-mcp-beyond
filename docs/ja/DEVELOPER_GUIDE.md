@@ -26,7 +26,7 @@
   インストール、診断。
 - `protocol/ableton-live-v1.operations.json`: 正規バージョン 1 操作レジストリ。
   現在の契約の正規レジストリハッシュは
-  `8f1a72fc7abedd4ca74c1eec5bc5ecd4c289324c537e8af8a1b1d1320fa5e326` です。
+  `0e78ce720eca78ff0a9c0a224e6ef0bd5a4495d52bb17edc4703cfb4e670756b` です。
 - `remote-script/AbletonMcpBridge/__init__.py`: 1 引数の Control Surface
   エントリーポイントとフェイルクローズドの参照ロード。
 - `remote-script/ableton_mcp_remote_script.py`: 認証済みトランスポート、

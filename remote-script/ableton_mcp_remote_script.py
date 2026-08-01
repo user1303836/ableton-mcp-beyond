@@ -818,6 +818,18 @@ class LiveObjectMapper:
             return any(callable(getattr(parameter, "re_enable_automation", None)) for track in tracks for device in self._items(getattr(track, "devices", [])) for parameter in self._items(getattr(device, "parameters", [])))
         if operation == "device.comparison.save-to-slot":
             return any(callable(getattr(device, "store_to_compare_slot", None)) or callable(getattr(device, "save_to_comparison_slot", None)) for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "chain.set":
+            return any(self._read_attr(chain, "color_index") is not None or self._read_attr(chain, "auto_color") is not None for track in tracks for device in self._items(getattr(track, "devices", [])) for chain in self._items(self._read_attr(device, "chains") or []))
+        if operation == "drum-pad.set":
+            return any(self._read_attr(pad, "note") is not None or self._read_attr(pad, "solo") is not None for track in tracks for device in self._items(getattr(track, "devices", [])) for pad in self._items(self._read_attr(device, "drum_pads") or []))
+        if operation == "drum-pad.delete-all-chains":
+            return any(callable(getattr(pad, "delete_all_chains", None)) for track in tracks for device in self._items(getattr(track, "devices", [])) for pad in self._items(self._read_attr(device, "drum_pads") or []))
+        if operation == "rack.set":
+            return any(isinstance(self._read_attr(device, "visible_macro_count"), int) and not isinstance(self._read_attr(device, "visible_macro_count"), bool) for track in tracks for device in self._items(getattr(track, "devices", [])) if self._read_attr(device, "can_have_chains") is True)
+        if operation == "rack.action":
+            return any(any(callable(getattr(device, name, None)) for name in ("add_macro", "remove_macro", "randomize_macros", "insert_chain", "copy_pad", "store_variation", "recall_variation", "delete_variation")) for track in tracks for device in self._items(getattr(track, "devices", [])) if self._read_attr(device, "can_have_chains") is True)
+        if operation == "rack.view.set":
+            return any(getattr(device, "view", None) is not None for track in tracks for device in self._items(getattr(track, "devices", [])) if self._read_attr(device, "can_have_chains") is True)
         return False
 
     def capabilities(self, operations: set[str] | None = None) -> list[str]:
@@ -1196,7 +1208,27 @@ class LiveObjectMapper:
             macros = self._items(self._read_attr(device, "macros") or [])
             if len(macros) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("device macro collection exceeds its bound")
             row["macros"] = [{"ref": self.refs.put("parameter", macro, f"{device_ref}:macro:{macro_index}"), "objectIdentity": self._capture_object_identity(macro), "name": str(self._read_attr(macro, "name") or f"Macro {macro_index + 1}"), "value": self._read_attr(macro, "value")} for macro_index, macro in enumerate(macros)]
-            row["variationCount"] = len(self._items(self._read_attr(device, "variations") or []))
+            return_chains = self._items(self._read_attr(device, "return_chains") or [])
+            row["returnChains"] = [self.refs.put("chain", chain, f"{device_ref}:return:{return_index}") for return_index, chain in enumerate(return_chains)]
+            visible_count = self._read_attr(device, "visible_macro_count")
+            variation_count = self._read_attr(device, "variation_count")
+            selected_variation = self._read_attr(device, "selected_variation")
+            row["visibleMacroCount"] = int(visible_count) if isinstance(visible_count, int) and not isinstance(visible_count, bool) else None
+            row["variationCount"] = int(variation_count) if isinstance(variation_count, int) and not isinstance(variation_count, bool) else None
+            row["selectedVariationIndex"] = int(self._read_attr(device, "selected_variation_index")) if isinstance(self._read_attr(device, "selected_variation_index"), int) and not isinstance(self._read_attr(device, "selected_variation_index"), bool) else None
+            macro_mapped = self._read_attr(device, "macro_mapped")
+            row["macroMapped"] = [bool(value) for value in self._items(macro_mapped)] if isinstance(macro_mapped, (list, tuple)) else None
+            rack_view = getattr(device, "view", None)
+            selected_chain = self._read_attr(rack_view, "selected_chain") if rack_view is not None else None
+            selected_pad = self._read_attr(rack_view, "selected_drum_pad") if rack_view is not None else None
+            pad_scroll = self._read_attr(rack_view, "drum_pad_scroll_position") if rack_view is not None else None
+            show_devices = self._read_attr(rack_view, "is_showing_chain_devices") if rack_view is not None else None
+            row["view"] = {
+                "selectedChainRef": self.refs.put("chain", selected_chain, f"{device_ref}:selected") if selected_chain is not None else None,
+                "selectedPadIndex": int(self._read_attr(selected_pad, "index")) if selected_pad is not None and isinstance(self._read_attr(selected_pad, "index"), int) and not isinstance(self._read_attr(selected_pad, "index"), bool) else None,
+                "padScrollPosition": int(pad_scroll) if isinstance(pad_scroll, int) and not isinstance(pad_scroll, bool) else None,
+                "showChainDevices": show_devices if isinstance(show_devices, bool) else None,
+            }
         if row["canHaveDrumPads"] is True:
             row["drumPads"] = self._drum_pad_rows(device, device_ref, track_index, path, traversal, depth)
         return row
@@ -1213,6 +1245,8 @@ class LiveObjectMapper:
                 chain_devices.append(self._device_row(device, nested_ref, chain_ref, track_index, f"{path}:{chain_index}:{device_index}", device_index, traversal, depth + 1))
             mute = self._read_attr(chain, "mute")
             solo = self._read_attr(chain, "solo")
+            color = self._read_attr(chain, "color_index")
+            in_note = self._read_attr(chain, "in_note"); out_note = self._read_attr(chain, "out_note"); choke = self._read_attr(chain, "choke_group")
             rows.append({
                 "ref": chain_ref, "parentRef": parent_ref, "index": chain_index, "objectIdentity": self._capture_object_identity(chain),
                 "name": str(self._read_attr(chain, "name") or f"Chain {chain_index + 1}"),
@@ -1220,6 +1254,16 @@ class LiveObjectMapper:
                 "solo": bool(solo) if isinstance(solo, bool) else None,
                 "devices": chain_devices,
                 "mixer": self._chain_mixer_fields(chain, chain_ref),
+                "colorIndex": int(color) if isinstance(color, int) and not isinstance(color, bool) and 0 <= color <= 69 else None,
+                "autoColor": self._read_attr(chain, "auto_color") if isinstance(self._read_attr(chain, "auto_color"), bool) else None,
+                "hasAudioInput": self._read_attr(chain, "has_audio_input") if isinstance(self._read_attr(chain, "has_audio_input"), bool) else None,
+                "hasAudioOutput": self._read_attr(chain, "has_audio_output") if isinstance(self._read_attr(chain, "has_audio_output"), bool) else None,
+                "hasMidiInput": self._read_attr(chain, "has_midi_input") if isinstance(self._read_attr(chain, "has_midi_input"), bool) else None,
+                "hasMidiOutput": self._read_attr(chain, "has_midi_output") if isinstance(self._read_attr(chain, "has_midi_output"), bool) else None,
+                "mutedViaSolo": self._read_attr(chain, "muted_via_solo") if isinstance(self._read_attr(chain, "muted_via_solo"), bool) else None,
+                "inNote": int(in_note) if isinstance(in_note, int) and not isinstance(in_note, bool) else None,
+                "outNote": int(out_note) if isinstance(out_note, int) and not isinstance(out_note, bool) else None,
+                "chokeGroup": int(choke) if isinstance(choke, int) and not isinstance(choke, bool) else None,
             })
         return rows
 
@@ -1230,11 +1274,15 @@ class LiveObjectMapper:
         for pad_index, pad in enumerate(pads):
             pad_ref = self.refs.put("drum_pad", pad, f"{path}:{pad_index}")
             mute = self._read_attr(pad, "mute")
+            note = self._read_attr(pad, "note"); pad_solo = self._read_attr(pad, "solo")
             rows.append({
                 "ref": pad_ref, "parentRef": device_ref, "index": pad_index,
                 "name": str(self._read_attr(pad, "name") or f"Pad {pad_index + 1}"),
                 "mute": bool(mute) if isinstance(mute, bool) else None,
+                "objectIdentity": self._capture_object_identity(pad),
                 "chains": self._chain_rows(pad, pad_ref, track_index, f"{path}:{pad_index}", traversal, depth),
+                "note": int(note) if isinstance(note, int) and not isinstance(note, bool) else None,
+                "solo": bool(pad_solo) if isinstance(pad_solo, bool) else None,
             })
         return rows
 
@@ -2225,6 +2273,18 @@ class LiveObjectMapper:
             return self._parameter_re_enable_automation(args)
         if operation == "device.comparison.save-to-slot":
             return self._device_comparison_save_to_slot(args)
+        if operation == "chain.set":
+            return self._chain_set(args)
+        if operation == "drum-pad.set":
+            return self._drum_pad_set(args)
+        if operation == "drum-pad.delete-all-chains":
+            return self._drum_pad_delete_all_chains(args)
+        if operation == "rack.set":
+            return self._rack_set(args)
+        if operation == "rack.action":
+            return self._rack_action(args)
+        if operation == "rack.view.set":
+            return self._rack_view_set(args)
         if operation == "take-lane.create":
             return self._take_lane_create(args)
         if operation == "take-lane.rename":
@@ -4792,6 +4852,216 @@ class LiveObjectMapper:
         if not callable(method): raise ValueError("comparison save-to-slot is unavailable on this device shape")
         method(slot)
         return {"done": True}
+
+    def _chain_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:chain:") or set(args) - {"ref", "colorIndex", "autoColor", "mute", "solo", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("chain authority is invalid")
+        chain = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(chain), args["expectedObjectIdentity"]): raise ValueError("chain identity changed since preview")
+        state = {"colorIndex": self._read_attr(chain, "color_index"), "autoColor": self._read_attr(chain, "auto_color"), "mute": self._read_attr(chain, "mute"), "solo": self._read_attr(chain, "solo")}
+        state_revision = hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("chain state changed since preview")
+        proposals = []
+        if "colorIndex" in args:
+            value = args["colorIndex"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 69: raise ValueError("colorIndex is invalid")
+            proposals.append(("color_index", value))
+        if "autoColor" in args:
+            value = args["autoColor"]
+            if not isinstance(value, bool): raise ValueError("autoColor is invalid")
+            proposals.append(("auto_color", value))
+        for field in ("mute", "solo"):
+            if field in args:
+                value = args[field]
+                if not isinstance(value, bool): raise ValueError(f"{field} is invalid")
+                proposals.append((field, value))
+        if not proposals: raise ValueError("chain mutation has no fields")
+        assignments = [(attribute, value, self._read_attr(chain, attribute)) for attribute, value in proposals]
+        before_revision = state_revision
+        try:
+            for attribute, value, _ in assignments: setattr(chain, attribute, value)
+            for attribute, value, _ in assignments:
+                observed = self._read_attr(chain, attribute)
+                if isinstance(value, bool):
+                    if observed is not value: raise ValueError("chain change was not confirmed")
+                elif not isinstance(observed, int) or isinstance(observed, bool) or observed != value: raise ValueError("chain change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for attribute, _, prior in reversed(assignments):
+                try: setattr(chain, attribute, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or hashlib.sha256(self._bounded_canonical({"colorIndex": self._read_attr(chain, "color_index"), "autoColor": self._read_attr(chain, "auto_color"), "mute": self._read_attr(chain, "mute"), "solo": self._read_attr(chain, "solo")}).encode("utf-8")).hexdigest() != before_revision: raise ValueError("chain change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _drum_pad_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:drum_pad:") or set(args) - {"ref", "note", "solo", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("drum pad authority is invalid")
+        pad = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(pad), args["expectedObjectIdentity"]): raise ValueError("drum pad identity changed since preview")
+        state = {"note": self._read_attr(pad, "note"), "solo": self._read_attr(pad, "solo")}
+        state_revision = hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("drum pad state changed since preview")
+        proposals = []
+        if "note" in args:
+            value = args["note"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 127: raise ValueError("note is invalid")
+            proposals.append(("note", value))
+        if "solo" in args:
+            value = args["solo"]
+            if not isinstance(value, bool): raise ValueError("solo is invalid")
+            proposals.append(("solo", value))
+        if not proposals: raise ValueError("drum pad mutation has no fields")
+        assignments = [(attribute, value, self._read_attr(pad, attribute)) for attribute, value in proposals]
+        before_revision = state_revision
+        try:
+            for attribute, value, _ in assignments: setattr(pad, attribute, value)
+            for attribute, value, _ in assignments:
+                observed = self._read_attr(pad, attribute)
+                if isinstance(value, bool):
+                    if observed is not value: raise ValueError("drum pad change was not confirmed")
+                elif not isinstance(observed, int) or isinstance(observed, bool) or observed != value: raise ValueError("drum pad change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for attribute, _, prior in reversed(assignments):
+                try: setattr(pad, attribute, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or hashlib.sha256(self._bounded_canonical({"note": self._read_attr(pad, "note"), "solo": self._read_attr(pad, "solo")}).encode("utf-8")).hexdigest() != before_revision: raise ValueError("drum pad change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _drum_pad_delete_all_chains(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:drum_pad:") or set(args) - {"ref", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("drum pad authority is invalid")
+        pad = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(pad), args["expectedObjectIdentity"]): raise ValueError("drum pad identity changed since preview")
+        chains_before = self._items(self._read_attr(pad, "chains") or [])
+        state_revision = hashlib.sha256(self._bounded_canonical([self._capture_object_identity(chain) for chain in chains_before]).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("drum pad chain collection changed since preview")
+        deleter = getattr(pad, "delete_all_chains", None)
+        if not callable(deleter): raise ValueError("delete-all-chains is unavailable on this drum pad")
+        deleter()
+        remaining = self._items(self._read_attr(pad, "chains") or [])
+        if remaining: raise ValueError("delete-all-chains was not confirmed")
+        return {"deleted": len(chains_before)}
+
+    def _rack_state(self, device: Any) -> dict[str, Any]:
+        visible = self._read_attr(device, "visible_macro_count"); selected = self._read_attr(device, "selected_variation_index")
+        return {"visibleMacroCount": int(visible) if isinstance(visible, int) and not isinstance(visible, bool) else None,
+                "selectedVariationIndex": int(selected) if isinstance(selected, int) and not isinstance(selected, bool) else None,
+                "variationCount": int(self._read_attr(device, "variation_count")) if isinstance(self._read_attr(device, "variation_count"), int) and not isinstance(self._read_attr(device, "variation_count"), bool) else None,
+                "macros": [self._capture_object_identity(macro) for macro in self._items(self._read_attr(device, "macros") or [])],
+                "chains": [self._capture_object_identity(chain) for chain in self._items(self._read_attr(device, "chains") or [])],
+                "drumPads": [self._capture_object_identity(pad) for pad in self._items(self._read_attr(device, "drum_pads") or [])]}
+
+    def _rack_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or set(args) - {"ref", "visibleMacroCount", "selectedVariationIndex", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("rack authority is invalid")
+        device = self.refs.get(reference)
+        if self._read_attr(device, "can_have_chains") is not True: raise ValueError("rack operations require a rack device")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("rack identity changed since preview")
+        state = self._rack_state(device)
+        state_revision = hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("rack state changed since preview")
+        proposals = []
+        if "visibleMacroCount" in args:
+            value = args["visibleMacroCount"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 16: raise ValueError("visibleMacroCount is invalid")
+            proposals.append(("visible_macro_count", value))
+        if "selectedVariationIndex" in args:
+            value = args["selectedVariationIndex"]
+            if not isinstance(value, int) or isinstance(value, bool) or not -1 <= value <= 256: raise ValueError("selectedVariationIndex is invalid")
+            proposals.append(("selected_variation_index", value))
+        if not proposals: raise ValueError("rack mutation has no fields")
+        assignments = [(attribute, value, self._read_attr(device, attribute)) for attribute, value in proposals]
+        before_revision = state_revision
+        try:
+            for attribute, value, _ in assignments: setattr(device, attribute, value)
+            for attribute, value, _ in assignments:
+                observed = self._read_attr(device, attribute)
+                if not isinstance(observed, int) or isinstance(observed, bool) or observed != value: raise ValueError("rack change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for attribute, _, prior in reversed(assignments):
+                try: setattr(device, attribute, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or hashlib.sha256(self._bounded_canonical(self._rack_state(device)).encode("utf-8")).hexdigest() != before_revision: raise ValueError("rack change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    _RACK_ACTIONS = {"add-macro", "remove-macro", "randomize-macros", "insert-chain", "copy-pad", "store-variation", "recall-variation", "delete-variation"}
+
+    def _rack_action(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref"); action = args.get("action")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or action not in self._RACK_ACTIONS or set(args) - {"ref", "action", "index", "sourceIndex", "targetIndex", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("rack action authority is invalid")
+        device = self.refs.get(reference)
+        if self._read_attr(device, "can_have_chains") is not True: raise ValueError("rack actions require a rack device")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("rack identity changed since preview")
+        state = self._rack_state(device)
+        state_revision = hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("rack state changed since preview")
+        index = args.get("index")
+        if index is not None and (not isinstance(index, int) or isinstance(index, bool) or not -1 <= index <= 256): raise ValueError("index is invalid")
+        method_name = {"add-macro": "add_macro", "remove-macro": "remove_macro", "randomize-macros": "randomize_macros", "insert-chain": "insert_chain", "copy-pad": "copy_pad", "store-variation": "store_variation", "recall-variation": "recall_variation", "delete-variation": "delete_variation"}[action]
+        method = getattr(device, method_name, None)
+        if not callable(method): raise ValueError(f"rack action {action} is unavailable on this Live shape")
+        if action == "add-macro": method()
+        elif action in {"remove-macro", "recall-variation", "delete-variation"}:
+            if index is None or index < 0: raise ValueError(f"index is required for {action}")
+            method(index)
+        elif action == "insert-chain": method(-1 if index is None else index)
+        elif action == "copy-pad":
+            source, target = args.get("sourceIndex"), args.get("targetIndex")
+            if not isinstance(source, int) or isinstance(source, bool) or not isinstance(target, int) or isinstance(target, bool) or not 0 <= source <= 127 or not 0 <= target <= 127: raise ValueError("copy-pad requires sourceIndex and targetIndex")
+            method(source, target)
+        else: method()
+        after = self._rack_state(device)
+        if action == "add-macro" and len(after["macros"]) <= len(state["macros"]): raise ValueError("macro add was not confirmed")
+        if action == "remove-macro" and len(after["macros"]) >= len(state["macros"]): raise ValueError("macro remove was not confirmed")
+        if action == "insert-chain" and len(after["chains"]) <= len(state["chains"]): raise ValueError("chain insertion was not confirmed")
+        if action == "store-variation" and (after["variationCount"] is not None and state["variationCount"] is not None and after["variationCount"] <= state["variationCount"]): raise ValueError("variation store was not confirmed")
+        if action == "delete-variation" and (after["variationCount"] is not None and state["variationCount"] is not None and after["variationCount"] >= state["variationCount"]): raise ValueError("variation delete was not confirmed")
+        revision = self.refs.touch(reference)
+        return {"done": True, "revision": revision}
+
+    def _rack_view_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or set(args) - {"ref", "selectedChainRef", "selectedPadIndex", "padScrollPosition", "showChainDevices", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("rack view authority is invalid")
+        device = self.refs.get(reference); view = getattr(device, "view", None)
+        if view is None: raise ValueError("rack view is unavailable")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("rack identity changed since preview")
+        scroll = self._read_attr(view, "drum_pad_scroll_position"); show = self._read_attr(view, "is_showing_chain_devices")
+        state_revision = hashlib.sha256(self._bounded_canonical({"padScrollPosition": scroll if isinstance(scroll, int) and not isinstance(scroll, bool) else None, "showChainDevices": show if isinstance(show, bool) else None}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("rack view state changed since preview")
+        if "selectedChainRef" in args:
+            value = args["selectedChainRef"]
+            if value is not None and (not isinstance(value, str) or not value.startswith(f"{self.refs.epoch}:chain:")): raise ValueError("selectedChainRef is invalid")
+            if not callable(getattr(view, "select_chain", None)) and self._read_attr(view, "selected_chain") is None and value is None: pass
+            chain = self.refs.get(value) if value is not None else None
+            selector = getattr(view, "select_chain", None)
+            if callable(selector): selector(chain)
+            elif value is not None: view.selected_chain = chain
+        if "selectedPadIndex" in args:
+            value = args["selectedPadIndex"]
+            if not isinstance(value, int) or isinstance(value, bool) or not -1 <= value <= 127: raise ValueError("selectedPadIndex is invalid")
+            pads = self._items(self._read_attr(device, "drum_pads") or [])
+            selector = getattr(view, "select_drum_pad", None)
+            if value >= 0 and value < len(pads):
+                if callable(selector): selector(pads[value])
+                else: view.selected_drum_pad = pads[value]
+        if "padScrollPosition" in args:
+            value = args["padScrollPosition"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 127: raise ValueError("padScrollPosition is invalid")
+            view.drum_pad_scroll_position = value
+        if "showChainDevices" in args:
+            value = args["showChainDevices"]
+            if not isinstance(value, bool): raise ValueError("showChainDevices is invalid")
+            view.is_showing_chain_devices = value
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
 
     def _slot_state_fields(self, slot: Any) -> dict[str, Any]:
         def optional_bool(name: str) -> bool | None:

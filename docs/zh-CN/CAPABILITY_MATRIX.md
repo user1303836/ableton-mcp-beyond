@@ -28,6 +28,7 @@
 | 混音:音量、声像、静音、独奏、cue、发送 | `live_mixer_preview/apply` | 先捕获先前值,混音改动可以精确撤销 |
 | 扩展混音与交叉淡化 | `live_mixer_extended_preview/apply` | 轨道激活器、交叉推子、交叉分配、声像模式与分离立体声左/右声像,带精确撤销。主轨道的语义速度参数在其混音行上只读暴露;速度更改仍走速度工作流 |
 | Rack 链混音器 | `live_chain_mixer_preview/apply` | 链音量、声像、发送与链激活器,带精确撤销 |
+| 链、鼓垫与机架 | `live_chain_preview/apply`、`live_drum_pad_preview/apply`、`live_rack_preview/apply`、`live_rack_view_preview/apply` | 链颜色/自动颜色/静音/独奏,行上暴露鼓链音符与窒息组;鼓垫音符/独奏带精确撤销,另有显式全部链删除(不可撤销);机架返回链、宏状态、可见宏数量与所选变体在行上;宏添加/移除/随机化、链插入、垫复制与变体保存/召回/删除作为瞬时动作;机架视图所选链/垫、垫滚动与链设备可见性,带精确撤销 |
 | 设备路由与侧链 | `live_device_io_preview/apply`、`live_routing_preview/apply` | 轨道路由(类型化,拒绝反馈)留在 `live_routing_*`;设备级 IO 类型/通道与压缩器侧链源在 `live_device_io_*` —— 分离的类型化面,各按形态协商,有状态处可撤销 |
 | 触发和停止 Session 剪辑 | `live_clip_launch_preview/apply/stop` | 一次一个已确认触发;只停止映射器拥有的播放 |
 | 安全地试听场景 | `live_session_audition_preview/apply/stop`、`live_session_emergency_stop` | 需要输出安全确认以及已停止、未 armed、未监听的基线;独立紧急停止始终可用 |

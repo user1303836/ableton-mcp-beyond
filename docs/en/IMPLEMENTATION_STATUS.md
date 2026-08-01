@@ -105,6 +105,17 @@ are. Source, schemas, and tests are the final authority.
   history) is documented rather than implied. Verified at the host,
   simulator, Python contract, and packaged fake-Live levels; exact-candidate
   real-Live proof is pending.
+- Chain, rack, macro, and drum pad surfaces: chain color/index, auto-color,
+  audio/MIDI I/O flags, muted-via-solo, and typed chain mixers on rows with
+  chain color/mute/solo edits restoring exactly; drum-chain input/output
+  notes and choke groups; drum pad note/solo edits with exact restore and an
+  explicit, honestly non-undoable `delete_all_chains`; rack return chains,
+  macro-mapping state, selected variation, and visible macro count on rows;
+  macro add/remove/randomize, rack chain insertion, pad copying, and
+  variation store/recall/delete as momentary actions; and rack view selected
+  chain/pad, pad scroll position, and chain-device visibility with exact
+  restore. Verified at the host, simulator, Python contract, and packaged
+  fake-Live levels; exact-candidate real-Live proof is pending.
 - Deep device and parameter surfaces: parameter rows now expose default
   value, original name, state, enumeration items, and display-value
   semantics; device rows expose parameter banks, comparison capability and

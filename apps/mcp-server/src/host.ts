@@ -178,7 +178,7 @@ interface NoteEditTransaction {
 interface ClipLifecycleTransaction {
   id: string;
   epoch: number;
-  kind: "rename" | "duplicate" | "arrangement-create" | "arrangement-delete" | "arrangement-audio-create" | "arrangement-take-lane-create" | "move" | "audio-set" | "mixer-set" | "automation" | "browser-load" | "device" | "routing-set" | "recording" | "backup" | "realtime-arm" | "capture-midi" | "scene-capture" | "view" | "locator-jump" | "clip-set" | "session-audio-create" | "warp-marker" | "clip-action" | "note-target" | "tuning" | "groove" | "scene-set" | "scene-fire" | "transport-action" | "track-structure" | "device-delete" | "track-view" | "selection" | "clip-view" | "device-view" | "dialog" | "mixer-extended" | "chain-mixer" | "device-io" | "device-advanced";
+  kind: "rename" | "duplicate" | "arrangement-create" | "arrangement-delete" | "arrangement-audio-create" | "arrangement-take-lane-create" | "move" | "audio-set" | "mixer-set" | "automation" | "browser-load" | "device" | "routing-set" | "recording" | "backup" | "realtime-arm" | "capture-midi" | "scene-capture" | "view" | "locator-jump" | "clip-set" | "session-audio-create" | "warp-marker" | "clip-action" | "note-target" | "tuning" | "groove" | "scene-set" | "scene-fire" | "transport-action" | "track-structure" | "device-delete" | "track-view" | "selection" | "clip-view" | "device-view" | "dialog" | "mixer-extended" | "chain-mixer" | "device-io" | "device-advanced" | "chain-set" | "drum-pad" | "rack" | "rack-view";
   fence: string;
   clipRef?: LiveRef;
   payload: Record<string, unknown>;
@@ -1053,6 +1053,54 @@ const implementedTools = [
     inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   },
+  {
+    name: "live_chain_preview",
+    description: "Read-only preflight for rack chain color, auto-color, mute, and solo with exact undo.",
+    inputSchema: { type: "object", properties: { chainRef: { type: "string", minLength: 1, maxLength: 256 }, colorIndex: { type: "integer", minimum: 0, maximum: 69 }, autoColor: { type: "boolean" }, mute: { type: "boolean" }, solo: { type: "boolean" } }, required: ["chainRef"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_chain_apply",
+    description: "Apply an exact, unexpired chain preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_drum_pad_preview",
+    description: "Read-only preflight for drum pad note and solo, or deleting all chains inside one pad (explicitly non-undoable).",
+    inputSchema: { type: "object", properties: { action: { type: "string", enum: ["set", "delete-all-chains"] }, padRef: { type: "string", minLength: 1, maxLength: 256 }, note: { type: "integer", minimum: 0, maximum: 127 }, solo: { type: "boolean" } }, required: ["action", "padRef"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: true, openWorldHint: true },
+  },
+  {
+    name: "live_drum_pad_apply",
+    description: "Apply an exact, unexpired drum-pad preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+  },
+  {
+    name: "live_rack_preview",
+    description: "Read-only preflight for rack visible macro count and selected variation (exact undo), plus rack actions: add/remove/randomize macros, insert chain, copy pad, and variation store/recall/delete (momentary, non-undoable).",
+    inputSchema: { type: "object", properties: { action: { type: "string", enum: ["set", "add-macro", "remove-macro", "randomize-macros", "insert-chain", "copy-pad", "store-variation", "recall-variation", "delete-variation"] }, rackRef: { type: "string", minLength: 1, maxLength: 256 }, visibleMacroCount: { type: "integer", minimum: 1, maximum: 16 }, selectedVariationIndex: { type: "integer", minimum: -1, maximum: 256 }, index: { type: "integer", minimum: -1, maximum: 256 }, sourceIndex: { type: "integer", minimum: 0, maximum: 127 }, targetIndex: { type: "integer", minimum: 0, maximum: 127 } }, required: ["action", "rackRef"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_rack_apply",
+    description: "Apply an exact, unexpired rack preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_rack_view_preview",
+    description: "Read-only preflight for rack view state: selected chain/pad, pad scroll position, and chain-device visibility.",
+    inputSchema: { type: "object", properties: { rackRef: { type: "string", minLength: 1, maxLength: 256 }, selectedChainRef: { type: ["string", "null"], minLength: 1, maxLength: 256 }, selectedPadIndex: { type: "integer", minimum: -1, maximum: 127 }, padScrollPosition: { type: "integer", minimum: 0, maximum: 127 }, showChainDevices: { type: "boolean" } }, required: ["rackRef"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_rack_view_apply",
+    description: "Apply an exact, unexpired rack-view preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
 ] as const;
 
 const hostUnavailableCapabilities = ["resources.subscribe", "filesystem", "network", "delivery"] as const;
@@ -1215,7 +1263,7 @@ export class McpHost {
     if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handle(input);
     const name = input.params.name;
     const toolArguments = input.params.arguments;
-    if (![ "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_application_dialog_preview", "live_application_dialog_apply"].includes(name)) return this.handle(input);
+    if (![ "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_chain_preview", "live_chain_apply", "live_drum_pad_preview", "live_drum_pad_apply", "live_rack_preview", "live_rack_apply", "live_rack_view_preview", "live_rack_view_apply", "live_application_dialog_preview", "live_application_dialog_apply"].includes(name)) return this.handle(input);
     // Reuse the synchronous validator and request bookkeeping, then execute the
     // adapter operation asynchronously. Invalid requests never reach Live.
     const id = this.requestId(input.id);
@@ -1317,6 +1365,14 @@ export class McpHost {
       if (name === "live_device_io_apply") return await this.liveDeviceIoApplyAsync(id, toolArguments, signal);
       if (name === "live_device_advanced_preview") return await this.liveDeviceAdvancedPreviewAsync(id, toolArguments);
       if (name === "live_device_advanced_apply") return await this.liveDeviceAdvancedApplyAsync(id, toolArguments, signal);
+      if (name === "live_chain_preview") return await this.liveChainPreviewAsync(id, toolArguments);
+      if (name === "live_chain_apply") return await this.liveChainApplyAsync(id, toolArguments, signal);
+      if (name === "live_drum_pad_preview") return await this.liveDrumPadPreviewAsync(id, toolArguments);
+      if (name === "live_drum_pad_apply") return await this.liveDrumPadApplyAsync(id, toolArguments, signal);
+      if (name === "live_rack_preview") return await this.liveRackPreviewAsync(id, toolArguments);
+      if (name === "live_rack_apply") return await this.liveRackApplyAsync(id, toolArguments, signal);
+      if (name === "live_rack_view_preview") return await this.liveRackViewPreviewAsync(id, toolArguments);
+      if (name === "live_rack_view_apply") return await this.liveRackViewApplyAsync(id, toolArguments, signal);
       if (name === "live_application_dialog_preview") return await this.liveApplicationDialogPreviewAsync(id, toolArguments);
       if (name === "live_application_dialog_apply") return await this.liveApplicationDialogApplyAsync(id, toolArguments, signal);
       if (name === "live_automation_preview") return await this.liveAutomationPreviewAsync(id, toolArguments);
@@ -4882,6 +4938,268 @@ export class McpHost {
     } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Device-advanced state is uncertain; perform fresh discovery before retrying."); }
   }
 
+  private async liveChainPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    const fields = ["colorIndex", "autoColor", "mute", "solo"] as const;
+    if (!isObject(params) || !hasOnly(params, ["chainRef", ...fields]) || !isNonEmptyString(params.chainRef, 256)) return error(id, -32602, "chainRef is required");
+    const proposed: Record<string, unknown> = {};
+    for (const field of fields) {
+      const value = params[field];
+      if (value === undefined) continue;
+      if (field === "colorIndex" && (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 69)) return error(id, -32602, "colorIndex is invalid");
+      if ((field === "autoColor" || field === "mute" || field === "solo") && typeof value !== "boolean") return error(id, -32602, `${field} must be boolean`);
+      proposed[field] = value;
+    }
+    if (Object.keys(proposed).length === 0) return error(id, -32602, "at least one chain field is required");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      if (!(status.operations ?? []).includes("chain.set")) throw new Error("chain editing is unavailable");
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const found = this.chainRow(snapshot, params.chainRef as LiveRef);
+      const state = { colorIndex: found.chain.colorIndex ?? null, autoColor: found.chain.autoColor ?? null, mute: found.chain.mute ?? null, solo: found.chain.solo ?? null };
+      const prior: Record<string, unknown> = {};
+      for (const field of Object.keys(proposed)) prior[field] = (state as Record<string, unknown>)[field];
+      const payload: Record<string, unknown> = { ref: params.chainRef, ...proposed, expectedObjectIdentity: found.chain.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") };
+      const fence = JSON.stringify({ ref: params.chainRef, objectIdentity: found.chain.objectIdentity, state });
+      const transaction: ClipLifecycleTransaction = { id: `chainset_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "chain-set", fence, clipRef: params.chainRef as LiveRef, payload, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "chain edit");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, chainRef: params.chainRef, prior, proposed, impact: "edits-chain", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Chain preview requires fresh authoritative state."); }
+  }
+
+  private async liveChainApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "chain-set" || (transaction.state === "previewed" && transaction.expiresAt <= Date.now())) return this.transactionError(id, "Unknown or expired chain transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    const reconciliation = transaction.state === "uncertain" && transaction.applyKey === params.idempotencyKey;
+    if (transaction.state !== "previewed" && !reconciliation) return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      if (reconciliation) await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
+      if (!reconciliation) { const snapshot = await adapter.snapshotAsync(context); const found = this.chainRow(snapshot, transaction.clipRef!);
+        const state = { colorIndex: found.chain.colorIndex ?? null, autoColor: found.chain.autoColor ?? null, mute: found.chain.mute ?? null, solo: found.chain.solo ?? null };
+        if (JSON.stringify({ ref: transaction.clipRef, objectIdentity: found.chain.objectIdentity, state }) !== transaction.fence) return this.transactionError(id, "chain identity or state changed since preview; preview again"); }
+      transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
+      const result = await adapter.invokeAsync({ operation: "chain.set", args: transaction.payload }, context) as { changed?: unknown; revision?: unknown };
+      if (result.changed !== true) throw new Error("chain change was not confirmed");
+      const verified = this.chainRow(await adapter.snapshotAsync(context), transaction.clipRef!).chain;
+      for (const field of ["colorIndex", "autoColor", "mute", "solo"]) if (transaction.payload[field] !== undefined && verified[field] !== transaction.payload[field]) throw new Error("chain postcondition was not confirmed");
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", revision: result.revision, idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Chain state is uncertain; perform fresh discovery before retrying."); }
+  }
+
+  private drumPadRow(snapshot: LiveSnapshot, padRef: LiveRef): JsonObject {
+    for (const track of snapshot.tracks as unknown as JsonObject[]) {
+      for (const device of ((track.devices as unknown[]) ?? []).filter(isObject)) {
+        const pad = ((device.drumPads as unknown[]) ?? []).filter(isObject).find((candidate) => candidate.ref === padRef);
+        if (pad) {
+          if (!isNonEmptyString(pad.objectIdentity, 256)) throw new Error("drum pad identity is unavailable");
+          return pad;
+        }
+      }
+    }
+    throw new Error("drum pad reference is not authoritative");
+  }
+
+  private rackStateRevision(device: JsonObject): string {
+    return createHash("sha256").update(canonicalMutationIdentity({ visibleMacroCount: device.visibleMacroCount ?? null, selectedVariationIndex: device.selectedVariationIndex ?? null, variationCount: device.variationCount ?? null, macros: ((device.macros as unknown[]) ?? []).filter(isObject).map((macro) => macro.objectIdentity), chains: ((device.chains as unknown[]) ?? []).filter(isObject).map((chain) => chain.objectIdentity), drumPads: ((device.drumPads as unknown[]) ?? []).filter(isObject).map((pad) => pad.objectIdentity) })).digest("hex");
+  }
+
+  private async liveDrumPadPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, ["action", "padRef", "note", "solo"]) || !isNonEmptyString(params.padRef, 256)) return error(id, -32602, "action and padRef are required");
+    if (params.action !== "set" && params.action !== "delete-all-chains") return error(id, -32602, "action must be set or delete-all-chains");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const pad = this.drumPadRow(snapshot, params.padRef as LiveRef);
+      let payload: Record<string, unknown>;
+      let prior: Record<string, unknown> = {};
+      if (params.action === "set") {
+        if (!(status.operations ?? []).includes("drum-pad.set")) throw new Error("drum pad editing is unavailable");
+        const proposed: Record<string, unknown> = {};
+        if (params.note !== undefined) { if (!Number.isInteger(params.note) || (params.note as number) < 0 || (params.note as number) > 127) return error(id, -32602, "note is invalid"); proposed.note = params.note; }
+        if (params.solo !== undefined) { if (typeof params.solo !== "boolean") return error(id, -32602, "solo must be boolean"); proposed.solo = params.solo; }
+        if (Object.keys(proposed).length === 0) return error(id, -32602, "at least one pad field is required");
+        const state = { note: pad.note ?? null, solo: pad.solo ?? null };
+        prior = { ...state };
+        payload = { action: params.action, ref: params.padRef, ...proposed, expectedObjectIdentity: pad.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") };
+      } else {
+        if (!(status.operations ?? []).includes("drum-pad.delete-all-chains")) throw new Error("delete-all-chains is unavailable");
+        const chains = ((pad.chains as unknown[]) ?? []).filter(isObject).map((chain) => chain.objectIdentity);
+        prior = { chainCount: chains.length };
+        payload = { action: params.action, ref: params.padRef, expectedObjectIdentity: pad.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(chains)).digest("hex") };
+      }
+      const fence = JSON.stringify({ action: params.action, ref: params.padRef, objectIdentity: pad.objectIdentity, payload });
+      const transaction: ClipLifecycleTransaction = { id: `drumpad_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "drum-pad", fence, payload, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "drum pad");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, action: params.action, padRef: params.padRef, prior, impact: params.action === "set" ? "edits-drum-pad" : "deletes-all-pad-chains-no-undo", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Drum-pad preview requires fresh authoritative state."); }
+  }
+
+  private async liveDrumPadApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "drum-pad" || (transaction.state === "previewed" && transaction.expiresAt <= Date.now())) return this.transactionError(id, "Unknown or expired drum-pad transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    const reconciliation = transaction.state === "uncertain" && transaction.applyKey === params.idempotencyKey;
+    if (transaction.state !== "previewed" && !reconciliation) return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      if (reconciliation) await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
+      const action = transaction.payload.action as string;
+      transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
+      const args = Object.fromEntries(Object.entries(transaction.payload).filter(([key]) => key !== "action"));
+      if (action === "set") {
+        const result = await adapter.invokeAsync({ operation: "drum-pad.set", args }, context) as { changed?: unknown; revision?: unknown };
+        if (result.changed !== true) throw new Error("drum pad change was not confirmed");
+        const verified = this.drumPadRow(await adapter.snapshotAsync(context), transaction.payload.ref as LiveRef);
+        for (const field of ["note", "solo"]) if (transaction.payload[field] !== undefined && verified[field] !== transaction.payload[field]) throw new Error("drum pad postcondition was not confirmed");
+      } else {
+        const result = await adapter.invokeAsync({ operation: "drum-pad.delete-all-chains", args }, context) as { deleted?: unknown };
+        if (result.deleted !== (transaction.prior as { chainCount: number }).chainCount) throw new Error("delete-all-chains count was not confirmed");
+        const verified = this.drumPadRow(await adapter.snapshotAsync(context), transaction.payload.ref as LiveRef);
+        if (((verified.chains as unknown[]) ?? []).length !== 0) throw new Error("delete-all-chains postcondition was not confirmed");
+      }
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Drum-pad state is uncertain; perform fresh discovery before retrying."); }
+  }
+
+  private async liveRackPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    const actions = ["set", "add-macro", "remove-macro", "randomize-macros", "insert-chain", "copy-pad", "store-variation", "recall-variation", "delete-variation"] as const;
+    if (!isObject(params) || !hasOnly(params, ["action", "rackRef", "visibleMacroCount", "selectedVariationIndex", "index", "sourceIndex", "targetIndex"]) || !actions.includes(params.action as typeof actions[number]) || !isNonEmptyString(params.rackRef, 256)) return error(id, -32602, "action and rackRef are required");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const row = this.deviceRow(snapshot, params.rackRef as LiveRef);
+      if (row.device.canHaveChains !== true) return this.transactionError(id, "rack operations require a rack device");
+      const stateRevision = this.rackStateRevision(row.device);
+      let payload: Record<string, unknown>;
+      let prior: Record<string, unknown> = {};
+      if (params.action === "set") {
+        if (!(status.operations ?? []).includes("rack.set")) throw new Error("rack editing is unavailable");
+        const proposed: Record<string, unknown> = {};
+        if (params.visibleMacroCount !== undefined) { if (!Number.isInteger(params.visibleMacroCount) || (params.visibleMacroCount as number) < 1 || (params.visibleMacroCount as number) > 16) return error(id, -32602, "visibleMacroCount is invalid"); proposed.visibleMacroCount = params.visibleMacroCount; }
+        if (params.selectedVariationIndex !== undefined) { if (!Number.isInteger(params.selectedVariationIndex) || (params.selectedVariationIndex as number) < -1 || (params.selectedVariationIndex as number) > 256) return error(id, -32602, "selectedVariationIndex is invalid"); proposed.selectedVariationIndex = params.selectedVariationIndex; }
+        if (Object.keys(proposed).length === 0) return error(id, -32602, "at least one rack field is required");
+        prior = { visibleMacroCount: row.device.visibleMacroCount ?? null, selectedVariationIndex: row.device.selectedVariationIndex ?? null };
+        payload = { action: params.action, ref: params.rackRef, ...proposed, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: stateRevision };
+      } else {
+        if (!(status.operations ?? []).includes("rack.action")) throw new Error("rack actions are unavailable");
+        if (["remove-macro", "recall-variation", "delete-variation"].includes(params.action as string) && (!Number.isInteger(params.index) || (params.index as number) < 0)) return error(id, -32602, "index is required");
+        if (params.action === "copy-pad" && (!Number.isInteger(params.sourceIndex) || !Number.isInteger(params.targetIndex) || (params.sourceIndex as number) < 0 || (params.targetIndex as number) < 0)) return error(id, -32602, "sourceIndex and targetIndex are required");
+        payload = { action: params.action, ref: params.rackRef, ...(params.index !== undefined ? { index: params.index } : {}), ...(params.sourceIndex !== undefined ? { sourceIndex: params.sourceIndex } : {}), ...(params.targetIndex !== undefined ? { targetIndex: params.targetIndex } : {}), expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: stateRevision };
+      }
+      const fence = JSON.stringify({ action: params.action, ref: params.rackRef, objectIdentity: row.device.objectIdentity, stateRevision });
+      const transaction: ClipLifecycleTransaction = { id: `rack_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "rack", fence, payload, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "rack");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, action: params.action, rackRef: params.rackRef, prior, impact: params.action === "set" ? "edits-rack" : "momentary-rack-action-no-undo", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Rack preview requires fresh authoritative state."); }
+  }
+
+  private async liveRackApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "rack" || (transaction.state === "previewed" && transaction.expiresAt <= Date.now())) return this.transactionError(id, "Unknown or expired rack transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    const reconciliation = transaction.state === "uncertain" && transaction.applyKey === params.idempotencyKey;
+    if (transaction.state !== "previewed" && !reconciliation) return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      if (reconciliation) await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
+      if (!reconciliation) { const snapshot = await adapter.snapshotAsync(context); const row = this.deviceRow(snapshot, transaction.payload.ref as LiveRef);
+        if (JSON.stringify({ action: transaction.payload.action, ref: transaction.payload.ref, objectIdentity: row.device.objectIdentity, stateRevision: this.rackStateRevision(row.device) }) !== transaction.fence) return this.transactionError(id, "rack identity or state changed since preview; preview again"); }
+      const action = transaction.payload.action as string;
+      transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
+      const args = action === "set" ? Object.fromEntries(Object.entries(transaction.payload).filter(([key]) => key !== "action")) : Object.fromEntries(Object.entries(transaction.payload));
+      let result: { changed?: unknown; done?: unknown; revision?: unknown };
+      if (action === "set") {
+        result = await adapter.invokeAsync({ operation: "rack.set", args }, context) as { changed?: unknown; revision?: unknown };
+        if (result.changed !== true) throw new Error("rack change was not confirmed");
+        const verified = this.deviceRow(await adapter.snapshotAsync(context), transaction.payload.ref as LiveRef).device;
+        for (const field of ["visibleMacroCount", "selectedVariationIndex"]) if (transaction.payload[field] !== undefined && verified[field] !== transaction.payload[field]) throw new Error("rack postcondition was not confirmed");
+      } else {
+        result = await adapter.invokeAsync({ operation: "rack.action", args }, context) as { done?: unknown; revision?: unknown };
+        if (result.done !== true) throw new Error("rack action was not confirmed");
+      }
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", revision: result.revision, idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Rack state is uncertain; perform fresh discovery before retrying."); }
+  }
+
+  private async liveRackViewPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    const fields = ["selectedChainRef", "selectedPadIndex", "padScrollPosition", "showChainDevices"] as const;
+    if (!isObject(params) || !hasOnly(params, ["rackRef", ...fields]) || !isNonEmptyString(params.rackRef, 256)) return error(id, -32602, "rackRef is required");
+    if (fields.every((field) => params[field] === undefined)) return error(id, -32602, "at least one rack view field is required");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      if (!(status.operations ?? []).includes("rack.view.set")) throw new Error("rack view editing is unavailable");
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const row = this.deviceRow(snapshot, params.rackRef as LiveRef);
+      if (row.device.canHaveChains !== true) return this.transactionError(id, "rack view requires a rack device");
+      const view = row.device.rackView as JsonObject | undefined;
+      const state = { padScrollPosition: view?.padScrollPosition ?? null, showChainDevices: view?.showChainDevices ?? null };
+      const proposed: Record<string, unknown> = {};
+      if (params.selectedChainRef !== undefined) { if (params.selectedChainRef !== null && !isNonEmptyString(params.selectedChainRef, 256)) return error(id, -32602, "selectedChainRef is invalid"); if (params.selectedChainRef !== null) this.chainRow(snapshot, params.selectedChainRef as LiveRef); proposed.selectedChainRef = params.selectedChainRef; }
+      if (params.selectedPadIndex !== undefined) { if (!Number.isInteger(params.selectedPadIndex) || (params.selectedPadIndex as number) < -1 || (params.selectedPadIndex as number) > 127) return error(id, -32602, "selectedPadIndex is invalid"); proposed.selectedPadIndex = params.selectedPadIndex; }
+      if (params.padScrollPosition !== undefined) { if (!Number.isInteger(params.padScrollPosition) || (params.padScrollPosition as number) < 0 || (params.padScrollPosition as number) > 127) return error(id, -32602, "padScrollPosition is invalid"); proposed.padScrollPosition = params.padScrollPosition; }
+      if (params.showChainDevices !== undefined) { if (typeof params.showChainDevices !== "boolean") return error(id, -32602, "showChainDevices must be boolean"); proposed.showChainDevices = params.showChainDevices; }
+      const prior: Record<string, unknown> = { selectedChainRef: view?.selectedChainRef ?? null, selectedPadIndex: view?.selectedPadIndex ?? null, padScrollPosition: state.padScrollPosition, showChainDevices: state.showChainDevices };
+      const payload: Record<string, unknown> = { ref: params.rackRef, ...proposed, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") };
+      const fence = JSON.stringify({ ref: params.rackRef, objectIdentity: row.device.objectIdentity, state });
+      const transaction: ClipLifecycleTransaction = { id: `rackview_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "rack-view", fence, payload, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "rack view");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, rackRef: params.rackRef, prior, proposed, impact: "edits-rack-view", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Rack-view preview requires fresh authoritative state."); }
+  }
+
+  private async liveRackViewApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "rack-view" || (transaction.state === "previewed" && transaction.expiresAt <= Date.now())) return this.transactionError(id, "Unknown or expired rack-view transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    const reconciliation = transaction.state === "uncertain" && transaction.applyKey === params.idempotencyKey;
+    if (transaction.state !== "previewed" && !reconciliation) return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      if (reconciliation) await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
+      if (!reconciliation) { const snapshot = await adapter.snapshotAsync(context); const row = this.deviceRow(snapshot, transaction.payload.ref as LiveRef);
+        const view = row.device.rackView as JsonObject | undefined;
+        const state = { padScrollPosition: view?.padScrollPosition ?? null, showChainDevices: view?.showChainDevices ?? null };
+        if (JSON.stringify({ ref: transaction.payload.ref, objectIdentity: row.device.objectIdentity, state }) !== transaction.fence) return this.transactionError(id, "rack identity or view state changed since preview; preview again"); }
+      transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
+      const result = await adapter.invokeAsync({ operation: "rack.view.set", args: transaction.payload }, context) as { changed?: unknown; revision?: unknown };
+      if (result.changed !== true) throw new Error("rack view change was not confirmed");
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", revision: result.revision, idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Rack-view state is uncertain; perform fresh discovery before retrying."); }
+  }
+
   private parameterRow(snapshot: LiveSnapshot, parameterRef: LiveRef): JsonObject {
     const walk = (devices: JsonObject[]): JsonObject | undefined => {
       for (const device of devices) {
@@ -6212,6 +6530,83 @@ export class McpHost {
         devadv.state = "undone"; return this.successText(id, { transactionId: devadv.id, state: "undone", idempotent: false });
       } catch (cause) { devadv.state = "uncertain"; return this.adapterToolError(id, cause, "Device-advanced undo is uncertain; perform fresh discovery."); }
     }
+    if (!transaction && String(params.transactionId).startsWith("chainset_")) {
+      const chainset = this.clipLifecycleTransactions.get(params.transactionId as string);
+      if (!chainset || chainset.kind !== "chain-set") return this.transactionError(id, "Unknown or expired chain transaction");
+      if (chainset.state === "undone" && chainset.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: chainset.id, state: "undone", idempotent: true });
+      const reconciliation = chainset.state === "uncertain" && chainset.undoKey === params.idempotencyKey;
+      if ((chainset.state !== "applied" && !reconciliation) || !chainset.clipRef || !chainset.prior) return this.transactionError(id, "Only an applied or exact-key uncertain chain transaction can be undone");
+      try {
+        this.beginUndoRecovery(chainset, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== chainset.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+        const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; chainset.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(chainset, adapter, context);
+        const snapshot = await adapter.snapshotAsync(context); const found = this.chainRow(snapshot, chainset.clipRef);
+        if (!reconciliation) { for (const [field, value] of Object.entries(chainset.payload)) { if (["ref", "expectedObjectIdentity", "expectedStateRevision"].includes(field)) continue; if (found.chain[field] !== value) return this.transactionError(id, "chain changed after apply; undo refused"); } }
+        const state = { colorIndex: found.chain.colorIndex ?? null, autoColor: found.chain.autoColor ?? null, mute: found.chain.mute ?? null, solo: found.chain.solo ?? null };
+        chainset.state = "undoing";
+        const result = await this.invokeUndoRecovery(chainset, adapter, "chain.set", { ref: chainset.clipRef, ...(chainset.prior as Record<string, unknown>), expectedObjectIdentity: found.chain.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") }, context) as { changed?: unknown };
+        if (result.changed !== true) throw new Error("chain restoration was not confirmed");
+        chainset.state = "undone"; return this.successText(id, { transactionId: chainset.id, state: "undone", idempotent: false });
+      } catch (cause) { chainset.state = "uncertain"; return this.adapterToolError(id, cause, "Chain undo is uncertain; perform fresh discovery."); }
+    }
+    if (!transaction && String(params.transactionId).startsWith("drumpad_")) {
+      const drumpad = this.clipLifecycleTransactions.get(params.transactionId as string);
+      if (!drumpad || drumpad.kind !== "drum-pad") return this.transactionError(id, "Unknown or expired drum-pad transaction");
+      if (drumpad.payload.action === "delete-all-chains") return this.transactionError(id, "Deleted pad chains cannot be reconstructed; undo is unavailable for this transaction");
+      if (drumpad.state === "undone" && drumpad.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: drumpad.id, state: "undone", idempotent: true });
+      const reconciliation = drumpad.state === "uncertain" && drumpad.undoKey === params.idempotencyKey;
+      if ((drumpad.state !== "applied" && !reconciliation) || !drumpad.prior) return this.transactionError(id, "Only an applied or exact-key uncertain drum-pad transaction can be undone");
+      try {
+        this.beginUndoRecovery(drumpad, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== drumpad.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+        const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; drumpad.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(drumpad, adapter, context);
+        const snapshot = await adapter.snapshotAsync(context); const pad = this.drumPadRow(snapshot, drumpad.payload.ref as LiveRef);
+        if (!reconciliation) { for (const field of ["note", "solo"]) if (drumpad.payload[field] !== undefined && pad[field] !== drumpad.payload[field]) return this.transactionError(id, "drum pad changed after apply; undo refused"); }
+        const state = { note: pad.note ?? null, solo: pad.solo ?? null };
+        drumpad.state = "undoing";
+        const result = await this.invokeUndoRecovery(drumpad, adapter, "drum-pad.set", { ref: drumpad.payload.ref, ...(drumpad.prior as Record<string, unknown>), expectedObjectIdentity: pad.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") }, context) as { changed?: unknown };
+        if (result.changed !== true) throw new Error("drum pad restoration was not confirmed");
+        drumpad.state = "undone"; return this.successText(id, { transactionId: drumpad.id, state: "undone", idempotent: false });
+      } catch (cause) { drumpad.state = "uncertain"; return this.adapterToolError(id, cause, "Drum-pad undo is uncertain; perform fresh discovery."); }
+    }
+    if (!transaction && String(params.transactionId).startsWith("rackview_")) {
+      const rackview = this.clipLifecycleTransactions.get(params.transactionId as string);
+      if (!rackview || rackview.kind !== "rack-view") return this.transactionError(id, "Unknown or expired rack-view transaction");
+      if (rackview.state === "undone" && rackview.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: rackview.id, state: "undone", idempotent: true });
+      const reconciliation = rackview.state === "uncertain" && rackview.undoKey === params.idempotencyKey;
+      if ((rackview.state !== "applied" && !reconciliation) || !rackview.prior) return this.transactionError(id, "Only an applied or exact-key uncertain rack-view transaction can be undone");
+      try {
+        this.beginUndoRecovery(rackview, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== rackview.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+        const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; rackview.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(rackview, adapter, context);
+        const snapshot = await adapter.snapshotAsync(context); const row = this.deviceRow(snapshot, rackview.payload.ref as LiveRef);
+        const view = row.device.rackView as JsonObject | undefined;
+        if (!reconciliation) { for (const field of ["padScrollPosition", "showChainDevices"]) if (rackview.payload[field] !== undefined && view?.[field] !== rackview.payload[field]) return this.transactionError(id, "rack view changed after apply; undo refused"); }
+        const state = { padScrollPosition: view?.padScrollPosition ?? null, showChainDevices: view?.showChainDevices ?? null };
+        rackview.state = "undoing";
+        const prior = rackview.prior as Record<string, unknown>;
+        const args: Record<string, unknown> = { ref: rackview.payload.ref, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") };
+        for (const field of ["selectedChainRef", "selectedPadIndex", "padScrollPosition", "showChainDevices"]) if (rackview.payload[field] !== undefined) args[field] = prior[field];
+        const result = await this.invokeUndoRecovery(rackview, adapter, "rack.view.set", args, context) as { changed?: unknown };
+        if (result.changed !== true) throw new Error("rack view restoration was not confirmed");
+        rackview.state = "undone"; return this.successText(id, { transactionId: rackview.id, state: "undone", idempotent: false });
+      } catch (cause) { rackview.state = "uncertain"; return this.adapterToolError(id, cause, "Rack-view undo is uncertain; perform fresh discovery."); }
+    }
+    if (!transaction && String(params.transactionId).startsWith("rack_")) {
+      const rack = this.clipLifecycleTransactions.get(params.transactionId as string);
+      if (!rack || rack.kind !== "rack") return this.transactionError(id, "Unknown or expired rack transaction");
+      if (rack.payload.action !== "set") return this.transactionError(id, "Rack actions are momentary or structural and not undoable");
+      if (rack.state === "undone" && rack.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: rack.id, state: "undone", idempotent: true });
+      const reconciliation = rack.state === "uncertain" && rack.undoKey === params.idempotencyKey;
+      if ((rack.state !== "applied" && !reconciliation) || !rack.prior) return this.transactionError(id, "Only an applied or exact-key uncertain rack transaction can be undone");
+      try {
+        this.beginUndoRecovery(rack, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== rack.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+        const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; rack.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(rack, adapter, context);
+        const snapshot = await adapter.snapshotAsync(context); const row = this.deviceRow(snapshot, rack.payload.ref as LiveRef);
+        if (!reconciliation) { for (const field of ["visibleMacroCount", "selectedVariationIndex"]) if (rack.payload[field] !== undefined && row.device[field] !== rack.payload[field]) return this.transactionError(id, "rack changed after apply; undo refused"); }
+        rack.state = "undoing";
+        const result = await this.invokeUndoRecovery(rack, adapter, "rack.set", { ref: rack.payload.ref, ...(rack.prior as Record<string, unknown>), expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: this.rackStateRevision(row.device) }, context) as { changed?: unknown };
+        if (result.changed !== true) throw new Error("rack restoration was not confirmed");
+        rack.state = "undone"; return this.successText(id, { transactionId: rack.id, state: "undone", idempotent: false });
+      } catch (cause) { rack.state = "uncertain"; return this.adapterToolError(id, cause, "Rack undo is uncertain; perform fresh discovery."); }
+    }
     if (!transaction && String(params.transactionId).startsWith("groove_")) {
       const groove = this.clipLifecycleTransactions.get(params.transactionId as string);
       if (!groove || groove.kind !== "groove") return this.transactionError(id, "Unknown or expired groove transaction");
@@ -6611,7 +7006,7 @@ export class McpHost {
     }
     if (params.arguments !== undefined && !isObject(params.arguments)) return error(id, -32602, "Tool arguments must be an object");
     if (this.recoveryFinalizationInFlight && !["server_status", "capabilities", "plan_user_journey", "live_status", "live_snapshot", "live_discover"].includes(params.name)) return this.adapterToolError(id, new Error("recovery finalization safety barrier is in progress"), "Wait for terminal recovery finalization before any synchronous mutation.");
-    const argumentTools = new Set(["plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_application_dialog_preview", "live_application_dialog_apply"]);
+    const argumentTools = new Set(["plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_chain_preview", "live_chain_apply", "live_drum_pad_preview", "live_drum_pad_apply", "live_rack_preview", "live_rack_apply", "live_rack_view_preview", "live_rack_view_apply", "live_application_dialog_preview", "live_application_dialog_apply"]);
     if (!argumentTools.has(params.name) && params.arguments !== undefined && Object.keys(params.arguments as JsonObject).length !== 0) {
       return error(id, -32602, "Tool arguments must be an empty object");
     }
@@ -6636,7 +7031,7 @@ export class McpHost {
     if (params.name === "live_status") return this.liveStatus(id);
     if (params.name === "live_snapshot") return this.liveSnapshot(id);
     if (params.name === "live_discover") return this.liveDiscover(id, params.arguments);
-    if (["audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_backup_preview", "live_project_backup_apply", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_application_dialog_preview", "live_application_dialog_apply"].includes(params.name)) return error(id, -32001, "This operation requires the asynchronous host request path");
+    if (["audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_backup_preview", "live_project_backup_apply", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_chain_preview", "live_chain_apply", "live_drum_pad_preview", "live_drum_pad_apply", "live_rack_preview", "live_rack_apply", "live_rack_view_preview", "live_rack_view_apply", "live_application_dialog_preview", "live_application_dialog_apply"].includes(params.name)) return error(id, -32001, "This operation requires the asynchronous host request path");
     if (params.name === "live_device_parameter_preview") return this.liveDeviceParameterPreview(id, params.arguments);
     if (params.name === "live_device_parameter_apply") return this.liveDeviceParameterApply(id, params.arguments);
     if (params.name === "live_session_structure_preview") return this.liveSessionStructurePreview(id, params.arguments);
@@ -6714,6 +7109,10 @@ export class McpHost {
       if (name.startsWith("live_chain_mixer_")) return hasAll("racks", "chains") && hasOperations("snapshot", "chain-mixer.set");
       if (name.startsWith("live_device_io_")) return hasAll("devices") && hasOperations("snapshot") && hasAnyOperation("device-io.set", "compressor.sidechain.set");
       if (name.startsWith("live_device_advanced_")) return hasAll("devices") && hasOperations("snapshot") && hasAnyOperation("device.bank.set", "parameter.re-enable-automation", "device.comparison.save-to-slot", "device.insert", "device.move");
+      if (name === "live_chain_preview" || name === "live_chain_apply") return hasAll("chains") && hasOperations("snapshot", "chain.set");
+      if (name.startsWith("live_drum_pad_")) return hasAll("devices") && hasOperations("snapshot") && hasAnyOperation("drum-pad.set", "drum-pad.delete-all-chains");
+      if (name === "live_rack_preview" || name === "live_rack_apply") return hasAll("racks") && hasOperations("snapshot") && hasAnyOperation("rack.set", "rack.action");
+      if (name.startsWith("live_rack_view_")) return hasAll("racks") && hasOperations("snapshot", "rack.view.set");
       if (name.startsWith("live_clip_move_")) return hasOperations("snapshot", "clip.move", "arrangement.clip.move");
       if (name.startsWith("live_clip_duplicate_")) return hasAll("clips") && hasOperations("snapshot", "clip.duplicate", "clip.delete", "arrangement.clip.delete");
       if (name.startsWith("live_audio_clip_")) return hasAll("audio") && hasOperations("snapshot", "audio.clip.set");

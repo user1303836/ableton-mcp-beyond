@@ -609,7 +609,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "8f1a72fc7abedd4ca74c1eec5bc5ecd4c289324c537e8af8a1b1d1320fa5e326")
+        self.assertEqual(digest, "0e78ce720eca78ff0a9c0a224e6ef0bd5a4495d52bb17edc4703cfb4e670756b")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -3653,3 +3653,130 @@ class DeviceParameterExpansionTests(unittest.TestCase):
         track_row = mapper.snapshot()["tracks"][0]; chain_row = track_row["devices"][0]["chains"][0]
         result = mapper.invoke("device.insert", {"trackRef": track_row["ref"], "chainRef": chain_row["ref"], "deviceName": "Inserted", "expectedTrackIdentity": track_row["objectIdentity"], "expectedSiblings": []})
         self.assertEqual(len(chain.devices), 1); self.assertEqual(chain.devices[0].name, "Inserted")
+
+
+class FakeRackView:
+    def __init__(self):
+        self.selected_chain = None
+        self.selected_drum_pad = None
+        self.drum_pad_scroll_position = 0
+        self.is_showing_chain_devices = True
+
+
+class FakeMacro:
+    def __init__(self, name):
+        self.name = name
+        self.value = 0.0
+
+
+class FakeRackDevice:
+    def __init__(self):
+        self.name = "Rack"
+        self.class_name = "RackDevice"
+        self.can_have_chains = True
+        self.enabled = True
+        self.parameters = []
+        self.chains = []
+        self.return_chains = []
+        self.macros = [FakeMacro("Macro 1")]
+        self.macro_mapped = [True]
+        self.visible_macro_count = 8
+        self.variation_count = 1
+        self.selected_variation_index = 0
+        self.view = FakeRackView()
+
+    def add_macro(self): self.macros.append(FakeMacro(f"Macro {len(self.macros) + 1}"))
+    def remove_macro(self, index): self.macros.pop(index)
+    def randomize_macros(self): pass
+    def insert_chain(self, index=-1):
+        chain = type("Chain", (), {"name": "New Chain", "devices": [], "mute": False, "solo": False})()
+        self.chains.append(chain); return chain
+    def copy_pad(self, source, target): pass
+    def store_variation(self): self.variation_count += 1
+    def recall_variation(self, index): self.selected_variation_index = index
+    def delete_variation(self, index): self.variation_count -= 1
+
+
+class RackMacroDrumPadTests(unittest.TestCase):
+    def test_chain_rows_expose_color_io_and_drum_fields(self):
+        song = FakeSong()
+        chain = type("Chain", (), {"name": "Chain 1", "devices": [], "mute": False, "solo": False})()
+        chain.color_index = 5; chain.auto_color = True
+        chain.has_audio_input = True; chain.has_audio_output = True; chain.has_midi_input = False; chain.has_midi_output = False
+        chain.muted_via_solo = False; chain.in_note = 36; chain.out_note = 51; chain.choke_group = 1
+        rack = FakeDevice(); rack.name = "Rack"; rack.can_have_chains = True; rack.chains = [chain]
+        song.tracks[0].devices = [rack]
+        mapper = LiveObjectMapper(song)
+        row = mapper.snapshot()["tracks"][0]["devices"][0]["chains"][0]
+        self.assertEqual((row["colorIndex"], row["autoColor"]), (5, True))
+        self.assertEqual((row["hasAudioInput"], row["hasMidiOutput"]), (True, False))
+        self.assertEqual((row["mutedViaSolo"], row["inNote"], row["outNote"], row["chokeGroup"]), (False, 36, 51, 1))
+
+    def test_chain_set_color_and_flags_with_rollback(self):
+        song = FakeSong()
+        chain = type("Chain", (), {"name": "Chain 1", "devices": [], "mute": False, "solo": False})()
+        chain.color_index = 1; chain.auto_color = False
+        rack = FakeDevice(); rack.name = "Rack"; rack.can_have_chains = True; rack.chains = [chain]
+        song.tracks[0].devices = [rack]
+        mapper = LiveObjectMapper(song)
+        row = mapper.snapshot()["tracks"][0]["devices"][0]["chains"][0]
+        def fences():
+            state = {"colorIndex": chain.color_index, "autoColor": chain.auto_color, "mute": chain.mute, "solo": chain.solo}
+            return {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical(state).encode()).hexdigest()}
+        self.assertTrue(mapper._operation_supported("chain.set"))
+        result = mapper.invoke("chain.set", {**fences(), "colorIndex": 9, "autoColor": True, "mute": True, "solo": True})
+        self.assertTrue(result["changed"]); validate_operation_payload("chain.set", "result", result)
+        self.assertEqual((chain.color_index, chain.auto_color, chain.mute, chain.solo), (9, True, True, True))
+        with self.assertRaisesRegex(ValueError, "is invalid"): mapper.invoke("chain.set", {**fences(), "colorIndex": 70})
+        with self.assertRaisesRegex(ValueError, "no fields"): mapper.invoke("chain.set", fences())
+
+    def test_drum_pad_set_and_delete_all_chains(self):
+        song = FakeSong()
+        pad = type("DrumPad", (), {"name": "Pad 1", "mute": False, "note": 36, "solo": False, "chains": [1, 2]})()
+        pad.delete_all_chains = lambda: setattr(pad, "chains", [])
+        rack = FakeDevice(); rack.name = "Drum Rack"; rack.can_have_chains = True; rack.can_have_drum_pads = True; rack.drum_pads = [pad]
+        song.tracks[0].devices = [rack]
+        mapper = LiveObjectMapper(song)
+        row = mapper.snapshot()["tracks"][0]["devices"][0]["drumPads"][0]
+        self.assertEqual((row["note"], row["solo"]), (36, False))
+        def fences():
+            state = {"note": pad.note, "solo": pad.solo}
+            return {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical(state).encode()).hexdigest()}
+        self.assertTrue(mapper._operation_supported("drum-pad.set"))
+        result = mapper.invoke("drum-pad.set", {**fences(), "note": 40, "solo": True})
+        self.assertTrue(result["changed"]); validate_operation_payload("drum-pad.set", "result", result)
+        self.assertEqual((pad.note, pad.solo), (40, True))
+        self.assertTrue(mapper._operation_supported("drum-pad.delete-all-chains"))
+        chains_revision = hashlib.sha256(mapper._bounded_canonical([mapper._capture_object_identity(chain) for chain in pad.chains]).encode()).hexdigest()
+        result = mapper.invoke("drum-pad.delete-all-chains", {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedStateRevision": chains_revision})
+        self.assertEqual(result, {"deleted": 2}); self.assertEqual(pad.chains, [])
+
+    def test_rack_rows_actions_and_view(self):
+        song = FakeSong()
+        rack = FakeRackDevice()
+        song.tracks[0].devices = [rack]
+        mapper = LiveObjectMapper(song)
+        row = mapper.snapshot()["tracks"][0]["devices"][0]
+        self.assertEqual(row["visibleMacroCount"], 8); self.assertEqual(row["variationCount"], 1); self.assertEqual(row["selectedVariationIndex"], 0)
+        self.assertEqual(row["macroMapped"], [True]); self.assertEqual(row["view"]["showChainDevices"], True)
+        def fences(): return {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical(mapper._rack_state(rack)).encode()).hexdigest()}
+        self.assertTrue(mapper._operation_supported("rack.set"))
+        result = mapper.invoke("rack.set", {**fences(), "visibleMacroCount": 16, "selectedVariationIndex": 0})
+        self.assertTrue(result["changed"]); self.assertEqual(rack.visible_macro_count, 16)
+        self.assertTrue(mapper._operation_supported("rack.action"))
+        before = len(rack.macros)
+        result = mapper.invoke("rack.action", {**fences(), "action": "add-macro"})
+        self.assertTrue(result["done"]); self.assertEqual(len(rack.macros), before + 1)
+        result = mapper.invoke("rack.action", {**fences(), "action": "remove-macro", "index": 1})
+        self.assertTrue(result["done"]); self.assertEqual(len(rack.macros), before)
+        result = mapper.invoke("rack.action", {**fences(), "action": "insert-chain"})
+        self.assertTrue(result["done"]); self.assertEqual(len(rack.chains), 1)
+        result = mapper.invoke("rack.action", {**fences(), "action": "store-variation"})
+        self.assertTrue(result["done"]); self.assertEqual(rack.variation_count, 2)
+        result = mapper.invoke("rack.action", {**fences(), "action": "delete-variation", "index": 1})
+        self.assertTrue(result["done"]); self.assertEqual(rack.variation_count, 1)
+        self.assertTrue(mapper._operation_supported("rack.view.set"))
+        view_revision = hashlib.sha256(mapper._bounded_canonical({"padScrollPosition": 0, "showChainDevices": True}).encode()).hexdigest()
+        result = mapper.invoke("rack.view.set", {"ref": row["ref"], "padScrollPosition": 4, "showChainDevices": False, "expectedObjectIdentity": row["objectIdentity"], "expectedStateRevision": view_revision})
+        self.assertTrue(result["changed"]); validate_operation_payload("rack.view.set", "result", result)
+        self.assertEqual(rack.view.drum_pad_scroll_position, 4); self.assertFalse(rack.view.is_showing_chain_devices)
