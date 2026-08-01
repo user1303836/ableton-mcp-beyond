@@ -1,7 +1,7 @@
 import type { Readable, Writable } from "node:stream";
 import { createHash, randomBytes } from "node:crypto";
 import { realpathSync, statSync, createReadStream } from "node:fs";
-import { sep } from "node:path";
+import { dirname, sep } from "node:path";
 import { AnalysisRunner, type EncodedAnalysisSource } from "./analysis-runner.js";
 import type { PcmAnalysis } from "./analysis.js";
 import type { ConventionalChannelLabel } from "./audio-standards.js";
@@ -3700,7 +3700,7 @@ export class McpHost {
       if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
       const previewFile = (transaction.prior as { file?: { canonicalPath: string; size: number; mtimeMs: number; sha256: string } }).file;
       if (!previewFile) return this.transactionError(id, "audio import file authority is missing; preview again");
-      const currentFile = await this.audioImportFileAuthority(transaction.payload.filePath, previewFile.canonicalPath.slice(0, previewFile.canonicalPath.length - previewFile.canonicalPath.split("/").pop()!.length) || "/");
+      const currentFile = await this.audioImportFileAuthority(transaction.payload.filePath, dirname(previewFile.canonicalPath));
       if (currentFile.canonicalPath !== previewFile.canonicalPath || currentFile.size !== previewFile.size || currentFile.mtimeMs !== previewFile.mtimeMs || currentFile.sha256 !== previewFile.sha256) return this.transactionError(id, "audio file changed since preview; preview again");
       const adapter = this.asyncAdapter();
       const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
@@ -5457,7 +5457,7 @@ export class McpHost {
       if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
       const prior = transaction.prior as { file?: { canonicalPath: string; size: number; mtimeMs: number; sha256: string }; samplePath: string };
       if (!prior.file) return this.transactionError(id, "simpler file authority is missing; preview again");
-      const currentFile = await this.audioImportFileAuthority(transaction.payload.filePath, prior.file.canonicalPath.slice(0, prior.file.canonicalPath.length - prior.file.canonicalPath.split("/").pop()!.length) || "/");
+      const currentFile = await this.audioImportFileAuthority(transaction.payload.filePath, dirname(prior.file.canonicalPath));
       if (currentFile.canonicalPath !== prior.file.canonicalPath || currentFile.size !== prior.file.size || currentFile.mtimeMs !== prior.file.mtimeMs || currentFile.sha256 !== prior.file.sha256) return this.transactionError(id, "sample file changed since preview; preview again");
       const adapter = this.asyncAdapter();
       const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
