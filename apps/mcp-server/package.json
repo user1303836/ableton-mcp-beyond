@@ -4,7 +4,11 @@
   "private": true,
   "license": "MIT",
   "abletonMcpSupport": {
-    "nodeMajors": [22, 24, 25]
+    "nodeMajors": [
+      22,
+      24,
+      25
+    ]
   },
   "main": "./dist/src/index.js",
   "exports": {
@@ -18,7 +22,17 @@
     "ableton-mcp-install-remote-script": "./dist/src/install-remote-script.js",
     "ableton-mcp-lifecycle": "./dist/src/lifecycle-cli.js"
   },
-  "files": ["dist/src/**/*.js", "dist/src/**/*.d.ts", "!dist/src/benchmark.*", "!dist/src/analysis-worker.*", "remote-script/AbletonMcpBridge", "remote-script/README.md", "release-docs", "release-manifest.json", "LICENSE.md"],
+  "files": [
+    "dist/src/**/*.js",
+    "dist/src/**/*.d.ts",
+    "!dist/src/benchmark.*",
+    "!dist/src/analysis-worker.*",
+    "remote-script/AbletonMcpBridge",
+    "remote-script/README.md",
+    "release-docs",
+    "release-manifest.json",
+    "LICENSE.md"
+  ],
   "engines": {
     "node": ">=22 <23 || >=24 <25 || >=25 <26"
   },
@@ -26,7 +40,7 @@
   "scripts": {
     "build": "node scripts/clean-build.mjs && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node scripts/run-tests.mjs && node --test scripts/release-documentation.test.mjs",
+    "test": "npm run build && node scripts/run-tests.mjs && node --test scripts/release-documentation.test.mjs scripts/capability-manifest.test.mjs",
     "property-test": "npm run build && node --test dist/test/property.test.js",
     "coverage": "npm run build && node scripts/run-coverage.mjs",
     "benchmark": "npm run build && node dist/src/benchmark.js && node --test dist/test/benchmark.test.js",
@@ -42,7 +56,8 @@
     "diagnostics": "node dist/src/diagnostics.js",
     "start": "node dist/src/cli.js",
     "demo": "node scripts/demo.mjs",
-    "prepack": "npm run policy:verify && npm run build && node scripts/stage-remote-script.mjs && node scripts/stage-release-artifact.mjs"
+    "prepack": "npm run policy:verify && npm run build && node scripts/stage-remote-script.mjs && node scripts/stage-release-artifact.mjs",
+    "capability:manifest": "node scripts/generate-capability-manifest.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
