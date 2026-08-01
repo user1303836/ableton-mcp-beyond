@@ -178,7 +178,7 @@ interface NoteEditTransaction {
 interface ClipLifecycleTransaction {
   id: string;
   epoch: number;
-  kind: "rename" | "duplicate" | "arrangement-create" | "arrangement-delete" | "arrangement-audio-create" | "arrangement-take-lane-create" | "move" | "audio-set" | "mixer-set" | "automation" | "browser-load" | "device" | "routing-set" | "recording" | "backup" | "realtime-arm" | "capture-midi" | "scene-capture" | "view" | "locator-jump" | "clip-set" | "session-audio-create" | "warp-marker" | "clip-action" | "note-target" | "tuning" | "groove" | "scene-set" | "scene-fire" | "transport-action" | "track-structure" | "device-delete" | "track-view" | "selection" | "clip-view" | "device-view" | "dialog" | "mixer-extended" | "chain-mixer" | "device-io" | "device-advanced" | "chain-set" | "drum-pad" | "rack" | "rack-view";
+  kind: "rename" | "duplicate" | "arrangement-create" | "arrangement-delete" | "arrangement-audio-create" | "arrangement-take-lane-create" | "move" | "audio-set" | "mixer-set" | "automation" | "browser-load" | "device" | "routing-set" | "recording" | "backup" | "realtime-arm" | "capture-midi" | "scene-capture" | "view" | "locator-jump" | "clip-set" | "session-audio-create" | "warp-marker" | "clip-action" | "note-target" | "tuning" | "groove" | "scene-set" | "scene-fire" | "transport-action" | "track-structure" | "device-delete" | "track-view" | "selection" | "clip-view" | "device-view" | "dialog" | "mixer-extended" | "chain-mixer" | "device-io" | "device-advanced" | "chain-set" | "drum-pad" | "rack" | "rack-view" | "device-specialized" | "looper" | "simpler";
   fence: string;
   clipRef?: LiveRef;
   payload: Record<string, unknown>;
@@ -1101,6 +1101,42 @@ const implementedTools = [
     inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   },
+  {
+    name: "live_device_specialized_preview",
+    description: "Read-only preflight for specialized device families: Drift, Drum Cell, Eq8, Hybrid Reverb, Meld, and plug-ins (presets and editor state).",
+    inputSchema: { type: "object", properties: { family: { type: "string", enum: ["drift", "drum-cell", "eq8", "hybrid-reverb", "meld", "plugin"] }, deviceRef: { type: "string", minLength: 1, maxLength: 256 }, pitchBendRange: { type: "integer", minimum: 1, maximum: 96 }, voiceCount: { type: "integer", minimum: 1, maximum: 64 }, voiceMode: { type: "integer", minimum: 0, maximum: 8 }, gain: { type: "number", minimum: -70, maximum: 24 }, editMode: { type: "integer", minimum: 0, maximum: 4 }, globalMode: { type: "integer", minimum: 0, maximum: 4 }, oversampling: { type: "boolean" }, selectedBand: { type: "integer", minimum: 0, maximum: 8 }, irCategory: { type: "string", minLength: 1, maxLength: 128 }, irFile: { type: "string", minLength: 1, maxLength: 256 }, attack: { type: "number", minimum: 0 }, decay: { type: "number", minimum: 0 }, size: { type: "number", minimum: 0 }, time: { type: "number", minimum: 0 }, engine: { type: "integer", minimum: 0, maximum: 4 }, unison: { type: "integer", minimum: 1, maximum: 16 }, monoPoly: { type: "boolean" }, polyphony: { type: "integer", minimum: 1, maximum: 64 }, presetIndex: { type: "integer", minimum: 0, maximum: 1024 }, isEditorOpen: { type: "boolean" } }, required: ["family", "deviceRef"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_device_specialized_apply",
+    description: "Apply an exact, unexpired specialized-device preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_looper_preview",
+    description: "Read-only preflight for Looper transport actions (record, overdub, play, stop, clear, undo, export — momentary) and properties (speed, loop length, tempo, fixed record length — exact undo).",
+    inputSchema: { type: "object", properties: { action: { type: "string", enum: ["set", "record", "overdub", "play", "stop", "clear", "undo", "undo-all", "export"] }, deviceRef: { type: "string", minLength: 1, maxLength: 256 }, speed: { type: "number", minimum: -4, maximum: 4 }, loopLength: { type: "number", minimum: 0 }, tempo: { type: "number", minimum: 20, maximum: 999 }, fixedRecordLength: { type: "number", minimum: 0 } }, required: ["action", "deviceRef"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_looper_apply",
+    description: "Apply an exact, unexpired looper preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_simpler_preview",
+    description: "Read-only preflight for replacing one Simpler device's sample with explicit file authority (allowed root, canonical path, size/type, SHA-256 with apply-time re-verification).",
+    inputSchema: { type: "object", properties: { deviceRef: { type: "string", minLength: 1, maxLength: 256 }, filePath: { type: "string", minLength: 1, maxLength: 1024 }, allowedRoot: { type: "string", minLength: 1, maxLength: 1024 } }, required: ["deviceRef", "filePath", "allowedRoot"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: true, openWorldHint: true },
+  },
+  {
+    name: "live_simpler_apply",
+    description: "Apply an exact, unexpired simpler sample-replacement preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+  },
 ] as const;
 
 const hostUnavailableCapabilities = ["resources.subscribe", "filesystem", "network", "delivery"] as const;
@@ -1263,7 +1299,7 @@ export class McpHost {
     if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handle(input);
     const name = input.params.name;
     const toolArguments = input.params.arguments;
-    if (![ "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_chain_preview", "live_chain_apply", "live_drum_pad_preview", "live_drum_pad_apply", "live_rack_preview", "live_rack_apply", "live_rack_view_preview", "live_rack_view_apply", "live_application_dialog_preview", "live_application_dialog_apply"].includes(name)) return this.handle(input);
+    if (![ "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_chain_preview", "live_chain_apply", "live_drum_pad_preview", "live_drum_pad_apply", "live_rack_preview", "live_rack_apply", "live_rack_view_preview", "live_rack_view_apply", "live_device_specialized_preview", "live_device_specialized_apply", "live_looper_preview", "live_looper_apply", "live_simpler_preview", "live_simpler_apply", "live_application_dialog_preview", "live_application_dialog_apply"].includes(name)) return this.handle(input);
     // Reuse the synchronous validator and request bookkeeping, then execute the
     // adapter operation asynchronously. Invalid requests never reach Live.
     const id = this.requestId(input.id);
@@ -1373,6 +1409,12 @@ export class McpHost {
       if (name === "live_rack_apply") return await this.liveRackApplyAsync(id, toolArguments, signal);
       if (name === "live_rack_view_preview") return await this.liveRackViewPreviewAsync(id, toolArguments);
       if (name === "live_rack_view_apply") return await this.liveRackViewApplyAsync(id, toolArguments, signal);
+      if (name === "live_device_specialized_preview") return await this.liveDeviceSpecializedPreviewAsync(id, toolArguments);
+      if (name === "live_device_specialized_apply") return await this.liveDeviceSpecializedApplyAsync(id, toolArguments, signal);
+      if (name === "live_looper_preview") return await this.liveLooperPreviewAsync(id, toolArguments);
+      if (name === "live_looper_apply") return await this.liveLooperApplyAsync(id, toolArguments, signal);
+      if (name === "live_simpler_preview") return await this.liveSimplerPreviewAsync(id, toolArguments);
+      if (name === "live_simpler_apply") return await this.liveSimplerApplyAsync(id, toolArguments, signal);
       if (name === "live_application_dialog_preview") return await this.liveApplicationDialogPreviewAsync(id, toolArguments);
       if (name === "live_application_dialog_apply") return await this.liveApplicationDialogApplyAsync(id, toolArguments, signal);
       if (name === "live_automation_preview") return await this.liveAutomationPreviewAsync(id, toolArguments);
@@ -5200,6 +5242,210 @@ export class McpHost {
     } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Rack-view state is uncertain; perform fresh discovery before retrying."); }
   }
 
+  private static readonly SPECIALIZED_FAMILY_FIELDS: Record<string, string[]> = {
+    drift: ["pitchBendRange", "voiceCount", "voiceMode"],
+    "drum-cell": ["gain"],
+    eq8: ["editMode", "globalMode", "oversampling", "selectedBand"],
+    "hybrid-reverb": ["irCategory", "irFile", "attack", "decay", "size", "time"],
+    meld: ["engine", "unison", "monoPoly", "polyphony"],
+    plugin: ["presetIndex", "isEditorOpen"],
+  };
+
+  private static readonly SPECIALIZED_FIELD_BOUNDS: Record<string, [number, number, boolean]> = {
+    pitchBendRange: [1, 96, true], voiceCount: [1, 64, true], voiceMode: [0, 8, true],
+    gain: [-70, 24, false],
+    editMode: [0, 4, true], globalMode: [0, 4, true], selectedBand: [0, 8, true],
+    attack: [0, 10000, false], decay: [0, 100000, false], size: [0, 10000, false], time: [0, 100000, false],
+    engine: [0, 4, true], unison: [1, 16, true], polyphony: [1, 64, true], presetIndex: [0, 1024, true],
+  };
+
+  private async liveDeviceSpecializedPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    const families = Object.keys(McpHost.SPECIALIZED_FAMILY_FIELDS);
+    if (!isObject(params) || !families.includes(params.family as string) || !isNonEmptyString(params.deviceRef, 256)) return error(id, -32602, "family and deviceRef are required");
+    const fields = McpHost.SPECIALIZED_FAMILY_FIELDS[params.family as string]!;
+    if (!hasOnly(params, ["family", "deviceRef", ...fields])) return error(id, -32602, `only ${params.family} fields are accepted`);
+    if (fields.every((field) => params[field] === undefined)) return error(id, -32602, "at least one field is required");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      const operation = `${params.family}.set`;
+      if (!(status.operations ?? []).includes(operation)) throw new Error(`${operation} is unavailable on this Live shape`);
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const row = this.deviceRow(snapshot, params.deviceRef as LiveRef);
+      const proposed: Record<string, unknown> = {};
+      for (const field of fields) {
+        const value = params[field];
+        if (value === undefined) continue;
+        if (["oversampling", "monoPoly", "isEditorOpen"].includes(field) && typeof value !== "boolean") return error(id, -32602, `${field} must be boolean`);
+        if (["irCategory", "irFile"].includes(field) && !isNonEmptyString(value, 256)) return error(id, -32602, `${field} is invalid`);
+        if (!["oversampling", "monoPoly", "isEditorOpen", "irCategory", "irFile"].includes(field) && typeof value !== "number") return error(id, -32602, `${field} must be a number`);
+        const bounds = McpHost.SPECIALIZED_FIELD_BOUNDS[field];
+        if (bounds && typeof value === "number" && (value < bounds[0] || value > bounds[1] || (bounds[2] && !Number.isInteger(value)))) return error(id, -32602, `${field} is out of bounds`);
+        proposed[field] = value;
+      }
+      const state = Object.fromEntries(fields.map((field) => [field, (row.device as unknown as Record<string, unknown>)[field] ?? null]));
+      const prior: Record<string, unknown> = {};
+      for (const field of Object.keys(proposed)) prior[field] = (row.device as unknown as Record<string, unknown>)[field] ?? null;
+      const payload: Record<string, unknown> = { family: params.family, ref: params.deviceRef, ...proposed, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") };
+      const fence = JSON.stringify({ family: params.family, ref: params.deviceRef, objectIdentity: row.device.objectIdentity, state });
+      const transaction: ClipLifecycleTransaction = { id: `devspec_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "device-specialized", fence, payload, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "specialized device");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, family: params.family, deviceRef: params.deviceRef, prior, proposed, impact: `edits-${params.family}`, confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Specialized-device preview requires fresh authoritative state."); }
+  }
+
+  private async liveDeviceSpecializedApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "device-specialized" || (transaction.state === "previewed" && transaction.expiresAt <= Date.now())) return this.transactionError(id, "Unknown or expired specialized-device transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    const reconciliation = transaction.state === "uncertain" && transaction.applyKey === params.idempotencyKey;
+    if (transaction.state !== "previewed" && !reconciliation) return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      if (reconciliation) await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
+      const family = transaction.payload.family as string;
+      const fields = McpHost.SPECIALIZED_FAMILY_FIELDS[family]!;
+      if (!reconciliation) { const snapshot = await adapter.snapshotAsync(context); const row = this.deviceRow(snapshot, transaction.payload.ref as LiveRef);
+        const state = Object.fromEntries(fields.map((field) => [field, (row.device as unknown as Record<string, unknown>)[field] ?? null]));
+        if (JSON.stringify({ family, ref: transaction.payload.ref, objectIdentity: row.device.objectIdentity, state }) !== transaction.fence) return this.transactionError(id, "device identity or state changed since preview; preview again"); }
+      transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
+      const args = Object.fromEntries(Object.entries(transaction.payload).filter(([key]) => key !== "family"));
+      const result = await adapter.invokeAsync({ operation: `${family}.set` as "drift.set" | "drum-cell.set" | "eq8.set" | "hybrid-reverb.set" | "meld.set" | "plugin.set", args }, context) as { changed?: unknown; revision?: unknown };
+      if (result.changed !== true) throw new Error("specialized device change was not confirmed");
+      const verified = this.deviceRow(await adapter.snapshotAsync(context), transaction.payload.ref as LiveRef).device as unknown as Record<string, unknown>;
+      for (const field of fields) if (transaction.payload[field] !== undefined && JSON.stringify(verified[field]) !== JSON.stringify(transaction.payload[field])) throw new Error("specialized device postcondition was not confirmed");
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", revision: result.revision, idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Specialized-device state is uncertain; perform fresh discovery before retrying."); }
+  }
+
+  private async liveLooperPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    const actions = ["set", "record", "overdub", "play", "stop", "clear", "undo", "undo-all", "export"] as const;
+    const fields = ["speed", "loopLength", "tempo", "fixedRecordLength"] as const;
+    if (!isObject(params) || !hasOnly(params, ["action", "deviceRef", ...fields]) || !actions.includes(params.action as typeof actions[number]) || !isNonEmptyString(params.deviceRef, 256)) return error(id, -32602, "action and deviceRef are required");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const row = this.deviceRow(snapshot, params.deviceRef as LiveRef);
+      const device = row.device as unknown as Record<string, unknown>;
+      let payload: Record<string, unknown>;
+      let prior: Record<string, unknown> = {};
+      if (params.action === "set") {
+        if (!(status.operations ?? []).includes("looper.set")) throw new Error("looper properties are unavailable");
+        const proposed: Record<string, unknown> = {};
+        for (const field of fields) {
+          const value = params[field];
+          if (value === undefined) continue;
+          if (typeof value !== "number" || !Number.isFinite(value)) return error(id, -32602, `${field} must be a number`);
+          if (field === "speed" && Math.abs(value) > 4) return error(id, -32602, "speed must be -4 to 4");
+          if (field === "tempo" && (value < 20 || value > 999)) return error(id, -32602, "tempo is out of bounds");
+          if ((field === "loopLength" || field === "fixedRecordLength") && value < 0) return error(id, -32602, `${field} is out of bounds`);
+          proposed[field] = value;
+        }
+        if (Object.keys(proposed).length === 0) return error(id, -32602, "at least one looper field is required");
+        for (const field of Object.keys(proposed)) prior[field] = device[field] ?? null;
+        const state = { speed: device.speed ?? null, loopLength: device.loopLength ?? null, tempo: device.tempo ?? null, fixedRecordLength: device.fixedRecordLength ?? null };
+        payload = { action: params.action, ref: params.deviceRef, ...proposed, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") };
+      } else {
+        if (!(status.operations ?? []).includes("looper.action")) throw new Error("looper actions are unavailable");
+        const state = { speed: device.speed ?? null, loopLength: device.loopLength ?? null, state: device.state ?? null };
+        payload = { action: params.action, ref: params.deviceRef, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") };
+      }
+      const fence = JSON.stringify({ action: params.action, ref: params.deviceRef, objectIdentity: row.device.objectIdentity, payload });
+      const transaction: ClipLifecycleTransaction = { id: `looper_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "looper", fence, payload, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "looper");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, action: params.action, deviceRef: params.deviceRef, prior, impact: params.action === "set" ? "edits-looper" : "momentary-looper-action-no-undo", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Looper preview requires fresh authoritative state."); }
+  }
+
+  private async liveLooperApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "looper" || (transaction.state === "previewed" && transaction.expiresAt <= Date.now())) return this.transactionError(id, "Unknown or expired looper transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    const reconciliation = transaction.state === "uncertain" && transaction.applyKey === params.idempotencyKey;
+    if (transaction.state !== "previewed" && !reconciliation) return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      if (reconciliation) await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
+      const action = transaction.payload.action as string;
+      transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
+      if (action === "set") {
+        const args = Object.fromEntries(Object.entries(transaction.payload).filter(([key]) => key !== "action"));
+        const result = await adapter.invokeAsync({ operation: "looper.set", args }, context) as { changed?: unknown; revision?: unknown };
+        if (result.changed !== true) throw new Error("looper change was not confirmed");
+        const verified = this.deviceRow(await adapter.snapshotAsync(context), transaction.payload.ref as LiveRef).device as unknown as Record<string, unknown>;
+        for (const field of ["speed", "loopLength", "tempo", "fixedRecordLength"]) if (transaction.payload[field] !== undefined && verified[field] !== transaction.payload[field]) throw new Error("looper postcondition was not confirmed");
+      } else {
+        const result = await adapter.invokeAsync({ operation: "looper.action", args: transaction.payload }, context) as { done?: unknown; revision?: unknown };
+        if (result.done !== true) throw new Error("looper action was not confirmed");
+      }
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Looper state is uncertain; perform fresh discovery before retrying."); }
+  }
+
+  private async liveSimplerPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, ["deviceRef", "filePath", "allowedRoot"]) || !isNonEmptyString(params.deviceRef, 256)) return error(id, -32602, "deviceRef, filePath, and allowedRoot are required");
+    try {
+      const authority = await this.audioImportFileAuthority(params.filePath, params.allowedRoot);
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      if (!(status.operations ?? []).includes("simpler.replace-sample")) throw new Error("sample replacement is unavailable");
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const row = this.deviceRow(snapshot, params.deviceRef as LiveRef);
+      const currentPath = ((row.device as unknown as { samplePath?: string }).samplePath) ?? "";
+      const payload: Record<string, unknown> = { ref: params.deviceRef, filePath: authority.canonicalPath, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity({ filePath: currentPath })).digest("hex") };
+      const fence = JSON.stringify({ ref: params.deviceRef, objectIdentity: row.device.objectIdentity, filePath: currentPath });
+      const transaction: ClipLifecycleTransaction = { id: `simpler_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "simpler", fence, payload, prior: { file: authority, samplePath: currentPath }, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "simpler");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, deviceRef: params.deviceRef, currentSample: currentPath, file: { path: authority.canonicalPath, size: authority.size, sha256: authority.sha256 }, impact: "replaces-simpler-sample", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Simpler preview requires fresh authoritative state and a readable file."); }
+  }
+
+  private async liveSimplerApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "simpler" || (transaction.state === "previewed" && transaction.expiresAt <= Date.now())) return this.transactionError(id, "Unknown or expired simpler transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    const reconciliation = transaction.state === "uncertain" && transaction.applyKey === params.idempotencyKey;
+    if (transaction.state !== "previewed" && !reconciliation) return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      if (reconciliation) await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const prior = transaction.prior as { file?: { canonicalPath: string; size: number; mtimeMs: number; sha256: string }; samplePath: string };
+      if (!prior.file) return this.transactionError(id, "simpler file authority is missing; preview again");
+      const currentFile = await this.audioImportFileAuthority(transaction.payload.filePath, prior.file.canonicalPath.slice(0, prior.file.canonicalPath.length - prior.file.canonicalPath.split("/").pop()!.length) || "/");
+      if (currentFile.canonicalPath !== prior.file.canonicalPath || currentFile.size !== prior.file.size || currentFile.mtimeMs !== prior.file.mtimeMs || currentFile.sha256 !== prior.file.sha256) return this.transactionError(id, "sample file changed since preview; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
+      if (!reconciliation) { const snapshot = await adapter.snapshotAsync(context); const row = this.deviceRow(snapshot, transaction.payload.ref as LiveRef);
+        const currentPath = ((row.device as unknown as { samplePath?: string }).samplePath) ?? "";
+        if (JSON.stringify({ ref: transaction.payload.ref, objectIdentity: row.device.objectIdentity, filePath: currentPath }) !== transaction.fence) return this.transactionError(id, "device identity or sample state changed since preview; preview again"); }
+      transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
+      const result = await adapter.invokeAsync({ operation: "simpler.replace-sample", args: transaction.payload }, context) as { changed?: unknown; revision?: unknown; filePath?: unknown };
+      if (result.changed !== true) throw new Error("sample replacement was not confirmed");
+      transaction.created = { samplePath: result.filePath ?? transaction.payload.filePath };
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", result, idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Simpler state is uncertain; perform fresh discovery before retrying."); }
+  }
+
   private parameterRow(snapshot: LiveSnapshot, parameterRef: LiveRef): JsonObject {
     const walk = (devices: JsonObject[]): JsonObject | undefined => {
       for (const device of devices) {
@@ -6607,6 +6853,67 @@ export class McpHost {
         rack.state = "undone"; return this.successText(id, { transactionId: rack.id, state: "undone", idempotent: false });
       } catch (cause) { rack.state = "uncertain"; return this.adapterToolError(id, cause, "Rack undo is uncertain; perform fresh discovery."); }
     }
+    if (!transaction && String(params.transactionId).startsWith("devspec_")) {
+      const devspec = this.clipLifecycleTransactions.get(params.transactionId as string);
+      if (!devspec || devspec.kind !== "device-specialized") return this.transactionError(id, "Unknown or expired specialized-device transaction");
+      if (devspec.state === "undone" && devspec.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: devspec.id, state: "undone", idempotent: true });
+      const reconciliation = devspec.state === "uncertain" && devspec.undoKey === params.idempotencyKey;
+      if ((devspec.state !== "applied" && !reconciliation) || !devspec.prior) return this.transactionError(id, "Only an applied or exact-key uncertain specialized-device transaction can be undone");
+      try {
+        this.beginUndoRecovery(devspec, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== devspec.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+        const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; devspec.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(devspec, adapter, context);
+        const family = devspec.payload.family as string;
+        const fields = McpHost.SPECIALIZED_FAMILY_FIELDS[family]!;
+        const snapshot = await adapter.snapshotAsync(context); const row = this.deviceRow(snapshot, devspec.payload.ref as LiveRef);
+        if (!reconciliation) { for (const field of fields) if (devspec.payload[field] !== undefined && JSON.stringify((row.device as unknown as Record<string, unknown>)[field]) !== JSON.stringify(devspec.payload[field])) return this.transactionError(id, "device state changed after apply; undo refused"); }
+        const state = Object.fromEntries(fields.map((field) => [field, (row.device as unknown as Record<string, unknown>)[field] ?? null]));
+        devspec.state = "undoing";
+        const result = await this.invokeUndoRecovery(devspec, adapter, `${family}.set` as "drift.set" | "drum-cell.set" | "eq8.set" | "hybrid-reverb.set" | "meld.set" | "plugin.set", { ref: devspec.payload.ref, ...(devspec.prior as Record<string, unknown>), expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") }, context) as { changed?: unknown };
+        if (result.changed !== true) throw new Error("specialized device restoration was not confirmed");
+        devspec.state = "undone"; return this.successText(id, { transactionId: devspec.id, state: "undone", idempotent: false });
+      } catch (cause) { devspec.state = "uncertain"; return this.adapterToolError(id, cause, "Specialized-device undo is uncertain; perform fresh discovery."); }
+    }
+    if (!transaction && String(params.transactionId).startsWith("simpler_")) {
+      const simpler = this.clipLifecycleTransactions.get(params.transactionId as string);
+      if (!simpler || simpler.kind !== "simpler") return this.transactionError(id, "Unknown or expired simpler transaction");
+      if (simpler.state === "undone" && simpler.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: simpler.id, state: "undone", idempotent: true });
+      const reconciliation = simpler.state === "uncertain" && simpler.undoKey === params.idempotencyKey;
+      if ((simpler.state !== "applied" && !reconciliation) || !simpler.prior) return this.transactionError(id, "Only an applied or exact-key uncertain simpler transaction can be undone");
+      try {
+        this.beginUndoRecovery(simpler, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== simpler.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+        const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; simpler.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(simpler, adapter, context);
+        const prior = simpler.prior as { samplePath: string };
+        if (typeof prior.samplePath !== "string" || prior.samplePath.length < 1) return this.transactionError(id, "prior sample path is unavailable");
+        const snapshot = await adapter.snapshotAsync(context); const row = this.deviceRow(snapshot, simpler.payload.ref as LiveRef);
+        const currentPath = ((row.device as unknown as { samplePath?: string }).samplePath) ?? "";
+        if (!reconciliation && currentPath !== (simpler.created?.samplePath ?? simpler.payload.filePath)) return this.transactionError(id, "simpler sample changed after apply; undo refused");
+        simpler.state = "undoing";
+        const result = await this.invokeUndoRecovery(simpler, adapter, "simpler.replace-sample", { ref: simpler.payload.ref, filePath: prior.samplePath, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity({ filePath: currentPath })).digest("hex") }, context) as { changed?: unknown };
+        if (result.changed !== true) throw new Error("simpler sample restoration was not confirmed");
+        simpler.state = "undone"; return this.successText(id, { transactionId: simpler.id, state: "undone", idempotent: false });
+      } catch (cause) { simpler.state = "uncertain"; return this.adapterToolError(id, cause, "Simpler undo is uncertain; perform fresh discovery."); }
+    }
+    if (!transaction && String(params.transactionId).startsWith("looper_")) {
+      const looper = this.clipLifecycleTransactions.get(params.transactionId as string);
+      if (!looper || looper.kind !== "looper") return this.transactionError(id, "Unknown or expired looper transaction");
+      if (looper.payload.action !== "set") return this.transactionError(id, "Looper actions are momentary and not undoable");
+      if (looper.state === "undone" && looper.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: looper.id, state: "undone", idempotent: true });
+      const reconciliation = looper.state === "uncertain" && looper.undoKey === params.idempotencyKey;
+      if ((looper.state !== "applied" && !reconciliation) || !looper.prior) return this.transactionError(id, "Only an applied or exact-key uncertain looper transaction can be undone");
+      try {
+        this.beginUndoRecovery(looper, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== looper.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+        const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; looper.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(looper, adapter, context);
+        const snapshot = await adapter.snapshotAsync(context); const row = this.deviceRow(snapshot, looper.payload.ref as LiveRef);
+        const device = row.device as unknown as Record<string, unknown>;
+        if (!reconciliation) { for (const field of ["speed", "loopLength", "tempo", "fixedRecordLength"]) if (looper.payload[field] !== undefined && device[field] !== looper.payload[field]) return this.transactionError(id, "looper changed after apply; undo refused"); }
+        const state = { speed: device.speed ?? null, loopLength: device.loopLength ?? null, tempo: device.tempo ?? null, fixedRecordLength: device.fixedRecordLength ?? null };
+        looper.state = "undoing";
+        const priorFields = Object.fromEntries(Object.entries(looper.prior as Record<string, unknown>).filter(([, value]) => value !== null));
+        const result = await this.invokeUndoRecovery(looper, adapter, "looper.set", { ref: looper.payload.ref, ...priorFields, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") }, context) as { changed?: unknown };
+        if (result.changed !== true) throw new Error("looper restoration was not confirmed");
+        looper.state = "undone"; return this.successText(id, { transactionId: looper.id, state: "undone", idempotent: false });
+      } catch (cause) { looper.state = "uncertain"; return this.adapterToolError(id, cause, "Looper undo is uncertain; perform fresh discovery."); }
+    }
     if (!transaction && String(params.transactionId).startsWith("groove_")) {
       const groove = this.clipLifecycleTransactions.get(params.transactionId as string);
       if (!groove || groove.kind !== "groove") return this.transactionError(id, "Unknown or expired groove transaction");
@@ -7006,7 +7313,7 @@ export class McpHost {
     }
     if (params.arguments !== undefined && !isObject(params.arguments)) return error(id, -32602, "Tool arguments must be an object");
     if (this.recoveryFinalizationInFlight && !["server_status", "capabilities", "plan_user_journey", "live_status", "live_snapshot", "live_discover"].includes(params.name)) return this.adapterToolError(id, new Error("recovery finalization safety barrier is in progress"), "Wait for terminal recovery finalization before any synchronous mutation.");
-    const argumentTools = new Set(["plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_chain_preview", "live_chain_apply", "live_drum_pad_preview", "live_drum_pad_apply", "live_rack_preview", "live_rack_apply", "live_rack_view_preview", "live_rack_view_apply", "live_application_dialog_preview", "live_application_dialog_apply"]);
+    const argumentTools = new Set(["plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_chain_preview", "live_chain_apply", "live_drum_pad_preview", "live_drum_pad_apply", "live_rack_preview", "live_rack_apply", "live_rack_view_preview", "live_rack_view_apply", "live_device_specialized_preview", "live_device_specialized_apply", "live_looper_preview", "live_looper_apply", "live_simpler_preview", "live_simpler_apply", "live_application_dialog_preview", "live_application_dialog_apply"]);
     if (!argumentTools.has(params.name) && params.arguments !== undefined && Object.keys(params.arguments as JsonObject).length !== 0) {
       return error(id, -32602, "Tool arguments must be an empty object");
     }
@@ -7031,7 +7338,7 @@ export class McpHost {
     if (params.name === "live_status") return this.liveStatus(id);
     if (params.name === "live_snapshot") return this.liveSnapshot(id);
     if (params.name === "live_discover") return this.liveDiscover(id, params.arguments);
-    if (["audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_backup_preview", "live_project_backup_apply", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_chain_preview", "live_chain_apply", "live_drum_pad_preview", "live_drum_pad_apply", "live_rack_preview", "live_rack_apply", "live_rack_view_preview", "live_rack_view_apply", "live_application_dialog_preview", "live_application_dialog_apply"].includes(params.name)) return error(id, -32001, "This operation requires the asynchronous host request path");
+    if (["audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_backup_preview", "live_project_backup_apply", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_chain_preview", "live_chain_apply", "live_drum_pad_preview", "live_drum_pad_apply", "live_rack_preview", "live_rack_apply", "live_rack_view_preview", "live_rack_view_apply", "live_device_specialized_preview", "live_device_specialized_apply", "live_looper_preview", "live_looper_apply", "live_simpler_preview", "live_simpler_apply", "live_application_dialog_preview", "live_application_dialog_apply"].includes(params.name)) return error(id, -32001, "This operation requires the asynchronous host request path");
     if (params.name === "live_device_parameter_preview") return this.liveDeviceParameterPreview(id, params.arguments);
     if (params.name === "live_device_parameter_apply") return this.liveDeviceParameterApply(id, params.arguments);
     if (params.name === "live_session_structure_preview") return this.liveSessionStructurePreview(id, params.arguments);
@@ -7113,6 +7420,9 @@ export class McpHost {
       if (name.startsWith("live_drum_pad_")) return hasAll("devices") && hasOperations("snapshot") && hasAnyOperation("drum-pad.set", "drum-pad.delete-all-chains");
       if (name === "live_rack_preview" || name === "live_rack_apply") return hasAll("racks") && hasOperations("snapshot") && hasAnyOperation("rack.set", "rack.action");
       if (name.startsWith("live_rack_view_")) return hasAll("racks") && hasOperations("snapshot", "rack.view.set");
+      if (name.startsWith("live_device_specialized_")) return hasAll("devices") && hasOperations("snapshot") && hasAnyOperation("drift.set", "drum-cell.set", "eq8.set", "hybrid-reverb.set", "meld.set", "plugin.set");
+      if (name.startsWith("live_looper_")) return hasAll("devices") && hasOperations("snapshot") && hasAnyOperation("looper.action", "looper.set");
+      if (name.startsWith("live_simpler_")) return hasAll("devices") && hasOperations("snapshot", "simpler.replace-sample");
       if (name.startsWith("live_clip_move_")) return hasOperations("snapshot", "clip.move", "arrangement.clip.move");
       if (name.startsWith("live_clip_duplicate_")) return hasAll("clips") && hasOperations("snapshot", "clip.duplicate", "clip.delete", "arrangement.clip.delete");
       if (name.startsWith("live_audio_clip_")) return hasAll("audio") && hasOperations("snapshot", "audio.clip.set");

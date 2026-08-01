@@ -609,7 +609,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "0e78ce720eca78ff0a9c0a224e6ef0bd5a4495d52bb17edc4703cfb4e670756b")
+        self.assertEqual(digest, "5c85f64023820899ac92510c35ce1b5ded76387757f7acc41cd96c6384ac67a4")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -3780,3 +3780,103 @@ class RackMacroDrumPadTests(unittest.TestCase):
         result = mapper.invoke("rack.view.set", {"ref": row["ref"], "padScrollPosition": 4, "showChainDevices": False, "expectedObjectIdentity": row["objectIdentity"], "expectedStateRevision": view_revision})
         self.assertTrue(result["changed"]); validate_operation_payload("rack.view.set", "result", result)
         self.assertEqual(rack.view.drum_pad_scroll_position, 4); self.assertFalse(rack.view.is_showing_chain_devices)
+
+
+class SpecializedDeviceTests(unittest.TestCase):
+    def test_drift_set_with_rows_and_rollback(self):
+        song = FakeSong()
+        device = FakeDevice(); device.name = "Drift"; device.class_name = "DriftDevice"
+        device.pitch_bend_range = 12; device.voice_count = 8; device.voice_mode = 0
+        device.mod_sources = ["LFO 1", "LFO 2"]; device.mod_targets = ["Pitch", "Filter"]
+        song.tracks[0].devices = [device]
+        mapper = LiveObjectMapper(song)
+        row = mapper.snapshot()["tracks"][0]["devices"][0]
+        self.assertEqual(row["drift"]["modSources"], ["LFO 1", "LFO 2"]); self.assertEqual(row["drift"]["modTargets"], ["Pitch", "Filter"])
+        self.assertTrue(mapper._operation_supported("drift.set"))
+        def fences():
+            state = mapper._specialized_state(device, [("pitchBendRange", "pitch_bend_range"), ("voiceCount", "voice_count"), ("voiceMode", "voice_mode")])
+            return {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical(state).encode()).hexdigest()}
+        result = mapper.invoke("drift.set", {**fences(), "pitchBendRange": 24, "voiceCount": 16, "voiceMode": 1})
+        self.assertTrue(result["changed"]); validate_operation_payload("drift.set", "result", result)
+        self.assertEqual((device.pitch_bend_range, device.voice_count, device.voice_mode), (24, 16, 1))
+        with self.assertRaisesRegex(ValueError, "is invalid"): mapper.invoke("drift.set", {**fences(), "pitchBendRange": 200})
+
+    def test_drum_cell_eq8_meld_sets(self):
+        song = FakeSong()
+        cell = FakeDevice(); cell.name = "Cell"; cell.class_name = "DrumCellDevice"; cell.gain = -6.0
+        eq = FakeDevice(); eq.name = "EQ8"; eq.class_name = "Eq8Device"; eq.edit_mode = 0; eq.global_mode = 1; eq.oversampling = False; eq.selected_band = 2
+        meld = FakeDevice(); meld.name = "Meld"; meld.class_name = "MeldDevice"; meld.selected_engine = 0; meld.unison = 1; meld.mono_poly = False; meld.polyphony = 8
+        song.tracks[0].devices = [cell, eq, meld]
+        mapper = LiveObjectMapper(song)
+        rows = mapper.snapshot()["tracks"][0]["devices"]
+        self.assertTrue(mapper._operation_supported("drum-cell.set")); self.assertTrue(mapper._operation_supported("eq8.set")); self.assertTrue(mapper._operation_supported("meld.set"))
+        result = mapper.invoke("drum-cell.set", {"ref": rows[0]["ref"], "gain": -12.0, "expectedObjectIdentity": rows[0]["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({"gain": -6.0}).encode()).hexdigest()})
+        self.assertTrue(result["changed"]); self.assertEqual(cell.gain, -12.0)
+        eq_state = mapper._specialized_state(eq, [("editMode", "edit_mode"), ("globalMode", "global_mode"), ("oversampling", "oversampling"), ("selectedBand", "selected_band")])
+        result = mapper.invoke("eq8.set", {"ref": rows[1]["ref"], "editMode": 1, "oversampling": True, "selectedBand": 4, "expectedObjectIdentity": rows[1]["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical(eq_state).encode()).hexdigest()})
+        self.assertTrue(result["changed"]); self.assertEqual((eq.edit_mode, eq.oversampling, eq.selected_band), (1, True, 4))
+        meld_state = mapper._specialized_state(meld, [("engine", "selected_engine"), ("unison", "unison"), ("monoPoly", "mono_poly"), ("polyphony", "polyphony")])
+        result = mapper.invoke("meld.set", {"ref": rows[2]["ref"], "engine": 1, "unison": 4, "monoPoly": True, "polyphony": 16, "expectedObjectIdentity": rows[2]["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical(meld_state).encode()).hexdigest()})
+        self.assertTrue(result["changed"]); self.assertEqual((meld.selected_engine, meld.unison, meld.mono_poly, meld.polyphony), (1, 4, True, 16))
+
+    def test_hybrid_reverb_ir_and_time_shaping(self):
+        song = FakeSong()
+        device = FakeDevice(); device.name = "Hybrid"; device.class_name = "HybridReverbDevice"
+        device.available_ir_categories = ["Halls", "Plates"]; device.ir_category = "Halls"
+        device.available_ir_files = ["Hall A", "Hall B"]; device.ir_file = "Hall A"
+        device.attack = 10.0; device.decay = 1200.0; device.size = 50.0; device.time = 1500.0
+        song.tracks[0].devices = [device]
+        mapper = LiveObjectMapper(song)
+        self.assertTrue(mapper._operation_supported("hybrid-reverb.set"))
+        row = mapper.snapshot()["tracks"][0]["devices"][0]
+        identity_args = {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"]}
+        result = mapper.invoke("hybrid-reverb.set", {**identity_args, "irCategory": "Plates", "irFile": "Hall B"})
+        self.assertTrue(result["changed"]); self.assertEqual((device.ir_category, device.ir_file), ("Plates", "Hall B"))
+        with self.assertRaisesRegex(ValueError, "not an available choice"): mapper.invoke("hybrid-reverb.set", {**identity_args, "irCategory": "Bogus"})
+        state = mapper._specialized_state(device, [("attack", "attack"), ("decay", "decay"), ("size", "size"), ("time", "time")])
+        result = mapper.invoke("hybrid-reverb.set", {**identity_args, "attack": 25.0, "decay": 2400.0, "time": 3000.0, "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical(state).encode()).hexdigest()})
+        self.assertTrue(result["changed"]); self.assertEqual((device.attack, device.decay, device.time), (25.0, 2400.0, 3000.0))
+
+    def test_looper_actions_and_properties(self):
+        song = FakeSong()
+        device = FakeDevice(); device.name = "Looper"; device.class_name = "LooperDevice"
+        device.speed = 1.0; device.loop_length = 4.0; device.tempo = 120.0; device.fixed_record_length = 0.0; device.state = 0
+        calls = []
+        for name in ("record", "overdub", "play", "stop", "clear", "undo", "undo_all", "export"):
+            setattr(device, name, (lambda n: (lambda: calls.append(n)))(name))
+        song.tracks[0].devices = [device]
+        mapper = LiveObjectMapper(song)
+        self.assertTrue(mapper._operation_supported("looper.action")); self.assertTrue(mapper._operation_supported("looper.set"))
+        row = mapper.snapshot()["tracks"][0]["devices"][0]
+        def fences():
+            state = {"speed": device.speed, "loopLength": device.loop_length, "state": device.state}
+            return {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical(state).encode()).hexdigest()}
+        for action in ("record", "overdub", "play", "stop", "clear", "undo", "undo-all", "export"):
+            result = mapper.invoke("looper.action", {**fences(), "action": action})
+            self.assertTrue(result["done"]); validate_operation_payload("looper.action", "result", result)
+        self.assertEqual(calls, ["record", "overdub", "play", "stop", "clear", "undo", "undo_all", "export"])
+        prop_state = mapper._specialized_state(device, [("speed", "speed"), ("loopLength", "loop_length"), ("tempo", "tempo"), ("fixedRecordLength", "fixed_record_length")])
+        result = mapper.invoke("looper.set", {**fences(), "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical(prop_state).encode()).hexdigest(), "speed": 2.0, "loopLength": 8.0, "fixedRecordLength": 16.0})
+        self.assertTrue(result["changed"]); self.assertEqual((device.speed, device.loop_length, device.fixed_record_length), (2.0, 8.0, 16.0))
+
+    def test_plugin_presets_editor_and_simpler_replace(self):
+        song = FakeSong()
+        plugin = FakeDevice(); plugin.name = "Plugin"; plugin.class_name = "PluginDevice"
+        plugin.presets = ["Init", "Warm", "Bright"]; plugin.selected_preset_index = 0; plugin.is_editor_open = False
+        simpler = FakeDevice(); simpler.name = "Simpler"; simpler.class_name = "SimplerDevice"
+        simpler.sample = type("Sample", (), {"file_path": "/old/a.wav"})()
+        def replace_sample(path): simpler.sample.file_path = path
+        simpler.replace_sample = replace_sample
+        song.tracks[0].devices = [plugin, simpler]
+        mapper = LiveObjectMapper(song)
+        self.assertTrue(mapper._operation_supported("plugin.set")); self.assertTrue(mapper._operation_supported("simpler.replace-sample"))
+        rows = mapper.snapshot()["tracks"][0]["devices"]
+        self.assertEqual(rows[0]["plugin"]["presets"], ["Init", "Warm", "Bright"]); self.assertFalse(rows[0]["plugin"]["isEditorOpen"])
+        state = {"presetIndex": 0, "isEditorOpen": False}
+        result = mapper.invoke("plugin.set", {"ref": rows[0]["ref"], "presetIndex": 2, "isEditorOpen": True, "expectedObjectIdentity": rows[0]["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical(state).encode()).hexdigest()})
+        self.assertTrue(result["changed"]); self.assertEqual((plugin.selected_preset_index, plugin.is_editor_open), (2, True))
+        with self.assertRaisesRegex(ValueError, "exceeds"): mapper.invoke("plugin.set", {"ref": rows[0]["ref"], "presetIndex": 99, "expectedObjectIdentity": rows[0]["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({"presetIndex": 2, "isEditorOpen": True}).encode()).hexdigest()})
+        sample_revision = hashlib.sha256(mapper._bounded_canonical({"filePath": "/old/a.wav"}).encode()).hexdigest()
+        result = mapper.invoke("simpler.replace-sample", {"ref": rows[1]["ref"], "filePath": "/new/b.wav", "expectedObjectIdentity": rows[1]["objectIdentity"], "expectedStateRevision": sample_revision})
+        self.assertTrue(result["changed"]); self.assertEqual(simpler.sample.file_path, "/new/b.wav")
+        with self.assertRaisesRegex(ValueError, "absolute path"): mapper.invoke("simpler.replace-sample", {"ref": rows[1]["ref"], "filePath": "b.wav", "expectedObjectIdentity": rows[1]["objectIdentity"], "expectedStateRevision": sample_revision})

@@ -830,6 +830,22 @@ class LiveObjectMapper:
             return any(any(callable(getattr(device, name, None)) for name in ("add_macro", "remove_macro", "randomize_macros", "insert_chain", "copy_pad", "store_variation", "recall_variation", "delete_variation")) for track in tracks for device in self._items(getattr(track, "devices", [])) if self._read_attr(device, "can_have_chains") is True)
         if operation == "rack.view.set":
             return any(getattr(device, "view", None) is not None for track in tracks for device in self._items(getattr(track, "devices", [])) if self._read_attr(device, "can_have_chains") is True)
+        if operation == "drift.set":
+            return any("drift" in str(self._read_attr(device, "class_name") or device.__class__.__name__).lower() and (self._read_attr(device, "pitch_bend_range") is not None or self._read_attr(device, "voice_count") is not None) for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "drum-cell.set":
+            return any("drumcell" in str(self._read_attr(device, "class_name") or device.__class__.__name__).lower().replace("_", "").replace(" ", "") and self._read_attr(device, "gain") is not None for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "eq8.set":
+            return any("eq8" in str(self._read_attr(device, "class_name") or device.__class__.__name__).lower().replace("_", "").replace(" ", "") and (self._read_attr(device, "edit_mode") is not None or self._read_attr(device, "global_mode") is not None or self._read_attr(device, "oversampling") is not None) for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "hybrid-reverb.set":
+            return any("hybridreverb" in str(self._read_attr(device, "class_name") or device.__class__.__name__).lower().replace("_", "").replace(" ", "") and (self._read_attr(device, "attack") is not None or self._read_attr(device, "decay") is not None or self._read_attr(device, "size") is not None) for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation in {"looper.action", "looper.set"}:
+            return any("looper" in str(self._read_attr(device, "class_name") or device.__class__.__name__).lower() and (any(callable(getattr(device, name, None)) for name in ("record", "overdub", "play", "stop", "clear")) or self._read_attr(device, "speed") is not None) for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "meld.set":
+            return any("meld" in str(self._read_attr(device, "class_name") or device.__class__.__name__).lower() and (self._read_attr(device, "selected_engine") is not None or self._read_attr(device, "unison") is not None or self._read_attr(device, "polyphony") is not None) for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "plugin.set":
+            return any(self._read_attr(device, "is_editor_open") is not None or self._read_attr(device, "presets") is not None for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "simpler.replace-sample":
+            return any(callable(getattr(device, "replace_sample", None)) for track in tracks for device in self._items(getattr(track, "devices", [])))
         return False
 
     def capabilities(self, operations: set[str] | None = None) -> list[str]:
@@ -1196,6 +1212,7 @@ class LiveObjectMapper:
             "latencySamples": int(self._read_attr(device, "latency_in_samples")) if isinstance(self._read_attr(device, "latency_in_samples"), int) and not isinstance(self._read_attr(device, "latency_in_samples"), bool) else None,
             "latencyMs": float(self._read_attr(device, "latency_in_ms")) if isinstance(self._read_attr(device, "latency_in_ms"), (int, float)) and not isinstance(self._read_attr(device, "latency_in_ms"), bool) and math.isfinite(float(self._read_attr(device, "latency_in_ms"))) else None,
             "parameterBank": int(parameter_bank) if isinstance(parameter_bank, int) and not isinstance(parameter_bank, bool) else None,
+            **self._specialized_rows(device, device_ref),
             "comparison": {
                 "capability": self._read_attr(device, "can_compare") if isinstance(self._read_attr(device, "can_compare"), bool) else None,
                 "activeSide": int(self._read_attr(device, "compare_active_side")) if isinstance(self._read_attr(device, "compare_active_side"), int) and not isinstance(self._read_attr(device, "compare_active_side"), bool) else None,
@@ -2285,6 +2302,24 @@ class LiveObjectMapper:
             return self._rack_action(args)
         if operation == "rack.view.set":
             return self._rack_view_set(args)
+        if operation == "drift.set":
+            return self._drift_set(args)
+        if operation == "drum-cell.set":
+            return self._drum_cell_set(args)
+        if operation == "eq8.set":
+            return self._eq8_set(args)
+        if operation == "hybrid-reverb.set":
+            return self._hybrid_reverb_set(args)
+        if operation == "looper.action":
+            return self._looper_action(args)
+        if operation == "looper.set":
+            return self._looper_set(args)
+        if operation == "meld.set":
+            return self._meld_set(args)
+        if operation == "plugin.set":
+            return self._plugin_set(args)
+        if operation == "simpler.replace-sample":
+            return self._simpler_replace_sample(args)
         if operation == "take-lane.create":
             return self._take_lane_create(args)
         if operation == "take-lane.rename":
@@ -5062,6 +5097,235 @@ class LiveObjectMapper:
             view.is_showing_chain_devices = value
         revision = self.refs.touch(reference)
         return {"changed": True, "revision": revision}
+
+    def _specialized_rows(self, device: Any, device_ref: str) -> dict[str, Any]:
+        class_name = str(self._read_attr(device, "class_name") or device.__class__.__name__).lower()
+        normalized = class_name.replace("_", "").replace(" ", "")
+        rows: dict[str, Any] = {}
+        if "drift" in class_name:
+            sources = self._items(self._read_attr(device, "mod_sources") or [])[:64]
+            targets = self._items(self._read_attr(device, "mod_targets") or [])[:64]
+            rows["drift"] = {
+                "modSources": [str(self._read_attr(item, "name") or item) for item in sources],
+                "modTargets": [str(self._read_attr(item, "name") or item) for item in targets],
+                "pitchBendRange": self._read_attr(device, "pitch_bend_range") if isinstance(self._read_attr(device, "pitch_bend_range"), int) and not isinstance(self._read_attr(device, "pitch_bend_range"), bool) else None,
+                "voiceCount": self._read_attr(device, "voice_count") if isinstance(self._read_attr(device, "voice_count"), int) and not isinstance(self._read_attr(device, "voice_count"), bool) else None,
+                "voiceMode": self._read_attr(device, "voice_mode") if isinstance(self._read_attr(device, "voice_mode"), int) and not isinstance(self._read_attr(device, "voice_mode"), bool) else None,
+            }
+        if "plugindevice" in normalized or self._read_attr(device, "presets") is not None:
+            presets = self._items(self._read_attr(device, "presets") or [])[:256]
+            rows["plugin"] = {
+                "presets": [str(self._read_attr(item, "name") or item) for item in presets],
+                "selectedPresetIndex": self._read_attr(device, "selected_preset_index") if isinstance(self._read_attr(device, "selected_preset_index"), int) and not isinstance(self._read_attr(device, "selected_preset_index"), bool) else None,
+                "isEditorOpen": self._read_attr(device, "is_editor_open") if isinstance(self._read_attr(device, "is_editor_open"), bool) else None,
+            }
+        if "maxdevice" in normalized:
+            rows["maxDevice"] = {
+                "audioIns": [str(self._read_attr(item, "name") or item) for item in self._items(self._read_attr(device, "audio_ins") or [])][:32],
+                "audioOuts": [str(self._read_attr(item, "name") or item) for item in self._items(self._read_attr(device, "audio_outs") or [])][:32],
+                "midiIns": [str(self._read_attr(item, "name") or item) for item in self._items(self._read_attr(device, "midi_ins") or [])][:32],
+                "midiOuts": [str(self._read_attr(item, "name") or item) for item in self._items(self._read_attr(device, "midi_outs") or [])][:32],
+            }
+        return rows
+
+    def _specialized_state(self, device: Any, specs: list[tuple[str, str]]) -> dict[str, Any]:
+        state = {}
+        for field, attr in specs:
+            state[field] = self._read_attr(device, attr)
+        return state
+
+    def _specialized_set(self, reference: str, args: dict[str, Any], fields: dict[str, tuple[str, Any]], family: str) -> dict[str, Any]:
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:"): raise ValueError("device reference is stale or invalid")
+        device = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("device identity changed since preview")
+        specs = [(field, spec[0]) for field, spec in fields.items()]
+        state = self._specialized_state(device, specs)
+        state_revision = hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError(f"{family} state changed since preview")
+        proposals = []
+        for field, value in args.items():
+            if field not in fields: continue
+            attribute, validator = fields[field]
+            if not validator(value): raise ValueError(f"{field} is invalid")
+            if self._read_attr(device, attribute) is None: raise ValueError(f"{attribute} is unavailable on this device")
+            proposals.append((field, attribute, value))
+        if not proposals: raise ValueError(f"{family} mutation has no fields")
+        assignments = [(field, attribute, value, self._read_attr(device, attribute)) for field, attribute, value in proposals]
+        before_revision = state_revision
+        try:
+            for _, attribute, value, _ in assignments: setattr(device, attribute, value)
+            for field, _, value, _ in assignments:
+                observed = self._read_attr(device, fields[field][0])
+                if isinstance(value, bool):
+                    if observed is not value: raise ValueError(f"{family} change was not confirmed")
+                elif not isinstance(observed, (int, float)) or isinstance(observed, bool) or float(observed) != float(value): raise ValueError(f"{family} change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for _, attribute, _, prior in reversed(assignments):
+                try: setattr(device, attribute, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or hashlib.sha256(self._bounded_canonical(self._specialized_state(device, specs)).encode("utf-8")).hexdigest() != before_revision: raise ValueError(f"{family} change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _drift_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._specialized_set(str(args.get("ref")), args, {
+            "pitchBendRange": ("pitch_bend_range", lambda value: isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 96),
+            "voiceCount": ("voice_count", lambda value: isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 64),
+            "voiceMode": ("voice_mode", lambda value: isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 8),
+        }, "drift")
+
+    def _drum_cell_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        if "gain" not in args: raise ValueError("drum-cell mutation has no fields")
+        return self._specialized_set(str(args.get("ref")), args, {
+            "gain": ("gain", lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and -70 <= float(value) <= 24),
+        }, "drum-cell")
+
+    def _eq8_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._specialized_set(str(args.get("ref")), args, {
+            "editMode": ("edit_mode", lambda value: isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 4),
+            "globalMode": ("global_mode", lambda value: isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 4),
+            "oversampling": ("oversampling", lambda value: isinstance(value, bool)),
+            "selectedBand": ("selected_band", lambda value: isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 8),
+        }, "eq8")
+
+    def _hybrid_reverb_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = str(args.get("ref"))
+        device = self.refs.get(reference) if isinstance(reference, str) and reference.startswith(f"{self.refs.epoch}:device:") else None
+        if device is None: raise ValueError("device reference is stale or invalid")
+        ir_handled = False
+        if "irCategory" in args or "irFile" in args:
+            if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("device identity changed since preview")
+            if "irCategory" in args:
+                value = args["irCategory"]
+                if not isinstance(value, str) or not 1 <= len(value) <= 128: raise ValueError("irCategory is invalid")
+                available = [str(self._read_attr(item, "name") or item) for item in self._items(self._read_attr(device, "available_ir_categories") or [])]
+                if available and value not in available: raise ValueError("irCategory is not an available choice")
+                prior = self._read_attr(device, "ir_category")
+                try: device.ir_category = value
+                except BaseException as error: raise ValueError("IR category change failed") from error
+                observed = self._read_attr(device, "ir_category")
+                observed_name = str(self._read_attr(observed, "name") or observed or "")
+                if observed_name != value and (not isinstance(observed, str) or observed != value):
+                    try: device.ir_category = prior
+                    except BaseException: pass
+                    raise ValueError("IR category change was not confirmed")
+                ir_handled = True
+            if "irFile" in args:
+                value = args["irFile"]
+                if not isinstance(value, str) or not 1 <= len(value) <= 256: raise ValueError("irFile is invalid")
+                available = [str(self._read_attr(item, "name") or item) for item in self._items(self._read_attr(device, "available_ir_files") or [])]
+                if available and value not in available: raise ValueError("irFile is not an available choice")
+                prior = self._read_attr(device, "ir_file")
+                try: device.ir_file = value
+                except BaseException as error: raise ValueError("IR file change failed") from error
+                observed = self._read_attr(device, "ir_file")
+                observed_name = str(self._read_attr(observed, "name") or observed or "")
+                if observed_name != value and (not isinstance(observed, str) or observed != value):
+                    try: device.ir_file = prior
+                    except BaseException: pass
+                    raise ValueError("IR file change was not confirmed")
+                ir_handled = True
+        if any(field in args for field in ("attack", "decay", "size", "time")):
+            return self._specialized_set(reference, args, {
+                "attack": ("attack", lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 10000),
+                "decay": ("decay", lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 100000),
+                "size": ("size", lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 10000),
+                "time": ("time", lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 100000),
+            }, "hybrid-reverb")
+        if not ir_handled: raise ValueError("hybrid-reverb mutation has no fields")
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _meld_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._specialized_set(str(args.get("ref")), args, {
+            "engine": ("selected_engine", lambda value: isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 4),
+            "unison": ("unison", lambda value: isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 16),
+            "monoPoly": ("mono_poly", lambda value: isinstance(value, bool)),
+            "polyphony": ("polyphony", lambda value: isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 64),
+        }, "meld")
+
+    def _plugin_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = str(args.get("ref"))
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or set(args) - {"ref", "presetIndex", "isEditorOpen", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("plugin authority is invalid")
+        device = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("device identity changed since preview")
+        state = {"presetIndex": self._read_attr(device, "selected_preset_index") if isinstance(self._read_attr(device, "selected_preset_index"), int) and not isinstance(self._read_attr(device, "selected_preset_index"), bool) else None,
+                 "isEditorOpen": self._read_attr(device, "is_editor_open") if isinstance(self._read_attr(device, "is_editor_open"), bool) else None}
+        state_revision = hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("plugin state changed since preview")
+        if "presetIndex" in args:
+            value = args["presetIndex"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 1024: raise ValueError("presetIndex is invalid")
+            presets = self._items(self._read_attr(device, "presets") or [])
+            if not presets: raise ValueError("preset selection is unavailable on this device")
+            if value >= len(presets): raise ValueError("presetIndex exceeds the available preset collection")
+            prior_index = self._read_attr(device, "selected_preset_index")
+            try: device.selected_preset_index = value
+            except BaseException as error: raise ValueError("preset selection failed") from error
+            if self._read_attr(device, "selected_preset_index") != value:
+                try: device.selected_preset_index = prior_index
+                except BaseException: pass
+                raise ValueError("preset selection was not confirmed")
+        if "isEditorOpen" in args:
+            value = args["isEditorOpen"]
+            if not isinstance(value, bool): raise ValueError("isEditorOpen is invalid")
+            prior = self._read_attr(device, "is_editor_open")
+            if not isinstance(prior, bool): raise ValueError("editor state is unavailable on this device")
+            try: device.is_editor_open = value
+            except BaseException as error: raise ValueError("editor state change failed") from error
+            if self._read_attr(device, "is_editor_open") is not value:
+                try: device.is_editor_open = prior
+                except BaseException: pass
+                raise ValueError("editor state change was not confirmed")
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _simpler_replace_sample(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = str(args.get("ref"))
+        file_path = args.get("filePath")
+        if not isinstance(file_path, str) or not 1 <= len(file_path) <= 1024 or not (file_path.startswith("/") or (len(file_path) > 2 and file_path[1] == ":" and file_path[0].isalpha())): raise ValueError("filePath must be an absolute path")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or set(args) - {"ref", "filePath", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("simpler authority is invalid")
+        device = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("device identity changed since preview")
+        sample = self._read_attr(device, "sample")
+        current_path = str(self._read_attr(sample, "file_path") or "") if sample is not None else ""
+        state_revision = hashlib.sha256(self._bounded_canonical({"filePath": current_path}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("simpler sample state changed since preview")
+        replacer = getattr(device, "replace_sample", None)
+        if not callable(replacer): raise ValueError("sample replacement is unavailable on this device")
+        replacer(file_path)
+        after = self._read_attr(device, "sample")
+        after_path = str(self._read_attr(after, "file_path") or "") if after is not None else ""
+        if after_path == current_path and current_path != file_path: raise ValueError("sample replacement was not confirmed")
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision, "filePath": after_path or file_path}
+
+    _LOOPER_ACTIONS = {"record", "overdub", "play", "stop", "clear", "undo", "undo-all", "export"}
+
+    def _looper_action(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref"); action = args.get("action")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or action not in self._LOOPER_ACTIONS or set(args) - {"ref", "action", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("looper action authority is invalid")
+        device = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("device identity changed since preview")
+        state = {"speed": self._read_attr(device, "speed"), "loopLength": self._read_attr(device, "loop_length"), "state": self._read_attr(device, "state")}
+        state_revision = hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("looper state changed since preview")
+        method_name = {"record": "record", "overdub": "overdub", "play": "play", "stop": "stop", "clear": "clear", "undo": "undo", "undo-all": "undo_all", "export": "export"}[action]
+        method = getattr(device, method_name, None)
+        if not callable(method): raise ValueError(f"looper action {action} is unavailable on this device shape")
+        method()
+        revision = self.refs.touch(reference)
+        return {"done": True, "revision": revision}
+
+    def _looper_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._specialized_set(str(args.get("ref")), args, {
+            "speed": ("speed", lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and -4 <= float(value) <= 4),
+            "loopLength": ("loop_length", lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 1000000),
+            "tempo": ("tempo", lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 20 <= float(value) <= 999),
+            "fixedRecordLength": ("fixed_record_length", lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 1000000),
+        }, "looper")
 
     def _slot_state_fields(self, slot: Any) -> dict[str, Any]:
         def optional_bool(name: str) -> bool | None:

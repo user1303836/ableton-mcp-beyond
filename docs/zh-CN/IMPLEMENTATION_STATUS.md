@@ -98,6 +98,17 @@
   复制与变体保存/召回/删除作为瞬时动作;机架视图所选链/垫、垫滚动
   位置与链设备可见性,带精确恢复。已在宿主、模拟器、Python 契约与
   打包 fake-Live 层面验证;精确候选的真实 Live 证明待完成。
+- 专用设备 API:Drift 调制矩阵源/目标列表、弯音范围与复音数/模式;
+  鼓单元语义增益;Eq8 编辑与全局模式、过采样与所选频段;Hybrid Reverb
+  IR 类别/文件选择及 attack、decay、size、time 塑形;Meld 所选引擎、
+  齐奏、单/复音模式与复音数;Max 设备音频/MIDI IO 描述符在行上;插件
+  预置发现/选择与编辑器窗口状态(读/写);Looper record/overdub/play/
+  stop/clear/undo/export 作为瞬时动作,以及速度、循环长度、速度与固定
+  录音长度带精确撤销;按能力协商的 Simpler `replace_sample`,带与音频
+  导入同级的显式文件权限与逆向替换撤销。每个家族仅在设备类与成员在
+  所连 Live 构建上存在时才宣告;首个支持的 Live 版本记录在能力矩阵中。
+  已在宿主、模拟器、Python 契约与打包 fake-Live 层面验证;精确候选的
+  真实 Live 证明待完成。
 - 性能与延迟诊断:`Application.average_process_usage` 与
   `peak_process_usage`、逐轨道输入/输出电平表与 `performance_impact`、
   以采样和毫秒计的设备延迟,合并为一次有界按需采样。遥测仅为时间点

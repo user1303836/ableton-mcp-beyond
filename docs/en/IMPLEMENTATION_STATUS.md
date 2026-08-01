@@ -105,6 +105,21 @@ are. Source, schemas, and tests are the final authority.
   history) is documented rather than implied. Verified at the host,
   simulator, Python contract, and packaged fake-Live levels; exact-candidate
   real-Live proof is pending.
+- Specialized device APIs: Drift modulation-matrix source/target lists,
+  pitch-bend range, and voice count/mode; Drum Cell semantic gain; Eq8 edit
+  and global modes, oversampling, and selected band; Hybrid Reverb IR
+  category/file selection plus attack, decay, size, and time shaping; Meld
+  selected engine, unison, mono/poly mode, and polyphony; Max device
+  audio/MIDI IO descriptors on rows; plug-in preset discovery/selection and
+  editor-window state (read/write); Looper record/overdub/play/stop/clear/
+  undo/export as momentary actions and speed, loop length, tempo, and fixed
+  record length with exact undo; and capability-gated Simpler
+  `replace_sample` with the same explicit file authority as audio import and
+  an inverse-replacement undo. Each family advertises only when the device
+  class and the members exist on the connected Live build; first-supported
+  Live versions are recorded in the capability matrix. Verified at the host,
+  simulator, Python contract, and packaged fake-Live levels; exact-candidate
+  real-Live proof is pending.
 - Chain, rack, macro, and drum pad surfaces: chain color/index, auto-color,
   audio/MIDI I/O flags, muted-via-solo, and typed chain mixers on rows with
   chain color/mute/solo edits restoring exactly; drum-chain input/output
