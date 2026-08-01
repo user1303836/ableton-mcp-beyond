@@ -17,6 +17,8 @@
 | 读取轨道健康与状态 | `live_snapshot`、`live_discover` | 每行轨道暴露编组关系、可见性、选中成员、冻结/折叠状态、隐式 arm、回到编排水位、独奏致 mute、全部输入/输出电平表与性能影响 |
 | 删除现有设备 | `live_device_delete_preview/apply` | 带精确身份与兄弟栅栏显式删除现有设备;诚实不可撤销 |
 | 轨道视图与乐器聚焦 | `live_track_view_preview/apply` | 折叠状态与设备插入模式,带精确撤销,另有 Live 设备视图中的乐器选择(瞬时,不可撤销) |
+| 驱动 Live 的选择与视图 | `live_selection_preview/apply`、`live_clip_view_preview/apply`、`live_device_view_preview/apply`、`live_view_preview/apply` | Song.View 选择(轨道、场景、高亮槽、详情剪辑、设备、参数、链)、绘制模式、剪辑网格量化/三连音/包络可见与 show-loop、设备折叠(按形态协商)、主视图切换/隐藏/聚焦、缩放/滚动、跟随播放、轨道折叠与 Browser 模式切换 —— 状态可恢复处均带精确恢复 |
+| 应用对话框 | `live_application_dialog_preview/apply` | 读取当前对话框状态,仅在预览的状态仍精确成立时按下一个对话框按钮 —— 对话框按钮可能有破坏性,状态一变即拒绝 |
 | 创建 MIDI 剪辑并写入音符 | `live_midi_clip_preview/apply`、`live_note_update_preview/apply`、`live_note_delete_preview/apply` | 完整表情字段:velocity、channel、probability、velocity deviation、release velocity、mute;稳定音符 ID;每个剪辑一次原子批量 |
 | 调整设备和插件参数 | `live_device_parameter_preview/apply` | 作用于具有权威边界的已发布数值参数;写入后验证;含受护栏撤销 |
 | 加载乐器、效果和预置 | `live_browser_search`、`live_browser_load_preview/apply` | 把确切的 Browser 项目加载到选定轨道;插件必须在 Live 自己的 Browser 中可见 |

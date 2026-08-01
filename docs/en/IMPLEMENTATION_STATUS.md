@@ -96,6 +96,18 @@ are. Source, schemas, and tests are the final authority.
   state is reported and the decision is documented. Verified at the host,
   simulator, Python contract, and packaged fake-Live levels; exact-candidate
   real-Live proof is pending.
+- Song.View selections (track, scene, highlighted slot, detail clip,
+  device, parameter, chain) and draw mode with exact restore; clip view
+  grid quantization, triplet grid, envelope visibility, and show-loop;
+  device collapsed state (exposed only where Live supports it);
+  Application.View main-view switch/hide/focus, zoom/scroll, follow-song,
+  track collapse, and Browser-mode toggle; and the application dialog
+  surface — state reads plus one guarded button press that is refused the
+  moment the previewed dialog state changes, because dialog buttons can be
+  destructive. Device.View collapse remains shape-gated: where Live does
+  not expose it, the operation reports unavailable instead of pretending.
+  Verified at the host, simulator, Python contract, and packaged fake-Live
+  levels; exact-candidate real-Live proof is pending.
 - Track rows now expose group-track relationship, visibility, selection
   membership, frozen/fold state, implicit arm, back-to-arranger,
   muted-via-solo, all input/output meters, and performance impact, plus

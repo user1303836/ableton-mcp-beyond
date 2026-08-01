@@ -609,7 +609,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "8ec75548fcbc5cf5fc1d1d24551daeb3f21aa2b835b91749287bbdacdccff1e8")
+        self.assertEqual(digest, "25ea16d908460b40b571eec27c7f4d83dc35c3d9fd31e813f6177b4ea766305e")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -3368,3 +3368,91 @@ class TrackStructureExpansionTests(unittest.TestCase):
         result = mapper.invoke("track.select-instrument", fences())
         self.assertEqual(result, {"done": True}); self.assertEqual(selected, [True])
         with self.assertRaisesRegex(ValueError, "no fields"): mapper.invoke("track.view.set", fences())
+
+
+class SelectionViewExpansionTests(unittest.TestCase):
+    def test_selection_set_assigns_song_view_selections(self):
+        song = FakeSong()
+        track = song.tracks[0]; scene = song.scenes[0]; slot = track.clip_slots[0]; device = track.devices[0]; parameter = device.parameters[0]
+        song.view = type("SongView", (), {"selected_track": None, "selected_scene": None, "highlighted_clip_slot": None, "detail_clip": None, "selected_device": None, "selected_parameter": None, "selected_chain": None})()
+        clip = FakeClip(4.0); slot.clip = clip
+        mapper = LiveObjectMapper(song)
+        self.assertTrue(mapper._operation_supported("selection.set"))
+        snapshot = mapper.snapshot()
+        track_ref = snapshot["tracks"][0]["ref"]; scene_ref = snapshot["scenes"][0]["ref"]; slot_ref = snapshot["tracks"][0]["clipSlots"][0]["ref"]; clip_ref = snapshot["tracks"][0]["clips"][0]["ref"]
+        device_ref = snapshot["tracks"][0]["devices"][0]["ref"]; parameter_ref = snapshot["tracks"][0]["devices"][0]["parameters"][0]["ref"]
+        args = {"trackRef": track_ref, "sceneRef": scene_ref, "slotRef": slot_ref, "detailClipRef": clip_ref, "deviceRef": device_ref, "parameterRef": parameter_ref, "expectedStateRevision": mapper._selection_revision()}
+        result = mapper.invoke("selection.set", args)
+        self.assertTrue(result["changed"]); validate_operation_payload("selection.set", "result", result)
+        self.assertIs(song.view.selected_track, track); self.assertIs(song.view.selected_scene, scene)
+        self.assertIs(song.view.highlighted_clip_slot, slot); self.assertIs(song.view.detail_clip, clip)
+        self.assertIs(song.view.selected_device, device); self.assertIs(song.view.selected_parameter, parameter)
+        cleared = mapper.invoke("selection.set", {"detailClipRef": None, "expectedStateRevision": mapper._selection_revision()})
+        self.assertTrue(cleared["changed"]); self.assertIsNone(song.view.detail_clip)
+        stale = dict(args, expectedStateRevision="0" * 64)
+        with self.assertRaisesRegex(ValueError, "changed since preview"): mapper.invoke("selection.set", stale)
+
+    def test_song_view_draw_mode_clip_view_and_device_view(self):
+        song = FakeSong()
+        song.view = type("SongView", (), {"draw_mode": False})()
+        clip = FakeClip(4.0)
+        clip.view = type("ClipView", (), {"grid_quantization": 1, "triplet_grid": False, "show_envelope": False})()
+        clip.view.show_loop = lambda: setattr(clip.view, "_loop_shown", True)
+        song.tracks[0].clip_slots[0].clip = clip
+        device = song.tracks[0].devices[0]
+        device.view = type("DeviceView", (), {"is_collapsed": False})()
+        mapper = LiveObjectMapper(song)
+        self.assertTrue(mapper._operation_supported("song.view.set"))
+        draw_revision = hashlib.sha256(mapper._bounded_canonical({"drawMode": False}).encode()).hexdigest()
+        result = mapper.invoke("song.view.set", {"drawMode": True, "expectedStateRevision": draw_revision})
+        self.assertTrue(result["changed"]); validate_operation_payload("song.view.set", "result", result); self.assertTrue(song.view.draw_mode)
+        self.assertTrue(mapper._operation_supported("clip.view.set"))
+        row = mapper.snapshot()["tracks"][0]["clips"][0]
+        def clip_fences():
+            return {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical(mapper._clip_view_state(clip)).encode()).hexdigest()}
+        result = mapper.invoke("clip.view.set", {**clip_fences(), "gridQuantization": 4, "tripletGrid": True, "showEnvelope": True, "showLoop": True})
+        self.assertTrue(result["changed"]); validate_operation_payload("clip.view.set", "result", result)
+        self.assertEqual((clip.view.grid_quantization, clip.view.triplet_grid, clip.view.show_envelope), (4, True, True))
+        self.assertTrue(getattr(clip.view, "_loop_shown", False))
+        self.assertTrue(mapper._operation_supported("device.view.set"))
+        device_row = mapper.snapshot()["tracks"][0]["devices"][0]
+        collapsed_revision = hashlib.sha256(mapper._bounded_canonical({"collapsed": False}).encode()).hexdigest()
+        result = mapper.invoke("device.view.set", {"ref": device_row["ref"], "collapsed": True, "expectedObjectIdentity": device_row["objectIdentity"], "expectedStateRevision": collapsed_revision})
+        self.assertTrue(result["changed"]); validate_operation_payload("device.view.set", "result", result)
+        self.assertTrue(device.view.is_collapsed)
+
+    def test_application_dialog_read_and_guarded_press(self):
+        class FakeApp:
+            def __init__(self): self._state = 1; self.pressed = []
+            def get_dialog_state(self): return self._state
+            def press_dialog_button(self, button): self.pressed.append(button); self._state = 0
+        song = FakeSong(); app = FakeApp()
+        mapper = LiveObjectMapper(song); mapper._application = lambda: app
+        self.assertTrue(mapper._operation_supported("application.dialog"))
+        result = mapper.invoke("application.dialog", {"action": "read"})
+        self.assertEqual(result, {"state": 1, "done": True}); validate_operation_payload("application.dialog", "result", result)
+        result = mapper.invoke("application.dialog", {"action": "press", "button": 2, "expectedState": 1})
+        self.assertEqual(result, {"state": 0, "done": True}); self.assertEqual(app.pressed, [2])
+        with self.assertRaisesRegex(ValueError, "changed since preview"): mapper.invoke("application.dialog", {"action": "press", "button": 1, "expectedState": 1})
+        with self.assertRaisesRegex(ValueError, "invalid"): mapper.invoke("application.dialog", {"action": "press", "button": 99, "expectedState": 0})
+
+    def test_view_control_browser_toggle_and_hide_focus(self):
+        class FakeAppView:
+            def __init__(self): self.visible = "Session"; self.toggles = 0; self.hidden = []; self.focused = []
+            def show_view(self, name): self.visible = name
+            def is_view_visible(self, name): return self.visible == name
+            def zoom_view(self, *args): pass
+            def scroll_view(self, *args): pass
+            def toggle_browse(self): self.toggles += 1
+            def hide_view(self, name): self.hidden.append(name)
+            def focus_view(self, name): self.focused.append(name)
+        class FakeApplication: pass
+        song = FakeSong(); song.view = type("SongView", (), {"follow_song": False})()
+        application = FakeApplication(); application.view = FakeAppView()
+        mapper = LiveObjectMapper(song); mapper._application = lambda: application
+        result = mapper.invoke("view.control", {"action": "browser-toggle"})
+        self.assertEqual(result, {"action": "browser-toggle", "done": True}); self.assertEqual(application.view.toggles, 1)
+        mapper.invoke("view.control", {"action": "hide-view", "view": "Browser"})
+        mapper.invoke("view.control", {"action": "focus-view", "view": "Arranger"})
+        self.assertEqual(application.view.hidden, ["Browser"]); self.assertEqual(application.view.focused, ["Arranger"])
+        with self.assertRaisesRegex(ValueError, "view name is required"): mapper.invoke("view.control", {"action": "hide-view"})

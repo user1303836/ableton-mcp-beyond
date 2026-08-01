@@ -3,6 +3,57 @@
   "protocol": "ableton-live/v1",
   "operations": [
     {
+      "id": "application.dialog",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "read",
+              "press"
+            ]
+          },
+          "button": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16
+          },
+          "expectedState": {
+            "type": "integer",
+            "minimum": -1,
+            "maximum": 1024
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": -1,
+            "maximum": 1024
+          },
+          "done": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "state",
+          "done"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "id": "arrangement.audio-clip.create",
       "method": "invoke",
       "request": {
@@ -3137,6 +3188,70 @@
       }
     },
     {
+      "id": "clip.view.set",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "gridQuantization": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16
+          },
+          "tripletGrid": {
+            "type": "boolean"
+          },
+          "showEnvelope": {
+            "type": "boolean"
+          },
+          "showLoop": {
+            "type": "boolean"
+          },
+          "expectedObjectIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedStateRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "ref",
+          "expectedObjectIdentity",
+          "expectedStateRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "boolean",
+            "const": true
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "changed",
+          "revision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "id": "device.delete",
       "method": "invoke",
       "request": {
@@ -3720,6 +3835,60 @@
         "required": [
           "renamed",
           "name"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "device.view.set",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "collapsed": {
+            "type": "boolean"
+          },
+          "expectedObjectIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedStateRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "ref",
+          "collapsed",
+          "expectedObjectIdentity",
+          "expectedStateRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "boolean",
+            "const": true
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "changed",
+          "revision"
         ],
         "additionalProperties": false
       }
@@ -6945,6 +7114,101 @@
       }
     },
     {
+      "id": "selection.set",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "trackRef": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "sceneRef": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "slotRef": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "deviceRef": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "parameterRef": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "chainRef": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedStateRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "detailClipRef": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "expectedStateRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "boolean",
+            "const": true
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "changed",
+          "revision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "id": "session.audio-clip.create",
       "method": "invoke",
       "request": {
@@ -8619,6 +8883,48 @@
       }
     },
     {
+      "id": "song.view.set",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "drawMode": {
+            "type": "boolean"
+          },
+          "expectedStateRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "expectedStateRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "boolean",
+            "const": true
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "changed",
+          "revision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "id": "status",
       "method": "status",
       "request": {
@@ -10070,13 +10376,21 @@
               "follow-on",
               "follow-off",
               "collapse-track",
-              "expand-track"
+              "expand-track",
+              "hide-view",
+              "focus-view",
+              "browser-toggle"
             ]
           },
           "trackRef": {
             "type": "string",
             "minLength": 1,
             "maxLength": 256
+          },
+          "view": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
           }
         },
         "required": [
@@ -10097,7 +10411,10 @@
               "follow-on",
               "follow-off",
               "collapse-track",
-              "expand-track"
+              "expand-track",
+              "hide-view",
+              "focus-view",
+              "browser-toggle"
             ]
           },
           "done": {

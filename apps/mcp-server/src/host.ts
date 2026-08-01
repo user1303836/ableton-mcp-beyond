@@ -178,7 +178,7 @@ interface NoteEditTransaction {
 interface ClipLifecycleTransaction {
   id: string;
   epoch: number;
-  kind: "rename" | "duplicate" | "arrangement-create" | "arrangement-delete" | "arrangement-audio-create" | "arrangement-take-lane-create" | "move" | "audio-set" | "mixer-set" | "automation" | "browser-load" | "device" | "routing-set" | "recording" | "backup" | "realtime-arm" | "capture-midi" | "scene-capture" | "view" | "locator-jump" | "clip-set" | "session-audio-create" | "warp-marker" | "clip-action" | "note-target" | "tuning" | "groove" | "scene-set" | "scene-fire" | "transport-action" | "track-structure" | "device-delete" | "track-view";
+  kind: "rename" | "duplicate" | "arrangement-create" | "arrangement-delete" | "arrangement-audio-create" | "arrangement-take-lane-create" | "move" | "audio-set" | "mixer-set" | "automation" | "browser-load" | "device" | "routing-set" | "recording" | "backup" | "realtime-arm" | "capture-midi" | "scene-capture" | "view" | "locator-jump" | "clip-set" | "session-audio-create" | "warp-marker" | "clip-action" | "note-target" | "tuning" | "groove" | "scene-set" | "scene-fire" | "transport-action" | "track-structure" | "device-delete" | "track-view" | "selection" | "clip-view" | "device-view" | "dialog";
   fence: string;
   clipRef?: LiveRef;
   payload: Record<string, unknown>;
@@ -762,7 +762,7 @@ const implementedTools = [
   {
     name: "live_view_preview",
     description: "Read-only preflight for switching Live's main view or controlling the Arrangement view (zoom, scroll, follow, track collapse).",
-    inputSchema: { type: "object", properties: { view: { type: "string", minLength: 1, maxLength: 64 }, action: { type: "string", enum: ["zoom-in", "zoom-out", "scroll-left", "scroll-right", "follow-on", "follow-off", "collapse-track", "expand-track"] }, trackRef: { type: "string", minLength: 1, maxLength: 256 } }, additionalProperties: false },
+    inputSchema: { type: "object", properties: { view: { type: "string", minLength: 1, maxLength: 64 }, action: { type: "string", enum: ["zoom-in", "zoom-out", "scroll-left", "scroll-right", "follow-on", "follow-off", "collapse-track", "expand-track", "hide-view", "focus-view", "browser-toggle"] }, trackRef: { type: "string", minLength: 1, maxLength: 256 } }, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   },
   {
@@ -951,6 +951,54 @@ const implementedTools = [
     inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   },
+  {
+    name: "live_selection_preview",
+    description: "Read-only preflight for setting Song.View selections (track, scene, highlighted slot, detail clip, device, parameter, chain) and draw mode, with exact restore.",
+    inputSchema: { type: "object", properties: { trackRef: { type: ["string", "null"], minLength: 1, maxLength: 256 }, sceneRef: { type: ["string", "null"], minLength: 1, maxLength: 256 }, slotRef: { type: ["string", "null"], minLength: 1, maxLength: 256 }, detailClipRef: { type: ["string", "null"], minLength: 1, maxLength: 256 }, deviceRef: { type: ["string", "null"], minLength: 1, maxLength: 256 }, parameterRef: { type: ["string", "null"], minLength: 1, maxLength: 256 }, chainRef: { type: ["string", "null"], minLength: 1, maxLength: 256 }, drawMode: { type: "boolean" } }, additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_selection_apply",
+    description: "Apply an exact, unexpired selection preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_clip_view_preview",
+    description: "Read-only preflight for clip view state: grid quantization, triplet grid, envelope visibility, and show-loop.",
+    inputSchema: { type: "object", properties: { clipRef: { type: "string", minLength: 1, maxLength: 256 }, gridQuantization: { type: "integer", minimum: 0, maximum: 16 }, tripletGrid: { type: "boolean" }, showEnvelope: { type: "boolean" }, showLoop: { type: "boolean" } }, required: ["clipRef"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_clip_view_apply",
+    description: "Apply an exact, unexpired clip-view preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_device_view_preview",
+    description: "Read-only preflight for a device's collapsed state in Live's chain view (exposed only where Live supports it).",
+    inputSchema: { type: "object", properties: { ref: { type: "string", minLength: 1, maxLength: 256 }, collapsed: { type: "boolean" } }, required: ["ref", "collapsed"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_device_view_apply",
+    description: "Apply an exact, unexpired device-view preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_application_dialog_preview",
+    description: "Read the current application dialog state and preflight one guarded dialog-button press. Dialog buttons can be destructive (save/discard); the press fences on the exact observed state.",
+    inputSchema: { type: "object", properties: { button: { type: "integer", minimum: 0, maximum: 16 } }, additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: true, openWorldHint: true },
+  },
+  {
+    name: "live_application_dialog_apply",
+    description: "Press the previewed dialog button only if the dialog state still exactly matches the preview.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+  },
 ] as const;
 
 const hostUnavailableCapabilities = ["resources.subscribe", "filesystem", "network", "delivery"] as const;
@@ -1113,7 +1161,7 @@ export class McpHost {
     if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handle(input);
     const name = input.params.name;
     const toolArguments = input.params.arguments;
-    if (![ "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply"].includes(name)) return this.handle(input);
+    if (![ "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_application_dialog_preview", "live_application_dialog_apply"].includes(name)) return this.handle(input);
     // Reuse the synchronous validator and request bookkeeping, then execute the
     // adapter operation asynchronously. Invalid requests never reach Live.
     const id = this.requestId(input.id);
@@ -1200,6 +1248,14 @@ export class McpHost {
       if (name === "live_device_delete_apply") return await this.liveDeviceDeleteApplyAsync(id, toolArguments, signal);
       if (name === "live_track_view_preview") return await this.liveTrackViewPreviewAsync(id, toolArguments);
       if (name === "live_track_view_apply") return await this.liveTrackViewApplyAsync(id, toolArguments, signal);
+      if (name === "live_selection_preview") return await this.liveSelectionPreviewAsync(id, toolArguments);
+      if (name === "live_selection_apply") return await this.liveSelectionApplyAsync(id, toolArguments, signal);
+      if (name === "live_clip_view_preview") return await this.liveClipViewPreviewAsync(id, toolArguments);
+      if (name === "live_clip_view_apply") return await this.liveClipViewApplyAsync(id, toolArguments, signal);
+      if (name === "live_device_view_preview") return await this.liveDeviceViewPreviewAsync(id, toolArguments);
+      if (name === "live_device_view_apply") return await this.liveDeviceViewApplyAsync(id, toolArguments, signal);
+      if (name === "live_application_dialog_preview") return await this.liveApplicationDialogPreviewAsync(id, toolArguments);
+      if (name === "live_application_dialog_apply") return await this.liveApplicationDialogApplyAsync(id, toolArguments, signal);
       if (name === "live_automation_preview") return await this.liveAutomationPreviewAsync(id, toolArguments);
       if (name === "live_automation_apply") return await this.liveAutomationApplyAsync(id, toolArguments, signal);
       if (name === "live_browser_search") return await this.liveBrowserSearchAsync(id, toolArguments);
@@ -3146,18 +3202,20 @@ export class McpHost {
   }
 
   private async liveViewPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
-    const actions = ["zoom-in", "zoom-out", "scroll-left", "scroll-right", "follow-on", "follow-off", "collapse-track", "expand-track"] as const;
+    const actions = ["zoom-in", "zoom-out", "scroll-left", "scroll-right", "follow-on", "follow-off", "collapse-track", "expand-track", "hide-view", "focus-view", "browser-toggle"] as const;
     if (!isObject(params) || !hasOnly(params, ["view", "action", "trackRef"])) return error(id, -32602, "view or action is required");
-    if ((params.view === undefined) === (params.action === undefined)) return error(id, -32602, "exactly one of view or action is required");
+    if (params.action === "hide-view" || params.action === "focus-view") { if (!isNonEmptyString(params.view, 64)) return error(id, -32602, "view name is required for hide/focus actions"); }
+    else if ((params.view === undefined) === (params.action === undefined)) return error(id, -32602, "exactly one of view or action is required");
     if (params.view !== undefined && !isNonEmptyString(params.view, 64)) return error(id, -32602, "view must be a 1-64 character string");
     if (params.action !== undefined && !actions.includes(params.action as typeof actions[number])) return error(id, -32602, "action is invalid");
     try {
       const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
       if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
-      const operation = params.view !== undefined ? "view.set" : "view.control";
+      const operation = (params.view !== undefined && params.action === undefined) ? "view.set" : "view.control";
       if (!(status.operations ?? []).includes(operation)) throw new Error(`${operation} is unavailable`);
       const proposed: Record<string, unknown> = {};
-      if (params.view !== undefined) proposed.view = params.view;
+      if (params.action === "hide-view" || params.action === "focus-view") { proposed.action = params.action; proposed.view = params.view; }
+      else if (params.view !== undefined) proposed.view = params.view;
       else {
         proposed.action = params.action;
         if (params.action === "collapse-track" || params.action === "expand-track") {
@@ -4209,6 +4267,225 @@ export class McpHost {
       transaction.state = "applied";
       return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: false });
     } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Track-view state is uncertain; perform fresh discovery before retrying."); }
+  }
+
+  private selectionRevision(snapshot: LiveSnapshot): string {
+    const selection = snapshot.selection ?? {};
+    return createHash("sha256").update(canonicalMutationIdentity({ trackRef: selection.trackRef ?? null, sceneRef: selection.sceneRef ?? null, slotRef: selection.slotRef ?? null, detailClipRef: selection.detailClipRef ?? null, deviceRef: selection.deviceRef ?? null, parameterRef: selection.parameterRef ?? null, chainRef: selection.chainRef ?? null })).digest("hex");
+  }
+
+  private async liveSelectionPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    const fields = ["trackRef", "sceneRef", "slotRef", "detailClipRef", "deviceRef", "parameterRef", "chainRef"] as const;
+    if (!isObject(params) || !hasOnly(params, [...fields, "drawMode"])) return error(id, -32602, "only selection fields and drawMode are accepted");
+    if (fields.every((field) => params[field] === undefined) && params.drawMode === undefined) return error(id, -32602, "at least one selection field or drawMode is required");
+    if (params.drawMode !== undefined && typeof params.drawMode !== "boolean") return error(id, -32602, "drawMode must be boolean");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const proposed: Record<string, unknown> = {};
+      for (const field of fields) {
+        const value = params[field];
+        if (value === undefined) continue;
+        if (value !== null && !isNonEmptyString(value, 256)) return error(id, -32602, `${field} is invalid`);
+        if (value !== null && !(status.operations ?? []).includes("selection.set")) throw new Error("selection editing is unavailable");
+        proposed[field] = value;
+      }
+      if (params.drawMode !== undefined && !(status.operations ?? []).includes("song.view.set")) throw new Error("draw-mode editing is unavailable");
+      const selectionRevision = this.selectionRevision(snapshot);
+      const payload: Record<string, unknown> = { ...proposed, expectedStateRevision: selectionRevision };
+      const prior: Record<string, unknown> = {};
+      for (const field of Object.keys(proposed)) prior[field] = (snapshot.selection as Record<string, unknown> | undefined)?.[field] ?? null;
+      if (params.drawMode !== undefined) prior.drawMode = snapshot.view?.drawMode ?? null;
+      const fence = JSON.stringify({ proposed, selectionRevision, drawMode: snapshot.view?.drawMode ?? null });
+      const transaction: ClipLifecycleTransaction = { id: `selection_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "selection", fence, payload: { ...payload, drawMode: params.drawMode }, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "selection");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, prior, proposed: { ...proposed, drawMode: params.drawMode }, impact: "edits-live-selection", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Selection preview requires fresh authoritative state."); }
+  }
+
+  private async liveSelectionApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "selection" || (transaction.state === "previewed" && transaction.expiresAt <= Date.now())) return this.transactionError(id, "Unknown or expired selection transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    const reconciliation = transaction.state === "uncertain" && transaction.applyKey === params.idempotencyKey;
+    if (transaction.state !== "previewed" && !reconciliation) return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      if (reconciliation) await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
+      if (!reconciliation) { const snapshot = await adapter.snapshotAsync(context);
+        const proposed = Object.fromEntries(Object.entries(transaction.payload).filter(([key]) => !["expectedStateRevision", "drawMode"].includes(key)));
+        if (JSON.stringify({ proposed, selectionRevision: this.selectionRevision(snapshot), drawMode: snapshot.view?.drawMode ?? null }) !== transaction.fence) return this.transactionError(id, "selection state changed since preview; preview again"); }
+      transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
+      const selectionArgs = Object.fromEntries(Object.entries(transaction.payload).filter(([key]) => key !== "drawMode"));
+      const result = await adapter.invokeAsync({ operation: "selection.set", args: selectionArgs }, context) as { changed?: unknown; revision?: unknown };
+      if (result.changed !== true) throw new Error("selection change was not confirmed");
+      if (transaction.payload.drawMode !== undefined) {
+        const drawRevision = createHash("sha256").update(canonicalMutationIdentity({ drawMode: transaction.payload.drawMode === true ? (transaction.prior as { drawMode?: unknown }).drawMode : !(transaction.payload.drawMode as boolean) })).digest("hex");
+        const drawResult = await adapter.invokeAsync({ operation: "song.view.set", args: { drawMode: transaction.payload.drawMode, expectedStateRevision: drawRevision } }, context) as { changed?: unknown };
+        if (drawResult.changed !== true) throw new Error("draw-mode change was not confirmed");
+      }
+      const verified = await adapter.snapshotAsync(context);
+      for (const [field, value] of Object.entries(transaction.payload)) {
+        if (["expectedStateRevision", "drawMode"].includes(field)) continue;
+        if (field.endsWith("Ref") && ((verified.selection as Record<string, unknown> | undefined)?.[field] ?? null) !== value) throw new Error("selection postcondition was not confirmed");
+      }
+      if (transaction.payload.drawMode !== undefined && verified.view?.drawMode !== transaction.payload.drawMode) throw new Error("draw-mode postcondition was not confirmed");
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Selection state is uncertain; perform fresh discovery before retrying."); }
+  }
+
+  private async liveClipViewPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    const fields = ["gridQuantization", "tripletGrid", "showEnvelope"] as const;
+    if (!isObject(params) || !hasOnly(params, ["clipRef", "showLoop", ...fields]) || !isNonEmptyString(params.clipRef, 256)) return error(id, -32602, "clipRef is required");
+    if (fields.every((field) => params[field] === undefined) && params.showLoop !== true) return error(id, -32602, "at least one clip view field or showLoop is required");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      if (!(status.operations ?? []).includes("clip.view.set")) throw new Error("clip view editing is unavailable");
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const row = this.clipRow(snapshot, params.clipRef as LiveRef);
+      const viewState = { gridQuantization: (row.clip.clipView as JsonObject | undefined)?.gridQuantization ?? null, tripletGrid: (row.clip.clipView as JsonObject | undefined)?.tripletGrid ?? null, showEnvelope: (row.clip.clipView as JsonObject | undefined)?.showEnvelope ?? null };
+      const proposed: Record<string, unknown> = {};
+      for (const field of fields) {
+        const value = params[field];
+        if (value === undefined) continue;
+        if (field === "gridQuantization" && (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 16)) return error(id, -32602, "gridQuantization is invalid");
+        if ((field === "tripletGrid" || field === "showEnvelope") && typeof value !== "boolean") return error(id, -32602, `${field} must be boolean`);
+        proposed[field] = value;
+      }
+      const prior = { ...viewState };
+      const payload: Record<string, unknown> = { ref: params.clipRef, ...proposed, showLoop: params.showLoop === true, expectedObjectIdentity: row.clip.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(viewState)).digest("hex") };
+      const fence = JSON.stringify({ ref: params.clipRef, objectIdentity: row.clip.objectIdentity, viewState });
+      const transaction: ClipLifecycleTransaction = { id: `clipview_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "clip-view", fence, clipRef: params.clipRef as LiveRef, payload, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "clip view");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, clipRef: params.clipRef, prior, proposed, showLoop: params.showLoop === true, impact: "edits-clip-view", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Clip-view preview requires fresh authoritative state."); }
+  }
+
+  private async liveClipViewApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "clip-view" || (transaction.state === "previewed" && transaction.expiresAt <= Date.now())) return this.transactionError(id, "Unknown or expired clip-view transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    const reconciliation = transaction.state === "uncertain" && transaction.applyKey === params.idempotencyKey;
+    if (transaction.state !== "previewed" && !reconciliation) return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      if (reconciliation) await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
+      if (!reconciliation) { const snapshot = await adapter.snapshotAsync(context); const row = this.clipRow(snapshot, transaction.clipRef!);
+        const viewState = { gridQuantization: (row.clip.clipView as JsonObject | undefined)?.gridQuantization ?? null, tripletGrid: (row.clip.clipView as JsonObject | undefined)?.tripletGrid ?? null, showEnvelope: (row.clip.clipView as JsonObject | undefined)?.showEnvelope ?? null };
+        if (JSON.stringify({ ref: transaction.clipRef, objectIdentity: row.clip.objectIdentity, viewState }) !== transaction.fence) return this.transactionError(id, "clip identity or view state changed since preview; preview again"); }
+      transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
+      const result = await adapter.invokeAsync({ operation: "clip.view.set", args: transaction.payload }, context) as { changed?: unknown };
+      if (result.changed !== true) throw new Error("clip view change was not confirmed");
+      const verified = this.clipRow(await adapter.snapshotAsync(context), transaction.clipRef!).clip;
+      const view = verified.clipView as JsonObject | undefined;
+      for (const field of ["gridQuantization", "tripletGrid", "showEnvelope"]) if (transaction.payload[field] !== undefined && view?.[field] !== transaction.payload[field]) throw new Error("clip view postcondition was not confirmed");
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Clip-view state is uncertain; perform fresh discovery before retrying."); }
+  }
+
+  private async liveDeviceViewPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, ["ref", "collapsed"]) || !isNonEmptyString(params.ref, 256) || typeof params.collapsed !== "boolean") return error(id, -32602, "ref and collapsed are required");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      if (!(status.operations ?? []).includes("device.view.set")) throw new Error("device view editing is unavailable on this Live shape");
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const row = this.deviceRow(snapshot, params.ref as LiveRef);
+      const current = (row.device.view as JsonObject | undefined)?.isCollapsed ?? null;
+      if (current === null) return this.transactionError(id, "device collapsed state is unavailable on this exact device");
+      const payload: Record<string, unknown> = { ref: params.ref, collapsed: params.collapsed, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity({ collapsed: current })).digest("hex") };
+      const fence = JSON.stringify({ ref: params.ref, objectIdentity: row.device.objectIdentity, collapsed: current });
+      const transaction: ClipLifecycleTransaction = { id: `devview_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "device-view", fence, payload, prior: { collapsed: current }, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "device view");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, ref: params.ref, prior: { collapsed: current }, proposed: { collapsed: params.collapsed }, impact: "edits-device-view", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Device-view preview requires fresh authoritative state."); }
+  }
+
+  private async liveDeviceViewApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "device-view" || (transaction.state === "previewed" && transaction.expiresAt <= Date.now())) return this.transactionError(id, "Unknown or expired device-view transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    const reconciliation = transaction.state === "uncertain" && transaction.applyKey === params.idempotencyKey;
+    if (transaction.state !== "previewed" && !reconciliation) return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      if (reconciliation) await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
+      if (!reconciliation) { const snapshot = await adapter.snapshotAsync(context); const row = this.deviceRow(snapshot, transaction.payload.ref as LiveRef);
+        const current = (row.device.view as JsonObject | undefined)?.isCollapsed ?? null;
+        if (JSON.stringify({ ref: transaction.payload.ref, objectIdentity: row.device.objectIdentity, collapsed: current }) !== transaction.fence) return this.transactionError(id, "device identity or view state changed since preview; preview again"); }
+      transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
+      const result = await adapter.invokeAsync({ operation: "device.view.set", args: transaction.payload }, context) as { changed?: unknown };
+      if (result.changed !== true) throw new Error("device view change was not confirmed");
+      const verified = this.deviceRow(await adapter.snapshotAsync(context), transaction.payload.ref as LiveRef).device;
+      if ((verified.view as JsonObject | undefined)?.isCollapsed !== transaction.payload.collapsed) throw new Error("device view postcondition was not confirmed");
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Device-view state is uncertain; perform fresh discovery before retrying."); }
+  }
+
+  private async liveApplicationDialogPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, ["button"])) return error(id, -32602, "button is optional; omit for a read-only dialog state check");
+    if (params.button !== undefined && (!Number.isInteger(params.button) || (params.button as number) < 0 || (params.button as number) > 16)) return error(id, -32602, "button is invalid");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      if (!(status.operations ?? []).includes("application.dialog")) throw new Error("application dialog surface is unavailable");
+      const adapter = this.asyncAdapter();
+      const read = await adapter.invokeAsync({ operation: "application.dialog", args: { action: "read" } }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as { state?: unknown; done?: unknown };
+      if (params.button === undefined) return this.successText(id, { state: read.state ?? null, done: true });
+      const payload: Record<string, unknown> = { action: "press", button: params.button, expectedState: read.state };
+      const fence = JSON.stringify({ button: params.button, state: read.state });
+      const transaction: ClipLifecycleTransaction = { id: `dialog_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "dialog", fence, payload, prior: { state: read.state ?? null }, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "dialog");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, state: read.state ?? null, button: params.button, impact: "presses-dialog-button-potentially-destructive", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Dialog preview requires a fresh connection."); }
+  }
+
+  private async liveApplicationDialogApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "dialog" || (transaction.state === "previewed" && transaction.expiresAt <= Date.now())) return this.transactionError(id, "Unknown or expired dialog transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    const reconciliation = transaction.state === "uncertain" && transaction.applyKey === params.idempotencyKey;
+    if (transaction.state !== "previewed" && !reconciliation) return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      if (reconciliation) await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
+      const read = await adapter.invokeAsync({ operation: "application.dialog", args: { action: "read" } }, context) as { state?: unknown };
+      if (JSON.stringify({ button: transaction.payload.button, state: read.state }) !== transaction.fence) return this.transactionError(id, "dialog state changed since preview; the press was refused");
+      transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
+      const result = await adapter.invokeAsync({ operation: "application.dialog", args: transaction.payload }, context) as { done?: unknown; state?: unknown };
+      if (result.done !== true) throw new Error("dialog press was not confirmed");
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", stateAfter: result.state ?? null, idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Dialog state is uncertain; inspect Live before retrying."); }
   }
 
   private automationAuthorityDigest(snapshot: LiveSnapshot, clipRef: LiveRef, parameterRef: LiveRef): string {
@@ -5356,6 +5633,74 @@ export class McpHost {
         trackview.state = "undone"; return this.successText(id, { transactionId: trackview.id, state: "undone", idempotent: false });
       } catch (cause) { trackview.state = "uncertain"; return this.adapterToolError(id, cause, "Track-view undo is uncertain; perform fresh discovery."); }
     }
+    if (!transaction && String(params.transactionId).startsWith("selection_")) {
+      const selection = this.clipLifecycleTransactions.get(params.transactionId as string);
+      if (!selection || selection.kind !== "selection") return this.transactionError(id, "Unknown or expired selection transaction");
+      if (selection.state === "undone" && selection.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: selection.id, state: "undone", idempotent: true });
+      const reconciliation = selection.state === "uncertain" && selection.undoKey === params.idempotencyKey;
+      if ((selection.state !== "applied" && !reconciliation) || !selection.prior) return this.transactionError(id, "Only an applied or exact-key uncertain selection transaction can be undone");
+      try {
+        this.beginUndoRecovery(selection, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== selection.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+        const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; selection.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(selection, adapter, context);
+        const snapshot = await adapter.snapshotAsync(context);
+        if (!reconciliation) { for (const [field, value] of Object.entries(selection.payload)) { if (["expectedStateRevision", "drawMode"].includes(field)) continue; if (((snapshot.selection as Record<string, unknown> | undefined)?.[field] ?? null) !== value) return this.transactionError(id, "selection changed after apply; undo refused"); }
+          if (selection.payload.drawMode !== undefined && snapshot.view?.drawMode !== selection.payload.drawMode) return this.transactionError(id, "draw mode changed after apply; undo refused"); }
+        selection.state = "undoing";
+        const priorFields = Object.fromEntries(Object.entries(selection.prior as Record<string, unknown>).filter(([key]) => key !== "drawMode"));
+        const result = await this.invokeUndoRecovery(selection, adapter, "selection.set", { ...priorFields, expectedStateRevision: this.selectionRevision(snapshot) }, context) as { changed?: unknown };
+        if (result.changed !== true) throw new Error("selection restoration was not confirmed");
+        if (selection.payload.drawMode !== undefined) {
+          const currentMode = (await adapter.snapshotAsync(context)).view?.drawMode ?? null;
+          const priorMode = (selection.prior as { drawMode?: unknown }).drawMode;
+          const drawResult = await this.invokeUndoRecovery(selection, adapter, "song.view.set", { drawMode: priorMode, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity({ drawMode: currentMode })).digest("hex") }, context) as { changed?: unknown };
+          if (drawResult.changed !== true) throw new Error("draw-mode restoration was not confirmed");
+        }
+        selection.state = "undone"; return this.successText(id, { transactionId: selection.id, state: "undone", idempotent: false });
+      } catch (cause) { selection.state = "uncertain"; return this.adapterToolError(id, cause, "Selection undo is uncertain; perform fresh discovery."); }
+    }
+    if (!transaction && String(params.transactionId).startsWith("clipview_")) {
+      const clipview = this.clipLifecycleTransactions.get(params.transactionId as string);
+      if (!clipview || clipview.kind !== "clip-view") return this.transactionError(id, "Unknown or expired clip-view transaction");
+      if (clipview.state === "undone" && clipview.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: clipview.id, state: "undone", idempotent: true });
+      const reconciliation = clipview.state === "uncertain" && clipview.undoKey === params.idempotencyKey;
+      if ((clipview.state !== "applied" && !reconciliation) || !clipview.clipRef || !clipview.prior) return this.transactionError(id, "Only an applied or exact-key uncertain clip-view transaction can be undone");
+      if (clipview.payload.gridQuantization === undefined && clipview.payload.tripletGrid === undefined && clipview.payload.showEnvelope === undefined) return this.transactionError(id, "show-loop is momentary and not undoable");
+      try {
+        this.beginUndoRecovery(clipview, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== clipview.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+        const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; clipview.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(clipview, adapter, context);
+        const snapshot = await adapter.snapshotAsync(context); const row = this.clipRow(snapshot, clipview.clipRef);
+        if (!reconciliation) { const view = row.clip.clipView as JsonObject | undefined;
+          for (const field of ["gridQuantization", "tripletGrid", "showEnvelope"]) if (clipview.payload[field] !== undefined && view?.[field] !== clipview.payload[field]) return this.transactionError(id, "clip view changed after apply; undo refused"); }
+        const viewState = { gridQuantization: (row.clip.clipView as JsonObject | undefined)?.gridQuantization ?? null, tripletGrid: (row.clip.clipView as JsonObject | undefined)?.tripletGrid ?? null, showEnvelope: (row.clip.clipView as JsonObject | undefined)?.showEnvelope ?? null };
+        clipview.state = "undoing";
+        const prior = clipview.prior as Record<string, unknown>;
+        const args: Record<string, unknown> = { ref: clipview.clipRef, expectedObjectIdentity: row.clip.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(viewState)).digest("hex") };
+        for (const field of ["gridQuantization", "tripletGrid", "showEnvelope"]) if (clipview.payload[field] !== undefined && prior[field] !== null) args[field] = prior[field];
+        const result = await this.invokeUndoRecovery(clipview, adapter, "clip.view.set", args, context) as { changed?: unknown };
+        if (result.changed !== true) throw new Error("clip view restoration was not confirmed");
+        clipview.state = "undone"; return this.successText(id, { transactionId: clipview.id, state: "undone", idempotent: false });
+      } catch (cause) { clipview.state = "uncertain"; return this.adapterToolError(id, cause, "Clip-view undo is uncertain; perform fresh discovery."); }
+    }
+    if (!transaction && String(params.transactionId).startsWith("devview_")) {
+      const devview = this.clipLifecycleTransactions.get(params.transactionId as string);
+      if (!devview || devview.kind !== "device-view") return this.transactionError(id, "Unknown or expired device-view transaction");
+      if (devview.state === "undone" && devview.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: devview.id, state: "undone", idempotent: true });
+      const reconciliation = devview.state === "uncertain" && devview.undoKey === params.idempotencyKey;
+      if ((devview.state !== "applied" && !reconciliation) || !devview.prior) return this.transactionError(id, "Only an applied or exact-key uncertain device-view transaction can be undone");
+      try {
+        this.beginUndoRecovery(devview, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== devview.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+        const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; devview.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(devview, adapter, context);
+        const snapshot = await adapter.snapshotAsync(context); const row = this.deviceRow(snapshot, devview.payload.ref as LiveRef);
+        const current = (row.device.view as JsonObject | undefined)?.isCollapsed ?? null;
+        if (!reconciliation && current !== devview.payload.collapsed) return this.transactionError(id, "device view changed after apply; undo refused");
+        const prior = (devview.prior as { collapsed: boolean | null }).collapsed;
+        if (typeof prior !== "boolean") return this.transactionError(id, "prior device view state is unavailable");
+        devview.state = "undoing";
+        const result = await this.invokeUndoRecovery(devview, adapter, "device.view.set", { ref: devview.payload.ref, collapsed: prior, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity({ collapsed: current })).digest("hex") }, context) as { changed?: unknown };
+        if (result.changed !== true) throw new Error("device view restoration was not confirmed");
+        devview.state = "undone"; return this.successText(id, { transactionId: devview.id, state: "undone", idempotent: false });
+      } catch (cause) { devview.state = "uncertain"; return this.adapterToolError(id, cause, "Device-view undo is uncertain; perform fresh discovery."); }
+    }
     if (!transaction && String(params.transactionId).startsWith("groove_")) {
       const groove = this.clipLifecycleTransactions.get(params.transactionId as string);
       if (!groove || groove.kind !== "groove") return this.transactionError(id, "Unknown or expired groove transaction");
@@ -5755,7 +6100,7 @@ export class McpHost {
     }
     if (params.arguments !== undefined && !isObject(params.arguments)) return error(id, -32602, "Tool arguments must be an object");
     if (this.recoveryFinalizationInFlight && !["server_status", "capabilities", "plan_user_journey", "live_status", "live_snapshot", "live_discover"].includes(params.name)) return this.adapterToolError(id, new Error("recovery finalization safety barrier is in progress"), "Wait for terminal recovery finalization before any synchronous mutation.");
-    const argumentTools = new Set(["plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply"]);
+    const argumentTools = new Set(["plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_application_dialog_preview", "live_application_dialog_apply"]);
     if (!argumentTools.has(params.name) && params.arguments !== undefined && Object.keys(params.arguments as JsonObject).length !== 0) {
       return error(id, -32602, "Tool arguments must be an empty object");
     }
@@ -5780,7 +6125,7 @@ export class McpHost {
     if (params.name === "live_status") return this.liveStatus(id);
     if (params.name === "live_snapshot") return this.liveSnapshot(id);
     if (params.name === "live_discover") return this.liveDiscover(id, params.arguments);
-    if (["audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_backup_preview", "live_project_backup_apply", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply"].includes(params.name)) return error(id, -32001, "This operation requires the asynchronous host request path");
+    if (["audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_backup_preview", "live_project_backup_apply", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_application_dialog_preview", "live_application_dialog_apply"].includes(params.name)) return error(id, -32001, "This operation requires the asynchronous host request path");
     if (params.name === "live_device_parameter_preview") return this.liveDeviceParameterPreview(id, params.arguments);
     if (params.name === "live_device_parameter_apply") return this.liveDeviceParameterApply(id, params.arguments);
     if (params.name === "live_session_structure_preview") return this.liveSessionStructurePreview(id, params.arguments);
@@ -5849,6 +6194,10 @@ export class McpHost {
       if (name.startsWith("live_track_structure_")) return hasAll("session.structure") && hasOperations("snapshot") && hasAnyOperation("track.create-return", "track.delete-return", "track.duplicate", "scene.duplicate");
       if (name.startsWith("live_device_delete_")) return hasAll("devices") && hasOperations("snapshot", "device.delete");
       if (name.startsWith("live_track_view_")) return hasAll("tracks") && hasOperations("snapshot") && hasAnyOperation("track.view.set", "track.select-instrument");
+      if (name.startsWith("live_selection_")) return hasAll("tracks", "scenes") && hasOperations("snapshot") && hasAnyOperation("selection.set", "song.view.set");
+      if (name.startsWith("live_clip_view_")) return hasAll("clips") && hasOperations("snapshot", "clip.view.set");
+      if (name.startsWith("live_device_view_")) return hasAll("devices") && hasOperations("snapshot", "device.view.set");
+      if (name.startsWith("live_application_dialog_")) return hasOperations("application.dialog");
       if (name.startsWith("live_clip_move_")) return hasOperations("snapshot", "clip.move", "arrangement.clip.move");
       if (name.startsWith("live_clip_duplicate_")) return hasAll("clips") && hasOperations("snapshot", "clip.duplicate", "clip.delete", "arrangement.clip.delete");
       if (name.startsWith("live_audio_clip_")) return hasAll("audio") && hasOperations("snapshot", "audio.clip.set");

@@ -788,6 +788,20 @@ class LiveObjectMapper:
             return any(getattr(track, "view", None) is not None and (self._read_attr(getattr(track, "view", None), "is_collapsed") is not None or self._read_attr(getattr(track, "view", None), "device_insert_mode") is not None) for track in tracks)
         if operation == "track.select-instrument":
             return any(callable(getattr(getattr(track, "view", None), "select_instrument", None)) for track in tracks)
+        if operation == "selection.set":
+            return getattr(self.song, "view", None) is not None
+        if operation == "song.view.set":
+            return self._read_attr(getattr(self.song, "view", None), "draw_mode") is not None
+        if operation == "clip.view.set":
+            return any(getattr(getattr(slot, "clip", None), "view", None) is not None for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation == "device.view.set":
+            return any(getattr(device, "view", None) is not None for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "application.dialog":
+            try:
+                application = self._application()
+            except ValueError:
+                return False
+            return callable(getattr(application, "get_dialog_state", None)) or callable(getattr(application, "press_dialog_button", None))
         return False
 
     def capabilities(self, operations: set[str] | None = None) -> list[str]:
@@ -2156,6 +2170,16 @@ class LiveObjectMapper:
             return self._track_view_set(args)
         if operation == "track.select-instrument":
             return self._track_select_instrument(args)
+        if operation == "selection.set":
+            return self._selection_set(args)
+        if operation == "song.view.set":
+            return self._song_view_set(args)
+        if operation == "clip.view.set":
+            return self._clip_view_set(args)
+        if operation == "device.view.set":
+            return self._device_view_set(args)
+        if operation == "application.dialog":
+            return self._application_dialog(args)
         if operation == "take-lane.create":
             return self._take_lane_create(args)
         if operation == "take-lane.rename":
@@ -3170,7 +3194,7 @@ class LiveObjectMapper:
             raise ValueError("locator jump did not report a readable song position")
         return {"direction": direction, "before": float(before), "position": float(after)}
 
-    _VIEW_CONTROL_ACTIONS = {"zoom-in", "zoom-out", "scroll-left", "scroll-right", "follow-on", "follow-off", "collapse-track", "expand-track"}
+    _VIEW_CONTROL_ACTIONS = {"zoom-in", "zoom-out", "scroll-left", "scroll-right", "follow-on", "follow-off", "collapse-track", "expand-track", "hide-view", "focus-view", "browser-toggle"}
 
     def _view_set(self, args: dict[str, Any]) -> dict[str, Any]:
         view_name = args.get("view")
@@ -3190,7 +3214,7 @@ class LiveObjectMapper:
 
     def _view_control(self, args: dict[str, Any]) -> dict[str, Any]:
         action = args.get("action")
-        if action not in self._VIEW_CONTROL_ACTIONS or set(args) - {"action", "trackRef"}:
+        if action not in self._VIEW_CONTROL_ACTIONS or set(args) - {"action", "trackRef", "view"}:
             raise ValueError("view control action is invalid")
         view = getattr(self._application(), "view", None)
         if view is None:
@@ -3210,6 +3234,18 @@ class LiveObjectMapper:
             if song_view is None or self._read_attr(song_view, "follow_song") is None: raise ValueError("arrangement follow is unavailable")
             song_view.follow_song = action == "follow-on"
             if self._read_attr(song_view, "follow_song") is not (action == "follow-on"): raise ValueError("arrangement follow change was not confirmed")
+            return {"action": action, "done": True}
+        if action == "browser-toggle":
+            toggler = getattr(view, "toggle_browse", None)
+            if not callable(toggler): raise ValueError("browser mode toggle is unavailable on this Live shape")
+            toggler()
+            return {"action": action, "done": True}
+        if action in {"hide-view", "focus-view"}:
+            view_name = args.get("view")
+            if not isinstance(view_name, str) or not 1 <= len(view_name) <= 64: raise ValueError("view name is required")
+            method = getattr(view, "hide_view" if action == "hide-view" else "focus_view", None)
+            if not callable(method): raise ValueError(f"{action} is unavailable on this Live shape")
+            method(view_name)
             return {"action": action, "done": True}
         track_ref = args.get("trackRef")
         if not isinstance(track_ref, str) or not track_ref.startswith(f"{self.refs.epoch}:track:"):
@@ -4275,6 +4311,169 @@ class LiveObjectMapper:
         if not callable(selector): raise ValueError("instrument selection is unavailable")
         selector()
         return {"done": True}
+
+    def _selection_state(self) -> dict[str, Any]:
+        view = getattr(self.song, "view", None)
+        def ref_or_none(value: Any, kind: str, key: str) -> str | None:
+            return self.refs.put(kind, value, key) if value is not None else None
+        track = self._read_attr(view, "selected_track"); scene = self._read_attr(view, "selected_scene")
+        slot = self._read_attr(view, "highlighted_clip_slot"); detail_clip = self._read_attr(view, "detail_clip")
+        device = self._read_attr(view, "selected_device"); parameter = self._read_attr(view, "selected_parameter"); chain = self._read_attr(view, "selected_chain")
+        return {
+            "trackRef": ref_or_none(track, "track", "selected") if track is not None else None,
+            "sceneRef": ref_or_none(scene, "scene", "selected") if scene is not None else None,
+            "slotRef": ref_or_none(slot, "clip_slot", "highlighted") if slot is not None else None,
+            "detailClipRef": ref_or_none(detail_clip, "clip", "detail") if detail_clip is not None else None,
+            "deviceRef": ref_or_none(device, "device", "selected") if device is not None else None,
+            "parameterRef": ref_or_none(parameter, "parameter", "selected") if parameter is not None else None,
+            "chainRef": ref_or_none(chain, "chain", "selected") if chain is not None else None,
+        }
+
+    def _selection_revision(self) -> str:
+        return hashlib.sha256(self._bounded_canonical(self._selection_state()).encode("utf-8")).hexdigest()
+
+    def _selection_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        allowed = {"trackRef", "sceneRef", "detailClipRef", "slotRef", "deviceRef", "parameterRef", "chainRef", "expectedStateRevision"}
+        if set(args) - allowed: raise ValueError("selection fields are invalid")
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(self._selection_revision(), args["expectedStateRevision"]): raise ValueError("selection state changed since preview")
+        view = getattr(self.song, "view", None)
+        if view is None: raise ValueError("song view is unavailable")
+        proposals = []
+        for key, attribute, kind in (("trackRef", "selected_track", "track"), ("sceneRef", "selected_scene", "scene"), ("slotRef", "highlighted_clip_slot", "clip_slot"), ("detailClipRef", "detail_clip", "clip"), ("deviceRef", "selected_device", "device"), ("parameterRef", "selected_parameter", "parameter"), ("chainRef", "selected_chain", "chain")):
+            if key not in args: continue
+            reference = args[key]
+            if reference is None:
+                if key == "detailClipRef": proposals.append((attribute, None))
+                continue
+            if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:{kind}:"): raise ValueError(f"{key} is stale or invalid")
+            proposals.append((attribute, self.refs.get(reference)))
+        if not proposals: raise ValueError("selection mutation has no fields")
+        assignments = []
+        for attribute, value in proposals:
+            prior = self._read_attr(view, attribute)
+            try: setattr(view, attribute, value)
+            except BaseException as error: raise ValueError(f"selection target {attribute} cannot be assigned") from error
+            assignments.append((attribute, prior))
+        return {"changed": True, "revision": self._selection_revision()}
+
+    def _song_view_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        if set(args) - {"drawMode", "expectedStateRevision"}: raise ValueError("song view fields are invalid")
+        view = getattr(self.song, "view", None)
+        if view is None: raise ValueError("song view is unavailable")
+        revision = hashlib.sha256(self._bounded_canonical({"drawMode": self._read_attr(view, "draw_mode")}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(revision, args["expectedStateRevision"]): raise ValueError("song view state changed since preview")
+        if "drawMode" not in args: raise ValueError("song view mutation has no fields")
+        value = args["drawMode"]
+        if not isinstance(value, bool): raise ValueError("drawMode is invalid")
+        prior = self._read_attr(view, "draw_mode")
+        if not isinstance(prior, bool): raise ValueError("draw mode is unavailable")
+        try:
+            view.draw_mode = value
+            if self._read_attr(view, "draw_mode") is not value: raise ValueError("draw mode change was not confirmed")
+        except BaseException as error:
+            try: view.draw_mode = prior
+            except BaseException: raise ValueError("draw mode change failed and exact rollback failed") from error
+            raise
+        return {"changed": True, "revision": hashlib.sha256(self._bounded_canonical({"drawMode": self._read_attr(view, "draw_mode")}).encode("utf-8")).hexdigest()}
+
+    def _clip_view_state(self, clip: Any) -> dict[str, Any]:
+        view = getattr(clip, "view", None)
+        grid = self._read_attr(view, "grid_quantization") if view is not None else None
+        return {
+            "gridQuantization": int(grid) if isinstance(grid, int) and not isinstance(grid, bool) else None,
+            "tripletGrid": self._read_attr(view, "triplet_grid") if isinstance(self._read_attr(view, "triplet_grid"), bool) else None,
+            "showEnvelope": self._read_attr(view, "show_envelope") if isinstance(self._read_attr(view, "show_envelope"), bool) else None,
+        }
+
+    def _clip_view_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:") or set(args) - {"ref", "gridQuantization", "tripletGrid", "showEnvelope", "showLoop", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("clip view authority is invalid")
+        clip = self.refs.get(reference); view = getattr(clip, "view", None)
+        if view is None: raise ValueError("clip view is unavailable")
+        current = self.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(str(current.get("objectIdentity", "")), args["expectedObjectIdentity"]): raise ValueError("clip identity changed since preview")
+        state_revision = hashlib.sha256(self._bounded_canonical(self._clip_view_state(clip)).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("clip view state changed since preview")
+        proposals = []
+        if "gridQuantization" in args:
+            value = args["gridQuantization"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 16: raise ValueError("gridQuantization is invalid")
+            proposals.append(("grid_quantization", value))
+        if "tripletGrid" in args:
+            value = args["tripletGrid"]
+            if not isinstance(value, bool): raise ValueError("tripletGrid is invalid")
+            proposals.append(("triplet_grid", value))
+        if "showEnvelope" in args:
+            value = args["showEnvelope"]
+            if not isinstance(value, bool): raise ValueError("showEnvelope is invalid")
+            proposals.append(("show_envelope", value))
+        assignments = [(attribute, value, self._read_attr(view, attribute)) for attribute, value in proposals]
+        before_revision = state_revision
+        try:
+            for attribute, value, _ in assignments: setattr(view, attribute, value)
+            for attribute, value, _ in assignments:
+                observed = self._read_attr(view, attribute)
+                if isinstance(value, bool):
+                    if observed is not value: raise ValueError("clip view change was not confirmed")
+                elif not isinstance(observed, int) or isinstance(observed, bool) or observed != value: raise ValueError("clip view change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for attribute, _, prior in reversed(assignments):
+                try: setattr(view, attribute, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or hashlib.sha256(self._bounded_canonical(self._clip_view_state(clip)).encode("utf-8")).hexdigest() != before_revision: raise ValueError("clip view change failed and exact rollback failed") from error
+            raise
+        if args.get("showLoop") is True:
+            shower = getattr(view, "show_loop", None)
+            if not callable(shower): raise ValueError("clip show-loop is unavailable")
+            shower()
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _device_view_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or set(args) - {"ref", "collapsed", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("device view authority is invalid")
+        device = self.refs.get(reference); view = getattr(device, "view", None)
+        if view is None or self._read_attr(view, "is_collapsed") is None: raise ValueError("device view collapsed state is unavailable on this Live shape")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("device identity changed since preview")
+        state_revision = hashlib.sha256(self._bounded_canonical({"collapsed": self._read_attr(view, "is_collapsed")}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("device view state changed since preview")
+        value = args.get("collapsed")
+        if not isinstance(value, bool): raise ValueError("collapsed is invalid")
+        prior = self._read_attr(view, "is_collapsed")
+        try:
+            view.is_collapsed = value
+            if self._read_attr(view, "is_collapsed") is not value: raise ValueError("device collapse change was not confirmed")
+        except BaseException as error:
+            try: view.is_collapsed = prior
+            except BaseException: raise ValueError("device collapse change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _application_dialog(self, args: dict[str, Any]) -> dict[str, Any]:
+        action = args.get("action")
+        if action not in {"read", "press"} or set(args) - {"action", "button", "expectedState"}: raise ValueError("dialog arguments are invalid")
+        application = self._application()
+        reader = getattr(application, "get_dialog_state", None)
+        state = None
+        if callable(reader):
+            try: raw = reader(); state = int(raw) if isinstance(raw, int) and not isinstance(raw, bool) else None
+            except BaseException: state = None
+        if action == "read": return {"state": state, "done": True}
+        presser = getattr(application, "press_dialog_button", None)
+        if not callable(presser): raise ValueError("dialog button presses are unavailable")
+        button = args.get("button")
+        if not isinstance(button, int) or isinstance(button, bool) or not 0 <= button <= 16: raise ValueError("dialog button is invalid")
+        expected = args.get("expectedState")
+        if not isinstance(expected, int) or isinstance(expected, bool) or expected < -1: raise ValueError("expectedState is required for a guarded dialog press")
+        if state != expected: raise ValueError("dialog state changed since preview")
+        presser(button)
+        new_state = None
+        if callable(reader):
+            try: raw = reader(); new_state = int(raw) if isinstance(raw, int) and not isinstance(raw, bool) else None
+            except BaseException: new_state = None
+        return {"state": new_state, "done": True}
 
     def _slot_state_fields(self, slot: Any) -> dict[str, Any]:
         def optional_bool(name: str) -> bool | None:

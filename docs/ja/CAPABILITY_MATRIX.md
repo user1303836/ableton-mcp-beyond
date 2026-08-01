@@ -19,6 +19,8 @@
 | トラックの健全性と状態を読む | `live_snapshot`、`live_discover` | グループ関係、可視性、選択メンバーシップ、フリーズ/フォールド状態、暗黙アーム、バックトゥアレンジャー、ソロ経由ミュート、全入出力メーター、パフォーマンス影響を全トラック行で公開 |
 | 既存デバイスを削除 | `live_device_delete_preview/apply` | 正確なアイデンティティと兄弟フェンスで既存デバイスを明示的に削除。正直にアンドゥ不可 |
 | トラックビューと楽器フォーカス | `live_track_view_preview/apply` | 折りたたみ状態とデバイス挿入モード(正確なアンドゥ付き)、Live のデバイスビューでの楽器選択(瞬時、アンドゥ不可) |
+| Live の選択とビューを駆動 | `live_selection_preview/apply`、`live_clip_view_preview/apply`、`live_device_view_preview/apply`、`live_view_preview/apply` | Song.View 選択(トラック、シーン、ハイライトスロット、ディテールクリップ、デバイス、パラメータ、チェーン)、ドローモード、クリップグリッド量子化/トリプレット/エンベロープ可視と show-loop、デバイス折りたたみ(形状ゲート)、メインビュー切替/非表示/フォーカス、ズーム/スクロール、フォローソング、トラック折りたたみ、Browser モード切替 — 状態が回復可能な箇所はすべて正確に復元 |
+| アプリケーションダイアログ | `live_application_dialog_preview/apply` | 現在のダイアログ状態を読み取り、プレビューした状態が正確に保持されている間だけダイアログボタンを 1 つ押下 — ダイアログボタンは破壊的な場合があり、状態が変わった瞬間に拒否 |
 | MIDI クリップを作成してノートを書き込む | `live_midi_clip_preview/apply`、`live_note_update_preview/apply`、`live_note_delete_preview/apply` | 完全な表現フィールド: velocity、channel、probability、velocity deviation、release velocity、mute。安定したノート ID。クリップごとに 1 回の不可分バッチ |
 | デバイスとプラグインのパラメータを変更 | `live_device_parameter_preview/apply` | 権威ある境界を持つ公開数値パラメータが対象。書き込み後に検証。ガード付きアンドゥ付き |
 | インストゥルメント、エフェクト、プリセットをロード | `live_browser_search`、`live_browser_load_preview/apply` | 正確な Browser アイテムを選択したトラックにロード。プラグインは Live 自身の Browser に表示されている必要があります |
