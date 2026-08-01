@@ -69,7 +69,7 @@ Every mutation follows **discover → preview → confirm → apply → verify �
 | Windows host | CI contract configured; current exact-SHA result required; Windows 11 + Live not certified |
 | Linux / Live 11 or earlier | Unsupported |
 
-Capabilities are negotiated at connect time, so your agent always knows exactly what a given Live install can do. Full matrix: [docs/SUPPORT_MATRIX.md](docs/en/SUPPORT_MATRIX.md).
+Capabilities are negotiated at connect time, so your agent always knows exactly what a given Live install can do. Full matrix: [docs/SUPPORT_MATRIX.md](docs/en/SUPPORT_MATRIX.md) · [docs/EXTENSION_SURFACES.md](docs/en/EXTENSION_SURFACES.md).
 
 ## Docs
 
@@ -82,6 +82,7 @@ Capabilities are negotiated at connect time, so your agent always knows exactly 
 | [USER_JOURNEYS](docs/en/USER_JOURNEYS.md) | The five guided composition workflows |
 | [REALTIME_CONTROL](docs/en/REALTIME_CONTROL.md) | The armed UDP/OSC/XY control plane |
 | [CAPABILITY_MATRIX](docs/en/CAPABILITY_MATRIX.md) | What the agent can do, plus per-domain capability and evidence detail |
+| [EXTENSION_SURFACES](docs/en/EXTENSION_SURFACES.md) | Max/Link/Push/Connection-Kit evaluations and non-exposed UI dispositions |
 | [DELIVERY](docs/en/DELIVERY.md) | Install, upgrade, rollback, uninstall of packed artifacts |
 | [DISTRIBUTION_POLICY](docs/en/DISTRIBUTION_POLICY.md) | Local MIT artifact, required checks, and emergency procedure |
 | [IMPLEMENTATION_STATUS](docs/en/IMPLEMENTATION_STATUS.md) | What's verified and what's still limited |

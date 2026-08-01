@@ -37,6 +37,162 @@ are. Source, schemas, and tests are the final authority.
   where state is recoverable. These are verified at the host, simulator,
   Python contract, and packaged fake-Live levels; exact-candidate real-Live
   proof is pending.
+- Warp-marker reads and native add/move/delete addressed by beat time with
+  collection fencing and exact rollback; Session audio import with explicit
+  file authority (allowed roots, canonical paths, size/type checks, SHA-256
+  with apply-time re-verification, and transaction-owned cleanup); clip crop,
+  loop/region duplication, scrub, and playing-position moves; note
+  read-by-ID/selected, targeted duplication, and time/pitch quantization with
+  exact prior-content undo; and counted, presence-fenced clearing of all clip
+  envelopes. Content-destroying actions (crop, envelope clear) are honestly
+  non-undoable. Verified at the host, simulator, Python contract, and packaged
+  fake-Live levels; exact-candidate real-Live proof is pending.
+- Take-lane discovery under `Track.take_lanes` with bounded rows and
+  stable-in-snapshot references, lane creation and rename, MIDI and
+  file-backed audio clip creation inside lanes, and `is_take_lane_clip`
+  exposure on clip rows. The public LOM exposes no take-lane deletion and no
+  comp-region editing; lane and lane-clip creation is therefore honestly
+  non-compensatable, and comp editing stays unavailable. Verified at the host,
+  simulator, Python contract, and packaged fake-Live levels; exact-candidate
+  real-Live proof is pending.
+- `Song.tuning_system` and scale state exposure (name, note range, reference
+  pitch, pseudo-octave cents, and all 128 note tunings, plus root note, scale
+  name/mode, and intervals) with full-state revision fencing, length/range
+  validation, exact rollback, and full-state restore through `live_undo`.
+  Tuning edits affect playback pitch globally and say so. Verified at the
+  host, simulator, Python contract, and packaged fake-Live levels;
+  exact-candidate real-Live proof is pending.
+- `Song.groove_pool` and `groove_amount` exposure with pool discovery and
+  read/write of groove name, base, quantization/random/timing/velocity
+  amounts, plus `Clip.groove` assignment and `Clip.has_groove` on clip rows.
+  Amount and groove edits restore exactly through `live_undo`; clip groove
+  assignment rides the clip-properties transaction. The public API provides
+  no complete groove import/extract workflow, so grooves must already exist
+  in the pool — documented, not worked around. Verified at the host,
+  simulator, Python contract, and packaged fake-Live levels; exact-candidate
+  real-Live proof is pending.
+- Scene color, empty/triggered/fire-button state, tempo and `tempo_enabled`,
+  and time-signature numerator/denominator/enable — read on scene rows and
+  editable through one fenced transaction with exact rollback and `live_undo`
+  restore. Clip-slot rows now expose color, `controls_other_clips`, stop
+  button, group-slot, playing, and record-on-start state.
+  `Scene.fire_as_selected` ships as a distinct direct-fire action: fenced,
+  audible, explicitly not undoable, and documented as separate from the
+  guarded scene audition workflow. Verified at the host, simulator, Python
+  contract, and packaged fake-Live levels; exact-candidate real-Live proof is
+  pending.
+- Comprehensive Song state reads: visible tracks, appointed device, song
+  length/start, time signature, swing, overdub/arrangement-overdub,
+  back-to-arranger, can-capture/undo/redo, exclusive arm/solo, counting-in,
+  tempo follower, automation re-enable, Session record/automation, and
+  Ableton Link enable/start-stop-sync, plus beat/SMPTE and loop-time
+  conversions. Momentary transport actions (start, continue, stop, play
+  selection, scrub, tap tempo, nudge, re-enable automation, trigger Session
+  record, force Link beat time) ship as fenced, non-undoable actions with
+  audible ones labeled; emergency stop remains a separate authority.
+  `CuePoint.jump` joins next/previous locator navigation. Raw Song
+  undo/redo is deliberately not exposed as a mutation: it would bypass
+  transaction-owned rollback and recovery, so only `can_undo`/`can_redo`
+  state is reported and the decision is documented. Verified at the host,
+  simulator, Python contract, and packaged fake-Live levels; exact-candidate
+  real-Live proof is pending.
+- Performance and latency diagnostics: `Application.average_process_usage`
+  and `peak_process_usage`, per-track input/output meters and
+  `performance_impact`, and device latency in samples and milliseconds, in
+  one bounded on-demand sample. Telemetry is point-in-time evidence only —
+  meter values are Live UI meters, never decoded audio analysis, and the
+  sampling model (single bounded read, no streaming queue, no retained
+  history) is documented rather than implied. Verified at the host,
+  simulator, Python contract, and packaged fake-Live levels; exact-candidate
+  real-Live proof is pending.
+- Specialized device APIs: Drift modulation-matrix source/target lists,
+  pitch-bend range, and voice count/mode; Drum Cell semantic gain; Eq8 edit
+  and global modes, oversampling, and selected band; Hybrid Reverb IR
+  category/file selection plus attack, decay, size, and time shaping; Meld
+  selected engine, unison, mono/poly mode, and polyphony; Max device
+  audio/MIDI IO descriptors on rows; plug-in preset discovery/selection and
+  editor-window state (read/write); Looper record/overdub/play/stop/clear/
+  undo/export as momentary actions and speed, loop length, tempo, and fixed
+  record length with exact undo; and capability-gated Simpler
+  `replace_sample` with the same explicit file authority as audio import and
+  an inverse-replacement undo. Each family advertises only when the device
+  class and the members exist on the connected Live build; first-supported
+  Live versions are recorded in the capability matrix. Verified at the host,
+  simulator, Python contract, and packaged fake-Live levels; exact-candidate
+  real-Live proof is pending.
+- A negotiated, bounded observer model over documented observable state:
+  transport, selection, track (arm/mute/solo/fold/freeze/routing), clip
+  (playback, notes, warp markers, loop, launch), device and parameter
+  values/states, rack chains/pads/macros/variations, groove and tuning,
+  scene tempo/signature/trigger, and meters/performance. Subscriptions are
+  quota-bounded (eight concurrent, sixty-four topics each), deduplicated by
+  revision digest with changed-field lists, overflow-explicit, and fenced to
+  a negotiated minimum poll interval, and every event carries revision and
+  identity context — none of it mutation authority. The pull-based poll
+  model is documented as the backpressure design (no unbounded push queue)
+  alongside the existing five-property subscription channel. Verified at
+  the host, simulator, Python contract, and packaged fake-Live levels;
+  exact-candidate real-Live proof is pending.
+- Chain, rack, macro, and drum pad surfaces: chain color/index, auto-color,
+  audio/MIDI I/O flags, muted-via-solo, and typed chain mixers on rows with
+  chain color/mute/solo edits restoring exactly; drum-chain input/output
+  notes and choke groups; drum pad note/solo edits with exact restore and an
+  explicit, honestly non-undoable `delete_all_chains`; rack return chains,
+  macro-mapping state, selected variation, and visible macro count on rows;
+  macro add/remove/randomize, rack chain insertion, pad copying, and
+  variation store/recall/delete as momentary actions; and rack view selected
+  chain/pad, pad scroll position, and chain-device visibility with exact
+  restore. Verified at the host, simulator, Python contract, and packaged
+  fake-Live levels; exact-candidate real-Live proof is pending.
+- Deep device and parameter surfaces: parameter rows now expose default
+  value, original name, state, enumeration items, and display-value
+  semantics; device rows expose parameter banks, comparison capability and
+  active side, class display name/type, latency, and (shape-gated) collapsed
+  view state. Parameter bank edits restore exactly; automation re-enable and
+  A/B comparison save-to-slot ship as momentary actions; chain device
+  insertion is empty-owner guarded; and cross-track/chain device movement
+  runs through `Song.move_device` with an exact inverse-move undo. Writable
+  bypass is never inferred from read-only `Device.is_active` — only the
+  name-independently probed Device On parameter is used. Verified at the
+  host, simulator, Python contract, and packaged fake-Live levels;
+  exact-candidate real-Live proof is pending.
+- Extended mixer controls: track activator, crossfader, crossfade
+  assignment, panning mode, and split-stereo left/right panners with exact
+  restore; the master track's semantic song-tempo parameter is exposed
+  read-only on its mixer row so the tempo workflow stays single-sourced.
+  Rack chain mixers (volume, pan, sends, chain activator) through a typed
+  chain surface, and device-level routing (device IO type/channel,
+  `default_external_routing_channel_is_none` where Live exposes it) and
+  compressor sidechain selection through a separate typed surface — track
+  routing, chain routing, and device sidechain routing remain distinct by
+  design. Verified at the host, simulator, Python contract, and packaged
+  fake-Live levels; exact-candidate real-Live proof is pending.
+- Song.View selections (track, scene, highlighted slot, detail clip,
+  device, parameter, chain) and draw mode with exact restore; clip view
+  grid quantization, triplet grid, envelope visibility, and show-loop;
+  device collapsed state (exposed only where Live supports it);
+  Application.View main-view switch/hide/focus, zoom/scroll, follow-song,
+  track collapse, and Browser-mode toggle; and the application dialog
+  surface — state reads plus one guarded button press that is refused the
+  moment the previewed dialog state changes, because dialog buttons can be
+  destructive. Device.View collapse remains shape-gated: where Live does
+  not expose it, the operation reports unavailable instead of pretending.
+  Verified at the host, simulator, Python contract, and packaged fake-Live
+  levels; exact-candidate real-Live proof is pending.
+- Track rows now expose group-track relationship, visibility, selection
+  membership, frozen/fold state, implicit arm, back-to-arranger,
+  muted-via-solo, all input/output meters, and performance impact, plus
+  Track.View selected device, device insert mode, and collapsed state.
+  Guarded return-track creation (with cleanup) and explicit return-track
+  deletion (honestly non-undoable), guarded track and scene duplication,
+  guarded existing-device deletion with exact sibling fencing (explicitly
+  non-undoable), and track-view edits with exact restore. Clip-slot
+  duplication is served by the existing `clip.duplicate` slot-to-slot
+  operation, running-clip jumping by `clip.action`
+  (move-playing-position), and direct stop-all by the transport action —
+  each documented at its tool. Verified at the host, simulator, Python
+  contract, and packaged fake-Live levels; exact-candidate real-Live proof
+  is pending.
 - Purpose-specific preview/apply/verify/undo or cleanup workflows with exact
   object and hierarchy identities, state/content revisions, creation-time
   fingerprints, epochs, expiry, idempotency, fresh postconditions, bounded

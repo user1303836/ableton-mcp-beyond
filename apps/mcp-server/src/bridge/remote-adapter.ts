@@ -16,8 +16,12 @@ const LIVE_PROTOCOL = "ableton-live/v1";
 const ADAPTERS = new Set(["remote-script", "simulator", "extension", "unavailable"]);
 const EVENT_TYPES = new Set(["transport", "object", "reset"]);
 const READ_ONLY_INVOKES = new Set(["session.playback", "automation.envelope.read", "browser.search", "browser.inspect", "audio.capture.inspect", "audio.capture.status", "realtime.stats", "session.reconnect"]);
-const TRANSACTION_CREATIONS = new Set(["track.create", "scene.create", "clip.create", "clip.duplicate", "arrangement.clip.create", "browser.load", "device.insert", "session.capture-midi", "scene.capture", "locator.add"]);
-const TRANSACTION_DELETIONS = new Set(["track.delete", "scene.delete", "clip.delete", "arrangement.clip.delete", "device.delete", "locator.delete"]);
+// Creation classification has one shared source: the mapper's
+// _TRANSACTION_CREATIONS in remote-script/ableton_mcp_remote_script.py. Keep
+// this set identical so ownership tokens are retained (never leaked into
+// results) and later cleanup deletes can present them.
+const TRANSACTION_CREATIONS = new Set(["track.create", "track.create-return", "track.duplicate", "scene.create", "scene.duplicate", "clip.create", "clip.duplicate", "arrangement.clip.create", "arrangement.audio-clip.create", "session.audio-clip.create", "browser.load", "device.insert", "session.capture-midi", "scene.capture", "locator.add"]);
+const TRANSACTION_DELETIONS = new Set(["track.delete", "track.delete-return", "scene.delete", "clip.delete", "arrangement.clip.delete", "device.delete", "locator.delete"]);
 function mutationAuthorityRequired(operation: string): boolean { return !READ_ONLY_INVOKES.has(operation); }
 const KIND_TO_WIRE: Readonly<Record<LiveDiscoveryKind, string>> = {
   set: "set", track: "track", "return-track": "return_track", "main-track": "main_track", scene: "scene",
@@ -77,11 +81,11 @@ function validStatus(value: unknown): value is LiveStatus {
     "arrangement.read": any("locator.add", "arrangement.clip.delete"),
     "arrangement.write": any("locator.add", "locator.delete", "arrangement.clip.create", "arrangement.audio-clip.create", "arrangement.clip.delete"),
     "audio": all("audio.clip.set"), "audio.capture.resampling": all("audio.capture.inspect", "audio.capture.start", "audio.capture.stop", "audio.capture.cleanup"),
-    "warp": false, "takes": false, "automation": all("automation.envelope.read"),
+    "warp": all("audio.warp-marker.read"), "takes": all("audio.take-lane.read"), "automation": all("automation.envelope.read"),
     "devices": readableHierarchy, "racks": readableHierarchy, "chains": readableHierarchy, "parameters": readableHierarchy,
     "browser": all("browser.search"), "device.parameter.write": all("device.parameter.set"), "routing": all("routing.set"),
     "recording": any("recording.session", "recording.arrangement"), "projects": all("snapshot"), "mixing": all("mixer.set"),
-    "transport": all("transport.set", "tempo.set"), "max": false,
+    "transport": all("transport.set", "tempo.set"), "tuning": any("tuning.read", "tuning.set"), "groove": all("groove.read"), "max": false,
     "view": any("view.set", "view.control"),
     "osc": all("realtime.arm", "realtime.disarm", "realtime.stats"), "realtime.events": all("realtime.arm", "realtime.disarm", "realtime.stats"),
     "plugins": readableHierarchy, "subscriptions": all("subscribe"), "reconnect": all("reconnect"),

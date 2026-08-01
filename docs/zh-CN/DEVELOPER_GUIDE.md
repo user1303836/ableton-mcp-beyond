@@ -21,7 +21,7 @@
 - `apps/mcp-server/src/delivery.ts`:配置、密钥验证、打包、安装与诊断。
 - `protocol/ableton-live-v1.operations.json`:规范版本 1 操作注册表。当前
   契约的规范注册表哈希为
-  `faca649767d097f20c138d522fd8e5526fd6a8a8d73fcb9672f03709f2d8b846`。
+  `a8a73b3157bd771b112b822164d4e9bec57f2a47078727ec157f83593af6f48a`。
 - `remote-script/AbletonMcpBridge/__init__.py`:单参数 Control Surface
   入口与故障关闭的引用加载。
 - `remote-script/ableton_mcp_remote_script.py`:已认证传输、有界主线程
@@ -46,6 +46,12 @@ Python worker 只执行组帧、认证、排序与排队。面向 Live 的遍历
 的 Live 形态是不可用的,绝不虚构。设备控制限于权威的已发布数值参数,
 要求有效边界、量化、启用状态、可自动化状态、归属关系与变更后回读。
 发现行保留父级引用;空剪辑槽位是显式的行,绝不能推断为剪辑。
+
+决定:桥接 `get(ref)` 保持为固定行之上的内部有界序列化器,而不是通用
+Live Object Model 属性读取器,也不作为通用 MCP 读取面暴露。MCP 读取
+保持用途特定(`live_status`、`live_snapshot`、`live_discover`、能力/
+状态行);发现中的请求字段是这些固定行之上的投影。这是刻意的边界,
+而非未实现的通用读取器。
 
 ## 命令
 

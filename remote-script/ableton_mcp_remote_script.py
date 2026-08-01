@@ -232,8 +232,8 @@ def _debug_trace(context: str) -> None:
 
 METHODS = {"status", "snapshot", "discover", "get", "preflight", "prepare", "invoke", "subscribe", "reconnect", "retire"}
 _READ_ONLY_INVOKES = {"session.playback", "automation.envelope.read", "browser.search", "browser.inspect", "audio.capture.inspect", "audio.capture.status", "realtime.stats", "session.reconnect"}
-_TRANSACTION_CREATIONS = {"track.create", "scene.create", "clip.create", "clip.duplicate", "arrangement.clip.create", "arrangement.audio-clip.create", "browser.load", "device.insert", "session.capture-midi", "scene.capture", "locator.add"}
-_TRANSACTION_DELETIONS = {"track.delete", "scene.delete", "clip.delete", "arrangement.clip.delete", "device.delete", "locator.delete"}
+_TRANSACTION_CREATIONS = {"track.create", "track.create-return", "track.duplicate", "scene.create", "scene.duplicate", "clip.create", "clip.duplicate", "arrangement.clip.create", "arrangement.audio-clip.create", "session.audio-clip.create", "browser.load", "device.insert", "session.capture-midi", "scene.capture", "locator.add"}
+_TRANSACTION_DELETIONS = {"track.delete", "track.delete-return", "scene.delete", "clip.delete", "arrangement.clip.delete", "device.delete", "locator.delete"}
 _OWNED_CONTENT_MUTATIONS = {"note.add", "note.add-batch", "note.update", "note.delete"}
 def _mutation_authority_required(operation: str) -> bool: return operation not in _READ_ONLY_INVOKES
 
@@ -645,17 +645,23 @@ class LiveObjectMapper:
         if operation == "automation.envelope.delete":
             return any(getattr(slot, "clip", None) is not None and callable(getattr(getattr(slot, "clip", None), "clear_envelope", None)) for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
         if operation == "device.insert":
-            return any(callable(getattr(track, "insert_device", None)) for track in self._items(getattr(self.song, "tracks", [])))
+            return any(callable(getattr(track, "insert_device", None)) for track in self._items(getattr(self.song, "tracks", []))) or any(callable(getattr(chain, "insert_device", None)) for track in self._items(getattr(self.song, "tracks", [])) for device in self._items(getattr(track, "devices", [])) for chain in self._items(self._read_attr(device, "chains") or []))
         if operation == "device.delete":
             return any(callable(getattr(track, "delete_device", None)) for track in self._items(getattr(self.song, "tracks", [])))
         if operation == "device.enable":
-            return any(any(isinstance(self._read_attr(device, attr), bool) for attr in ("is_active", "is_enabled", "enabled")) for track in self._items(getattr(self.song, "tracks", [])) for device in self._items(getattr(track, "devices", [])))
+            return any(self._device_on_parameter(device) is not None for track in self._items(getattr(self.song, "tracks", [])) for device in self._items(getattr(track, "devices", [])))
         if operation == "device.move":
-            return any(callable(getattr(track, "move_device", None)) for track in self._items(getattr(self.song, "tracks", [])))
+            return callable(getattr(self.song, "move_device", None))
         if operation in {"browser.search", "browser.inspect", "browser.load"}:
             try:
                 browser = self._browser()
                 return operation != "browser.load" or callable(getattr(browser, "load_item", None))
+            except ValueError:
+                return False
+        if operation == "browser.roots":
+            try:
+                self._browser()
+                return True
             except ValueError:
                 return False
         if operation == "track.rename": return any(hasattr(track, "name") for track in self._items(getattr(self.song, "tracks", [])))
@@ -719,6 +725,137 @@ class LiveObjectMapper:
             if operation == "view.set": return callable(getattr(view, "show_view", None)) and callable(getattr(view, "is_view_visible", None))
             song_view = getattr(self.song, "view", None)
             return callable(getattr(view, "zoom_view", None)) and callable(getattr(view, "scroll_view", None)) and song_view is not None and self._read_attr(song_view, "follow_song") is not None
+        if operation == "session.audio-clip.create":
+            return any(not bool(getattr(track, "has_midi_input", False)) and any(callable(getattr(slot, "create_audio_clip", None)) for slot in self._items(getattr(track, "clip_slots", []))) for track in tracks)
+        if operation == "clip.action":
+            return any(clip is not None and (callable(getattr(clip, "crop", None)) or callable(getattr(clip, "duplicate_loop", None)) or callable(getattr(clip, "start_scrub", None))) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])) for clip in [getattr(slot, "clip", None)])
+        if operation == "automation.envelope.clear":
+            return any(callable(getattr(getattr(slot, "clip", None), "clear_all_envelopes", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation == "note.read-by-id":
+            return any(callable(getattr(getattr(slot, "clip", None), "get_notes_by_id", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation == "note.read-selected":
+            return any(callable(getattr(getattr(slot, "clip", None), "get_selected_notes", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation == "note.duplicate":
+            return any(callable(getattr(getattr(slot, "clip", None), "duplicate_notes_by_id", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation == "note.quantize":
+            return any(callable(getattr(getattr(slot, "clip", None), "quantize", None)) for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation in {"audio.warp-marker.read", "audio.warp-marker.add", "audio.warp-marker.move", "audio.warp-marker.delete"}:
+            clips = [getattr(slot, "clip", None) for track in tracks for slot in self._items(getattr(track, "clip_slots", []))]
+            clips += [clip for track in tracks for clip in self._items(self._read_attr(track, "arrangement_clips") or [])]
+            audio_clips = [clip for clip in clips if clip is not None and self._read_attr(clip, "is_audio_clip") is True]
+            if operation == "audio.warp-marker.read": return any(self._read_attr(clip, "warp_markers") is not None for clip in audio_clips)
+            method = {"audio.warp-marker.add": "add_warp_marker", "audio.warp-marker.move": "move_warp_marker", "audio.warp-marker.delete": "remove_warp_marker"}[operation]
+            return any(callable(getattr(clip, method, None)) for clip in audio_clips)
+        if operation == "audio.take-lane.read":
+            return any(self._read_attr(track, "take_lanes") is not None for track in tracks)
+        if operation == "take-lane.create":
+            return any(callable(getattr(track, "create_take_lane", None)) for track in tracks)
+        if operation == "take-lane.rename":
+            return any(hasattr(lane, "name") for track in tracks for lane in self._items(self._read_attr(track, "take_lanes") or []))
+        if operation == "take-lane.clip.create":
+            return any(callable(getattr(lane, "create_midi_clip", None)) for track in tracks for lane in self._items(self._read_attr(track, "take_lanes") or []))
+        if operation == "take-lane.audio-clip.create":
+            return any(callable(getattr(lane, "create_audio_clip", None)) for track in tracks for lane in self._items(self._read_attr(track, "take_lanes") or []))
+        if operation == "tuning.read":
+            return getattr(self.song, "tuning_system", None) is not None or self._read_attr(self.song, "root_note") is not None or self._read_attr(self.song, "scale_name") is not None
+        if operation == "tuning.set":
+            tuning = getattr(self.song, "tuning_system", None)
+            return tuning is not None and (self._read_attr(tuning, "reference_pitch") is not None or self._read_attr(self.song, "root_note") is not None)
+        if operation == "groove.read":
+            return getattr(self.song, "groove_pool", None) is not None or self._read_attr(self.song, "groove_amount") is not None
+        if operation == "groove.set":
+            return isinstance(self._read_attr(self.song, "groove_amount"), (int, float)) and not isinstance(self._read_attr(self.song, "groove_amount"), bool)
+        if operation == "groove.edit":
+            pool = getattr(self.song, "groove_pool", None)
+            return any(self._read_attr(groove, "name") is not None for groove in self._items(self._read_attr(pool, "grooves") or [])) if pool is not None else False
+        if operation == "scene.set":
+            return any(self._read_attr(scene, "color_index") is not None or self._read_attr(scene, "tempo") is not None for scene in self._items(getattr(self.song, "scenes", [])))
+        if operation == "scene.fire-selected":
+            return any(callable(getattr(scene, "fire_as_selected", None)) for scene in self._items(getattr(self.song, "scenes", [])))
+        if operation == "song.read":
+            return True
+        if operation == "transport.action":
+            song = self.song
+            return any(callable(getattr(song, name, None)) for name in ("start_playing", "continue_playing", "stop_playing", "play_selection", "tap_tempo", "nudge_up", "nudge_down", "re_enable_automation", "force_link_beat_time"))
+        if operation == "locator.jump-to":
+            return self._locator_supported() and any(callable(getattr(locator, "jump", None)) for locator in self._items(getattr(self.song, "cue_points", [])))
+        if operation == "song.time-convert":
+            song = self.song
+            return (callable(getattr(song, "get_beats_loop_start", None)) and callable(getattr(song, "get_beats_loop_length", None))) or callable(getattr(song, "get_current_smpte_song_time", None))
+        if operation == "track.create-return":
+            return callable(getattr(self.song, "create_return_track", None))
+        if operation == "track.delete-return":
+            return callable(getattr(self.song, "delete_return_track", None)) and bool(self._items(getattr(self.song, "return_tracks", [])))
+        if operation == "track.duplicate":
+            return callable(getattr(self.song, "duplicate_track", None)) and bool(self._items(getattr(self.song, "tracks", [])))
+        if operation == "scene.duplicate":
+            return callable(getattr(self.song, "duplicate_scene", None)) and bool(self._items(getattr(self.song, "scenes", [])))
+        if operation == "track.view.set":
+            return any(getattr(track, "view", None) is not None and (self._read_attr(getattr(track, "view", None), "is_collapsed") is not None or self._read_attr(getattr(track, "view", None), "device_insert_mode") is not None) for track in tracks)
+        if operation == "track.select-instrument":
+            return any(callable(getattr(getattr(track, "view", None), "select_instrument", None)) for track in tracks)
+        if operation == "selection.set":
+            return getattr(self.song, "view", None) is not None
+        if operation == "song.view.set":
+            return self._read_attr(getattr(self.song, "view", None), "draw_mode") is not None
+        if operation == "clip.view.set":
+            return any(getattr(getattr(slot, "clip", None), "view", None) is not None for track in tracks for slot in self._items(getattr(track, "clip_slots", [])))
+        if operation == "device.view.set":
+            return any(getattr(device, "view", None) is not None for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "application.dialog":
+            try:
+                application = self._application()
+            except ValueError:
+                return False
+            if callable(getattr(application, "press_current_dialog_button", None)): return True
+            state = self._dialog_state(application)
+            return any(value is not None for value in state.values())
+        if operation == "performance.read":
+            return True
+        if operation == "mixer.extended.set":
+            return any(self._read_attr(self._read_attr(track, "mixer_device"), "track_activator") is not None or self._read_attr(self._read_attr(track, "mixer_device"), "crossfader") is not None or self._read_attr(self._read_attr(track, "mixer_device"), "panning_left") is not None for track in tracks)
+        if operation == "chain-mixer.set":
+            return any(self._read_attr(self._read_attr(chain, "mixer_device"), "volume") is not None for track in tracks for device in self._items(getattr(track, "devices", [])) for chain in self._items(self._read_attr(device, "chains") or []))
+        if operation == "device-io.set":
+            return any(bool(self._items(self._read_attr(device, "audio_inputs") or [])) for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "compressor.sidechain.set":
+            return any(self._read_attr(device, "input_routing_type") is not None for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "device.bank.set":
+            return any(callable(getattr(device, "parameter_bank_count", None)) and callable(getattr(device, "store_chosen_bank", None)) for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "parameter.re-enable-automation":
+            return any(callable(getattr(parameter, "re_enable_automation", None)) for track in tracks for device in self._items(getattr(track, "devices", [])) for parameter in self._items(getattr(device, "parameters", [])))
+        if operation == "device.comparison.save-to-slot":
+            return any(callable(getattr(device, "save_preset_to_compare_ab_slot", None)) for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "chain.set":
+            return any(self._read_attr(chain, "color_index") is not None or self._read_attr(chain, "auto_color") is not None for track in tracks for device in self._items(getattr(track, "devices", [])) for chain in self._items(self._read_attr(device, "chains") or []))
+        if operation == "drum-pad.set":
+            return any(self._read_attr(pad, "note") is not None or self._read_attr(pad, "solo") is not None for track in tracks for device in self._items(getattr(track, "devices", [])) for pad in self._items(self._read_attr(device, "drum_pads") or []))
+        if operation == "drum-pad.delete-all-chains":
+            return any(callable(getattr(pad, "delete_all_chains", None)) for track in tracks for device in self._items(getattr(track, "devices", [])) for pad in self._items(self._read_attr(device, "drum_pads") or []))
+        if operation == "rack.set":
+            return any(isinstance(self._read_attr(device, "visible_macro_count"), int) and not isinstance(self._read_attr(device, "visible_macro_count"), bool) for track in tracks for device in self._items(getattr(track, "devices", [])) if self._read_attr(device, "can_have_chains") is True)
+        if operation == "rack.action":
+            return any(any(callable(getattr(device, name, None)) for name in ("add_macro", "remove_macro", "randomize_macros", "insert_chain", "copy_pad", "store_variation", "recall_variation", "delete_variation")) for track in tracks for device in self._items(getattr(track, "devices", [])) if self._read_attr(device, "can_have_chains") is True)
+        if operation == "rack.view.set":
+            return any(getattr(device, "view", None) is not None for track in tracks for device in self._items(getattr(track, "devices", [])) if self._read_attr(device, "can_have_chains") is True)
+        if operation == "drift.set":
+            return any("drift" in str(self._read_attr(device, "class_name") or device.__class__.__name__).lower() and (self._read_attr(device, "pitch_bend_range") is not None or self._read_attr(device, "voice_count_index") is not None) for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "drum-cell.set":
+            return any("drumcell" in str(self._read_attr(device, "class_name") or device.__class__.__name__).lower().replace("_", "").replace(" ", "") and self._read_attr(device, "gain") is not None for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "eq8.set":
+            return any("eq8" in str(self._read_attr(device, "class_name") or device.__class__.__name__).lower().replace("_", "").replace(" ", "") and (self._read_attr(device, "edit_mode") is not None or self._read_attr(device, "global_mode") is not None or self._read_attr(device, "oversample") is not None) for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "hybrid-reverb.set":
+            return any("hybridreverb" in str(self._read_attr(device, "class_name") or device.__class__.__name__).lower().replace("_", "").replace(" ", "") and (self._read_attr(device, "ir_attack_time") is not None or self._read_attr(device, "ir_decay_time") is not None or self._read_attr(device, "ir_size_factor") is not None or self._read_attr(device, "ir_category_index") is not None) for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation in {"looper.action", "looper.set"}:
+            return any("looper" in str(self._read_attr(device, "class_name") or device.__class__.__name__).lower() and (any(callable(getattr(device, name, None)) for name in ("record", "overdub", "play", "stop", "clear")) or self._read_attr(device, "speed") is not None) for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "meld.set":
+            return any("meld" in str(self._read_attr(device, "class_name") or device.__class__.__name__).lower() and (self._read_attr(device, "selected_engine") is not None or self._read_attr(device, "unison_voices") is not None or self._read_attr(device, "poly_voices") is not None) for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "plugin.set":
+            return any(self._read_attr(device, "is_editor_open") is not None or self._read_attr(device, "presets") is not None for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "simpler.replace-sample":
+            return any(callable(getattr(device, "replace_sample", None)) for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation in {"observe.subscribe", "observe.poll", "observe.unsubscribe"}:
+            return True
         return False
 
     def capabilities(self, operations: set[str] | None = None) -> list[str]:
@@ -758,6 +895,10 @@ class LiveObjectMapper:
             class_names = [str(self._read_attr(item, "class_name") or item.__class__.__name__).lower() for item in device_objects]
             if any(any(marker in name for marker in ("plugin", "vst", "audio_unit")) for name in class_names): capabilities.append("plugins")
         if supports("audio.clip.set"): capabilities.append("audio")
+        if supports("audio.warp-marker.read"): capabilities.append("warp")
+        if supports("audio.take-lane.read"): capabilities.append("takes")
+        if supports("tuning.read"): capabilities.append("tuning")
+        if supports("groove.read"): capabilities.append("groove")
         if supports("audio.capture.inspect") and supports("audio.capture.start") and supports("audio.capture.stop") and supports("audio.capture.cleanup"): capabilities.append("audio.capture.resampling")
         if supports("automation.envelope.read"): capabilities.append("automation")
         if supports("view.set") or supports("view.control"): capabilities.append("view")
@@ -927,7 +1068,7 @@ class LiveObjectMapper:
                 "filePath": None, "availableAudioFields": [], "warpMarkers": [],
                 "warpMarkerEditingAvailable": False,
             }
-        warp_mode = self._read_attr(clip, "warping_mode")
+        warp_mode = self._read_attr(clip, "warp_mode")
         if isinstance(warp_mode, int) and not isinstance(warp_mode, bool):
             warp = int(warp_mode)
         elif isinstance(warp_mode, str):
@@ -944,6 +1085,10 @@ class LiveObjectMapper:
             "filePath": str(file_path) if isinstance(file_path, str) and file_path else None,
         }
         values["availableAudioFields"] = [field for field in ("gain", "pitchCoarse", "pitchFine", "warpMode", "warping", "fadeInLength", "fadeOutLength", "loopStart", "loopEnd") if values.get(field) is not None]
+        available_warp_modes = self._read_attr(clip, "available_warp_modes")
+        values["availableWarpModes"] = [int(mode) for mode in self._items(available_warp_modes) if isinstance(mode, int) and not isinstance(mode, bool)][:32] if available_warp_modes is not None else None
+        sample_length = self._read_attr(clip, "sample_length")
+        values["sampleLength"] = float(sample_length) if isinstance(sample_length, (int, float)) and not isinstance(sample_length, bool) and math.isfinite(float(sample_length)) else None
         try:
             markers = list(getattr(clip, "warp_markers", None) or [])
         except Exception as error:
@@ -1058,8 +1203,15 @@ class LiveObjectMapper:
                 "automatable": bool(self._read_attr(parameter, "is_automatable", "automatable") if self._read_attr(parameter, "is_automatable", "automatable") is not None else True),
                 "automationState": str(self._read_attr(parameter, "automation_state") or "none"),
                 "displayValue": str(display), "revision": self.refs.revision(parameter_ref),
+                "defaultValue": float(self._read_attr(parameter, "default_value")) if isinstance(self._read_attr(parameter, "default_value"), (int, float)) and not isinstance(self._read_attr(parameter, "default_value"), bool) and math.isfinite(float(self._read_attr(parameter, "default_value"))) else None,
+                "originalName": str(self._read_attr(parameter, "original_name") or "") if isinstance(self._read_attr(parameter, "original_name"), str) else None,
+                "state": int(self._read_attr(parameter, "state")) if isinstance(self._read_attr(parameter, "state"), int) and not isinstance(self._read_attr(parameter, "state"), bool) else None,
+                "valueItems": [str(item) for item in self._items(self._read_attr(parameter, "value_items") or [])][:64] if self._read_attr(parameter, "value_items") is not None else None,
             })
         enabled = self._read_attr(device, "is_active", "is_enabled", "enabled")
+        bank_count_method = getattr(device, "parameter_bank_count", None)
+        try: parameter_bank = bank_count_method() if callable(bank_count_method) else None
+        except Exception: parameter_bank = None
         row: dict[str, Any] = {
             "ref": device_ref, "parentRef": track_ref, "chainPosition": index,
             "objectIdentity": self._capture_object_identity(device),
@@ -1069,15 +1221,46 @@ class LiveObjectMapper:
             "enabled": bool(enabled) if isinstance(enabled, bool) else None,
             "canHaveChains": self._read_attr(device, "can_have_chains") if isinstance(self._read_attr(device, "can_have_chains"), bool) else None,
             "canHaveDrumPads": self._read_attr(device, "can_have_drum_pads") if isinstance(self._read_attr(device, "can_have_drum_pads"), bool) else None,
+            "latencySamples": int(self._read_attr(device, "latency_in_samples")) if isinstance(self._read_attr(device, "latency_in_samples"), int) and not isinstance(self._read_attr(device, "latency_in_samples"), bool) else None,
+            "latencyMs": float(self._read_attr(device, "latency_in_ms")) if isinstance(self._read_attr(device, "latency_in_ms"), (int, float)) and not isinstance(self._read_attr(device, "latency_in_ms"), bool) and math.isfinite(float(self._read_attr(device, "latency_in_ms"))) else None,
+            "parameterBank": int(parameter_bank) if isinstance(parameter_bank, int) and not isinstance(parameter_bank, bool) else None,
+            **self._specialized_rows(device, device_ref),
+            "comparison": {
+                "capability": self._read_attr(device, "can_compare_ab") if isinstance(self._read_attr(device, "can_compare_ab"), bool) else None,
+                "activeSide": (1 if self._read_attr(device, "is_using_compare_preset_b") else 0) if isinstance(self._read_attr(device, "is_using_compare_preset_b"), bool) else None,
+            },
+            "deviceIo": self._device_io_fields(device),
+            "sidechainRoutingType": self._choice_name(self._read_attr(device, "input_routing_type")),
             "parameters": parameters,
         }
         if row["canHaveChains"] is True:
             row["chains"] = self._chain_rows(device, device_ref, track_index, path, traversal, depth)
-            row["chainSelector"] = self._read_attr(device, "chain_selector")
+            chain_selector = self._read_attr(device, "chain_selector")
+            row["chainSelector"] = None if chain_selector is None else {"ref": self.refs.put("parameter", chain_selector, f"{device_ref}:chain-selector"), "objectIdentity": self._capture_object_identity(chain_selector), "name": str(self._read_attr(chain_selector, "name") or "Chain Selector"), "value": self._read_attr(chain_selector, "value"), "min": self._read_attr(chain_selector, "min"), "max": self._read_attr(chain_selector, "max")}
             macros = self._items(self._read_attr(device, "macros") or [])
             if len(macros) > MAX_DISCOVERY_COLLECTION_LENGTH: raise ValueError("device macro collection exceeds its bound")
             row["macros"] = [{"ref": self.refs.put("parameter", macro, f"{device_ref}:macro:{macro_index}"), "objectIdentity": self._capture_object_identity(macro), "name": str(self._read_attr(macro, "name") or f"Macro {macro_index + 1}"), "value": self._read_attr(macro, "value")} for macro_index, macro in enumerate(macros)]
-            row["variationCount"] = len(self._items(self._read_attr(device, "variations") or []))
+            return_chains = self._items(self._read_attr(device, "return_chains") or [])
+            row["returnChains"] = [self.refs.put("chain", chain, f"{device_ref}:return:{return_index}") for return_index, chain in enumerate(return_chains)]
+            visible_count = self._read_attr(device, "visible_macro_count")
+            variation_count = self._read_attr(device, "variation_count")
+            selected_variation = self._read_attr(device, "selected_variation")
+            row["visibleMacroCount"] = int(visible_count) if isinstance(visible_count, int) and not isinstance(visible_count, bool) else None
+            row["variationCount"] = int(variation_count) if isinstance(variation_count, int) and not isinstance(variation_count, bool) else None
+            row["selectedVariationIndex"] = int(self._read_attr(device, "selected_variation_index")) if isinstance(self._read_attr(device, "selected_variation_index"), int) and not isinstance(self._read_attr(device, "selected_variation_index"), bool) else None
+            macro_mapped = self._read_attr(device, "macro_mapped")
+            row["macroMapped"] = [bool(value) for value in self._items(macro_mapped)] if isinstance(macro_mapped, (list, tuple)) else None
+            rack_view = getattr(device, "view", None)
+            selected_chain = self._read_attr(rack_view, "selected_chain") if rack_view is not None else None
+            selected_pad = self._read_attr(rack_view, "selected_drum_pad") if rack_view is not None else None
+            pad_scroll = self._read_attr(rack_view, "drum_pads_scroll_position") if rack_view is not None else None
+            show_devices = self._read_attr(rack_view, "is_showing_chain_devices") if rack_view is not None else None
+            row["view"] = {
+                "selectedChainRef": self.refs.put("chain", selected_chain, f"{device_ref}:selected") if selected_chain is not None else None,
+                "selectedPadIndex": int(self._read_attr(selected_pad, "index")) if selected_pad is not None and isinstance(self._read_attr(selected_pad, "index"), int) and not isinstance(self._read_attr(selected_pad, "index"), bool) else None,
+                "padScrollPosition": int(pad_scroll) if isinstance(pad_scroll, int) and not isinstance(pad_scroll, bool) else None,
+                "showChainDevices": show_devices if isinstance(show_devices, bool) else None,
+            }
         if row["canHaveDrumPads"] is True:
             row["drumPads"] = self._drum_pad_rows(device, device_ref, track_index, path, traversal, depth)
         return row
@@ -1094,12 +1277,25 @@ class LiveObjectMapper:
                 chain_devices.append(self._device_row(device, nested_ref, chain_ref, track_index, f"{path}:{chain_index}:{device_index}", device_index, traversal, depth + 1))
             mute = self._read_attr(chain, "mute")
             solo = self._read_attr(chain, "solo")
+            color = self._read_attr(chain, "color_index")
+            in_note = self._read_attr(chain, "in_note"); out_note = self._read_attr(chain, "out_note"); choke = self._read_attr(chain, "choke_group")
             rows.append({
                 "ref": chain_ref, "parentRef": parent_ref, "index": chain_index, "objectIdentity": self._capture_object_identity(chain),
                 "name": str(self._read_attr(chain, "name") or f"Chain {chain_index + 1}"),
                 "mute": bool(mute) if isinstance(mute, bool) else None,
                 "solo": bool(solo) if isinstance(solo, bool) else None,
                 "devices": chain_devices,
+                "mixer": self._chain_mixer_fields(chain, chain_ref),
+                "colorIndex": int(color) if isinstance(color, int) and not isinstance(color, bool) and 0 <= color <= 69 else None,
+                "autoColor": self._read_attr(chain, "is_auto_colored") if isinstance(self._read_attr(chain, "is_auto_colored"), bool) else None,
+                "hasAudioInput": self._read_attr(chain, "has_audio_input") if isinstance(self._read_attr(chain, "has_audio_input"), bool) else None,
+                "hasAudioOutput": self._read_attr(chain, "has_audio_output") if isinstance(self._read_attr(chain, "has_audio_output"), bool) else None,
+                "hasMidiInput": self._read_attr(chain, "has_midi_input") if isinstance(self._read_attr(chain, "has_midi_input"), bool) else None,
+                "hasMidiOutput": self._read_attr(chain, "has_midi_output") if isinstance(self._read_attr(chain, "has_midi_output"), bool) else None,
+                "mutedViaSolo": self._read_attr(chain, "muted_via_solo") if isinstance(self._read_attr(chain, "muted_via_solo"), bool) else None,
+                "inNote": int(in_note) if isinstance(in_note, int) and not isinstance(in_note, bool) else None,
+                "outNote": int(out_note) if isinstance(out_note, int) and not isinstance(out_note, bool) else None,
+                "chokeGroup": int(choke) if isinstance(choke, int) and not isinstance(choke, bool) else None,
             })
         return rows
 
@@ -1110,11 +1306,15 @@ class LiveObjectMapper:
         for pad_index, pad in enumerate(pads):
             pad_ref = self.refs.put("drum_pad", pad, f"{path}:{pad_index}")
             mute = self._read_attr(pad, "mute")
+            note = self._read_attr(pad, "note"); pad_solo = self._read_attr(pad, "solo")
             rows.append({
                 "ref": pad_ref, "parentRef": device_ref, "index": pad_index,
                 "name": str(self._read_attr(pad, "name") or f"Pad {pad_index + 1}"),
                 "mute": bool(mute) if isinstance(mute, bool) else None,
+                "objectIdentity": self._capture_object_identity(pad),
                 "chains": self._chain_rows(pad, pad_ref, track_index, f"{path}:{pad_index}", traversal, depth),
+                "note": int(note) if isinstance(note, int) and not isinstance(note, bool) else None,
+                "solo": bool(pad_solo) if isinstance(pad_solo, bool) else None,
             })
         return rows
 
@@ -1187,7 +1387,7 @@ class LiveObjectMapper:
                 clip = getattr(slot, "clip", None)
                 slot_ref = self.refs.put("clip_slot", slot, f"{index}:{slot_index}")
                 if clip is None:
-                    slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "objectIdentity": self._capture_object_identity(slot), "sceneIndex": slot_index, "empty": True})
+                    slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "objectIdentity": self._capture_object_identity(slot), "sceneIndex": slot_index, "empty": True, **self._slot_state_fields(slot)})
                     continue
                 clip_ref = self.refs.put("clip", clip, f"{index}:{slot_index}")
                 notes = self._read_notes(clip)
@@ -1195,7 +1395,7 @@ class LiveObjectMapper:
                 for key, value in self._clip_state_fields(clip).items():
                     if value is not None or key not in clip_row: clip_row[key] = value
                 clips.append(clip_row)
-                slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "objectIdentity": self._capture_object_identity(slot), "sceneIndex": slot_index, "clipRef": clip_ref, "empty": False})
+                slot_rows.append({"ref": slot_ref, "parentRef": track_ref, "trackRef": track_ref, "objectIdentity": self._capture_object_identity(slot), "sceneIndex": slot_index, "clipRef": clip_ref, "empty": False, **self._slot_state_fields(slot)})
             armed_value = self._read_attr(track, "arm", "armed")
             track_rows.append({
                 "ref": track_ref, "parentRef": self.refs.put("set", self.song, "song"), "objectIdentity": self._capture_object_identity(track),
@@ -1207,9 +1407,9 @@ class LiveObjectMapper:
                 "firedSlotIndex": self._slot_index(self._read_attr(track, "fired_slot_index")),
                 "mixer": self._mixer_row(track, index),
                 "routing": self._routing_row(track),
-                "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track, index),
+                "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track, index), "takeLanes": self._take_lane_rows(track, index), **self._track_state_fields(track, index),
             })
-        scene_rows = [{"ref": self.refs.put("scene", scene, str(i)), "parentRef": self.refs.put("set", self.song, "song"), "objectIdentity": self._capture_object_identity(scene), "name": str(getattr(scene, "name", f"Scene {i + 1}")), "index": i, "triggerable": callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None))} for i, scene in enumerate(scenes)]
+        scene_rows = [self._scene_row(scene, i) for i, scene in enumerate(scenes)]
         locators = self._locator_items()
         return {"set": set_row, "tracks": track_rows, "scenes": scene_rows, "arrangement": {"locators": locators, "locatorRevision": hashlib.sha256(self._bounded_canonical(locators).encode("utf-8")).hexdigest(), "clips": self._arrangement_clip_items()}, "playback": self._playback(track_rows, scene_rows), "epoch": self.refs.epoch}
 
@@ -1228,6 +1428,9 @@ class LiveObjectMapper:
         except (AttributeError, RuntimeError, TypeError) as error:
             raise ValueError("complete MIDI note enumeration failed") from error
         if len(raw) > MAX_WIRE_ARRAY_LENGTH: raise ValueError("MIDI note collection exceeds its authoritative bound")
+        return self._note_rows_from(raw)
+
+    def _note_rows_from(self, raw: Any) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for item in self._items(raw):
             if isinstance(item, dict):
@@ -1262,6 +1465,10 @@ class LiveObjectMapper:
             result = next((clip for track in self.snapshot()["tracks"] for clip in track["clips"] if clip["ref"] == reference), None)
         elif kind == "arrangement_clip":
             result = next((clip for clip in self._arrangement_clip_items() if clip["ref"] == reference), None)
+        elif kind == "take_lane":
+            result = next((lane for track in self.snapshot()["tracks"] for lane in (track.get("takeLanes") or []) if lane["ref"] == reference), None)
+        elif kind == "take_lane_clip":
+            result = next((clip for track in self.snapshot()["tracks"] for lane in (track.get("takeLanes") or []) for clip in (lane.get("clips") or []) if clip["ref"] == reference), None)
         elif kind in {"device", "parameter"}:
             for track in self.snapshot()["tracks"]:
                 for device in self._flatten_device_rows(track.get("devices", [])):
@@ -1693,7 +1900,7 @@ class LiveObjectMapper:
         expected = args.get("expectedRevision"); set_ref = args.get("setRef"); expected_identity = args.get("expectedObjectIdentity"); set_target = self.refs.get(set_ref) if isinstance(set_ref, str) else None
         if not isinstance(expected, str) or not 1 <= len(expected) <= 256 or not isinstance(set_ref, str) or not isinstance(expected_identity, str) or not self._capture_same_object(set_target, self.song, expected_identity) or not hmac.compare_digest(self._capture_object_identity(self.song), expected_identity):
             raise ValueError("transport Set identity or revision authority is invalid")
-        allowed = {"position", "loopEnabled", "loopStart", "loopLength", "metronome", "punchIn", "punchOut", "countIn", "expectedRevision", "setRef", "expectedObjectIdentity"}
+        allowed = {"position", "loopEnabled", "loopStart", "loopLength", "metronome", "punchIn", "punchOut", "expectedRevision", "setRef", "expectedObjectIdentity"}
         if set(args) - allowed:
             raise ValueError("transport fields are invalid")
         playback = self._playback()
@@ -1723,10 +1930,11 @@ class LiveObjectMapper:
         metronome = flag("metronome")
         punch_in = flag("punchIn")
         punch_out = flag("punchOut")
-        count_in = number("countIn", 1000)
+        # count_in_duration is get/observe in the public LOM; it is read in the
+        # transport row but never written here.
         if loop_length is not None and loop_length <= 0:
             raise ValueError("loopLength is invalid")
-        proposed = [("current_song_time", position), ("loop", loop_enabled), ("loop_start", loop_start), ("loop_length", loop_length), ("metronome", metronome), ("punch_in", punch_in), ("punch_out", punch_out), ("count_in_duration", count_in)]; assignments = []
+        proposed = [("current_song_time", position), ("loop", loop_enabled), ("loop_start", loop_start), ("loop_length", loop_length), ("metronome", metronome), ("punch_in", punch_in), ("punch_out", punch_out)]; assignments = []
         for attribute, value in proposed:
             if value is None: continue
             prior = self._read_attr(self.song, attribute)
@@ -1746,7 +1954,6 @@ class LiveObjectMapper:
             if metronome is not None: checks.append(transport["metronome"] is metronome)
             if punch_in is not None: checks.append(transport["punchIn"] is punch_in)
             if punch_out is not None: checks.append(transport["punchOut"] is punch_out)
-            if count_in is not None: checks.append(isinstance(transport["countIn"], (int, float)) and float(transport["countIn"]) == count_in)
             if not all(checks): raise ValueError("transport change was not confirmed by fresh state")
             after_revision = self._playback()["revision"]
         except BaseException as error:
@@ -2018,6 +2225,128 @@ class LiveObjectMapper:
             return self._audio_clip_set(args)
         if operation == "clip.set":
             return self._clip_set(args)
+        if operation == "clip.action":
+            return self._clip_action(args)
+        if operation == "session.audio-clip.create":
+            return self._session_audio_clip_create(args)
+        if operation == "automation.envelope.clear":
+            return self._automation_envelope_clear(args)
+        if operation == "note.read-by-id":
+            return self._note_read_by_id(args)
+        if operation == "note.read-selected":
+            return self._note_read_selected(args)
+        if operation == "note.duplicate":
+            return self._note_duplicate(args)
+        if operation == "note.quantize":
+            return self._note_quantize(args)
+        if operation == "audio.warp-marker.read":
+            return self._warp_marker_read(args)
+        if operation in {"audio.warp-marker.add", "audio.warp-marker.move", "audio.warp-marker.delete"}:
+            return self._warp_marker_mutate(operation, args)
+        if operation == "audio.take-lane.read":
+            return self._take_lane_read(args)
+        if operation == "tuning.read":
+            return self._tuning_read(args)
+        if operation == "tuning.set":
+            return self._tuning_set(args)
+        if operation == "groove.read":
+            return self._groove_read(args)
+        if operation == "groove.set":
+            return self._groove_set(args)
+        if operation == "groove.edit":
+            return self._groove_edit(args)
+        if operation == "scene.set":
+            return self._scene_set(args)
+        if operation == "scene.fire-selected":
+            return self._scene_fire_selected(args)
+        if operation == "song.read":
+            return self._song_read(args)
+        if operation == "transport.action":
+            return self._transport_action(args)
+        if operation == "locator.jump-to":
+            return self._locator_jump_to(args)
+        if operation == "song.time-convert":
+            return self._song_time_convert(args)
+        if operation == "track.create-return":
+            return self._track_create_return(args)
+        if operation == "track.delete-return":
+            return self._track_delete_return(args)
+        if operation == "track.duplicate":
+            return self._track_duplicate(args)
+        if operation == "scene.duplicate":
+            return self._scene_duplicate(args)
+        if operation == "track.view.set":
+            return self._track_view_set(args)
+        if operation == "track.select-instrument":
+            return self._track_select_instrument(args)
+        if operation == "selection.set":
+            return self._selection_set(args)
+        if operation == "song.view.set":
+            return self._song_view_set(args)
+        if operation == "clip.view.set":
+            return self._clip_view_set(args)
+        if operation == "device.view.set":
+            return self._device_view_set(args)
+        if operation == "application.dialog":
+            return self._application_dialog(args)
+        if operation == "performance.read":
+            return self._performance_read(args)
+        if operation == "mixer.extended.set":
+            return self._mixer_extended_set(args)
+        if operation == "chain-mixer.set":
+            return self._chain_mixer_set(args)
+        if operation == "device-io.set":
+            return self._device_io_set(args)
+        if operation == "compressor.sidechain.set":
+            return self._compressor_sidechain_set(args)
+        if operation == "device.bank.set":
+            return self._device_bank_set(args)
+        if operation == "parameter.re-enable-automation":
+            return self._parameter_re_enable_automation(args)
+        if operation == "device.comparison.save-to-slot":
+            return self._device_comparison_save_to_slot(args)
+        if operation == "chain.set":
+            return self._chain_set(args)
+        if operation == "drum-pad.set":
+            return self._drum_pad_set(args)
+        if operation == "drum-pad.delete-all-chains":
+            return self._drum_pad_delete_all_chains(args)
+        if operation == "rack.set":
+            return self._rack_set(args)
+        if operation == "rack.action":
+            return self._rack_action(args)
+        if operation == "rack.view.set":
+            return self._rack_view_set(args)
+        if operation == "drift.set":
+            return self._drift_set(args)
+        if operation == "drum-cell.set":
+            return self._drum_cell_set(args)
+        if operation == "eq8.set":
+            return self._eq8_set(args)
+        if operation == "hybrid-reverb.set":
+            return self._hybrid_reverb_set(args)
+        if operation == "looper.action":
+            return self._looper_action(args)
+        if operation == "looper.set":
+            return self._looper_set(args)
+        if operation == "meld.set":
+            return self._meld_set(args)
+        if operation == "plugin.set":
+            return self._plugin_set(args)
+        if operation == "simpler.replace-sample":
+            return self._simpler_replace_sample(args)
+        if operation == "observe.subscribe":
+            return self._observe_subscribe(args)
+        if operation == "observe.poll":
+            return self._observe_poll(args)
+        if operation == "observe.unsubscribe":
+            return self._observe_unsubscribe(args)
+        if operation == "take-lane.create":
+            return self._take_lane_create(args)
+        if operation == "take-lane.rename":
+            return self._take_lane_rename(args)
+        if operation in {"take-lane.clip.create", "take-lane.audio-clip.create"}:
+            return self._take_lane_clip_create(args, audio=operation == "take-lane.audio-clip.create")
         if operation == "arrangement.audio-clip.create":
             return self._arrangement_audio_clip_create(args)
         if operation == "locator.jump":
@@ -2060,6 +2389,8 @@ class LiveObjectMapper:
             return self._device_move(args)
         if operation == "browser.search":
             return self._browser_search(args)
+        if operation == "browser.roots":
+            return self._browser_roots(args)
         if operation == "browser.inspect":
             return self._browser_inspect(args)
         if operation == "browser.load":
@@ -2444,6 +2775,45 @@ class LiveObjectMapper:
             raise ValueError("arrangement clip is stale")
         return tracks[track_index], clips[clip_index], track_index, clip_index
 
+    def _take_lane_rows(self, track: Any, track_index: int) -> list[dict[str, Any]]:
+        lanes = self._items(self._read_attr(track, "take_lanes") or [])
+        if len(lanes) > 64: raise ValueError("take-lane collection exceeds its bound")
+        rows = []
+        for lane_index, lane in enumerate(lanes):
+            clips = self._items(self._read_attr(lane, "arrangement_clips") or [])
+            if len(clips) > 256: raise ValueError("take-lane clip collection exceeds its bound")
+            clip_rows = []
+            for clip_index, clip in enumerate(clips):
+                reference = self.refs.put("take_lane_clip", clip, f"{track_index}:{lane_index}:{clip_index}")
+                notes = self._read_notes(clip)
+                row = {"ref": reference, "objectIdentity": self._capture_object_identity(clip), "parentRef": self.refs.put("take_lane", lane, f"{track_index}:{lane_index}"), "takeLaneRef": self.refs.put("take_lane", lane, f"{track_index}:{lane_index}"), "name": str(getattr(clip, "name", "")), "kind": "midi" if hasattr(clip, "add_new_notes") else "audio", "start": float(getattr(clip, "start_time", getattr(clip, "start", 0.0)) or 0.0), "length": float(getattr(clip, "length", 0.0) or 0.0), "notes": notes, "notesRevision": hashlib.sha256(self._bounded_canonical(notes).encode("utf-8")).hexdigest(), **self._audio_fields(clip)}
+                for key, value in self._clip_state_fields(clip).items():
+                    if value is not None or key not in row: row[key] = value
+                if row.get("isTakeLaneClip") is None: row["isTakeLaneClip"] = True
+                clip_rows.append(row)
+            lane_ref = self.refs.put("take_lane", lane, f"{track_index}:{lane_index}")
+            rows.append({"ref": lane_ref, "objectIdentity": self._capture_object_identity(lane), "parentRef": self.refs.put("track", track, str(track_index)), "trackRef": self.refs.put("track", track, str(track_index)), "name": str(getattr(lane, "name", "")), "index": lane_index, "clips": clip_rows})
+        return rows
+
+    def _take_lane_collection_revision(self, track: Any, track_index: int) -> str:
+        lanes = self._items(self._read_attr(track, "take_lanes") or []); siblings = [{"ref": self.refs.put("take_lane", lane, f"{track_index}:{index}"), "objectIdentity": self._capture_object_identity(lane), "name": str(getattr(lane, "name", ""))} for index, lane in enumerate(lanes)]
+        if len(siblings) > 64: raise ValueError("take-lane collection exceeds authority bound")
+        return hashlib.sha256(self._bounded_canonical(siblings).encode("utf-8")).hexdigest()
+
+    def _take_lane_clip_collection_revision(self, lane: Any, lane_ref: str) -> str:
+        path = ":".join(lane_ref.split(":")[2:]); clips = self._items(self._read_attr(lane, "arrangement_clips") or []); siblings = [{"ref": self.refs.put("take_lane_clip", clip, f"{path}:{index}"), "objectIdentity": self._capture_object_identity(clip)} for index, clip in enumerate(clips)]
+        if len(siblings) > 256: raise ValueError("take-lane clip collection exceeds authority bound")
+        return hashlib.sha256(self._bounded_canonical(siblings).encode("utf-8")).hexdigest()
+
+    def _take_lane_location(self, reference: str) -> tuple[Any, Any, int, int]:
+        parts = reference.split(":"); key = parts[2:] if len(parts) > 2 else []
+        if len(key) < 2 or not all(part.isdigit() for part in key[:2]): raise ValueError("take-lane reference is stale or invalid")
+        track_index, lane_index = int(key[0]), int(key[1]); tracks = self._items(getattr(self.song, "tracks", []))
+        if track_index >= len(tracks): raise ValueError("take-lane track hierarchy changed")
+        track = tracks[track_index]; lanes = self._items(self._read_attr(track, "take_lanes") or [])
+        if lane_index >= len(lanes): raise ValueError("take-lane hierarchy changed")
+        return track, lanes[lane_index], track_index, lane_index
+
     def _arrangement_collection_revision(self, track: Any, track_index: int) -> str:
         clips = self._items(self._read_attr(track, "arrangement_clips") or []); siblings = [{"ref": self.refs.put("arrangement_clip", clip, f"{track_index}:{index}"), "objectIdentity": self._capture_object_identity(clip)} for index, clip in enumerate(clips)]
         if len(siblings) > 256: raise ValueError("Arrangement clip collection exceeds authority bound")
@@ -2811,7 +3181,7 @@ class LiveObjectMapper:
         if "warpMode" in args:
             value = args["warpMode"]
             if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 16: raise ValueError("warpMode is invalid")
-            proposals.append(("warpMode", "warping_mode", value))
+            proposals.append(("warpMode", "warp_mode", value))
         if "warping" in args:
             value = args["warping"]
             if not isinstance(value, bool): raise ValueError("warping is invalid")
@@ -2846,7 +3216,7 @@ class LiveObjectMapper:
         revision = self.refs.touch(reference)
         return {"changed": True, "revision": revision}
 
-    _CLIP_SET_FIELDS = ("muted", "colorIndex", "looping", "loopStart", "loopEnd")
+    _CLIP_SET_FIELDS = ("muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove")
 
     def _clip_state_fields(self, clip: Any) -> dict[str, Any]:
         """Muted/color/loop clip state, honestly null when unavailable."""
@@ -2860,6 +3230,41 @@ class LiveObjectMapper:
             for name, key in (("loop_start", "loopStart"), ("loop_end", "loopEnd")):
                 value = self._read_attr(clip, name)
                 fields[key] = float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+        def optional_bool(name: str) -> bool | None:
+            value = self._read_attr(clip, name)
+            return value if isinstance(value, bool) else None
+        def optional_float(name: str) -> float | None:
+            value = self._read_attr(clip, name)
+            return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+        def optional_int(name: str) -> int | None:
+            value = self._read_attr(clip, name)
+            return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+        fields["launchMode"] = optional_int("launch_mode")
+        fields["legato"] = optional_bool("legato")
+        fields["playingPosition"] = optional_float("playing_position")
+        fields["isPlaying"] = optional_bool("is_playing")
+        fields["isTriggered"] = optional_bool("is_triggered")
+        fields["isRecording"] = optional_bool("is_recording")
+        fields["ramMode"] = optional_bool("ram_mode")
+        fields["signatureNumerator"] = optional_int("signature_numerator")
+        fields["signatureDenominator"] = optional_int("signature_denominator")
+        fields["velocityAmount"] = optional_float("velocity_amount")
+        fields["willRecordOnStart"] = optional_bool("will_record_on_start")
+        fields["fireButtonState"] = optional_bool("fire_button_state")
+        is_take_lane = self._read_attr(clip, "is_take_lane_clip")
+        fields["isTakeLaneClip"] = is_take_lane if isinstance(is_take_lane, bool) else None
+        if getattr(clip, "view", None) is not None:
+            fields["clipView"] = self._clip_view_state(clip)
+        groove = self._read_attr(clip, "groove")
+        if groove is not None:
+            groove_ref = self.refs.put("groove", groove, str(id(groove)))
+            fields["groove"] = {"ref": groove_ref, "name": str(self._read_attr(groove, "name") or "")}
+        else:
+            fields["groove"] = None
+        has_groove = self._read_attr(clip, "has_groove")
+        fields["hasGroove"] = has_groove if isinstance(has_groove, bool) else (groove is not None)
+        end_time = self._read_attr(clip, "end_time")
+        fields["endTime"] = float(end_time) if isinstance(end_time, (int, float)) and not isinstance(end_time, bool) and math.isfinite(float(end_time)) else None
         return fields
 
     def _clip_set(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -2869,17 +3274,23 @@ class LiveObjectMapper:
         current = self.get(reference); expected_identity = args.get("expectedObjectIdentity"); expected_authority = args.get("expectedAuthorityRevision"); expected_state = args.get("expectedStateRevision")
         if not isinstance(current, dict) or not isinstance(expected_identity, str) or not hmac.compare_digest(str(current.get("objectIdentity", "")), expected_identity):
             raise ValueError("clip identity changed since preview")
-        if reference.startswith(f"{self.refs.epoch}:clip:"): authority_revision = hashlib.sha256(self._bounded_canonical(self._session_clip_authority(reference)).encode("utf-8")).hexdigest()
-        elif reference.startswith(f"{self.refs.epoch}:arrangement_clip:"): authority_revision = self._arrangement_clip_authority_revision(reference)
-        else: raise ValueError("clip hierarchy is unavailable")
+        authority_revision = self._clip_authority_digest(reference)
         state_revision = hashlib.sha256(self._bounded_canonical({field: current.get(field) for field in self._CLIP_SET_FIELDS}).encode("utf-8")).hexdigest()
         if not isinstance(expected_authority, str) or not hmac.compare_digest(authority_revision, expected_authority) or not isinstance(expected_state, str) or not hmac.compare_digest(state_revision, expected_state): raise ValueError("clip hierarchy or state changed since preview")
         clip = self.refs.get(reference)
         is_audio = self._read_attr(clip, "is_audio_clip") is True
-        allowed = {"ref", "muted", "colorIndex", "looping", "loopStart", "loopEnd", "expectedObjectIdentity", "expectedAuthorityRevision", "expectedStateRevision"}
+        allowed = {"ref", "muted", "colorIndex", "looping", "loopStart", "loopEnd", "grooveRef", "expectedObjectIdentity", "expectedAuthorityRevision", "expectedStateRevision"}
         if set(args) - allowed:
             raise ValueError("clip fields are invalid")
         proposals: list[tuple[str, str, Any]] = []
+        if "grooveRef" in args:
+            groove_ref = args["grooveRef"]
+            if not hasattr(clip, "groove"): raise ValueError("groove assignment is unavailable on this clip")
+            if groove_ref is None:
+                proposals.append(("groove", "groove", None))
+            elif isinstance(groove_ref, str) and groove_ref.startswith(f"{self.refs.epoch}:groove:"):
+                proposals.append(("groove", "groove", self.refs.get(groove_ref)))
+            else: raise ValueError("grooveRef is invalid")
         if "muted" in args:
             value = args["muted"]
             if not isinstance(value, bool): raise ValueError("muted is invalid")
@@ -2903,7 +3314,7 @@ class LiveObjectMapper:
         final_loop_start = args.get("loopStart", current.get("loopStart")); final_loop_end = args.get("loopEnd", current.get("loopEnd"))
         if isinstance(final_loop_start, (int, float)) and isinstance(final_loop_end, (int, float)) and float(final_loop_start) > float(final_loop_end): raise ValueError("clip loopStart must not exceed loopEnd")
         for _, attribute, _ in proposals:
-            if self._read_attr(clip, attribute) is None: raise ValueError(f"{attribute} is unavailable on this clip")
+            if attribute != "groove" and self._read_attr(clip, attribute) is None: raise ValueError(f"{attribute} is unavailable on this clip")
         if "loopStart" in args and "loopEnd" in args:
             current_end = self._read_attr(clip, "loop_end"); new_start = float(args["loopStart"])
             if isinstance(current_end, (int, float)) and new_start > float(current_end): proposals.sort(key=lambda item: 0 if item[0] == "loopEnd" else 1)
@@ -2914,7 +3325,10 @@ class LiveObjectMapper:
             observed = self.get(reference); checks = []
             for key, value in applied.items():
                 observed_value = observed.get(key)
-                if isinstance(value, bool): checks.append(observed_value is value)
+                if key == "groove":
+                    if value is None: checks.append(observed_value is None)
+                    else: checks.append(isinstance(observed_value, dict) and observed_value.get("name") == str(self._read_attr(value, "name") or ""))
+                elif isinstance(value, bool): checks.append(observed_value is value)
                 else: checks.append(isinstance(observed_value, (int, float)) and not isinstance(observed_value, bool) and float(observed_value) == float(value))
             if not all(checks): raise ValueError("clip change was not confirmed")
         except BaseException as error:
@@ -2945,7 +3359,7 @@ class LiveObjectMapper:
             raise ValueError("locator jump did not report a readable song position")
         return {"direction": direction, "before": float(before), "position": float(after)}
 
-    _VIEW_CONTROL_ACTIONS = {"zoom-in", "zoom-out", "scroll-left", "scroll-right", "follow-on", "follow-off", "collapse-track", "expand-track"}
+    _VIEW_CONTROL_ACTIONS = {"zoom-in", "zoom-out", "scroll-left", "scroll-right", "follow-on", "follow-off", "collapse-track", "expand-track", "hide-view", "focus-view", "browser-toggle"}
 
     def _view_set(self, args: dict[str, Any]) -> dict[str, Any]:
         view_name = args.get("view")
@@ -2965,7 +3379,7 @@ class LiveObjectMapper:
 
     def _view_control(self, args: dict[str, Any]) -> dict[str, Any]:
         action = args.get("action")
-        if action not in self._VIEW_CONTROL_ACTIONS or set(args) - {"action", "trackRef"}:
+        if action not in self._VIEW_CONTROL_ACTIONS or set(args) - {"action", "trackRef", "view"}:
             raise ValueError("view control action is invalid")
         view = getattr(self._application(), "view", None)
         if view is None:
@@ -2985,6 +3399,18 @@ class LiveObjectMapper:
             if song_view is None or self._read_attr(song_view, "follow_song") is None: raise ValueError("arrangement follow is unavailable")
             song_view.follow_song = action == "follow-on"
             if self._read_attr(song_view, "follow_song") is not (action == "follow-on"): raise ValueError("arrangement follow change was not confirmed")
+            return {"action": action, "done": True}
+        if action == "browser-toggle":
+            toggler = getattr(view, "toggle_browse", None)
+            if not callable(toggler): raise ValueError("browser mode toggle is unavailable on this Live shape")
+            toggler()
+            return {"action": action, "done": True}
+        if action in {"hide-view", "focus-view"}:
+            view_name = args.get("view")
+            if not isinstance(view_name, str) or not 1 <= len(view_name) <= 64: raise ValueError("view name is required")
+            method = getattr(view, "hide_view" if action == "hide-view" else "focus_view", None)
+            if not callable(method): raise ValueError(f"{action} is unavailable on this Live shape")
+            method(view_name)
             return {"action": action, "done": True}
         track_ref = args.get("trackRef")
         if not isinstance(track_ref, str) or not track_ref.startswith(f"{self.refs.epoch}:track:"):
@@ -3043,6 +3469,2317 @@ class LiveObjectMapper:
             if rollback_failed: raise ValueError("arrangement audio clip creation failed and exact cleanup failed") from error
             self.refs.restore(checkpoint); raise
 
+    def _clip_authority_digest(self, reference: str) -> str:
+        if reference.startswith(f"{self.refs.epoch}:clip:"): return hashlib.sha256(self._bounded_canonical(self._session_clip_authority(reference)).encode("utf-8")).hexdigest()
+        if reference.startswith(f"{self.refs.epoch}:arrangement_clip:"): return self._arrangement_clip_authority_revision(reference)
+        if reference.startswith(f"{self.refs.epoch}:take_lane_clip:"):
+            parts = reference.split(":"); track, lane, track_index, lane_index = self._take_lane_location(":".join(parts[:4]))
+            return hashlib.sha256(self._bounded_canonical({"takeLaneRevision": self._take_lane_clip_collection_revision(lane, ":".join(parts[:4])), "laneIdentity": self._capture_object_identity(lane)}).encode("utf-8")).hexdigest()
+        raise ValueError("clip hierarchy is unavailable")
+
+    def _warp_marker_rows(self, clip: Any) -> list[dict[str, Any]]:
+        markers = list(getattr(clip, "warp_markers", None) or [])
+        if len(markers) > 256: raise ValueError("complete warp-marker collection exceeds its authoritative bound")
+        rows = []
+        for marker in markers:
+            beat_time = self._read_attr(marker, "beat_time"); sample_time = self._read_attr(marker, "sample_time")
+            if not all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) for value in (beat_time, sample_time)):
+                raise ValueError("complete warp-marker content is unreadable")
+            rows.append({"beatTime": float(beat_time), "sampleTime": float(sample_time)})
+        rows.sort(key=lambda row: row["beatTime"])
+        return rows
+
+    def _warp_marker_collection_revision(self, clip: Any) -> str:
+        return hashlib.sha256(self._bounded_canonical(self._warp_marker_rows(clip)).encode("utf-8")).hexdigest()
+
+    def _warp_marker_read(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or set(args) - {"ref"}:
+            raise ValueError("warp-marker read arguments are invalid")
+        clip = self.refs.get(reference)
+        if self._read_attr(clip, "is_audio_clip") is not True:
+            raise ValueError("warp markers require an audio clip")
+        return {"revision": self._warp_marker_collection_revision(clip), "markers": self._warp_marker_rows(clip)}
+
+    def _warp_marker_mutate(self, operation: str, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:"):
+            raise ValueError("clip reference is stale or invalid")
+        if set(args) - {"ref", "beatTime", "distance", "expectedClipAuthorityDigest", "expectedMarkerCollectionRevision"}:
+            raise ValueError("warp-marker arguments are invalid")
+        clip = self.refs.get(reference)
+        if self._read_attr(clip, "is_audio_clip") is not True:
+            raise ValueError("warp markers require an audio clip")
+        expected_authority = args.get("expectedClipAuthorityDigest")
+        if not isinstance(expected_authority, str) or not hmac.compare_digest(self._clip_authority_digest(reference), expected_authority):
+            raise ValueError("clip hierarchy changed since preview")
+        before_rows = self._warp_marker_rows(clip)
+        expected_collection = args.get("expectedMarkerCollectionRevision")
+        if not isinstance(expected_collection, str) or not hmac.compare_digest(hashlib.sha256(self._bounded_canonical(before_rows).encode("utf-8")).hexdigest(), expected_collection):
+            raise ValueError("warp-marker collection changed since preview")
+        beat_time = args.get("beatTime")
+        if not isinstance(beat_time, (int, float)) or isinstance(beat_time, bool) or not math.isfinite(float(beat_time)):
+            raise ValueError("beatTime is invalid")
+        beat_time = float(beat_time)
+        before_pairs = sorted((row["beatTime"], row["sampleTime"]) for row in before_rows)
+        before_beats = {row["beatTime"] for row in before_rows}
+        distance = 0.0
+        if operation == "audio.warp-marker.add":
+            method = getattr(clip, "add_warp_marker", None)
+            if not callable(method): raise ValueError("warp-marker creation is unavailable")
+            if beat_time < 0 or beat_time in before_beats: raise ValueError("a warp marker already exists at that beat time")
+            # Documented signature: add_warp_marker({"beat_time": beat}).
+            call = lambda: method({"beat_time": beat_time})
+        elif operation == "audio.warp-marker.move":
+            method = getattr(clip, "move_warp_marker", None)
+            raw_distance = args.get("distance")
+            if not callable(method): raise ValueError("warp-marker move is unavailable")
+            if not isinstance(raw_distance, (int, float)) or isinstance(raw_distance, bool) or not math.isfinite(float(raw_distance)): raise ValueError("distance is invalid")
+            if beat_time not in before_beats: raise ValueError("no warp marker exists at that beat time")
+            distance = float(raw_distance); target = beat_time + distance
+            if target < 0 or (target in before_beats and target != beat_time): raise ValueError("warp-marker move target collides with an existing marker")
+            call = lambda: method(beat_time, distance)
+        else:
+            method = getattr(clip, "remove_warp_marker", None)
+            if not callable(method): raise ValueError("warp-marker deletion is unavailable")
+            if beat_time not in before_beats: raise ValueError("no warp marker exists at that beat time")
+            # Documented signature: remove_warp_marker(beat_time float).
+            call = lambda: method(beat_time)
+        def confirmed(after_pairs: list[tuple[float, float]]) -> bool:
+            remaining = list(after_pairs)
+            if operation == "audio.warp-marker.add":
+                additions = [pair for pair in remaining if pair[0] == beat_time and pair not in before_pairs]
+                if len(additions) != 1: return False
+                remaining.remove(additions[0])
+                return sorted(remaining) == before_pairs
+            if operation == "audio.warp-marker.move":
+                moved = [pair for pair in remaining if pair[0] == beat_time + distance and pair not in before_pairs]
+                if len(moved) != 1: return False
+                remaining.remove(moved[0])
+                baseline = [pair for pair in before_pairs if pair[0] != beat_time]
+                return sorted(remaining) == sorted(baseline)
+            removed = [pair for pair in before_pairs if pair[0] == beat_time]
+            if len(removed) != 1: return False
+            baseline = [pair for pair in before_pairs if pair != removed[0]]
+            return sorted(remaining) == sorted(baseline)
+        try:
+            call()
+            after_rows = self._warp_marker_rows(clip)
+            if not confirmed(sorted((row["beatTime"], row["sampleTime"]) for row in after_rows)): raise ValueError("warp-marker change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            try:
+                if operation == "audio.warp-marker.add":
+                    remover = getattr(clip, "remove_warp_marker", None)
+                    if callable(remover): remover(beat_time)
+                elif operation == "audio.warp-marker.move":
+                    mover = getattr(clip, "move_warp_marker", None)
+                    if callable(mover): mover(beat_time + distance, -distance)
+                else:
+                    adder = getattr(clip, "add_warp_marker", None)
+                    prior_pair = next((pair for pair in before_pairs if pair[0] == beat_time), None)
+                    if callable(adder) and prior_pair is not None: adder({"beat_time": prior_pair[0], "sample_time": prior_pair[1]})
+            except BaseException: rollback_failed = True
+            try:
+                restored_pairs = sorted((row["beatTime"], row["sampleTime"]) for row in self._warp_marker_rows(clip))
+            except BaseException:
+                rollback_failed = True; restored_pairs = []
+            if rollback_failed or restored_pairs != before_pairs: raise ValueError("warp-marker change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _session_audio_clip_create(self, args: dict[str, Any]) -> dict[str, Any]:
+        file_path = args.get("filePath")
+        if not isinstance(file_path, str) or not 1 <= len(file_path) <= 1024 or not (file_path.startswith("/") or (len(file_path) > 2 and file_path[1] == ":" and file_path[0].isalpha())): raise ValueError("filePath must be an absolute path")
+        name = args.get("name")
+        if name is not None and (not isinstance(name, str) or not 1 <= len(name) <= 256): raise ValueError("name is invalid")
+        track_ref = args.get("trackRef")
+        if not isinstance(track_ref, str): raise ValueError("track reference is invalid")
+        self.snapshot(); track = self.refs.get(track_ref)
+        if bool(getattr(track, "has_midi_input", False)):
+            raise ValueError("target track is not an audio track")
+        slots = self._items(getattr(track, "clip_slots", [])); scenes = self._items(getattr(self.song, "scenes", []))
+        if not isinstance(args.get("sceneIndex"), int) or isinstance(args["sceneIndex"], bool): raise ValueError("scene index is invalid")
+        index = args["sceneIndex"]
+        if not 0 <= index < len(slots) or index >= len(scenes): raise ValueError("scene index is invalid")
+        slot = slots[index]; scene = scenes[index]; track_index = self._capture_index(self._items(getattr(self.song, "tracks", [])), track)
+        if track_index is None or track_ref != f"{self.refs.epoch}:track:{track_index}": raise ValueError("audio import track hierarchy is stale")
+        current_authority = {"trackIdentity": self._capture_object_identity(track), "slotRef": self.refs.put("clip_slot", slot, f"{track_index}:{index}"), "slotIdentity": self._capture_object_identity(slot), "sceneRef": self.refs.put("scene", scene, str(index)), "sceneIdentity": self._capture_object_identity(scene)}
+        expected_authority = {"trackIdentity": args.get("expectedTrackIdentity"), "slotRef": args.get("expectedSlotRef"), "slotIdentity": args.get("expectedSlotIdentity"), "sceneRef": args.get("expectedSceneRef"), "sceneIdentity": args.get("expectedSceneIdentity")}
+        if not all(isinstance(value, str) for value in expected_authority.values()) or not hmac.compare_digest(self._bounded_canonical(current_authority), self._bounded_canonical(expected_authority)):
+            raise ValueError("audio import target identity changed since preview")
+        if getattr(slot, "clip", None) is not None: raise ValueError("session slot is occupied")
+        creator = getattr(slot, "create_audio_clip", None)
+        if not callable(creator): raise ValueError("session audio import is unavailable")
+        checkpoint = self.refs.checkpoint()
+        try:
+            clip = creator(file_path); clip = clip if clip is not None else getattr(slot, "clip", None)
+            if clip is None: raise ValueError("audio import was not confirmed")
+            if name is not None and hasattr(clip, "name"): clip.name = name
+            actual_path = self._read_attr(clip, "file_path"); actual_length = self._read_attr(clip, "length")
+            if name is not None and str(getattr(clip, "name", "")) != name: raise ValueError("audio import name was not confirmed")
+            if not isinstance(actual_path, str) or not actual_path: raise ValueError("audio import file path was not confirmed")
+            if not isinstance(actual_length, (int, float)) or isinstance(actual_length, bool) or not math.isfinite(float(actual_length)) or float(actual_length) <= 0: raise ValueError("audio import length was not confirmed")
+            created_ref = self.refs.put("clip", clip, f"{track_index}:{index}"); created_identity = self._capture_object_identity(clip); fingerprint = self._mapped_fingerprint(created_ref)
+            return {"ref": created_ref, "objectIdentity": created_identity, "name": str(getattr(clip, "name", "")), "length": float(actual_length), "filePath": actual_path, "createdFingerprint": fingerprint}
+        except BaseException as error:
+            rollback_failed = False; current = getattr(slot, "clip", None); deleter = getattr(slot, "delete_clip", None)
+            if current is not None:
+                if not callable(deleter): rollback_failed = True
+                else:
+                    try: deleter()
+                    except BaseException: pass
+            if getattr(slot, "clip", None) is not None: rollback_failed = True
+            if rollback_failed: raise ValueError("audio import failed and exact transaction-owned cleanup failed") from error
+            self.refs.restore(checkpoint); raise
+
+    _CLIP_ACTIONS = {"crop", "duplicate-loop", "duplicate-region", "scrub-start", "scrub-stop", "move-playing-position"}
+
+    def _clip_action(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref"); action = args.get("action")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:") or action not in self._CLIP_ACTIONS:
+            raise ValueError("clip action is invalid")
+        allowed = {"ref", "action", "regionStart", "regionEnd", "destination", "offset", "expectedObjectIdentity", "expectedAuthorityRevision", "expectedStateRevision", "expectedContentFingerprint"}
+        if set(args) - allowed: raise ValueError("clip action arguments are invalid")
+        current = self.get(reference); clip = self.refs.get(reference)
+        expected_identity = args.get("expectedObjectIdentity")
+        if not isinstance(expected_identity, str) or not hmac.compare_digest(str(current.get("objectIdentity", "")), expected_identity):
+            raise ValueError("clip identity changed since preview")
+        if not isinstance(args.get("expectedAuthorityRevision"), str) or not hmac.compare_digest(self._clip_authority_digest(reference), args["expectedAuthorityRevision"]):
+            raise ValueError("clip hierarchy changed since preview")
+        content_actions = {"crop", "duplicate-loop", "duplicate-region"}
+        if action in content_actions:
+            fingerprint = self._mapped_fingerprint(reference)
+            if not isinstance(args.get("expectedContentFingerprint"), str) or not hmac.compare_digest(fingerprint, args["expectedContentFingerprint"]):
+                raise ValueError("clip content changed since preview")
+        state_revision = hashlib.sha256(self._bounded_canonical({"isPlaying": current.get("isPlaying"), "playingPosition": current.get("playingPosition"), "length": current.get("length"), "loopStart": current.get("loopStart"), "loopEnd": current.get("loopEnd")}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]):
+            raise ValueError("clip state changed since preview")
+        before_length = self._read_attr(clip, "length"); loop_start = self._read_attr(clip, "loop_start"); loop_end = self._read_attr(clip, "loop_end")
+        if action == "crop":
+            method = getattr(clip, "crop", None)
+            if not callable(method): raise ValueError("clip crop is unavailable")
+            call = lambda: method()
+        elif action == "duplicate-loop":
+            method = getattr(clip, "duplicate_loop", None)
+            if not callable(method): raise ValueError("clip loop duplication is unavailable")
+            call = lambda: method()
+        elif action == "duplicate-region":
+            method = getattr(clip, "duplicate_region", None)
+            if not callable(method): raise ValueError("clip region duplication is unavailable")
+            region_start, region_end, destination = args.get("regionStart"), args.get("regionEnd"), args.get("destination")
+            for value in (region_start, region_end, destination):
+                if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or float(value) < 0: raise ValueError("duplicate-region bounds are invalid")
+            if float(region_end) <= float(region_start): raise ValueError("duplicate-region end must exceed start")
+            call = lambda: method(float(region_start), float(region_end), float(destination))
+        elif action == "scrub-start":
+            method = getattr(clip, "start_scrub", None)
+            if not callable(method): raise ValueError("clip scrub is unavailable")
+            position = args.get("offset")
+            if not isinstance(position, (int, float)) or isinstance(position, bool) or not math.isfinite(float(position)): raise ValueError("scrub position is invalid")
+            call = lambda: method(float(position))
+        elif action == "scrub-stop":
+            method = getattr(clip, "stop_scrub", None)
+            if not callable(method): raise ValueError("clip scrub stop is unavailable")
+            call = lambda: method()
+        else:
+            method = getattr(clip, "move_playing_pos", None)
+            if not callable(method): raise ValueError("playing-position move is unavailable")
+            offset = args.get("offset")
+            if not isinstance(offset, (int, float)) or isinstance(offset, bool) or not math.isfinite(float(offset)): raise ValueError("playing-position offset is invalid")
+            call = lambda: method(float(offset))
+        call()
+        if action == "crop":
+            new_length = self._read_attr(clip, "length")
+            expected_length = None
+            if isinstance(loop_start, (int, float)) and isinstance(loop_end, (int, float)): expected_length = float(loop_end) - float(loop_start)
+            if expected_length is not None and (not isinstance(new_length, (int, float)) or abs(float(new_length) - expected_length) > 1e-6): raise ValueError("clip crop was not confirmed")
+        if action == "duplicate-loop":
+            new_length = self._read_attr(clip, "length")
+            if isinstance(before_length, (int, float)) and isinstance(loop_start, (int, float)) and isinstance(loop_end, (int, float)):
+                expected = float(before_length) + (float(loop_end) - float(loop_start))
+                if not isinstance(new_length, (int, float)) or abs(float(new_length) - expected) > 1e-6: raise ValueError("clip loop duplication was not confirmed")
+        if action == "duplicate-region":
+            new_length = self._read_attr(clip, "length")
+            if isinstance(before_length, (int, float)) and isinstance(new_length, (int, float)):
+                destination = args.get("destination", before_length)
+                expected = max(float(before_length), float(destination) + (float(args["regionEnd"]) - float(args["regionStart"])))
+                if abs(float(new_length) - expected) > 1e-6: raise ValueError("clip region duplication was not confirmed")
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _automation_envelope_clear(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("clipRef")
+        if not isinstance(reference, str) or set(args) - {"clipRef", "expectedAuthorityDigest", "expectedEnvelopesRevision"}:
+            raise ValueError("envelope clear arguments are invalid")
+        if not hmac.compare_digest(self._clip_authority_digest(reference), str(args.get("expectedAuthorityDigest"))):
+            raise ValueError("clip hierarchy changed since preview")
+        _, slot, track_index, _ = self._clip_location(reference)
+        clip = getattr(slot, "clip", None)
+        if clip is None: raise ValueError("envelope clear requires a Session clip")
+        clearer = getattr(clip, "clear_all_envelopes", None)
+        reader = getattr(clip, "automation_envelope", None)
+        if not callable(clearer) or not callable(reader): raise ValueError("envelope clear is unavailable")
+        track = self._items(getattr(self.song, "tracks", []))[track_index]
+        def walk(device: Any) -> list[Any]:
+            collected = list(self._items(getattr(device, "parameters", [])))
+            for chain in self._items(self._read_attr(device, "chains") or []):
+                for nested in self._items(self._read_attr(chain, "devices") or []): collected.extend(walk(nested))
+            for pad in self._items(self._read_attr(device, "drum_pads") or []):
+                for chain in self._items(self._read_attr(pad, "chains") or []):
+                    for nested in self._items(self._read_attr(chain, "devices") or []): collected.extend(walk(nested))
+            return collected
+        parameters = [parameter for device in self._items(getattr(track, "devices", [])) for parameter in walk(device)]
+        mixer = self._read_attr(track, "mixer_device")
+        if mixer is not None:
+            parameters.extend(param for param in (self._read_attr(mixer, "volume"), self._read_attr(mixer, "panning"), self._read_attr(mixer, "cue_volume")) if param is not None)
+            parameters.extend(self._items(self._read_attr(mixer, "sends") or []))
+        if len(parameters) > 512: raise ValueError("parameter collection exceeds its envelope bound")
+        def presence() -> list[bool]:
+            rows = []
+            for parameter in parameters:
+                try: rows.append(reader(parameter) is not None)
+                except BaseException: rows.append(False)
+            return rows
+        before = presence()
+        if not hmac.compare_digest(hashlib.sha256(self._bounded_canonical(before).encode("utf-8")).hexdigest(), str(args.get("expectedEnvelopesRevision"))):
+            raise ValueError("clip envelope collection changed since preview")
+        clear_error: BaseException | None = None
+        try: clearer()
+        except BaseException as error: clear_error = error
+        after = presence()
+        if clear_error is not None or any(after): raise ValueError("envelope clear was not confirmed") from clear_error
+        return {"cleared": sum(1 for present in before if present), "envelopesRevision": hashlib.sha256(self._bounded_canonical(after).encode("utf-8")).hexdigest()}
+
+    def _note_read_by_id(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref"); note_ids = args.get("noteIds")
+        if not isinstance(reference, str) or set(args) - {"ref", "noteIds"}: raise ValueError("note read arguments are invalid")
+        if not isinstance(note_ids, list) or not 1 <= len(note_ids) <= 1024 or not all(isinstance(item, int) and not isinstance(item, bool) and item >= 0 for item in note_ids): raise ValueError("note ids are invalid")
+        clip = self.refs.get(reference)
+        if not callable(getattr(clip, "get_notes_by_id", None)): raise ValueError("targeted note reads are unavailable on this Live shape")
+        try: raw = list(clip.get_notes_by_id(note_ids))
+        except BaseException as error: raise ValueError("targeted note read failed") from error
+        if len(raw) > 1024: raise ValueError("note read exceeds its bound")
+        rows = self._note_rows_from(raw)
+        return {"notes": rows, "notesRevision": hashlib.sha256(self._bounded_canonical(self._read_notes(clip)).encode("utf-8")).hexdigest()}
+
+    def _note_read_selected(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or set(args) - {"ref"}: raise ValueError("note read arguments are invalid")
+        clip = self.refs.get(reference)
+        reader = getattr(clip, "get_selected_notes", None)
+        if not callable(reader): return {"available": False, "notes": [], "notesRevision": hashlib.sha256(self._bounded_canonical(self._read_notes(clip)).encode("utf-8")).hexdigest()}
+        try: raw = list(reader())
+        except BaseException as error: raise ValueError("selected note read failed") from error
+        if len(raw) > 1024: raise ValueError("selected note read exceeds its bound")
+        return {"available": True, "notes": self._note_rows_from(raw), "notesRevision": hashlib.sha256(self._bounded_canonical(self._read_notes(clip)).encode("utf-8")).hexdigest()}
+
+    def _note_duplicate(self, args: dict[str, Any]) -> dict[str, Any]:
+        clip = self._guard_note_clip(args)
+        note_ids = args.get("noteIds")
+        if not isinstance(note_ids, list) or not 1 <= len(note_ids) <= 512 or len(set(note_ids)) != len(note_ids) or not all(isinstance(item, int) and not isinstance(item, bool) and item >= 0 for item in note_ids):
+            raise ValueError("note ids are invalid")
+        if not callable(getattr(clip, "duplicate_notes_by_id", None)): raise ValueError("note duplication is unavailable on this Live shape")
+        before_rows = self._read_notes(clip); existing = {int(row["id"]) for row in before_rows if isinstance(row.get("id"), int)}
+        if len(existing) != len(before_rows) or any(note_id not in existing for note_id in note_ids): raise ValueError("complete stable note identity is required for duplication")
+        duplicate_error: BaseException | None = None
+        try: clip.duplicate_notes_by_id(note_ids)
+        except BaseException as error: duplicate_error = error
+        try: after_rows = self._read_notes(clip)
+        except BaseException as error:
+            if duplicate_error is None: duplicate_error = error
+            after_rows = []
+        if duplicate_error is None and len(after_rows) == len(before_rows) + len(note_ids):
+            return {"duplicated": len(note_ids), "notesRevision": hashlib.sha256(self._bounded_canonical(after_rows).encode("utf-8")).hexdigest()}
+        raise ValueError("note duplication was not confirmed") from duplicate_error
+
+    _GRID_QUANTIZATION_BY_BEATS = (
+        (0.125, "grid_thirtysecond"), (1.0 / 12.0, "grid_thirtysecond_triplet"),
+        (0.25, "grid_sixteenth"), (1.0 / 6.0, "grid_sixteenth_triplet"),
+        (0.5, "grid_eighth"), (1.0 / 3.0, "grid_eighth_triplet"),
+        (1.0, "grid_quarter"), (2.0 / 3.0, "grid_quarter_triplet"),
+        (2.0, "grid_half"), (4.0 / 3.0, "grid_half_triplet"),
+        (4.0, "grid_whole"), (8.0 / 3.0, "grid_whole_triplet"),
+    )
+
+    def _grid_quantization_enum(self, name: str) -> Any:
+        try:
+            import Live  # type: ignore[import-not-found]
+            enum = getattr(getattr(Live, "Clip", None), "GridQuantization", None)
+        except Exception as error:
+            raise ValueError("the quantization grid enum is unavailable") from error
+        value = getattr(enum, name, None)
+        if value is None: raise ValueError("the quantization grid enum is unavailable")
+        return value
+
+    def _note_quantize(self, args: dict[str, Any]) -> dict[str, Any]:
+        clip = self._guard_note_clip(args)
+        grid = args.get("grid"); amount = args.get("amount"); pitch = args.get("pitch")
+        if not isinstance(grid, (int, float)) or isinstance(grid, bool) or not math.isfinite(float(grid)) or not 0 < float(grid) <= 1000000: raise ValueError("grid is invalid")
+        if not isinstance(amount, (int, float)) or isinstance(amount, bool) or not math.isfinite(float(amount)) or not 0 <= float(amount) <= 1: raise ValueError("amount is invalid")
+        if pitch is not None and (not isinstance(pitch, int) or isinstance(pitch, bool) or not 0 <= pitch <= 127): raise ValueError("pitch is invalid")
+        grid_name = next((name for beats, name in self._GRID_QUANTIZATION_BY_BEATS if abs(float(grid) - beats) <= 1e-9), None)
+        if grid_name is None: raise ValueError("grid does not match a supported quantization grid")
+        enum_value = self._grid_quantization_enum(grid_name)
+        grid_beats = float(grid)
+        before_rows = self._read_notes(clip)
+        if pitch is not None:
+            method = getattr(clip, "quantize_pitch", None)
+            if not callable(method): raise ValueError("pitch quantization is unavailable on this Live shape")
+            call = lambda: method(pitch, enum_value, float(amount))
+        else:
+            method = getattr(clip, "quantize", None)
+            if not callable(method): raise ValueError("quantization is unavailable on this Live shape")
+            call = lambda: method(enum_value, float(amount))
+        def aligned(rows: list[dict[str, Any]]) -> bool:
+            targets = [row for row in rows if pitch is None or row.get("pitch") == pitch]
+            return all(isinstance(row.get("start"), (int, float)) and abs(float(row["start"]) / grid_beats - round(float(row["start"]) / grid_beats)) <= 1e-6 for row in targets)
+        before_aligned = aligned(before_rows)
+        quantize_error: BaseException | None = None
+        try: call()
+        except BaseException as error: quantize_error = error
+        try: after_rows = self._read_notes(clip)
+        except BaseException as error:
+            if quantize_error is None: quantize_error = error
+            after_rows = []
+        if quantize_error is None and len(after_rows) == len(before_rows):
+            if aligned(after_rows):
+                return {"changed": True, "notesRevision": hashlib.sha256(self._bounded_canonical(after_rows).encode("utf-8")).hexdigest()}
+            if float(amount) < 1 and not before_aligned and self._bounded_canonical(after_rows) != self._bounded_canonical(before_rows):
+                return {"changed": True, "notesRevision": hashlib.sha256(self._bounded_canonical(after_rows).encode("utf-8")).hexdigest()}
+        raise ValueError("quantization was not confirmed") from quantize_error
+
+    def _take_lane_read(self, args: dict[str, Any]) -> dict[str, Any]:
+        track_ref = args.get("trackRef")
+        if not isinstance(track_ref, str) or set(args) - {"trackRef"}:
+            raise ValueError("take-lane read arguments are invalid")
+        self.snapshot(); track = self.refs.get(track_ref); track_index = self._capture_index(self._items(getattr(self.song, "tracks", [])), track)
+        if track_index is None or track_ref != f"{self.refs.epoch}:track:{track_index}": raise ValueError("take-lane track hierarchy is stale")
+        lanes = [{"ref": row["ref"], "name": row["name"]} for row in self._take_lane_rows(track, track_index)]
+        return {"lanes": lanes}
+
+    def _take_lane_create(self, args: dict[str, Any]) -> dict[str, Any]:
+        track_ref = args.get("trackRef")
+        if not isinstance(track_ref, str): raise ValueError("track reference is invalid")
+        self.snapshot(); track = self.refs.get(track_ref); track_index = self._capture_index(self._items(getattr(self.song, "tracks", [])), track, args.get("expectedTrackIdentity") if isinstance(args.get("expectedTrackIdentity"), str) else None)
+        if track_index is None or track_ref != f"{self.refs.epoch}:track:{track_index}": raise ValueError("take-lane track hierarchy is stale")
+        if not isinstance(args.get("expectedTrackIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(track), args["expectedTrackIdentity"]):
+            raise ValueError("take-lane target track identity changed since preview")
+        if not isinstance(args.get("expectedTakeLaneCollectionRevision"), str) or not hmac.compare_digest(self._take_lane_collection_revision(track, track_index), args["expectedTakeLaneCollectionRevision"]):
+            raise ValueError("take-lane collection changed since preview")
+        name = args.get("name")
+        if name is not None and (not isinstance(name, str) or not 1 <= len(name) <= 256): raise ValueError("name is invalid")
+        creator = getattr(track, "create_take_lane", None)
+        if not callable(creator): raise ValueError("take-lane creation is unavailable")
+        before_lanes = self._items(self._read_attr(track, "take_lanes") or []); before_identities = [self._capture_object_identity(lane) for lane in before_lanes]
+        lane = creator()
+        lanes = self._items(self._read_attr(track, "take_lanes") or []); created_rows = [(index, candidate) for index, candidate in enumerate(lanes) if self._capture_object_identity(candidate) not in set(before_identities)]
+        if lane is None or len(lanes) != len(before_lanes) + 1 or len(created_rows) != 1: raise ValueError("take-lane creation was not confirmed (note: the public LOM exposes no take-lane deletion, so creation cannot be compensated)")
+        lane_index, created = created_rows[0]
+        if name is not None and hasattr(created, "name"): created.name = name
+        if name is not None and str(getattr(created, "name", "")) != name: raise ValueError("take-lane name was not confirmed (no public deletion exists for compensation)")
+        lane_ref = self.refs.put("take_lane", created, f"{track_index}:{lane_index}"); created_identity = self._capture_object_identity(created); fingerprint = hashlib.sha256(self._bounded_canonical({"ref": lane_ref, "objectIdentity": created_identity, "name": str(getattr(created, "name", "")), "index": lane_index}).encode("utf-8")).hexdigest()
+        return {"ref": lane_ref, "objectIdentity": created_identity, "name": str(getattr(created, "name", "")), "index": lane_index, "createdFingerprint": fingerprint}
+
+    def _take_lane_rename(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference, name, expected_name, expected_identity = args.get("ref"), args.get("name"), args.get("expectedName"), args.get("expectedObjectIdentity")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:take_lane:") or not isinstance(name, str) or not 1 <= len(name) <= 256 or not isinstance(expected_name, str) or not isinstance(expected_identity, str):
+            raise ValueError("take-lane rename authority is invalid")
+        track, lane, track_index, lane_index = self._take_lane_location(reference)
+        if not hmac.compare_digest(self._capture_object_identity(lane), expected_identity) or str(getattr(lane, "name", "")) != expected_name:
+            raise ValueError("take-lane rename target changed since preview")
+        expected_authority = args.get("expectedAuthorityRevision")
+        if not isinstance(expected_authority, str) or not hmac.compare_digest(self._take_lane_collection_revision(track, track_index), expected_authority): raise ValueError("take-lane hierarchy changed since preview")
+        rename_error: BaseException | None = None
+        try: lane.name = name
+        except BaseException as error: rename_error = error
+        if rename_error is not None or str(getattr(lane, "name", "")) != name:
+            try: lane.name = expected_name
+            except BaseException: pass
+            if str(getattr(lane, "name", "")) != expected_name: raise ValueError("take-lane rename failed and exact rollback failed") from rename_error
+            raise ValueError("take-lane rename postcondition was not confirmed") from rename_error
+        return {"renamed": reference, "name": name}
+
+    def _take_lane_clip_create(self, args: dict[str, Any], audio: bool) -> dict[str, Any]:
+        position = args.get("position")
+        if not isinstance(position, (int, float)) or isinstance(position, bool) or not math.isfinite(float(position)) or float(position) < 0: raise ValueError("position is invalid")
+        name = args.get("name")
+        file_path = None; length = None
+        if audio:
+            file_path = args.get("filePath")
+            if not isinstance(file_path, str) or not 1 <= len(file_path) <= 1024 or not (file_path.startswith("/") or (len(file_path) > 2 and file_path[1] == ":" and file_path[0].isalpha())): raise ValueError("filePath must be an absolute path")
+            if name is not None and (not isinstance(name, str) or not 1 <= len(name) <= 256): raise ValueError("name is invalid")
+        else:
+            length = args.get("length")
+            if not isinstance(length, (int, float)) or isinstance(length, bool) or not math.isfinite(float(length)) or not 0 < float(length) <= 100000: raise ValueError("length is invalid")
+            if not isinstance(name, str) or not 1 <= len(name) <= 256: raise ValueError("name is invalid")
+        lane_ref = args.get("takeLaneRef")
+        if not isinstance(lane_ref, str): raise ValueError("take-lane reference is invalid")
+        track, lane, track_index, lane_index = self._take_lane_location(lane_ref)
+        expected_identity = args.get("expectedTakeLaneIdentity")
+        if not isinstance(expected_identity, str) or not hmac.compare_digest(self._capture_object_identity(lane), expected_identity):
+            raise ValueError("take-lane identity changed since preview")
+        lane_path = f"{track_index}:{lane_index}"
+        if not isinstance(args.get("expectedCollectionRevision"), str) or not hmac.compare_digest(self._take_lane_clip_collection_revision(lane, lane_ref), args["expectedCollectionRevision"]):
+            raise ValueError("take-lane clip collection changed since preview")
+        method = getattr(lane, "create_audio_clip" if audio else "create_midi_clip", None)
+        if not callable(method): raise ValueError("take-lane clip creation is unavailable")
+        before_clips = self._items(self._read_attr(lane, "arrangement_clips") or []); before_identity_order = [self._capture_object_identity(item) for item in before_clips]; before_identities = set(before_identity_order)
+        clip = method(file_path, float(position)) if audio else method(float(position), float(length))
+        clips = self._items(self._read_attr(lane, "arrangement_clips") or []); created_rows = [(index, candidate) for index, candidate in enumerate(clips) if self._capture_object_identity(candidate) not in before_identities]
+        if clip is None or len(clips) != len(before_clips) + 1 or len(created_rows) != 1: raise ValueError("take-lane clip creation was not confirmed (the public LOM exposes no take-lane clip deletion, so creation cannot be compensated)")
+        clip_index, created = created_rows[0]
+        if name is not None and hasattr(created, "name"): created.name = name
+        actual_start = self._read_attr(created, "start_time"); actual_length = self._read_attr(created, "length")
+        if name is not None and str(getattr(created, "name", "")) != name: raise ValueError("take-lane clip name was not confirmed")
+        if not isinstance(actual_start, (int, float)) or float(actual_start) != float(position): raise ValueError("take-lane clip position was not confirmed")
+        if not audio and (not isinstance(actual_length, (int, float)) or float(actual_length) != float(length)): raise ValueError("take-lane clip length was not confirmed")
+        if audio:
+            if not isinstance(actual_length, (int, float)) or not math.isfinite(float(actual_length)) or float(actual_length) <= 0: raise ValueError("take-lane audio clip length was not confirmed")
+            actual_path = self._read_attr(created, "file_path")
+            if not isinstance(actual_path, str) or not actual_path: raise ValueError("take-lane audio clip file path was not confirmed")
+        created_ref = self.refs.put("take_lane_clip", created, f"{lane_path}:{clip_index}"); created_identity = self._capture_object_identity(created); fingerprint = self._mapped_fingerprint(created_ref)
+        result = {"ref": created_ref, "objectIdentity": created_identity, "name": str(getattr(created, "name", "")), "start": float(actual_start), "length": float(actual_length), "createdFingerprint": fingerprint}
+        if audio: result["filePath"] = str(self._read_attr(created, "file_path"))
+        return result
+
+    def _tuning_state(self) -> dict[str, Any]:
+        tuning = getattr(self.song, "tuning_system", None)
+        def float_or_none(value: Any) -> float | None:
+            return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+        def int_or_none(value: Any) -> int | None:
+            return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+        note_tunings = []
+        if tuning is not None:
+            raw_tunings = self._items(self._read_attr(tuning, "note_tunings") or [])
+            if len(raw_tunings) > 128: raise ValueError("note tunings exceed their bound")
+            for index, entry in enumerate(raw_tunings):
+                if isinstance(entry, dict):
+                    note = entry.get("note", index); deviation = entry.get("deviation", entry.get("tuning", entry.get("cents")))
+                elif isinstance(entry, (int, float)) and not isinstance(entry, bool):
+                    note, deviation = index, entry
+                else:
+                    note = self._read_attr(entry, "note"); deviation = self._read_attr(entry, "deviation", "tuning", "cents")
+                    note = note if isinstance(note, int) else index
+                deviation_value = float_or_none(deviation)
+                if not isinstance(note, int) or isinstance(note, bool) or not 0 <= note <= 127 or deviation_value is None: raise ValueError("note tunings contain an unreadable entry")
+                note_tunings.append({"note": int(note), "deviation": deviation_value})
+        system = {"name": str(self._read_attr(tuning, "name") or "") if tuning is not None else "",
+                  "lowestNote": self._setting_dict_or_none(self._read_attr(tuning, "lowest_note")) if tuning is not None else None,
+                  "highestNote": self._setting_dict_or_none(self._read_attr(tuning, "highest_note")) if tuning is not None else None,
+                  "referencePitch": self._setting_dict_or_none(self._read_attr(tuning, "reference_pitch")) if tuning is not None else None,
+                  "pseudoOctaveInCents": float_or_none(self._read_attr(tuning, "pseudo_octave_in_cents")) if tuning is not None else None,
+                  "noteTunings": note_tunings}
+        intervals = []
+        for value in self._items(self._read_attr(self.song, "scale_intervals") or []):
+            if not isinstance(value, int) or isinstance(value, bool): raise ValueError("scale intervals contain an unreadable entry")
+            intervals.append(int(value))
+        if len(intervals) > 32: raise ValueError("scale intervals exceed their bound")
+        scale_name = self._read_attr(self.song, "scale_name"); scale_mode = self._read_attr(self.song, "scale_mode")
+        scale = {"rootNote": int_or_none(self._read_attr(self.song, "root_note")),
+                 "scaleName": scale_name if isinstance(scale_name, str) else None,
+                 "scaleMode": scale_mode if isinstance(scale_mode, bool) else None,
+                 "scaleIntervals": intervals}
+        return {"tuningSystem": system, "scale": scale}
+
+    def _setting_dict_or_none(self, value: Any) -> dict[str, Any] | None:
+        if not isinstance(value, dict) or len(value) > 8: return None
+        normalized: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str) or not 1 <= len(key) <= 64: return None
+            if isinstance(item, bool) or item is None: normalized[key] = item
+            elif isinstance(item, (int, float)) and math.isfinite(float(item)) and abs(float(item)) <= 1e9: normalized[key] = item
+            elif isinstance(item, str) and len(item) <= 256: normalized[key] = item
+            else: return None
+        return normalized
+
+    def _tuning_revision(self) -> str:
+        return hashlib.sha256(self._bounded_canonical(self._tuning_state()).encode("utf-8")).hexdigest()
+
+    def _tuning_read(self, args: dict[str, Any]) -> dict[str, Any]:
+        set_ref = args.get("setRef")
+        if not isinstance(set_ref, str) or set_ref != self.refs.put("set", self.song, "song") or set(args) - {"setRef"}:
+            raise ValueError("tuning read arguments are invalid")
+        state = self._tuning_state()
+        return {**state, "revision": hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()}
+
+    def _tuning_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        set_ref = args.get("setRef")
+        if not isinstance(set_ref, str) or set_ref != self.refs.put("set", self.song, "song"): raise ValueError("set reference is stale or invalid")
+        allowed = {"setRef", "name", "lowestNote", "highestNote", "referencePitch", "noteTunings", "rootNote", "scaleName", "scaleMode", "expectedObjectIdentity", "expectedRevision"}
+        if set(args) - allowed: raise ValueError("tuning fields are invalid")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(self.song), args["expectedObjectIdentity"]): raise ValueError("Set identity changed since preview")
+        if not isinstance(args.get("expectedRevision"), str) or not hmac.compare_digest(self._tuning_revision(), args["expectedRevision"]): raise ValueError("tuning or scale state changed since preview")
+        tuning = getattr(self.song, "tuning_system", None)
+        proposals: list[tuple[Any, str, Any]] = []
+        if "name" in args:
+            if tuning is None or not isinstance(args["name"], str) or not 1 <= len(args["name"]) <= 256: raise ValueError("name is invalid")
+            proposals.append((tuning, "name", args["name"]))
+        for key, attr in (("lowestNote", "lowest_note"), ("highestNote", "highest_note"), ("referencePitch", "reference_pitch")):
+            if key in args:
+                if tuning is None: raise ValueError("tuning system is unavailable")
+                normalized = self._setting_dict_or_none(args[key])
+                if normalized is None: raise ValueError(f"{key} is invalid")
+                proposals.append((tuning, attr, normalized))
+        if "noteTunings" in args:
+            rows = args["noteTunings"]
+            if tuning is None or not isinstance(rows, list) or len(rows) != 128: raise ValueError("noteTunings must contain exactly 128 entries")
+            seen: set[int] = set()
+            for row in rows:
+                if not isinstance(row, dict) or set(row) - {"note", "deviation"}: raise ValueError("noteTunings entries are invalid")
+                note, deviation = row.get("note"), row.get("deviation")
+                if not isinstance(note, int) or isinstance(note, bool) or not 0 <= note <= 127 or note in seen: raise ValueError("noteTunings notes are invalid")
+                if not isinstance(deviation, (int, float)) or isinstance(deviation, bool) or not math.isfinite(float(deviation)) or not -1200 <= float(deviation) <= 1200: raise ValueError("noteTunings deviations are invalid")
+                seen.add(note)
+            if self._read_attr(tuning, "note_tunings") is None: raise ValueError("note tunings are unavailable")
+            proposals.append((tuning, "note_tunings", rows))
+        if "rootNote" in args:
+            value = args["rootNote"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 11: raise ValueError("rootNote is invalid")
+            if self._read_attr(self.song, "root_note") is None: raise ValueError("root_note is unavailable")
+            proposals.append((self.song, "root_note", value))
+        if "scaleName" in args:
+            value = args["scaleName"]
+            if not isinstance(value, str) or not 1 <= len(value) <= 256: raise ValueError("scaleName is invalid")
+            if not isinstance(self._read_attr(self.song, "scale_name"), str): raise ValueError("scale_name is unavailable")
+            proposals.append((self.song, "scale_name", value))
+        if "scaleMode" in args:
+            value = args["scaleMode"]
+            if not isinstance(value, bool): raise ValueError("scaleMode is invalid")
+            if not isinstance(self._read_attr(self.song, "scale_mode"), bool): raise ValueError("scale_mode is unavailable")
+            proposals.append((self.song, "scale_mode", value))
+        if not proposals: raise ValueError("tuning mutation has no fields")
+        assignments = [(target, attr, value, self._read_attr(target, attr)) for target, attr, value in proposals]
+        before_state = self._tuning_state()
+        try:
+            for target, attr, value, _ in assignments: setattr(target, attr, value)
+            after = self._tuning_state()
+            for target, attr, value, _ in assignments:
+                if attr == "note_tunings":
+                    normalized = sorted(([row["note"], row["deviation"]] for row in value), key=lambda item: item[0])
+                    observed = sorted(([row["note"], row["deviation"]] for row in after["tuningSystem"]["noteTunings"]), key=lambda item: item[0])
+                    if self._bounded_canonical(observed) != self._bounded_canonical(normalized): raise ValueError("note tunings were not confirmed")
+                else:
+                    observed = self._read_attr(target, attr)
+                    if self._bounded_canonical(observed) != self._bounded_canonical(value): raise ValueError(f"tuning field {attr} was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for target, attr, _, prior in reversed(assignments):
+                try: setattr(target, attr, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or self._bounded_canonical(self._tuning_state()) != self._bounded_canonical(before_state): raise ValueError("tuning change failed and exact rollback failed") from error
+            raise
+        return {"changed": True, "revision": self._tuning_revision()}
+
+    def _groove_state(self) -> dict[str, Any]:
+        pool = getattr(self.song, "groove_pool", None)
+        grooves = []
+        for index, groove in enumerate(self._items(self._read_attr(pool, "grooves") or [])):
+            def float_or_none(value: Any) -> float | None:
+                return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+            base = self._read_attr(groove, "base")
+            grooves.append({"ref": self.refs.put("groove", groove, str(index)), "objectIdentity": self._capture_object_identity(groove),
+                            "name": str(self._read_attr(groove, "name") or ""),
+                            "base": int(base) if isinstance(base, int) and not isinstance(base, bool) else None,
+                            "quantizationAmount": float_or_none(self._read_attr(groove, "quantization_amount")),
+                            "randomAmount": float_or_none(self._read_attr(groove, "random_amount")),
+                            "timingAmount": float_or_none(self._read_attr(groove, "timing_amount")),
+                            "velocityAmount": float_or_none(self._read_attr(groove, "velocity_amount"))})
+        if len(grooves) > 256: raise ValueError("groove collection exceeds its bound")
+        amount = self._read_attr(self.song, "groove_amount")
+        return {"grooveAmount": float(amount) if isinstance(amount, (int, float)) and not isinstance(amount, bool) and math.isfinite(float(amount)) else None, "grooves": grooves}
+
+    def _groove_revision(self) -> str:
+        return hashlib.sha256(self._bounded_canonical(self._groove_state()).encode("utf-8")).hexdigest()
+
+    def _groove_read(self, args: dict[str, Any]) -> dict[str, Any]:
+        set_ref = args.get("setRef")
+        if not isinstance(set_ref, str) or set_ref != self.refs.put("set", self.song, "song") or set(args) - {"setRef"}:
+            raise ValueError("groove read arguments are invalid")
+        state = self._groove_state()
+        return {**state, "revision": hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()}
+
+    def _groove_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        set_ref = args.get("setRef")
+        if not isinstance(set_ref, str) or set_ref != self.refs.put("set", self.song, "song"): raise ValueError("set reference is stale or invalid")
+        if set(args) - {"setRef", "grooveAmount", "expectedObjectIdentity", "expectedRevision"}: raise ValueError("groove fields are invalid")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(self.song), args["expectedObjectIdentity"]): raise ValueError("Set identity changed since preview")
+        if not isinstance(args.get("expectedRevision"), str) or not hmac.compare_digest(self._groove_revision(), args["expectedRevision"]): raise ValueError("groove state changed since preview")
+        value = args.get("grooveAmount")
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not 0 <= float(value) <= 1.3: raise ValueError("grooveAmount is invalid")
+        prior = self._read_attr(self.song, "groove_amount")
+        if not isinstance(prior, (int, float)) or isinstance(prior, bool): raise ValueError("groove amount is unavailable")
+        try:
+            self.song.groove_amount = float(value)
+            observed = self._read_attr(self.song, "groove_amount")
+            if not isinstance(observed, (int, float)) or float(observed) != float(value): raise ValueError("groove amount was not confirmed")
+        except BaseException as error:
+            try: self.song.groove_amount = prior
+            except BaseException: raise ValueError("groove amount change failed and exact rollback failed") from error
+            if self._read_attr(self.song, "groove_amount") != prior: raise ValueError("groove amount change failed and exact rollback failed") from error
+            raise
+        return {"changed": True, "revision": self._groove_revision()}
+
+    def _groove_edit(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:groove:"): raise ValueError("groove reference is stale or invalid")
+        allowed = {"ref", "name", "base", "quantizationAmount", "randomAmount", "timingAmount", "velocityAmount", "expectedObjectIdentity", "expectedRevision"}
+        if set(args) - allowed: raise ValueError("groove fields are invalid")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(self.refs.get(reference)), args["expectedObjectIdentity"]): raise ValueError("groove identity changed since preview")
+        if not isinstance(args.get("expectedRevision"), str) or not hmac.compare_digest(self._groove_revision(), args["expectedRevision"]): raise ValueError("groove state changed since preview")
+        groove = self.refs.get(reference)
+        proposals: list[tuple[str, Any]] = []
+        if "name" in args:
+            if not isinstance(args["name"], str) or not 1 <= len(args["name"]) <= 256: raise ValueError("name is invalid")
+            proposals.append(("name", args["name"]))
+        if "base" in args:
+            value = args["base"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 16: raise ValueError("base is invalid")
+            proposals.append(("base", value))
+        for field, attr in (("quantizationAmount", "quantization_amount"), ("randomAmount", "random_amount"), ("timingAmount", "timing_amount"), ("velocityAmount", "velocity_amount")):
+            if field in args:
+                value = args[field]
+                if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not 0 <= float(value) <= 1: raise ValueError(f"{field} is invalid")
+                proposals.append((attr, float(value)))
+        if not proposals: raise ValueError("groove mutation has no fields")
+        for attr, _ in proposals:
+            if self._read_attr(groove, attr) is None: raise ValueError(f"{attr} is unavailable on this groove")
+        assignments = [(attr, value, self._read_attr(groove, attr)) for attr, value in proposals]
+        before = self._groove_state()
+        try:
+            for attr, value, _ in assignments: setattr(groove, attr, value)
+            for attr, value, _ in assignments:
+                observed = self._read_attr(groove, attr)
+                if self._bounded_canonical(observed) != self._bounded_canonical(value): raise ValueError(f"groove field {attr} was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for attr, _, prior in reversed(assignments):
+                try: setattr(groove, attr, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or self._bounded_canonical(self._groove_state()) != self._bounded_canonical(before): raise ValueError("groove change failed and exact rollback failed") from error
+            raise
+        return {"changed": True, "revision": self._groove_revision()}
+
+    def _scene_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:scene:"): raise ValueError("scene reference is stale or invalid")
+        allowed = {"ref", "colorIndex", "tempo", "tempoEnabled", "signatureNumerator", "signatureDenominator", "timeSignatureEnabled", "expectedObjectIdentity", "expectedAuthorityRevision", "expectedStateRevision"}
+        if set(args) - allowed: raise ValueError("scene fields are invalid")
+        scenes = self._items(getattr(self.song, "scenes", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+        if not 0 <= index < len(scenes): raise ValueError("scene hierarchy changed")
+        scene = scenes[index]
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(scene), args["expectedObjectIdentity"]): raise ValueError("scene identity changed since preview")
+        if not isinstance(args.get("expectedAuthorityRevision"), str) or not hmac.compare_digest(self._scene_collection_revision(), args["expectedAuthorityRevision"]): raise ValueError("scene collection changed since preview")
+        state_revision = hashlib.sha256(self._bounded_canonical(self._scene_state_fields(scene)).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("scene state changed since preview")
+        proposals: list[tuple[str, str, Any]] = []
+        if "colorIndex" in args:
+            value = args["colorIndex"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 69: raise ValueError("colorIndex is invalid")
+            proposals.append(("colorIndex", "color_index", value))
+        if "tempo" in args:
+            value = args["tempo"]
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not 20 <= float(value) <= 999: raise ValueError("tempo is invalid")
+            proposals.append(("tempo", "tempo", float(value)))
+        if "tempoEnabled" in args:
+            value = args["tempoEnabled"]
+            if not isinstance(value, bool): raise ValueError("tempoEnabled is invalid")
+            proposals.append(("tempoEnabled", "tempo_enabled", value))
+        for field, attr in (("signatureNumerator", "time_signature_numerator"), ("signatureDenominator", "time_signature_denominator")):
+            if field in args:
+                value = args[field]
+                if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 99: raise ValueError(f"{field} is invalid")
+                proposals.append((field, attr, value))
+        if "timeSignatureEnabled" in args:
+            value = args["timeSignatureEnabled"]
+            if not isinstance(value, bool): raise ValueError("timeSignatureEnabled is invalid")
+            proposals.append(("timeSignatureEnabled", "time_signature_enabled", value))
+        if not proposals: raise ValueError("scene mutation has no fields")
+        for _, attribute, _ in proposals:
+            if self._read_attr(scene, attribute) is None: raise ValueError(f"{attribute} is unavailable on this scene")
+        assignments = [(field, attribute, value, self._read_attr(scene, attribute)) for field, attribute, value in proposals]
+        before = self._scene_state_fields(scene)
+        try:
+            for _, attribute, value, _ in assignments: setattr(scene, attribute, value)
+            observed = self._scene_state_fields(scene)
+            for field, _, value, _ in assignments:
+                observed_value = observed.get(field)
+                if isinstance(value, bool):
+                    if observed_value is not value: raise ValueError("scene change was not confirmed")
+                elif not isinstance(observed_value, (int, float)) or isinstance(observed_value, bool) or float(observed_value) != float(value): raise ValueError("scene change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for _, attribute, _, prior in reversed(assignments):
+                try: setattr(scene, attribute, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or self._bounded_canonical(self._scene_state_fields(scene)) != self._bounded_canonical(before): raise ValueError("scene change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _scene_fire_selected(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:scene:") or set(args) - {"ref", "expectedObjectIdentity", "expectedAuthorityRevision", "expectedStateRevision"}: raise ValueError("scene fire authority is invalid")
+        scenes = self._items(getattr(self.song, "scenes", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+        if not 0 <= index < len(scenes): raise ValueError("scene hierarchy changed")
+        scene = scenes[index]
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(scene), args["expectedObjectIdentity"]): raise ValueError("scene identity changed since preview")
+        if not isinstance(args.get("expectedAuthorityRevision"), str) or not hmac.compare_digest(self._scene_collection_revision(), args["expectedAuthorityRevision"]): raise ValueError("scene collection changed since preview")
+        playback = self._playback()
+        state_revision = hashlib.sha256(self._bounded_canonical({"isTriggered": self._read_attr(scene, "is_triggered"), "playing": playback["transport"]["playing"]}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("scene fire state changed since preview")
+        fire = getattr(scene, "fire_as_selected", None)
+        if not callable(fire): raise ValueError("scene fire-as-selected is unavailable")
+        fire()
+        # Scene.is_triggered means queued for launch and flips false once the
+        # scene starts; accepted durable evidence is the queued flag or an
+        # actually playing song.
+        observed = self._read_attr(scene, "is_triggered")
+        if observed is not True and self._read_attr(self.song, "is_playing") is not True: raise ValueError("scene fire was not confirmed")
+        return {"fired": True}
+
+    def _enum_wire(self, value: Any) -> dict[str, Any] | None:
+        if value is None or isinstance(value, bool): return None
+        if isinstance(value, str): return {"name": value[:256], "value": None}
+        name = self._read_attr(value, "name")
+        if not isinstance(name, str) or not name: return None
+        raw = None
+        try:
+            candidate = int(value)
+            raw = candidate if 0 <= candidate <= 10**6 else None
+        except (TypeError, ValueError):
+            raw = None
+        return {"name": name[:256], "value": raw}
+
+    def _song_state(self) -> dict[str, Any]:
+        song = self.song
+        def optional_bool(name: str) -> bool | None:
+            value = self._read_attr(song, name)
+            return value if isinstance(value, bool) else None
+        def optional_float(name: str) -> float | None:
+            value = self._read_attr(song, name)
+            return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+        def optional_int(name: str) -> int | None:
+            value = self._read_attr(song, name)
+            return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+        canonical_tracks = self._items(getattr(song, "tracks", []))
+        canonical_index = {id(track): index for index, track in enumerate(canonical_tracks)}
+        visible = []
+        for track in self._items(getattr(song, "visible_tracks", [])):
+            if len(visible) >= 256: raise ValueError("visible track collection exceeds its bound")
+            index = canonical_index.get(id(track))
+            if index is None: raise ValueError("visible track is not part of the canonical track traversal")
+            visible.append(self.refs.put("track", track, str(index)))
+        appointed = self._read_attr(song, "appointed_device")
+        appointed_ref = self.refs.put("device", appointed, "appointed") if appointed is not None else None
+        quantization = self._read_attr(song, "clip_trigger_quantization")
+        return {
+            "visibleTracks": visible,
+            "appointedDevice": appointed_ref,
+            "songLength": optional_float("song_length"),
+            "startTime": optional_float("start_time"),
+            "signatureNumerator": optional_int("signature_numerator"),
+            "signatureDenominator": optional_int("signature_denominator"),
+            "swingAmount": optional_float("swing_amount"),
+            "overdub": optional_bool("overdub"),
+            "arrangementOverdub": optional_bool("arrangement_overdub"),
+            "backToArranger": optional_bool("back_to_arranger"),
+            "canCaptureMidi": optional_bool("can_capture_midi"),
+            "canUndo": optional_bool("can_undo"),
+            "canRedo": optional_bool("can_redo"),
+            "exclusiveArm": optional_bool("exclusive_arm"),
+            "exclusiveSolo": optional_bool("exclusive_solo"),
+            "isCountingIn": optional_bool("is_counting_in"),
+            "tempoFollowerEnabled": optional_bool("tempo_follower_enabled"),
+            "reEnableAutomationEnabled": optional_bool("re_enable_automation_enabled"),
+            "sessionRecord": optional_bool("session_record"),
+            "sessionAutomationRecord": optional_bool("session_automation_record"),
+            "clipTriggerQuantization": self._enum_wire(quantization),
+            "isAbletonLinkEnabled": optional_bool("is_ableton_link_enabled"),
+            "isAbletonLinkStartStopSyncEnabled": optional_bool("is_ableton_link_start_stop_sync_enabled"),
+            "tempoFollower": optional_bool("tempo_follower"),
+        }
+
+    def _song_read(self, args: dict[str, Any]) -> dict[str, Any]:
+        set_ref = args.get("setRef")
+        if not isinstance(set_ref, str) or set_ref != self.refs.put("set", self.song, "song") or set(args) - {"setRef"}:
+            raise ValueError("song read arguments are invalid")
+        state = self._song_state()
+        return {**state, "revision": hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()}
+
+    _TRANSPORT_ACTIONS = {"start", "continue", "stop", "play-selection", "scrub", "tap-tempo", "nudge-up", "nudge-down", "re-enable-automation", "trigger-session-record", "force-link-beat-time", "stop-all-clips"}
+
+    def _transport_action(self, args: dict[str, Any]) -> dict[str, Any]:
+        set_ref = args.get("setRef"); action = args.get("action")
+        if not isinstance(set_ref, str) or set_ref != self.refs.put("set", self.song, "song") or action not in self._TRANSPORT_ACTIONS or set(args) - {"setRef", "action", "beatTime", "expectedObjectIdentity", "expectedRevision"}:
+            raise ValueError("transport action is invalid")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(self.song), args["expectedObjectIdentity"]): raise ValueError("Set identity changed since preview")
+        playback = self._playback()
+        if not isinstance(args.get("expectedRevision"), str) or not hmac.compare_digest(str(playback["revision"]), args["expectedRevision"]): raise ValueError("transport state changed since preview")
+        song = self.song
+        if action == "start": method, call_args = getattr(song, "start_playing", None), ()
+        elif action == "continue": method, call_args = getattr(song, "continue_playing", None), ()
+        elif action == "stop": method, call_args = getattr(song, "stop_playing", None), ()
+        elif action == "play-selection": method, call_args = getattr(song, "play_selection", None), ()
+        elif action == "scrub":
+            beat = args.get("beatTime")
+            if not isinstance(beat, (int, float)) or isinstance(beat, bool) or not math.isfinite(float(beat)): raise ValueError("beatTime distance is required for scrub")
+            method, call_args = getattr(song, "scrub_by", None), (float(beat),)
+        elif action == "tap-tempo": method, call_args = getattr(song, "tap_tempo", None), ()
+        elif action == "nudge-up" or action == "nudge-down":
+            # nudge_up/nudge_down are momentary settable properties, not callables.
+            attribute = "nudge_up" if action == "nudge-up" else "nudge_down"
+            if self._read_attr(song, attribute) is None: raise ValueError(f"transport action {action} is unavailable on this Live shape")
+            try: setattr(song, attribute, True)
+            except BaseException as error: raise ValueError(f"transport action {action} is unavailable on this Live shape") from error
+            return {"done": True, "revision": str(self._playback()["revision"])}
+        elif action == "stop-all-clips": method, call_args = getattr(song, "stop_all_clips", None), ()
+        elif action == "re-enable-automation": method, call_args = getattr(song, "re_enable_automation", None), ()
+        elif action == "trigger-session-record": method, call_args = getattr(song, "trigger_session_record", None), ()
+        else:
+            method = getattr(song, "force_link_beat_time", None)
+            beat = args.get("beatTime")
+            if not isinstance(beat, (int, float)) or isinstance(beat, bool) or not math.isfinite(float(beat)): raise ValueError("beatTime is required for force-link-beat-time")
+            call_args = (float(beat),)
+        if not callable(method): raise ValueError(f"transport action {action} is unavailable on this Live shape")
+        method(*call_args)
+        return {"done": True, "revision": str(self._playback()["revision"])}
+
+    def _locator_jump_to(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:locator:") or set(args) - {"ref", "expectedObjectIdentity", "expectedCollectionRevision"}:
+            raise ValueError("locator jump authority is invalid")
+        locators = self._items(getattr(self.song, "cue_points", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+        if not 0 <= index < len(locators): raise ValueError("locator hierarchy changed")
+        locator = locators[index]
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(locator), args["expectedObjectIdentity"]): raise ValueError("locator identity changed since preview")
+        collection_revision = hashlib.sha256(self._bounded_canonical(self._locator_items()).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedCollectionRevision"), str) or not hmac.compare_digest(collection_revision, args["expectedCollectionRevision"]): raise ValueError("locator collection changed since preview")
+        jump = getattr(locator, "jump", None)
+        if not callable(jump): raise ValueError("locator jump is unavailable on this Live shape")
+        jump()
+        position = self._read_attr(self.song, "current_song_time")
+        locator_time = self._read_attr(locator, "time")
+        if not isinstance(position, (int, float)) or isinstance(position, bool) or not math.isfinite(float(position)) or float(position) < 0: raise ValueError("locator jump did not report a readable song position")
+        if isinstance(locator_time, (int, float)) and float(position) != float(locator_time): raise ValueError("locator jump was not confirmed")
+        return {"position": float(position)}
+
+    _SMPTE_FORMAT_ENUM_NAMES = {"smpte-24": "smpte_24", "smpte-25": "smpte_25", "smpte-29": "smpte_29", "smpte-30": "smpte_30", "smpte-30-drop": "smpte_30_drop"}
+
+    def _smpte_format_enum(self, name: str) -> Any:
+        try:
+            import Live  # type: ignore[import-not-found]
+            enum = getattr(getattr(Live, "Song", None), "TimeFormat", None)
+        except Exception as error:
+            raise ValueError("the SMPTE format enum is unavailable") from error
+        value = getattr(enum, name, None)
+        if value is None: raise ValueError("the SMPTE format enum is unavailable")
+        return value
+
+    def _song_time_convert(self, args: dict[str, Any]) -> dict[str, Any]:
+        set_ref = args.get("setRef")
+        if not isinstance(set_ref, str) or set_ref != self.refs.put("set", self.song, "song") or set(args) - {"setRef", "query", "smpteFormat"}:
+            raise ValueError("time-convert arguments are invalid")
+        query = args.get("query")
+        if query not in ("beats-loop", "current-smpte"): raise ValueError("time-convert query is invalid")
+        song = self.song
+        if query == "beats-loop":
+            start_method = getattr(song, "get_beats_loop_start", None); length_method = getattr(song, "get_beats_loop_length", None)
+            if not callable(start_method) or not callable(length_method):
+                return {"available": False, "loopStart": None, "loopLength": None, "smpte": None}
+            start = start_method(); length = length_method()
+            if not all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) for value in (start, length)):
+                raise ValueError("beats loop time shape is unreadable")
+            return {"available": True, "loopStart": float(start), "loopLength": float(length), "smpte": None}
+        format_key = args.get("smpteFormat", "smpte-25")
+        if not isinstance(format_key, str) or format_key not in self._SMPTE_FORMAT_ENUM_NAMES: raise ValueError("smpteFormat is invalid")
+        method = getattr(song, "get_current_smpte_song_time", None)
+        if not callable(method):
+            return {"available": False, "loopStart": None, "loopLength": None, "smpte": None}
+        enum_value = self._smpte_format_enum(self._SMPTE_FORMAT_ENUM_NAMES[format_key])
+        observed = method(enum_value)
+        fields: dict[str, Any] = {}
+        for name in ("hours", "minutes", "seconds", "frames", "subframes", "sign"):
+            value = self._read_attr(observed, name)
+            if isinstance(value, bool): continue
+            if isinstance(value, int) and 0 <= value <= 10**6: fields[name] = int(value)
+        if not fields: raise ValueError("SMPTE time shape is unreadable")
+        return {"available": True, "loopStart": None, "loopLength": None, "smpte": fields}
+
+    def _track_state_fields(self, track: Any, track_index: int) -> dict[str, Any]:
+        def optional_bool(obj: Any, name: str) -> bool | None:
+            value = self._read_attr(obj, name)
+            return value if isinstance(value, bool) else None
+        def optional_float(obj: Any, name: str) -> float | None:
+            value = self._read_attr(obj, name)
+            return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+        group = self._read_attr(track, "group_track")
+        group_ref = self.refs.put("track", group, f"group:{track_index}") if group is not None else None
+        view = getattr(track, "view", None)
+        selected_device = self._read_attr(view, "selected_device") if view is not None else None
+        device_insert_mode = self._read_attr(view, "device_insert_mode") if view is not None else None
+        selected_track = self._read_attr(getattr(self.song, "view", None), "selected_track")
+        return {
+            "groupTrackRef": group_ref,
+            "isVisible": optional_bool(track, "is_visible"),
+            "isSelected": (selected_track is track) if selected_track is not None else None,
+            "isFrozen": optional_bool(track, "is_frozen"),
+            "foldState": optional_bool(track, "fold_state") if optional_bool(track, "fold_state") is not None else optional_bool(track, "is_folded"),
+            "implicitArm": optional_bool(track, "implicit_arm"),
+            "backToArranger": optional_bool(track, "back_to_arranger"),
+            "mutedViaSolo": optional_bool(track, "muted_via_solo"),
+            "inputMeterLeft": optional_float(track, "input_meter_left"),
+            "inputMeterRight": optional_float(track, "input_meter_right"),
+            "inputMeterLevel": optional_float(track, "input_meter_level"),
+            "outputMeterLeft": optional_float(track, "output_meter_left"),
+            "outputMeterRight": optional_float(track, "output_meter_right"),
+            "outputMeterLevel": optional_float(track, "output_meter_level"),
+            "performanceImpact": int(self._read_attr(track, "performance_impact")) if isinstance(self._read_attr(track, "performance_impact"), int) and not isinstance(self._read_attr(track, "performance_impact"), bool) else None,
+            "view": {
+                "selectedDeviceRef": self.refs.put("device", selected_device, f"view:{track_index}") if selected_device is not None else None,
+                "deviceInsertMode": int(device_insert_mode) if isinstance(device_insert_mode, int) and not isinstance(device_insert_mode, bool) else None,
+                "isCollapsed": optional_bool(view, "is_collapsed") if view is not None else None,
+            },
+        }
+
+    def _track_view_state_revision(self, track: Any) -> str:
+        view = getattr(track, "view", None)
+        collapsed = self._read_attr(view, "is_collapsed") if view is not None else None
+        mode = self._read_attr(view, "device_insert_mode") if view is not None else None
+        return hashlib.sha256(self._bounded_canonical({"collapsed": collapsed if isinstance(collapsed, bool) else None, "deviceInsertMode": int(mode) if isinstance(mode, int) and not isinstance(mode, bool) else None}).encode("utf-8")).hexdigest()
+
+    def _track_create_return(self, args: dict[str, Any]) -> dict[str, Any]:
+        if set(args) - {"name", "expectedStructureRevision"}: raise ValueError("return-track creation arguments are invalid")
+        if not isinstance(args.get("expectedStructureRevision"), str) or not hmac.compare_digest(self._structure_revision(), args["expectedStructureRevision"]): raise ValueError("structure changed since preview")
+        creator = getattr(self.song, "create_return_track", None)
+        if not callable(creator): raise ValueError("return-track creation is unavailable")
+        name = args.get("name")
+        if name is not None and (not isinstance(name, str) or not 1 <= len(name) <= 256): raise ValueError("name is invalid")
+        before = self._items(getattr(self.song, "return_tracks", [])); before_identities = [self._capture_object_identity(item) for item in before]
+        track = creator()
+        after = self._items(getattr(self.song, "return_tracks", [])); created = [candidate for candidate in after if self._capture_object_identity(candidate) not in set(before_identities)]
+        if track is None or len(after) != len(before) + 1 or len(created) != 1: raise ValueError("return-track creation was not confirmed")
+        created_track = created[0]
+        if name is not None and hasattr(created_track, "name"): created_track.name = name
+        if name is not None and str(getattr(created_track, "name", "")) != name: raise ValueError("return-track name was not confirmed")
+        index = len(after) - 1; reference = self.refs.put("return_track", created_track, str(index)); identity = self._capture_object_identity(created_track)
+        fingerprint = hashlib.sha256(self._bounded_canonical({"ref": reference, "objectIdentity": identity, "name": str(getattr(created_track, "name", "")), "index": index}).encode("utf-8")).hexdigest()
+        return {"ref": reference, "objectIdentity": identity, "name": str(getattr(created_track, "name", "")), "index": index, "createdFingerprint": fingerprint}
+
+    def _track_delete_return(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:return_track:") or set(args) - {"ref", "expectedObjectIdentity", "expectedStructureRevision"}: raise ValueError("return-track deletion authority is invalid")
+        if not isinstance(args.get("expectedStructureRevision"), str) or not hmac.compare_digest(self._structure_revision(), args["expectedStructureRevision"]): raise ValueError("structure changed since preview")
+        returns = self._items(getattr(self.song, "return_tracks", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+        if not 0 <= index < len(returns): raise ValueError("return-track hierarchy changed")
+        track = returns[index]
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(track), args["expectedObjectIdentity"]): raise ValueError("return-track identity changed since preview")
+        deleter = getattr(self.song, "delete_return_track", None)
+        if not callable(deleter): raise ValueError("return-track deletion is unavailable")
+        deleter(index)
+        remaining = self._items(getattr(self.song, "return_tracks", []))
+        if len(remaining) != len(returns) - 1 or any(self._capture_object_identity(candidate) == self._capture_object_identity(track) for candidate in remaining): raise ValueError("return-track deletion was not confirmed")
+        return {"deleted": reference}
+
+    def _track_duplicate(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:track:") or set(args) - {"ref", "expectedObjectIdentity", "expectedStructureRevision"}: raise ValueError("track duplication authority is invalid")
+        if not isinstance(args.get("expectedStructureRevision"), str) or not hmac.compare_digest(self._structure_revision(), args["expectedStructureRevision"]): raise ValueError("structure changed since preview")
+        tracks = self._items(getattr(self.song, "tracks", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+        if not 0 <= index < len(tracks): raise ValueError("track hierarchy changed")
+        track = tracks[index]
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(track), args["expectedObjectIdentity"]): raise ValueError("track identity changed since preview")
+        duplicator = getattr(self.song, "duplicate_track", None)
+        if not callable(duplicator): raise ValueError("track duplication is unavailable")
+        before = len(tracks)
+        duplicator(index)
+        after = self._items(getattr(self.song, "tracks", []))
+        if len(after) != before + 1: raise ValueError("track duplication was not confirmed")
+        created = after[index + 1]; reference_new = self.refs.put("track", created, str(index + 1)); identity = self._capture_object_identity(created)
+        fingerprint = hashlib.sha256(self._bounded_canonical({"ref": reference_new, "objectIdentity": identity, "name": str(getattr(created, "name", "")), "index": index + 1}).encode("utf-8")).hexdigest()
+        return {"ref": reference_new, "objectIdentity": identity, "name": str(getattr(created, "name", "")), "index": index + 1, "createdFingerprint": fingerprint}
+
+    def _scene_duplicate(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:scene:") or set(args) - {"ref", "expectedObjectIdentity", "expectedStructureRevision"}: raise ValueError("scene duplication authority is invalid")
+        if not isinstance(args.get("expectedStructureRevision"), str) or not hmac.compare_digest(self._structure_revision(), args["expectedStructureRevision"]): raise ValueError("structure changed since preview")
+        scenes = self._items(getattr(self.song, "scenes", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+        if not 0 <= index < len(scenes): raise ValueError("scene hierarchy changed")
+        scene = scenes[index]
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(scene), args["expectedObjectIdentity"]): raise ValueError("scene identity changed since preview")
+        duplicator = getattr(self.song, "duplicate_scene", None)
+        if not callable(duplicator): raise ValueError("scene duplication is unavailable")
+        before = len(scenes)
+        duplicator(index)
+        after = self._items(getattr(self.song, "scenes", []))
+        if len(after) != before + 1: raise ValueError("scene duplication was not confirmed")
+        created = after[index + 1]; reference_new = self.refs.put("scene", created, str(index + 1)); identity = self._capture_object_identity(created)
+        fingerprint = hashlib.sha256(self._bounded_canonical({"ref": reference_new, "objectIdentity": identity, "name": str(getattr(created, "name", "")), "index": index + 1}).encode("utf-8")).hexdigest()
+        return {"ref": reference_new, "objectIdentity": identity, "name": str(getattr(created, "name", "")), "index": index + 1, "createdFingerprint": fingerprint}
+
+    def _track_view_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:track:") or set(args) - {"ref", "collapsed", "deviceInsertMode", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("track view authority is invalid")
+        tracks = self._items(getattr(self.song, "tracks", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+        if not 0 <= index < len(tracks): raise ValueError("track hierarchy changed")
+        track = tracks[index]; view = getattr(track, "view", None)
+        if view is None: raise ValueError("track view is unavailable")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(track), args["expectedObjectIdentity"]): raise ValueError("track identity changed since preview")
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(self._track_view_state_revision(track), args["expectedStateRevision"]): raise ValueError("track view state changed since preview")
+        proposals = []
+        if "collapsed" in args:
+            value = args["collapsed"]
+            if not isinstance(value, bool): raise ValueError("collapsed is invalid")
+            proposals.append(("is_collapsed", value))
+        if "deviceInsertMode" in args:
+            value = args["deviceInsertMode"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 8: raise ValueError("deviceInsertMode is invalid")
+            proposals.append(("device_insert_mode", value))
+        if not proposals: raise ValueError("track view mutation has no fields")
+        assignments = [(attribute, value, self._read_attr(view, attribute)) for attribute, value in proposals]
+        before_revision = self._track_view_state_revision(track)
+        try:
+            for attribute, value, _ in assignments: setattr(view, attribute, value)
+            for attribute, value, _ in assignments:
+                observed = self._read_attr(view, attribute)
+                if isinstance(value, bool):
+                    if observed is not value: raise ValueError("track view change was not confirmed")
+                elif not isinstance(observed, int) or isinstance(observed, bool) or observed != value: raise ValueError("track view change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for attribute, _, prior in reversed(assignments):
+                try: setattr(view, attribute, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or self._track_view_state_revision(track) != before_revision: raise ValueError("track view change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _track_select_instrument(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:track:") or set(args) - {"ref", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("track instrument selection authority is invalid")
+        tracks = self._items(getattr(self.song, "tracks", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+        if not 0 <= index < len(tracks): raise ValueError("track hierarchy changed")
+        track = tracks[index]
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(track), args["expectedObjectIdentity"]): raise ValueError("track identity changed since preview")
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(self._track_view_state_revision(track), args["expectedStateRevision"]): raise ValueError("track view state changed since preview")
+        view = getattr(track, "view", None); selector = getattr(view, "select_instrument", None) if view is not None else None
+        if not callable(selector): raise ValueError("instrument selection is unavailable")
+        selector()
+        return {"done": True}
+
+    def _selection_state(self) -> dict[str, Any]:
+        view = getattr(self.song, "view", None)
+        def ref_or_none(value: Any, kind: str, key: str) -> str | None:
+            return self.refs.put(kind, value, key) if value is not None else None
+        track = self._read_attr(view, "selected_track"); scene = self._read_attr(view, "selected_scene")
+        slot = self._read_attr(view, "highlighted_clip_slot"); detail_clip = self._read_attr(view, "detail_clip")
+        device = self._read_attr(view, "selected_device"); parameter = self._read_attr(view, "selected_parameter"); chain = self._read_attr(view, "selected_chain")
+        return {
+            "trackRef": ref_or_none(track, "track", "selected") if track is not None else None,
+            "sceneRef": ref_or_none(scene, "scene", "selected") if scene is not None else None,
+            "slotRef": ref_or_none(slot, "clip_slot", "highlighted") if slot is not None else None,
+            "detailClipRef": ref_or_none(detail_clip, "clip", "detail") if detail_clip is not None else None,
+            "deviceRef": ref_or_none(device, "device", "selected") if device is not None else None,
+            "parameterRef": ref_or_none(parameter, "parameter", "selected") if parameter is not None else None,
+            "chainRef": ref_or_none(chain, "chain", "selected") if chain is not None else None,
+        }
+
+    def _selection_revision(self) -> str:
+        return hashlib.sha256(self._bounded_canonical(self._selection_state()).encode("utf-8")).hexdigest()
+
+    def _selection_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        allowed = {"trackRef", "sceneRef", "detailClipRef", "slotRef", "deviceRef", "parameterRef", "chainRef", "expectedStateRevision"}
+        if set(args) - allowed: raise ValueError("selection fields are invalid")
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(self._selection_revision(), args["expectedStateRevision"]): raise ValueError("selection state changed since preview")
+        view = getattr(self.song, "view", None)
+        if view is None: raise ValueError("song view is unavailable")
+        before_state = self._selection_state()
+        proposals = []
+        for key, attribute, kind in (("trackRef", "selected_track", "track"), ("sceneRef", "selected_scene", "scene"), ("slotRef", "highlighted_clip_slot", "clip_slot"), ("detailClipRef", "detail_clip", "clip"), ("deviceRef", "selected_device", "device"), ("parameterRef", "selected_parameter", "parameter"), ("chainRef", "selected_chain", "chain")):
+            if key not in args: continue
+            reference = args[key]
+            if reference is None:
+                if key == "detailClipRef": proposals.append((attribute, None))
+                continue
+            if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:{kind}:"): raise ValueError(f"{key} is stale or invalid")
+            proposals.append((attribute, self.refs.get(reference)))
+        if not proposals: raise ValueError("selection mutation has no fields")
+        def identity_of(value: Any) -> str | None:
+            return None if value is None else self._capture_object_identity(value)
+        assignments = []
+        try:
+            for attribute, value in proposals:
+                prior = self._read_attr(view, attribute)
+                setattr(view, attribute, value)
+                assignments.append((attribute, prior))
+            for attribute, value in proposals:
+                observed = self._read_attr(view, attribute)
+                if identity_of(observed) != identity_of(value): raise ValueError("selection change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for attribute, prior in reversed(assignments):
+                try: setattr(view, attribute, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or self._bounded_canonical(self._selection_state()) != self._bounded_canonical(before_state): raise ValueError("selection change failed and exact rollback failed") from error
+            raise
+        return {"changed": True, "revision": self._selection_revision()}
+
+    def _song_view_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        if set(args) - {"drawMode", "expectedStateRevision"}: raise ValueError("song view fields are invalid")
+        view = getattr(self.song, "view", None)
+        if view is None: raise ValueError("song view is unavailable")
+        revision = hashlib.sha256(self._bounded_canonical({"drawMode": self._read_attr(view, "draw_mode")}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(revision, args["expectedStateRevision"]): raise ValueError("song view state changed since preview")
+        if "drawMode" not in args: raise ValueError("song view mutation has no fields")
+        value = args["drawMode"]
+        if not isinstance(value, bool): raise ValueError("drawMode is invalid")
+        prior = self._read_attr(view, "draw_mode")
+        if not isinstance(prior, bool): raise ValueError("draw mode is unavailable")
+        try:
+            view.draw_mode = value
+            if self._read_attr(view, "draw_mode") is not value: raise ValueError("draw mode change was not confirmed")
+        except BaseException as error:
+            try: view.draw_mode = prior
+            except BaseException: raise ValueError("draw mode change failed and exact rollback failed") from error
+            raise
+        return {"changed": True, "revision": hashlib.sha256(self._bounded_canonical({"drawMode": self._read_attr(view, "draw_mode")}).encode("utf-8")).hexdigest()}
+
+    def _clip_view_state(self, clip: Any) -> dict[str, Any]:
+        view = getattr(clip, "view", None)
+        grid = self._read_attr(view, "grid_quantization") if view is not None else None
+        return {
+            "gridQuantization": int(grid) if isinstance(grid, int) and not isinstance(grid, bool) else None,
+            "gridIsTriplet": self._read_attr(view, "grid_is_triplet") if isinstance(self._read_attr(view, "grid_is_triplet"), bool) else None,
+        }
+
+    def _clip_view_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:") or set(args) - {"ref", "gridQuantization", "gridIsTriplet", "showEnvelope", "showLoop", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("clip view authority is invalid")
+        clip = self.refs.get(reference); view = getattr(clip, "view", None)
+        if view is None: raise ValueError("clip view is unavailable")
+        current = self.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(str(current.get("objectIdentity", "")), args["expectedObjectIdentity"]): raise ValueError("clip identity changed since preview")
+        state_revision = hashlib.sha256(self._bounded_canonical(self._clip_view_state(clip)).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("clip view state changed since preview")
+        proposals = []
+        if "gridQuantization" in args:
+            value = args["gridQuantization"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 16: raise ValueError("gridQuantization is invalid")
+            proposals.append(("grid_quantization", value))
+        if "gridIsTriplet" in args:
+            value = args["gridIsTriplet"]
+            if not isinstance(value, bool): raise ValueError("gridIsTriplet is invalid")
+            proposals.append(("grid_is_triplet", value))
+        assignments = [(attribute, value, self._read_attr(view, attribute)) for attribute, value in proposals]
+        before_revision = state_revision
+        try:
+            for attribute, value, _ in assignments: setattr(view, attribute, value)
+            for attribute, value, _ in assignments:
+                observed = self._read_attr(view, attribute)
+                if isinstance(value, bool):
+                    if observed is not value: raise ValueError("clip view change was not confirmed")
+                elif not isinstance(observed, int) or isinstance(observed, bool) or observed != value: raise ValueError("clip view change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for attribute, _, prior in reversed(assignments):
+                try: setattr(view, attribute, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or hashlib.sha256(self._bounded_canonical(self._clip_view_state(clip)).encode("utf-8")).hexdigest() != before_revision: raise ValueError("clip view change failed and exact rollback failed") from error
+            raise
+        # Momentary, non-reversible view actions run only after every reversible
+        # field is committed and confirmed.
+        if "showEnvelope" in args:
+            value = args["showEnvelope"]
+            if not isinstance(value, bool): raise ValueError("showEnvelope is invalid")
+            envelope_action = getattr(view, "show_envelope" if value else "hide_envelope", None)
+            if not callable(envelope_action): raise ValueError("clip envelope visibility action is unavailable")
+            envelope_action()
+        if args.get("showLoop") is True:
+            shower = getattr(view, "show_loop", None)
+            if not callable(shower): raise ValueError("clip show-loop is unavailable")
+            shower()
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _device_view_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or set(args) - {"ref", "collapsed", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("device view authority is invalid")
+        device = self.refs.get(reference); view = getattr(device, "view", None)
+        if view is None or self._read_attr(view, "is_collapsed") is None: raise ValueError("device view collapsed state is unavailable on this Live shape")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("device identity changed since preview")
+        state_revision = hashlib.sha256(self._bounded_canonical({"collapsed": self._read_attr(view, "is_collapsed")}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("device view state changed since preview")
+        value = args.get("collapsed")
+        if not isinstance(value, bool): raise ValueError("collapsed is invalid")
+        prior = self._read_attr(view, "is_collapsed")
+        try:
+            view.is_collapsed = value
+            if self._read_attr(view, "is_collapsed") is not value: raise ValueError("device collapse change was not confirmed")
+        except BaseException as error:
+            try: view.is_collapsed = prior
+            except BaseException: raise ValueError("device collapse change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _dialog_state(self, application: Any) -> dict[str, Any]:
+        button_count = self._read_attr(application, "current_dialog_button_count")
+        message = self._read_attr(application, "current_dialog_message")
+        open_count = self._read_attr(application, "open_dialog_count")
+        return {
+            "buttonCount": int(button_count) if isinstance(button_count, int) and not isinstance(button_count, bool) and 0 <= button_count <= 64 else None,
+            "message": message[:1024] if isinstance(message, str) else None,
+            "openDialogCount": int(open_count) if isinstance(open_count, int) and not isinstance(open_count, bool) and 0 <= open_count <= 64 else None,
+        }
+
+    def _application_dialog(self, args: dict[str, Any]) -> dict[str, Any]:
+        action = args.get("action")
+        if action not in {"read", "press"} or set(args) - {"action", "button", "expectedMessage", "expectedButtonCount", "expectedOpenDialogCount"}: raise ValueError("dialog arguments are invalid")
+        application = self._application()
+        state = self._dialog_state(application)
+        if action == "read": return {**state, "done": True}
+        presser = getattr(application, "press_current_dialog_button", None)
+        if not callable(presser): raise ValueError("dialog button presses are unavailable")
+        button = args.get("button")
+        if not isinstance(button, int) or isinstance(button, bool) or not 0 <= button <= 16: raise ValueError("dialog button is invalid")
+        # The fence binds the exact dialog content and instance: message text,
+        # button count, and the number of open dialogs must all match the
+        # preview, so a swapped or newly stacked dialog refuses the press.
+        expected_message = args.get("expectedMessage")
+        if expected_message is not None and (not isinstance(expected_message, str) or len(expected_message) > 1024): raise ValueError("expectedMessage is invalid")
+        for key, kind in (("expectedButtonCount", "buttonCount"), ("expectedOpenDialogCount", "openDialogCount")):
+            value = args.get(key)
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 64: raise ValueError(f"{key} is required for a guarded dialog press")
+            if state[kind] != value: raise ValueError("dialog state changed since preview")
+        if state["message"] != expected_message: raise ValueError("dialog state changed since preview")
+        if state["buttonCount"] is None or button >= state["buttonCount"]: raise ValueError("dialog button is not present in the current dialog")
+        presser(button)
+        return {**self._dialog_state(application), "done": True}
+
+    def _performance_read(self, args: dict[str, Any]) -> dict[str, Any]:
+        set_ref = args.get("setRef")
+        if not isinstance(set_ref, str) or set_ref != self.refs.put("set", self.song, "song") or set(args) - {"setRef"}:
+            raise ValueError("performance read arguments are invalid")
+        try:
+            application = self._application()
+        except ValueError:
+            application = None
+        average = self._read_attr(application, "average_process_usage") if application is not None else None
+        peak = self._read_attr(application, "peak_process_usage") if application is not None else None
+        snapshot = self.snapshot()
+        tracks = []
+        for track in snapshot["tracks"]:
+            devices = []
+            def collect(rows: list[dict[str, Any]]) -> None:
+                for row in rows:
+                    devices.append({"ref": row["ref"], "latencySamples": row.get("latencySamples"), "latencyMs": row.get("latencyMs")})
+                    for chain in row.get("chains", []): collect(chain.get("devices", []))
+                    for pad in row.get("drumPads", []):
+                        for chain in pad.get("chains", []): collect(chain.get("devices", []))
+            collect(track.get("devices", []))
+            if len(devices) > 256: raise ValueError("device performance collection exceeds its bound")
+            tracks.append({
+                "ref": track["ref"],
+                "performanceImpact": track.get("performanceImpact"),
+                "inputMeterLeft": track.get("inputMeterLeft"), "inputMeterRight": track.get("inputMeterRight"), "inputMeterLevel": track.get("inputMeterLevel"),
+                "outputMeterLeft": track.get("outputMeterLeft"), "outputMeterRight": track.get("outputMeterRight"), "outputMeterLevel": track.get("outputMeterLevel"),
+                "devices": devices,
+            })
+        if len(tracks) > 256: raise ValueError("track performance collection exceeds its bound")
+        state = {"averageProcessUsage": average, "peakProcessUsage": peak, "tracks": tracks}
+        return {**state, "sampledAt": int(time.time() * 1000), "revision": hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()}
+
+    def _set_parameter_direct(self, parameter: Any, target: float, attribute_name: str) -> None:
+        prior = self._read_attr(parameter, "value")
+        if not isinstance(prior, (int, float)) or isinstance(prior, bool):
+            raise ValueError(f"{attribute_name} prior state is unavailable")
+        setter_error: BaseException | None = None
+        try: parameter.value = float(target)
+        except BaseException as error: setter_error = error
+        observed = self._read_attr(parameter, "value")
+        if setter_error is None and isinstance(observed, (int, float)) and not isinstance(observed, bool) and float(observed) == float(target): return
+        if isinstance(prior, (int, float)) and observed != prior:
+            try: parameter.value = prior
+            except BaseException: pass
+            restored = self._read_attr(parameter, "value")
+            if not isinstance(restored, (int, float)) or float(restored) != float(prior): raise ValueError(f"{attribute_name} change failed and exact rollback failed") from setter_error
+        raise ValueError(f"{attribute_name} change was not confirmed") from setter_error
+
+    def _mixer_extended_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:track:") or set(args) - {"ref", "trackActivator", "crossfader", "crossfadeAssign", "panningMode", "panningLeft", "panningRight", "expectedObjectIdentity", "expectedMixerIdentity", "expectedStateRevision"}:
+            raise ValueError("extended mixer authority is invalid")
+        # Resolve through the ref registry so regular, return, and main tracks
+        # (including the main-track crossfader) are all addressable.
+        track = self.refs.get(reference); mixer = self._read_attr(track, "mixer_device")
+        if mixer is None: raise ValueError("mixer is unavailable on this track")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(track), args["expectedObjectIdentity"]): raise ValueError("track identity changed since preview")
+        if not isinstance(args.get("expectedMixerIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(mixer), args["expectedMixerIdentity"]): raise ValueError("mixer identity changed since preview")
+        state = {"crossfadeAssign": self._read_attr(mixer, "crossfade_assign"), "panningMode": self._read_attr(mixer, "panning_mode")}
+        state_revision = hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("extended mixer state changed since preview")
+        parameter_proposals: list[tuple[Any, float, str]] = []
+        attribute_proposals: list[tuple[Any, str, int]] = []
+        if "trackActivator" in args:
+            parameter = self._read_attr(mixer, "track_activator")
+            if parameter is None: raise ValueError("track activator is unavailable")
+            value = args["trackActivator"]
+            if not isinstance(value, bool): raise ValueError("trackActivator is invalid")
+            parameter_proposals.append((parameter, 1.0 if value else 0.0, "track activator"))
+        if "crossfader" in args:
+            parameter = self._read_attr(mixer, "crossfader")
+            if parameter is None: raise ValueError("crossfader is unavailable")
+            value = args["crossfader"]
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not -1 <= float(value) <= 1: raise ValueError("crossfader is invalid")
+            parameter_proposals.append((parameter, float(value), "crossfader"))
+        for field, attr in (("panningLeft", "left_split_stereo"), ("panningRight", "right_split_stereo")):
+            if field in args:
+                parameter = self._read_attr(mixer, attr)
+                if parameter is None: raise ValueError(f"{attr} is unavailable")
+                value = args[field]
+                if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not -1 <= float(value) <= 1: raise ValueError(f"{field} is invalid")
+                parameter_proposals.append((parameter, float(value), field))
+        if "crossfadeAssign" in args:
+            value = args["crossfadeAssign"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 2: raise ValueError("crossfadeAssign is invalid")
+            attribute_proposals.append((mixer, "crossfade_assign", value))
+        if "panningMode" in args:
+            value = args["panningMode"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 8: raise ValueError("panningMode is invalid")
+            attribute_proposals.append((mixer, "panning_mode", value))
+        if not parameter_proposals and not attribute_proposals: raise ValueError("extended mixer mutation has no fields")
+        # Prevalidate every target and capture every prior before mutating, then
+        # roll the whole batch back in reverse order on any failure.
+        applied: list[tuple[str, Any, str, Any, str]] = []
+        try:
+            for parameter, target, name in parameter_proposals:
+                prior = self._read_attr(parameter, "value")
+                if not isinstance(prior, (int, float)) or isinstance(prior, bool): raise ValueError(f"{name} prior state is unavailable")
+                parameter.value = float(target)
+                applied.append(("parameter", parameter, "value", prior, name))
+                observed = self._read_attr(parameter, "value")
+                if not isinstance(observed, (int, float)) or isinstance(observed, bool) or float(observed) != float(target): raise ValueError(f"{name} change was not confirmed")
+            for target_object, attribute, value in attribute_proposals:
+                prior = self._read_attr(target_object, attribute)
+                if prior is None: raise ValueError(f"{attribute} is unavailable")
+                setattr(target_object, attribute, value)
+                applied.append(("attribute", target_object, attribute, prior, attribute))
+                if self._read_attr(target_object, attribute) != value: raise ValueError(f"{attribute} change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for kind, target_object, attribute, prior, _ in reversed(applied):
+                try:
+                    if kind == "parameter": target_object.value = float(prior)
+                    else: setattr(target_object, attribute, prior)
+                except BaseException: rollback_failed = True
+            for kind, target_object, attribute, prior, _ in applied:
+                observed = self._read_attr(target_object, attribute) if kind == "attribute" else self._read_attr(target_object, "value")
+                if observed != prior: rollback_failed = True
+            if rollback_failed: raise ValueError("extended mixer change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _chain_mixer_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:chain:") or set(args) - {"ref", "volume", "pan", "sends", "chainActivator", "expectedObjectIdentity", "expectedMixerIdentity", "expectedStateRevision"}:
+            raise ValueError("chain mixer authority is invalid")
+        chain = self.refs.get(reference); mixer = self._read_attr(chain, "mixer_device")
+        if mixer is None: raise ValueError("chain mixer is unavailable")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(chain), args["expectedObjectIdentity"]): raise ValueError("chain identity changed since preview")
+        if not isinstance(args.get("expectedMixerIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(mixer), args["expectedMixerIdentity"]): raise ValueError("chain mixer identity changed since preview")
+        sends_now = [self._read_attr(send, "value") for send in self._items(self._read_attr(mixer, "sends") or [])]
+        state_revision = hashlib.sha256(self._bounded_canonical({"sends": sends_now}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("chain mixer state changed since preview")
+        proposals = []
+        if "volume" in args:
+            parameter = self._read_attr(mixer, "volume")
+            if parameter is None: raise ValueError("chain volume is unavailable")
+            value = args["volume"]
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not 0 <= float(value) <= 1: raise ValueError("volume is invalid")
+            proposals.append((parameter, float(value), "chain volume"))
+        if "pan" in args:
+            parameter = self._read_attr(mixer, "panning")
+            if parameter is None: raise ValueError("chain panning is unavailable")
+            value = args["pan"]
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not -1 <= float(value) <= 1: raise ValueError("pan is invalid")
+            proposals.append((parameter, float(value), "chain panning"))
+        if "sends" in args:
+            values = args["sends"]
+            send_params = self._items(self._read_attr(mixer, "sends") or [])
+            if not isinstance(values, list) or len(values) > len(send_params) or not all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 1 for value in values): raise ValueError("sends are invalid")
+            for send, value in zip(send_params, values): proposals.append((send, float(value), "chain send"))
+        if "chainActivator" in args:
+            parameter = self._read_attr(mixer, "chain_activator")
+            if parameter is None: raise ValueError("chain activator is unavailable")
+            value = args["chainActivator"]
+            if not isinstance(value, bool): raise ValueError("chainActivator is invalid")
+            proposals.append((parameter, 1.0 if value else 0.0, "chain activator"))
+        if not proposals: raise ValueError("chain mixer mutation has no fields")
+        for parameter, target, name in proposals: self._set_parameter_direct(parameter, target, name)
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _choice_name(self, choice: Any) -> str | None:
+        """Routing/IO choices are dictionary-shaped on the current LOM; accept
+        legacy objects with a name attribute as well."""
+        if isinstance(choice, dict):
+            name = choice.get("name", choice.get("display_name"))
+            return str(name)[:128] if isinstance(name, str) and name else None
+        name = self._read_attr(choice, "name", "display_name")
+        return str(name)[:128] if isinstance(name, str) and name else None
+
+    def _device_io_fields(self, owner: Any) -> dict[str, Any]:
+        """Public DeviceIO objects are entries in MaxDevice.audio_inputs (and
+        the sibling input/output lists), not an owner.device_io alias."""
+        inputs = self._items(self._read_attr(owner, "audio_inputs") or [])
+        io = inputs[0] if inputs else None
+        if io is None: return {"availableRoutingTypes": [], "routingType": None, "routingChannel": None, "defaultExternalRoutingChannelIsNone": None}
+        types = [name for name in (self._choice_name(item) for item in self._items(self._read_attr(io, "available_routing_types") or [])) if name is not None][:64]
+        default_none = self._read_attr(io, "default_external_routing_channel_is_none")
+        return {
+            "availableRoutingTypes": types,
+            "routingType": self._choice_name(self._read_attr(io, "routing_type")),
+            "routingChannel": self._choice_name(self._read_attr(io, "routing_channel")),
+            "defaultExternalRoutingChannelIsNone": default_none if isinstance(default_none, bool) else None,
+        }
+
+    def _device_io_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:") or set(args) - {"ref", "routingType", "routingChannel", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("device IO authority is invalid")
+        owner = self.refs.get(reference)
+        inputs = self._items(self._read_attr(owner, "audio_inputs") or [])
+        io = inputs[0] if inputs else None
+        if io is None: raise ValueError("device IO is unavailable on this shape")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(owner), args["expectedObjectIdentity"]): raise ValueError("device IO identity changed since preview")
+        current = self._device_io_fields(owner)
+        state_revision = hashlib.sha256(self._bounded_canonical({"routingType": current["routingType"], "routingChannel": current["routingChannel"]}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("device IO state changed since preview")
+        if "routingType" not in args and "routingChannel" not in args: raise ValueError("device IO mutation has no fields")
+        proposals: list[tuple[str, Any, str]] = []
+        if "routingType" in args:
+            wanted = args["routingType"]
+            if not isinstance(wanted, str) or not 1 <= len(wanted) <= 128: raise ValueError("routingType is invalid")
+            available = self._items(self._read_attr(io, "available_routing_types") or [])
+            target = next((item for item in available if self._choice_name(item) == wanted), None)
+            if target is None: raise ValueError("routingType is not an available choice")
+            proposals.append(("routing_type", target, wanted))
+        if "routingChannel" in args:
+            wanted = args["routingChannel"]
+            if not isinstance(wanted, str) or not 1 <= len(wanted) <= 128: raise ValueError("routingChannel is invalid")
+            channels = self._items(self._read_attr(io, "available_routing_channels") or [])
+            target = next((item for item in channels if self._choice_name(item) == wanted), None)
+            if target is None: raise ValueError("routingChannel is not an available choice")
+            proposals.append(("routing_channel", target, wanted))
+        applied: list[tuple[str, Any]] = []
+        try:
+            for attribute, target, wanted in proposals:
+                prior = self._read_attr(io, attribute)
+                setattr(io, attribute, target)
+                applied.append((attribute, prior))
+                if self._choice_name(self._read_attr(io, attribute)) != wanted: raise ValueError("device IO routing change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for attribute, prior in reversed(applied):
+                try: setattr(io, attribute, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed: raise ValueError("device IO routing change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _compressor_sidechain_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or set(args) - {"ref", "routingType", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("sidechain authority is invalid")
+        device = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("device identity changed since preview")
+        current = self._read_attr(device, "input_routing_type")
+        if current is None: raise ValueError("sidechain routing is unavailable on this device shape")
+        state_revision = hashlib.sha256(self._bounded_canonical({"routingType": self._choice_name(current)}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("sidechain state changed since preview")
+        wanted = args.get("routingType")
+        if not isinstance(wanted, str) or not 1 <= len(wanted) <= 128: raise ValueError("routingType is invalid")
+        available = self._items(self._read_attr(device, "available_input_routing_types") or [])
+        target = next((item for item in available if self._choice_name(item) == wanted), None)
+        if target is None: raise ValueError("routingType is not an available sidechain choice")
+        prior = current
+        try: device.input_routing_type = target
+        except BaseException as error: raise ValueError("sidechain routing change failed") from error
+        if self._choice_name(self._read_attr(device, "input_routing_type")) != wanted:
+            try: device.input_routing_type = prior
+            except BaseException: pass
+            raise ValueError("sidechain routing change was not confirmed")
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _device_bank_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or set(args) - {"ref", "bank", "scriptIndex", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("device bank authority is invalid")
+        device = self.refs.get(reference)
+        # The public surface is store_chosen_bank(script_index, bank_index) plus
+        # parameter_bank_count(); there is no readable chosen-bank property, so
+        # this is a momentary control-surface selection, not an undoable write.
+        count_method = getattr(device, "parameter_bank_count", None)
+        store = getattr(device, "store_chosen_bank", None)
+        if not callable(count_method) or not callable(store): raise ValueError("parameter banks are unavailable on this device")
+        bank_count = count_method()
+        if not isinstance(bank_count, int) or isinstance(bank_count, bool) or bank_count < 0: raise ValueError("parameter banks are unavailable on this device")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("device identity changed since preview")
+        state_revision = hashlib.sha256(self._bounded_canonical({"bankCount": bank_count}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("device bank state changed since preview")
+        value = args.get("bank")
+        if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 32: raise ValueError("bank is invalid")
+        script_index = args.get("scriptIndex", 0)
+        if not isinstance(script_index, int) or isinstance(script_index, bool) or not 0 <= script_index <= 16: raise ValueError("scriptIndex is invalid")
+        if value >= bank_count: raise ValueError("bank exceeds the device's parameter bank count")
+        store(script_index, value)
+        observed = count_method()
+        if not isinstance(observed, int) or observed != bank_count: raise ValueError("device bank selection was not confirmed")
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _parameter_re_enable_automation(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:parameter:") or set(args) - {"ref", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("parameter automation authority is invalid")
+        parameter = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(parameter), args["expectedObjectIdentity"]): raise ValueError("parameter identity changed since preview")
+        state_revision = hashlib.sha256(self._bounded_canonical({"automationState": str(self._read_attr(parameter, "automation_state") or "none")}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("parameter automation state changed since preview")
+        method = getattr(parameter, "re_enable_automation", None)
+        if not callable(method): raise ValueError("automation re-enable is unavailable on this parameter")
+        method()
+        return {"done": True}
+
+    def _device_comparison_save_to_slot(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or set(args) - {"ref", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("comparison authority is invalid")
+        device = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("device identity changed since preview")
+        capability = self._read_attr(device, "can_compare_ab")
+        using_b = self._read_attr(device, "is_using_compare_preset_b")
+        state_revision = hashlib.sha256(self._bounded_canonical({"canCompareAb": capability if isinstance(capability, bool) else None, "isUsingComparePresetB": using_b if isinstance(using_b, bool) else None}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("comparison state changed since preview")
+        method = getattr(device, "save_preset_to_compare_ab_slot", None)
+        if not callable(method): raise ValueError("comparison save-to-slot is unavailable on this device shape")
+        if capability is not True: raise ValueError("A/B comparison is unavailable on this device")
+        method()
+        if self._read_attr(device, "can_compare_ab") is not True: raise ValueError("comparison save was not confirmed")
+        return {"done": True}
+
+    def _chain_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:chain:") or set(args) - {"ref", "colorIndex", "autoColor", "mute", "solo", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("chain authority is invalid")
+        chain = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(chain), args["expectedObjectIdentity"]): raise ValueError("chain identity changed since preview")
+        state = {"colorIndex": self._read_attr(chain, "color_index"), "autoColor": self._read_attr(chain, "is_auto_colored"), "mute": self._read_attr(chain, "mute"), "solo": self._read_attr(chain, "solo")}
+        state_revision = hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("chain state changed since preview")
+        proposals = []
+        if "colorIndex" in args:
+            value = args["colorIndex"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 69: raise ValueError("colorIndex is invalid")
+            proposals.append(("color_index", value))
+        if "autoColor" in args:
+            value = args["autoColor"]
+            if not isinstance(value, bool): raise ValueError("autoColor is invalid")
+            proposals.append(("is_auto_colored", value))
+        for field in ("mute", "solo"):
+            if field in args:
+                value = args[field]
+                if not isinstance(value, bool): raise ValueError(f"{field} is invalid")
+                proposals.append((field, value))
+        if not proposals: raise ValueError("chain mutation has no fields")
+        assignments = [(attribute, value, self._read_attr(chain, attribute)) for attribute, value in proposals]
+        before_revision = state_revision
+        try:
+            for attribute, value, _ in assignments: setattr(chain, attribute, value)
+            for attribute, value, _ in assignments:
+                observed = self._read_attr(chain, attribute)
+                if isinstance(value, bool):
+                    if observed is not value: raise ValueError("chain change was not confirmed")
+                elif not isinstance(observed, int) or isinstance(observed, bool) or observed != value: raise ValueError("chain change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for attribute, _, prior in reversed(assignments):
+                try: setattr(chain, attribute, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or hashlib.sha256(self._bounded_canonical({"colorIndex": self._read_attr(chain, "color_index"), "autoColor": self._read_attr(chain, "is_auto_colored"), "mute": self._read_attr(chain, "mute"), "solo": self._read_attr(chain, "solo")}).encode("utf-8")).hexdigest() != before_revision: raise ValueError("chain change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _drum_pad_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:drum_pad:") or set(args) - {"ref", "note", "solo", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("drum pad authority is invalid")
+        pad = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(pad), args["expectedObjectIdentity"]): raise ValueError("drum pad identity changed since preview")
+        state = {"note": self._read_attr(pad, "note"), "solo": self._read_attr(pad, "solo")}
+        state_revision = hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("drum pad state changed since preview")
+        proposals = []
+        if "note" in args: raise ValueError("DrumPad.note is read-only in the public LOM and cannot be assigned")
+        if "solo" in args:
+            value = args["solo"]
+            if not isinstance(value, bool): raise ValueError("solo is invalid")
+            proposals.append(("solo", value))
+        if not proposals: raise ValueError("drum pad mutation has no fields")
+        assignments = [(attribute, value, self._read_attr(pad, attribute)) for attribute, value in proposals]
+        before_revision = state_revision
+        try:
+            for attribute, value, _ in assignments: setattr(pad, attribute, value)
+            for attribute, value, _ in assignments:
+                observed = self._read_attr(pad, attribute)
+                if isinstance(value, bool):
+                    if observed is not value: raise ValueError("drum pad change was not confirmed")
+                elif not isinstance(observed, int) or isinstance(observed, bool) or observed != value: raise ValueError("drum pad change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for attribute, _, prior in reversed(assignments):
+                try: setattr(pad, attribute, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or hashlib.sha256(self._bounded_canonical({"note": self._read_attr(pad, "note"), "solo": self._read_attr(pad, "solo")}).encode("utf-8")).hexdigest() != before_revision: raise ValueError("drum pad change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _drum_pad_delete_all_chains(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:drum_pad:") or set(args) - {"ref", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("drum pad authority is invalid")
+        pad = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(pad), args["expectedObjectIdentity"]): raise ValueError("drum pad identity changed since preview")
+        chains_before = self._items(self._read_attr(pad, "chains") or [])
+        state_revision = hashlib.sha256(self._bounded_canonical([self._capture_object_identity(chain) for chain in chains_before]).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("drum pad chain collection changed since preview")
+        deleter = getattr(pad, "delete_all_chains", None)
+        if not callable(deleter): raise ValueError("delete-all-chains is unavailable on this drum pad")
+        deleter()
+        remaining = self._items(self._read_attr(pad, "chains") or [])
+        if remaining: raise ValueError("delete-all-chains was not confirmed")
+        return {"deleted": len(chains_before)}
+
+    def _rack_state(self, device: Any) -> dict[str, Any]:
+        visible = self._read_attr(device, "visible_macro_count"); selected = self._read_attr(device, "selected_variation_index")
+        return {"visibleMacroCount": int(visible) if isinstance(visible, int) and not isinstance(visible, bool) else None,
+                "selectedVariationIndex": int(selected) if isinstance(selected, int) and not isinstance(selected, bool) else None,
+                "variationCount": int(self._read_attr(device, "variation_count")) if isinstance(self._read_attr(device, "variation_count"), int) and not isinstance(self._read_attr(device, "variation_count"), bool) else None,
+                "macros": [self._capture_object_identity(macro) for macro in self._items(self._read_attr(device, "macros") or [])],
+                "chains": [self._capture_object_identity(chain) for chain in self._items(self._read_attr(device, "chains") or [])],
+                "drumPads": [self._capture_object_identity(pad) for pad in self._items(self._read_attr(device, "drum_pads") or [])]}
+
+    def _rack_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or set(args) - {"ref", "visibleMacroCount", "selectedVariationIndex", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("rack authority is invalid")
+        device = self.refs.get(reference)
+        if self._read_attr(device, "can_have_chains") is not True: raise ValueError("rack operations require a rack device")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("rack identity changed since preview")
+        state = self._rack_state(device)
+        state_revision = hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("rack state changed since preview")
+        proposals = []
+        if "visibleMacroCount" in args: raise ValueError("RackDevice.visible_macro_count is read-only in the public LOM; use rack.action add-macro/remove-macro to change it")
+        if "selectedVariationIndex" in args:
+            value = args["selectedVariationIndex"]
+            if not isinstance(value, int) or isinstance(value, bool) or not -1 <= value <= 256: raise ValueError("selectedVariationIndex is invalid")
+            proposals.append(("selected_variation_index", value))
+        if not proposals: raise ValueError("rack mutation has no fields")
+        assignments = [(attribute, value, self._read_attr(device, attribute)) for attribute, value in proposals]
+        before_revision = state_revision
+        try:
+            for attribute, value, _ in assignments: setattr(device, attribute, value)
+            for attribute, value, _ in assignments:
+                observed = self._read_attr(device, attribute)
+                if not isinstance(observed, int) or isinstance(observed, bool) or observed != value: raise ValueError("rack change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for attribute, _, prior in reversed(assignments):
+                try: setattr(device, attribute, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or hashlib.sha256(self._bounded_canonical(self._rack_state(device)).encode("utf-8")).hexdigest() != before_revision: raise ValueError("rack change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    _RACK_ACTIONS = {"add-macro", "remove-macro", "randomize-macros", "insert-chain", "copy-pad", "store-variation", "recall-variation", "delete-variation"}
+
+    def _rack_action(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref"); action = args.get("action")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or action not in self._RACK_ACTIONS or set(args) - {"ref", "action", "index", "sourceIndex", "targetIndex", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("rack action authority is invalid")
+        device = self.refs.get(reference)
+        if self._read_attr(device, "can_have_chains") is not True: raise ValueError("rack actions require a rack device")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("rack identity changed since preview")
+        state = self._rack_state(device)
+        state_revision = hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("rack state changed since preview")
+        index = args.get("index")
+        if index is not None and (not isinstance(index, int) or isinstance(index, bool) or not -1 <= index <= 256): raise ValueError("index is invalid")
+        method_name = {"add-macro": "add_macro", "remove-macro": "remove_macro", "randomize-macros": "randomize_macros", "insert-chain": "insert_chain", "copy-pad": "copy_pad", "store-variation": "store_variation", "recall-variation": "recall_selected_variation", "delete-variation": "delete_selected_variation"}[action]
+        method = getattr(device, method_name, None)
+        if not callable(method): raise ValueError(f"rack action {action} is unavailable on this Live shape")
+        if action in {"add-macro", "remove-macro", "recall-variation", "delete-variation"}:
+            # remove_macro(), recall_selected_variation(), and
+            # delete_selected_variation() take no index in the public LOM.
+            method()
+        elif action == "insert-chain": method(-1 if index is None else index)
+        elif action == "copy-pad":
+            source, target = args.get("sourceIndex"), args.get("targetIndex")
+            if not isinstance(source, int) or isinstance(source, bool) or not isinstance(target, int) or isinstance(target, bool) or not 0 <= source <= 127 or not 0 <= target <= 127: raise ValueError("copy-pad requires sourceIndex and targetIndex")
+            method(source, target)
+        else: method()
+        after = self._rack_state(device)
+        if action == "add-macro" and (after["visibleMacroCount"] is None or state["visibleMacroCount"] is None or after["visibleMacroCount"] <= state["visibleMacroCount"]): raise ValueError("macro add was not confirmed")
+        if action == "remove-macro" and (after["visibleMacroCount"] is None or state["visibleMacroCount"] is None or after["visibleMacroCount"] >= state["visibleMacroCount"]): raise ValueError("macro remove was not confirmed")
+        if action == "insert-chain" and len(after["chains"]) <= len(state["chains"]): raise ValueError("chain insertion was not confirmed")
+        if action == "store-variation" and (after["variationCount"] is not None and state["variationCount"] is not None and after["variationCount"] <= state["variationCount"]): raise ValueError("variation store was not confirmed")
+        if action == "delete-variation" and (after["variationCount"] is not None and state["variationCount"] is not None and after["variationCount"] >= state["variationCount"]): raise ValueError("variation delete was not confirmed")
+        revision = self.refs.touch(reference)
+        return {"done": True, "revision": revision}
+
+    def _rack_view_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or set(args) - {"ref", "selectedChainRef", "selectedPadIndex", "padScrollPosition", "showChainDevices", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("rack view authority is invalid")
+        device = self.refs.get(reference); view = getattr(device, "view", None)
+        if view is None: raise ValueError("rack view is unavailable")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("rack identity changed since preview")
+        scroll = self._read_attr(view, "drum_pads_scroll_position"); show = self._read_attr(view, "is_showing_chain_devices")
+        state_revision = hashlib.sha256(self._bounded_canonical({"padScrollPosition": scroll if isinstance(scroll, int) and not isinstance(scroll, bool) else None, "showChainDevices": show if isinstance(show, bool) else None}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("rack view state changed since preview")
+        if "selectedChainRef" in args:
+            value = args["selectedChainRef"]
+            if value is not None and (not isinstance(value, str) or not value.startswith(f"{self.refs.epoch}:chain:")): raise ValueError("selectedChainRef is invalid")
+            if not callable(getattr(view, "select_chain", None)) and self._read_attr(view, "selected_chain") is None and value is None: pass
+            chain = self.refs.get(value) if value is not None else None
+            selector = getattr(view, "select_chain", None)
+            if callable(selector): selector(chain)
+            elif value is not None: view.selected_chain = chain
+        if "selectedPadIndex" in args:
+            value = args["selectedPadIndex"]
+            if not isinstance(value, int) or isinstance(value, bool) or not -1 <= value <= 127: raise ValueError("selectedPadIndex is invalid")
+            pads = self._items(self._read_attr(device, "drum_pads") or [])
+            selector = getattr(view, "select_drum_pad", None)
+            if value >= 0 and value < len(pads):
+                if callable(selector): selector(pads[value])
+                else: view.selected_drum_pad = pads[value]
+        if "padScrollPosition" in args:
+            value = args["padScrollPosition"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 127: raise ValueError("padScrollPosition is invalid")
+            view.drum_pads_scroll_position = value
+        if "showChainDevices" in args:
+            value = args["showChainDevices"]
+            if not isinstance(value, bool): raise ValueError("showChainDevices is invalid")
+            view.is_showing_chain_devices = value
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _specialized_rows(self, device: Any, device_ref: str) -> dict[str, Any]:
+        class_name = str(self._read_attr(device, "class_name") or device.__class__.__name__).lower()
+        normalized = class_name.replace("_", "").replace(" ", "")
+        rows: dict[str, Any] = {}
+        def int_or_none(value: Any) -> int | None:
+            return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+        def float_or_none(value: Any) -> float | None:
+            return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+        def bool_or_none(value: Any) -> bool | None:
+            return value if isinstance(value, bool) else None
+        def name_list(value: Any) -> list[str] | None:
+            if value is None: return None
+            items = self._items(value)[:64]
+            names = []
+            for item in items:
+                name = self._choice_name(item)
+                names.append(name if name is not None else str(item)[:128])
+            return names
+        def indexed_name(index: Any, choices: Any) -> str | None:
+            idx = int_or_none(index); names = name_list(choices)
+            if idx is None or names is None or not 0 <= idx < len(names): return None
+            return names[idx]
+        if "drift" in class_name:
+            sources = name_list(self._read_attr(device, "mod_matrix_sources", "mod_sources"))
+            targets = name_list(self._read_attr(device, "mod_matrix_targets", "mod_targets"))
+            rows["drift"] = {
+                "modSources": sources,
+                "modTargets": targets,
+                "pitchBendRange": int_or_none(self._read_attr(device, "pitch_bend_range")),
+                "voiceCount": int_or_none(self._read_attr(device, "voice_count_index")),
+                "voiceMode": int_or_none(self._read_attr(device, "voice_mode_index")),
+                "voiceCountList": name_list(self._read_attr(device, "voice_count_list")),
+                "voiceModeList": name_list(self._read_attr(device, "voice_mode_list")),
+            }
+        if "eq8" in normalized:
+            view = getattr(device, "view", None)
+            rows["eq8"] = {
+                "editMode": int_or_none(self._read_attr(device, "edit_mode")),
+                "globalMode": int_or_none(self._read_attr(device, "global_mode")),
+                "oversample": bool_or_none(self._read_attr(device, "oversample")),
+                "selectedBand": int_or_none(self._read_attr(view, "selected_band")) if view is not None else None,
+            }
+        if "hybridreverb" in normalized:
+            rows["hybridReverb"] = {
+                "irCategory": indexed_name(self._read_attr(device, "ir_category_index"), self._read_attr(device, "ir_category_list")),
+                "irFile": indexed_name(self._read_attr(device, "ir_file_index"), self._read_attr(device, "ir_file_list")),
+                "irCategoryList": name_list(self._read_attr(device, "ir_category_list")),
+                "irFileList": name_list(self._read_attr(device, "ir_file_list")),
+                "attack": float_or_none(self._read_attr(device, "ir_attack_time")),
+                "decay": float_or_none(self._read_attr(device, "ir_decay_time")),
+                "size": float_or_none(self._read_attr(device, "ir_size_factor")),
+            }
+        if "meld" in class_name:
+            rows["meld"] = {
+                "engine": int_or_none(self._read_attr(device, "selected_engine")),
+                "unison": int_or_none(self._read_attr(device, "unison_voices")),
+                "monoPoly": bool_or_none(self._read_attr(device, "mono_poly")),
+                "polyphony": int_or_none(self._read_attr(device, "poly_voices")),
+            }
+        if "drumcell" in normalized:
+            rows["drumCell"] = {"gain": float_or_none(self._read_attr(device, "gain"))}
+        if "looper" in class_name:
+            rows["looper"] = self._looper_state(device)
+        if "plugindevice" in normalized or self._read_attr(device, "presets") is not None:
+            presets = self._items(self._read_attr(device, "presets") or [])[:256]
+            rows["plugin"] = {
+                "presets": [str(self._read_attr(item, "name") or item) for item in presets],
+                "selectedPresetIndex": self._read_attr(device, "selected_preset_index") if isinstance(self._read_attr(device, "selected_preset_index"), int) and not isinstance(self._read_attr(device, "selected_preset_index"), bool) else None,
+                "isEditorOpen": self._read_attr(device, "is_editor_open") if isinstance(self._read_attr(device, "is_editor_open"), bool) else None,
+            }
+        if "maxdevice" in normalized:
+            rows["maxDevice"] = {
+                "audioIns": name_list(self._read_attr(device, "audio_inputs")),
+                "audioOuts": name_list(self._read_attr(device, "audio_outputs")),
+                "midiIns": name_list(self._read_attr(device, "midi_inputs")),
+                "midiOuts": name_list(self._read_attr(device, "midi_outputs")),
+            }
+        return rows
+
+    def _specialized_state(self, device: Any, specs: list[tuple[str, str]]) -> dict[str, Any]:
+        state = {}
+        for field, attr in specs:
+            state[field] = self._specialized_read(device, attr)
+        return state
+
+    def _specialized_read(self, device: Any, attr: str) -> Any:
+        if attr.startswith("view."):
+            return self._read_attr(getattr(device, "view", None), attr[5:])
+        return self._read_attr(device, attr)
+
+    def _specialized_write(self, device: Any, attr: str, value: Any) -> None:
+        if attr.startswith("view."):
+            view = getattr(device, "view", None)
+            if view is None: raise ValueError("device view is unavailable")
+            setattr(view, attr[5:], value)
+            return
+        setattr(device, attr, value)
+
+    def _specialized_set(self, reference: str, args: dict[str, Any], fields: dict[str, tuple[str, Any]], family: str) -> dict[str, Any]:
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:"): raise ValueError("device reference is stale or invalid")
+        device = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("device identity changed since preview")
+        specs = [(field, spec[0]) for field, spec in fields.items()]
+        state = self._specialized_state(device, specs)
+        state_revision = hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError(f"{family} state changed since preview")
+        proposals = []
+        for field, value in args.items():
+            if field not in fields: continue
+            attribute, validator = fields[field]
+            if not validator(value): raise ValueError(f"{field} is invalid")
+            if self._specialized_read(device, attribute) is None: raise ValueError(f"{attribute} is unavailable on this device")
+            proposals.append((field, attribute, value))
+        if not proposals: raise ValueError(f"{family} mutation has no fields")
+        assignments = [(field, attribute, value, self._specialized_read(device, attribute)) for field, attribute, value in proposals]
+        before_revision = state_revision
+        try:
+            for _, attribute, value, _ in assignments: self._specialized_write(device, attribute, value)
+            for field, _, value, _ in assignments:
+                observed = self._specialized_read(device, fields[field][0])
+                if isinstance(value, bool):
+                    if observed is not value: raise ValueError(f"{family} change was not confirmed")
+                elif not isinstance(observed, (int, float)) or isinstance(observed, bool) or float(observed) != float(value): raise ValueError(f"{family} change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for _, attribute, _, prior in reversed(assignments):
+                try: self._specialized_write(device, attribute, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or hashlib.sha256(self._bounded_canonical(self._specialized_state(device, specs)).encode("utf-8")).hexdigest() != before_revision: raise ValueError(f"{family} change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _drift_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._specialized_set(str(args.get("ref")), args, {
+            "pitchBendRange": ("pitch_bend_range", lambda value: isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 96),
+            "voiceCount": ("voice_count_index", lambda value: isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 64),
+            "voiceMode": ("voice_mode_index", lambda value: isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 8),
+        }, "drift")
+
+    def _drum_cell_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        if "gain" not in args: raise ValueError("drum-cell mutation has no fields")
+        return self._specialized_set(str(args.get("ref")), args, {
+            "gain": ("gain", lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and -70 <= float(value) <= 24),
+        }, "drum-cell")
+
+    def _eq8_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._specialized_set(str(args.get("ref")), args, {
+            "editMode": ("edit_mode", lambda value: isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 4),
+            "globalMode": ("global_mode", lambda value: isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 4),
+            "oversample": ("oversample", lambda value: isinstance(value, bool)),
+            "selectedBand": ("view.selected_band", lambda value: isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 8),
+        }, "eq8")
+
+    def _hybrid_reverb_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = str(args.get("ref"))
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or "time" in args: raise ValueError("hybrid-reverb authority is invalid")
+        device = self.refs.get(reference)
+        ir_proposals: list[tuple[str, int, int, str]] = []
+        if "irCategory" in args or "irFile" in args:
+            if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("device identity changed since preview")
+            for field, list_attr, index_attr, bound in (("irCategory", "ir_category_list", "ir_category_index", 128), ("irFile", "ir_file_list", "ir_file_index", 256)):
+                if field not in args: continue
+                value = args[field]
+                if not isinstance(value, str) or not 1 <= len(value) <= bound: raise ValueError(f"{field} is invalid")
+                choices = self._items(self._read_attr(device, list_attr) or [])
+                names = [self._choice_name(item) for item in choices]
+                if not choices or any(name is None for name in names): raise ValueError(f"{field} choices are unavailable on this device")
+                if value not in names: raise ValueError(f"{field} is not an available choice")
+                ir_proposals.append((index_attr, names.index(value), self._read_attr(device, index_attr), field))
+        applied: list[tuple[str, int]] = []
+        try:
+            for index_attr, target_index, prior, field in ir_proposals:
+                setattr(device, index_attr, target_index)
+                applied.append((index_attr, prior))
+                observed = self._read_attr(device, index_attr)
+                if not isinstance(observed, int) or isinstance(observed, bool) or observed != target_index: raise ValueError(f"{field} change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for index_attr, prior in reversed(applied):
+                try: setattr(device, index_attr, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed: raise ValueError("IR selection change failed and exact rollback failed") from error
+            raise
+        if any(field in args for field in ("attack", "decay", "size")):
+            return self._specialized_set(reference, args, {
+                "attack": ("ir_attack_time", lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 10000),
+                "decay": ("ir_decay_time", lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 100000),
+                "size": ("ir_size_factor", lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 10000),
+            }, "hybrid-reverb")
+        if not ir_proposals: raise ValueError("hybrid-reverb mutation has no fields")
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _meld_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._specialized_set(str(args.get("ref")), args, {
+            "engine": ("selected_engine", lambda value: isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 4),
+            "unison": ("unison_voices", lambda value: isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 16),
+            "monoPoly": ("mono_poly", lambda value: isinstance(value, bool)),
+            "polyphony": ("poly_voices", lambda value: isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 64),
+        }, "meld")
+
+    def _plugin_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = str(args.get("ref"))
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or set(args) - {"ref", "presetIndex", "isEditorOpen", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("plugin authority is invalid")
+        device = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("device identity changed since preview")
+        state = {"presetIndex": self._read_attr(device, "selected_preset_index") if isinstance(self._read_attr(device, "selected_preset_index"), int) and not isinstance(self._read_attr(device, "selected_preset_index"), bool) else None,
+                 "isEditorOpen": self._read_attr(device, "is_editor_open") if isinstance(self._read_attr(device, "is_editor_open"), bool) else None}
+        state_revision = hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("plugin state changed since preview")
+        if "presetIndex" in args:
+            value = args["presetIndex"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 1024: raise ValueError("presetIndex is invalid")
+            presets = self._items(self._read_attr(device, "presets") or [])
+            if not presets: raise ValueError("preset selection is unavailable on this device")
+            if value >= len(presets): raise ValueError("presetIndex exceeds the available preset collection")
+            prior_index = self._read_attr(device, "selected_preset_index")
+            try: device.selected_preset_index = value
+            except BaseException as error: raise ValueError("preset selection failed") from error
+            if self._read_attr(device, "selected_preset_index") != value:
+                try: device.selected_preset_index = prior_index
+                except BaseException: pass
+                raise ValueError("preset selection was not confirmed")
+        if "isEditorOpen" in args:
+            value = args["isEditorOpen"]
+            if not isinstance(value, bool): raise ValueError("isEditorOpen is invalid")
+            prior = self._read_attr(device, "is_editor_open")
+            if not isinstance(prior, bool): raise ValueError("editor state is unavailable on this device")
+            try: device.is_editor_open = value
+            except BaseException as error: raise ValueError("editor state change failed") from error
+            if self._read_attr(device, "is_editor_open") is not value:
+                try: device.is_editor_open = prior
+                except BaseException: pass
+                raise ValueError("editor state change was not confirmed")
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _simpler_replace_sample(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = str(args.get("ref"))
+        file_path = args.get("filePath")
+        if not isinstance(file_path, str) or not 1 <= len(file_path) <= 1024 or not (file_path.startswith("/") or (len(file_path) > 2 and file_path[1] == ":" and file_path[0].isalpha())): raise ValueError("filePath must be an absolute path")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or set(args) - {"ref", "filePath", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("simpler authority is invalid")
+        device = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("device identity changed since preview")
+        sample = self._read_attr(device, "sample")
+        current_path = str(self._read_attr(sample, "file_path") or "") if sample is not None else ""
+        state_revision = hashlib.sha256(self._bounded_canonical({"filePath": current_path}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("simpler sample state changed since preview")
+        replacer = getattr(device, "replace_sample", None)
+        if not callable(replacer): raise ValueError("sample replacement is unavailable on this device")
+        replacer(file_path)
+        after = self._read_attr(device, "sample")
+        after_path = str(self._read_attr(after, "file_path") or "") if after is not None else ""
+        if after_path == current_path and current_path != file_path: raise ValueError("sample replacement was not confirmed")
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision, "filePath": after_path or file_path}
+
+    _LOOPER_ACTIONS = {"record", "overdub", "play", "stop", "clear", "undo", "double-speed", "half-speed", "export"}
+
+    def _looper_action(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref"); action = args.get("action")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or action not in self._LOOPER_ACTIONS or set(args) - {"ref", "action", "slotRef", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("looper action authority is invalid")
+        device = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("device identity changed since preview")
+        state = self._looper_state(device)
+        state_revision = hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("looper state changed since preview")
+        if action == "export":
+            # export_to_clip_slot(clip_slot) requires an exact target slot.
+            slot_ref = args.get("slotRef")
+            if not isinstance(slot_ref, str) or not slot_ref.startswith(f"{self.refs.epoch}:clip_slot:"): raise ValueError("export requires an exact target clip slot")
+            slot = self.refs.get(slot_ref)
+            if self._read_attr(slot, "has_clip") is True or getattr(slot, "clip", None) is not None: raise ValueError("export target clip slot is not empty")
+            method = getattr(device, "export_to_clip_slot", None)
+            if not callable(method): raise ValueError("looper export is unavailable on this device shape")
+            method(slot)
+            if self._read_attr(slot, "has_clip") is not True and getattr(slot, "clip", None) is None: raise ValueError("looper export was not confirmed")
+            revision = self.refs.touch(reference)
+            return {"done": True, "revision": revision}
+        if "slotRef" in args: raise ValueError("slotRef is only valid for the export action")
+        method_name = {"record": "record", "overdub": "overdub", "play": "play", "stop": "stop", "clear": "clear", "undo": "undo", "double-speed": "double_speed", "half-speed": "half_speed"}[action]
+        method = getattr(device, method_name, None)
+        if not callable(method): raise ValueError(f"looper action {action} is unavailable on this device shape")
+        method()
+        revision = self.refs.touch(reference)
+        return {"done": True, "revision": revision}
+
+    _OBSERVE_KINDS = {"transport", "selection", "track", "clip", "device", "parameter", "groove", "tuning", "scene", "meters", "rack"}
+
+    def _observe_topic_digest(self, topic: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        kind = topic["kind"]; reference = topic.get("ref")
+        def digest(state: Any, fields: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+            return hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest(), fields
+        if kind == "transport":
+            # Targeted transport reads only; a full Set snapshot per topic per
+            # tick would traverse every clip, note, device, and lane on Live's
+            # main thread.
+            transport = self._transport_dict()
+            position = transport.get("position")
+            return digest({"transport": transport, "tempo": self._read_attr(self.song, "tempo"), "signature": [self._read_attr(self.song, "signature_numerator"), self._read_attr(self.song, "signature_denominator")]}, {"playing": transport.get("playing"), "arrangementRecord": transport.get("arrangementRecord"), "sessionRecord": transport.get("sessionRecord"), "loop": transport.get("loop"), "metronome": transport.get("metronome"), "position": round(float(position), 3) if isinstance(position, (int, float)) else None})
+        if kind == "selection":
+            state = self._selection_state()
+            return digest(state, state)
+        if kind == "track":
+            if not isinstance(reference, str): raise ValueError("track topics require a track ref")
+            track = self.refs.get(reference)
+            state = {"arm": self._read_attr(track, "arm"), "mute": self._read_attr(track, "mute"), "solo": self._read_attr(track, "solo"), "fold": self._read_attr(track, "fold_state", "is_folded"), "frozen": self._read_attr(track, "is_frozen"), "routing": [str(self._read_attr(self._read_attr(track, "input_routing_type"), "name") or ""), str(self._read_attr(self._read_attr(track, "output_routing_type"), "name") or "")]}
+            return digest(state, state)
+        if kind == "clip":
+            if not isinstance(reference, str): raise ValueError("clip topics require a clip ref")
+            clip = self.refs.get(reference)
+            notes = self._read_notes(clip)
+            markers = self._warp_marker_rows(clip) if self._read_attr(clip, "is_audio_clip") is True else []
+            state = {"playing": self._read_attr(clip, "is_playing"), "loopStart": self._read_attr(clip, "loop_start"), "loopEnd": self._read_attr(clip, "loop_end"), "looping": self._read_attr(clip, "looping"), "notes": notes, "warpMarkers": markers, "launchMode": self._read_attr(clip, "launch_mode")}
+            return digest(state, {"playing": state["playing"], "notesRevision": hashlib.sha256(self._bounded_canonical(notes).encode("utf-8")).hexdigest(), "markers": len(markers), "loop": [state["loopStart"], state["loopEnd"], state["looping"]]})
+        if kind == "device":
+            if not isinstance(reference, str): raise ValueError("device topics require a device ref")
+            device = self.refs.get(reference)
+            state = {"enabled": self._read_attr(device, "is_active", "is_enabled", "enabled"), "bank": self._read_attr(device, "parameter_bank"), "view": self._read_attr(getattr(device, "view", None), "is_collapsed"), "parameters": [self._read_attr(parameter, "value") for parameter in self._items(getattr(device, "parameters", []))]}
+            return digest(state, {"enabled": state["enabled"], "bank": state["bank"]})
+        if kind == "parameter":
+            if not isinstance(reference, str): raise ValueError("parameter topics require a parameter ref")
+            parameter = self.refs.get(reference)
+            value = self._read_attr(parameter, "value")
+            return digest({"value": value, "state": self._read_attr(parameter, "automation_state")}, {"value": value})
+        if kind == "groove":
+            state = self._groove_state()
+            return digest(state, {"grooveAmount": state["grooveAmount"]})
+        if kind == "tuning":
+            state = self._tuning_state()
+            return digest(state, {"referencePitch": state["tuningSystem"]["referencePitch"], "rootNote": state["scale"]["rootNote"]})
+        if kind == "scene":
+            if not isinstance(reference, str): raise ValueError("scene topics require a scene ref")
+            scenes = self._items(getattr(self.song, "scenes", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+            if not 0 <= index < len(scenes): raise ValueError("scene hierarchy changed")
+            scene = scenes[index]
+            state = {**self._scene_state_fields(scene), "isTriggered": self._read_attr(scene, "is_triggered")}
+            return digest(state, {"isTriggered": state["isTriggered"], "tempo": state["tempo"]})
+        if kind == "meters":
+            if not isinstance(reference, str): raise ValueError("meter topics require a track ref")
+            track = self.refs.get(reference)
+            state = {"in": [self._read_attr(track, "input_meter_left"), self._read_attr(track, "input_meter_right")], "out": [self._read_attr(track, "output_meter_left"), self._read_attr(track, "output_meter_right")], "impact": self._read_attr(track, "performance_impact")}
+            return digest(state, state)
+        if kind == "rack":
+            if not isinstance(reference, str): raise ValueError("rack topics require a device ref")
+            device = self.refs.get(reference)
+            state = self._rack_state(device)
+            return digest(state, {"macros": len(state["macros"]), "chains": len(state["chains"]), "variationCount": state["variationCount"], "selectedVariationIndex": state["selectedVariationIndex"]})
+        raise ValueError("observe topic kind is invalid")
+
+    def _observe_subscribe(self, args: dict[str, Any]) -> dict[str, Any]:
+        topics = args.get("topics")
+        if not isinstance(topics, list) or not 1 <= len(topics) <= 64: raise ValueError("topics are invalid")
+        if not hasattr(self, "_observe_subscriptions"): self._observe_subscriptions = {}
+        if len(self._observe_subscriptions) >= 8: raise ValueError("observe subscription quota is exhausted")
+        interval = args.get("minIntervalMs", 250)
+        if not isinstance(interval, int) or isinstance(interval, bool) or not 100 <= interval <= 60000: raise ValueError("minIntervalMs is invalid")
+        validated = []
+        seen = set()
+        for topic in topics:
+            if not isinstance(topic, dict) or set(topic) - {"kind", "ref"} or topic.get("kind") not in self._OBSERVE_KINDS: raise ValueError("observe topic is invalid")
+            reference = topic.get("ref")
+            if reference is not None and not isinstance(reference, str): raise ValueError("observe topic ref is invalid")
+            key = f"{topic['kind']}:{reference or ''}"
+            if key in seen: raise ValueError("duplicate observe topic")
+            seen.add(key)
+            digest, values = self._observe_topic_digest(topic)
+            validated.append({"kind": topic["kind"], "ref": reference, "revision": digest, "values": values})
+        import secrets as _secrets
+        subscription_id = f"obs_{_secrets.token_urlsafe(16)}"
+        now = int(time.time() * 1000)
+        self._observe_subscriptions[subscription_id] = {"topics": validated, "minIntervalMs": interval, "sequence": 0, "lastPollMs": -interval, "epoch": self.refs.epoch, "expiresAtMs": now + 900000}
+        return {"subscriptionId": subscription_id,
+                "topics": [{"kind": topic["kind"], **({"ref": topic["ref"]} if topic["ref"] is not None else {})} for topic in validated],
+                "minIntervalMs": interval,
+                "revisions": {f"{topic['kind']}:{topic['ref'] or ''}": topic["revision"] for topic in validated}}
+
+    def _observe_poll(self, args: dict[str, Any]) -> dict[str, Any]:
+        subscription_id = args.get("subscriptionId")
+        if not isinstance(subscription_id, str) or set(args) - {"subscriptionId"}: raise ValueError("observe poll arguments are invalid")
+        subscriptions = getattr(self, "_observe_subscriptions", None)
+        if not subscriptions or subscription_id not in subscriptions: raise ValueError("observe subscription is unknown or expired")
+        subscription = subscriptions[subscription_id]
+        now = int(time.time() * 1000)
+        if subscription.get("epoch") != self.refs.epoch:
+            del subscriptions[subscription_id]
+            raise ValueError("observe subscription is stale after a reconnect; resubscribe against the new epoch")
+        if now >= subscription.get("expiresAtMs", 0):
+            del subscriptions[subscription_id]
+            raise ValueError("observe subscription expired; resubscribe")
+        if now - subscription["lastPollMs"] < subscription["minIntervalMs"]: raise ValueError("observe poll is faster than the negotiated minimum interval")
+        subscription["lastPollMs"] = now
+        subscription["expiresAtMs"] = now + 900000
+        events = []; overflow = False
+        for index, topic in enumerate(subscription["topics"]):
+            digest, values = self._observe_topic_digest(topic)
+            if digest != topic["revision"]:
+                if len(events) >= 64:
+                    overflow = True; break
+                prior_values = topic.get("values") or {}
+                changed = sorted(str(field) for field, value in values.items() if value is not None and prior_values.get(field) != value)[:32]
+                events.append({"kind": topic["kind"], "ref": topic["ref"], "revision": digest, "changedFields": changed})
+                topic["revision"] = digest
+                topic["values"] = values
+        if overflow:
+            for topic in subscription["topics"]:
+                digest, values = self._observe_topic_digest(topic)
+                topic["revision"] = digest
+                topic["values"] = values
+        subscription["sequence"] += 1
+        return {"events": events, "overflow": overflow, "sequence": subscription["sequence"]}
+
+    def _observe_unsubscribe(self, args: dict[str, Any]) -> dict[str, Any]:
+        subscription_id = args.get("subscriptionId")
+        if not isinstance(subscription_id, str) or set(args) - {"subscriptionId"}: raise ValueError("observe unsubscribe arguments are invalid")
+        subscriptions = getattr(self, "_observe_subscriptions", None)
+        if not subscriptions or subscription_id not in subscriptions: raise ValueError("observe subscription is unknown or expired")
+        subscription = subscriptions[subscription_id]
+        if subscription.get("epoch") != self.refs.epoch:
+            del subscriptions[subscription_id]
+            raise ValueError("observe subscription is stale after a reconnect; resubscribe against the new epoch")
+        del subscriptions[subscription_id]
+        return {"unsubscribed": True}
+
+    def _looper_state(self, device: Any) -> dict[str, Any]:
+        def int_or_none(value: Any) -> int | None:
+            return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+        def float_or_none(value: Any) -> float | None:
+            return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+        overdub = self._read_attr(device, "overdub_after_record")
+        return {"overdubAfterRecord": overdub if isinstance(overdub, bool) else None,
+                "recordLengthIndex": int_or_none(self._read_attr(device, "record_length_index")),
+                "loopLength": float_or_none(self._read_attr(device, "loop_length")),
+                "tempo": float_or_none(self._read_attr(device, "tempo")),
+                "state": int_or_none(self._read_attr(device, "state"))}
+
+    def _looper_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        for read_only in ("speed", "loopLength", "tempo", "fixedRecordLength"):
+            if read_only in args: raise ValueError(f"Looper.{read_only} is not writable in the public LOM (speed changes are double_speed/half_speed actions; loop_length and tempo are read-only)")
+        return self._specialized_set(str(args.get("ref")), args, {
+            "overdubAfterRecord": ("overdub_after_record", lambda value: isinstance(value, bool)),
+            "recordLengthIndex": ("record_length_index", lambda value: isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 8),
+        }, "looper")
+
+    def _slot_state_fields(self, slot: Any) -> dict[str, Any]:
+        def optional_bool(name: str) -> bool | None:
+            value = self._read_attr(slot, name)
+            return value if isinstance(value, bool) else None
+        color = self._read_attr(slot, "color_index")
+        playing = self._read_attr(slot, "playing_status")
+        return {
+            "colorIndex": int(color) if isinstance(color, int) and not isinstance(color, bool) and 0 <= color <= 69 else None,
+            "controlsOtherClips": optional_bool("controls_other_clips"),
+            "hasStopButton": optional_bool("has_stop_button"),
+            "isGroupSlot": optional_bool("is_group_slot"),
+            "playingStatus": int(playing) if isinstance(playing, int) and not isinstance(playing, bool) else None,
+            "willRecordOnStart": optional_bool("will_record_on_start"),
+            "fireButtonState": optional_bool("fire_button_state"),
+        }
+
+    def _scene_row(self, scene: Any, index: int) -> dict[str, Any]:
+        def optional_bool(name: str) -> bool | None:
+            value = self._read_attr(scene, name)
+            return value if isinstance(value, bool) else None
+        def optional_int(name: str) -> int | None:
+            value = self._read_attr(scene, name)
+            return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+        color = self._read_attr(scene, "color_index")
+        tempo = self._read_attr(scene, "tempo")
+        return {
+            "ref": self.refs.put("scene", scene, str(index)), "parentRef": self.refs.put("set", self.song, "song"), "objectIdentity": self._capture_object_identity(scene),
+            "name": str(getattr(scene, "name", f"Scene {index + 1}")), "index": index,
+            "triggerable": callable(getattr(scene, "fire", None)) or callable(getattr(scene, "launch", None)),
+            "colorIndex": int(color) if isinstance(color, int) and not isinstance(color, bool) and 0 <= color <= 69 else None,
+            "isEmpty": optional_bool("is_empty"),
+            "isTriggered": optional_bool("is_triggered"),
+            "tempo": float(tempo) if isinstance(tempo, (int, float)) and not isinstance(tempo, bool) and math.isfinite(float(tempo)) else None,
+            "tempoEnabled": optional_bool("tempo_enabled"),
+            "signatureNumerator": optional_int("time_signature_numerator"),
+            "signatureDenominator": optional_int("time_signature_denominator"),
+            "timeSignatureEnabled": optional_bool("time_signature_enabled"),
+            "fireButtonState": optional_bool("fire_button_state"),
+        }
+
+    def _scene_state_fields(self, scene: Any) -> dict[str, Any]:
+        def optional_bool(name: str) -> bool | None:
+            value = self._read_attr(scene, name)
+            return value if isinstance(value, bool) else None
+        def optional_int(name: str) -> int | None:
+            value = self._read_attr(scene, name)
+            return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+        color = self._read_attr(scene, "color_index"); tempo = self._read_attr(scene, "tempo")
+        return {
+            "colorIndex": int(color) if isinstance(color, int) and not isinstance(color, bool) and 0 <= color <= 69 else None,
+            "tempo": float(tempo) if isinstance(tempo, (int, float)) and not isinstance(tempo, bool) and math.isfinite(float(tempo)) else None,
+            "tempoEnabled": optional_bool("tempo_enabled"),
+            "signatureNumerator": optional_int("time_signature_numerator"),
+            "signatureDenominator": optional_int("time_signature_denominator"),
+            "timeSignatureEnabled": optional_bool("time_signature_enabled"),
+        }
+
+    def _scene_collection_revision(self) -> str:
+        scenes = self._items(getattr(self.song, "scenes", []))
+        rows = [{"ref": self.refs.put("scene", scene, str(index)), "objectIdentity": self._capture_object_identity(scene), "name": str(getattr(scene, "name", "")), **self._scene_state_fields(scene)} for index, scene in enumerate(scenes)]
+        if len(rows) > 512: raise ValueError("scene collection exceeds authority bound")
+        return hashlib.sha256(self._bounded_canonical(rows).encode("utf-8")).hexdigest()
+
     def _mixer_row(self, track: Any, track_index: int) -> dict[str, Any]:
         mixer = self._read_attr(track, "mixer_device")
 
@@ -3053,6 +5790,9 @@ class LiveObjectMapper:
         def flag(name: str) -> bool | None:
             value = self._read_attr(track, name)
             return bool(value) if isinstance(value, bool) else None
+
+        is_main = self._track_kind(track) == "main"
+        song_tempo = self._read_attr(mixer, "song_tempo") if is_main and mixer is not None else None
 
         volume_param = self._read_attr(mixer, "volume") if mixer is not None else None
         pan_param = self._read_attr(mixer, "panning") if mixer is not None else None
@@ -3073,7 +5813,46 @@ class LiveObjectMapper:
             "cueIdentity": self._capture_object_identity(cue_param) if cue_param is not None else None,
             "sendRefs": [self.refs.put("parameter", send, f"mixer:{track_index}:sends:{send_index}") for send_index, send in enumerate(send_params)],
             "sendIdentities": [self._capture_object_identity(send) for send in send_params],
+            **self._mixer_extended_fields(mixer, track, track_index),
+            "songTempoRef": self.refs.put("parameter", song_tempo, f"mixer:{track_index}:song_tempo") if song_tempo is not None else None,
         }
+
+    def _mixer_extended_fields(self, mixer: Any, track: Any, track_index: int) -> dict[str, Any]:
+        if mixer is None:
+            return {"trackActivatorRef": None, "crossfaderRef": None, "crossfadeAssign": None, "panningMode": None, "panningLeftRef": None, "panningRightRef": None}
+        def param_ref(name: str, key: str) -> str | None:
+            parameter = self._read_attr(mixer, name)
+            return self.refs.put("parameter", parameter, key) if parameter is not None else None
+        assign = self._read_attr(mixer, "crossfade_assign")
+        mode = self._read_attr(mixer, "panning_mode")
+        return {
+            "trackActivatorRef": param_ref("track_activator", f"mixer:{track_index}:activator"),
+            "crossfaderRef": param_ref("crossfader", f"mixer:{track_index}:crossfader"),
+            "crossfadeAssign": int(assign) if isinstance(assign, int) and not isinstance(assign, bool) else None,
+            "panningMode": int(mode) if isinstance(mode, int) and not isinstance(mode, bool) else None,
+            "panningLeftRef": param_ref("left_split_stereo", f"mixer:{track_index}:panning_left"),
+            "panningRightRef": param_ref("right_split_stereo", f"mixer:{track_index}:panning_right"),
+        }
+
+    def _chain_mixer_fields(self, chain: Any, chain_key: str) -> dict[str, Any]:
+        mixer = self._read_attr(chain, "mixer_device")
+        if mixer is None:
+            return {"volumeRef": None, "panningRef": None, "sendRefs": [], "chainActivatorRef": None, "volume": None, "pan": None, "sends": []}
+        def param_value(obj: Any) -> float | None:
+            value = self._read_attr(obj, "value") if obj is not None else None
+            return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+        volume_param = self._read_attr(mixer, "volume"); pan_param = self._read_attr(mixer, "panning")
+        send_params = self._items(self._read_attr(mixer, "sends") or [])
+        activator = self._read_attr(mixer, "chain_activator")
+        return {
+            "volume": param_value(volume_param), "pan": param_value(pan_param),
+            "sends": [param_value(send) for send in send_params],
+            "volumeRef": self.refs.put("parameter", volume_param, f"{chain_key}:volume") if volume_param is not None else None,
+            "panningRef": self.refs.put("parameter", pan_param, f"{chain_key}:panning") if pan_param is not None else None,
+            "sendRefs": [self.refs.put("parameter", send, f"{chain_key}:sends:{send_index}") for send_index, send in enumerate(send_params)],
+            "chainActivatorRef": self.refs.put("parameter", activator, f"{chain_key}:activator") if activator is not None else None,
+        }
+
 
     def _resolve_parameter(self, reference: str) -> Any:
         if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:parameter:"):
@@ -3495,39 +6274,55 @@ class LiveObjectMapper:
         if not isinstance(track_ref, str) or not track_ref.startswith(f"{self.refs.epoch}:track:"):
             raise ValueError("track reference is stale or invalid")
         self.snapshot(); track = self.refs.get(track_ref)
-        authority = self._top_level_device_authority(track, track_ref); expected_authority = {"expectedTrackIdentity": args.get("expectedTrackIdentity"), "expectedSiblings": args.get("expectedSiblings")}
-        if not hmac.compare_digest(self._bounded_canonical(authority), self._bounded_canonical(expected_authority)):
-            raise ValueError("device insertion target changed since preview")
+        chain_ref = args.get("chainRef")
+        if chain_ref is not None:
+            if not isinstance(chain_ref, str) or not chain_ref.startswith(f"{self.refs.epoch}:chain:"): raise ValueError("chain reference is stale or invalid")
+            chain = self.refs.get(chain_ref)
+            inserter = getattr(chain, "insert_device", None)
+            if not callable(inserter): raise ValueError("chain device insertion is unavailable on this Live shape")
+            owner = chain
+            sibling_source = self._items(self._read_attr(chain, "devices") or [])
+            current_siblings = [{"ref": self.refs.put("device", device, f"{chain_ref}:{index}"), "objectIdentity": self._capture_object_identity(device)} for index, device in enumerate(sibling_source)]
+            expected_siblings = args.get("expectedSiblings")
+            if not isinstance(expected_siblings, list) or not hmac.compare_digest(self._bounded_canonical(current_siblings), self._bounded_canonical(expected_siblings)): raise ValueError("chain device collection changed since preview")
+            expected_track_identity = args.get("expectedTrackIdentity")
+            if not isinstance(expected_track_identity, str) or not hmac.compare_digest(self._capture_object_identity(track), expected_track_identity): raise ValueError("track identity changed since preview")
+        else:
+            owner = track
+            authority = self._top_level_device_authority(track, track_ref); expected_authority = {"expectedTrackIdentity": args.get("expectedTrackIdentity"), "expectedSiblings": args.get("expectedSiblings")}
+            if not hmac.compare_digest(self._bounded_canonical(authority), self._bounded_canonical(expected_authority)):
+                raise ValueError("device insertion target changed since preview")
+            inserter = getattr(track, "insert_device", None)
+            if not callable(inserter):
+                raise ValueError("device insertion is unavailable")
         name = args.get("deviceName")
         if not isinstance(name, str) or not 1 <= len(name) <= 256:
             raise ValueError("device name is invalid")
         index = args.get("index")
         if index is not None and (not isinstance(index, int) or isinstance(index, bool) or not -1 <= index <= 256):
             raise ValueError("device index is invalid")
-        inserter = getattr(track, "insert_device", None)
-        if not callable(inserter):
-            raise ValueError("device insertion is unavailable")
         all_tracks = self._all_track_objects(); track_index = self._capture_index(all_tracks, track, str(args.get("expectedTrackIdentity")))
         if track_index is None or track_ref != f"{self.refs.epoch}:track:{track_index}": raise ValueError("device insertion track hierarchy is stale")
-        before_devices = self._items(getattr(track, "devices", []))
+        before_devices = self._items(self._read_attr(owner, "devices") or [])
         if before_devices: raise ValueError("device insertion requires an empty exact owner so cleanup cannot affect siblings")
+        owner_path = ":".join(str(owner is track and track_ref or chain_ref).split(":")[2:])
         before_identity_order = [self._capture_object_identity(device) for device in before_devices]; before_identities = set(before_identity_order); checkpoint = self.refs.checkpoint(); expected_position = len(before_devices) if index is None or index == -1 else index
         if expected_position > len(before_devices): raise ValueError("device insertion index exceeds the exact sibling boundary")
         try:
-            inserter(name, -1 if index is None else index); devices = self._items(getattr(track, "devices", [])); created = [(position, device) for position, device in enumerate(devices) if self._capture_object_identity(device) not in before_identities]
+            inserter(name, -1 if index is None else index); devices = self._items(self._read_attr(owner, "devices") or []); created = [(position, device) for position, device in enumerate(devices) if self._capture_object_identity(device) not in before_identities]
             if len(devices) != len(before_devices) + 1 or len(created) != 1: raise ValueError("device insertion did not produce one identity-distinct device")
             position, device = created[0]; final_identity_order = [self._capture_object_identity(candidate) for candidate in devices]; expected_identity_order = list(before_identity_order); device_identity = self._capture_object_identity(device); expected_identity_order.insert(expected_position, device_identity)
             if position != expected_position or final_identity_order != expected_identity_order or str(self._read_attr(device, "name") or "") != name: raise ValueError("device insertion did not confirm the exact requested name, index, and siblings")
-            created_ref = self.refs.put("device", device, f"{track_index}:{position}"); fingerprint = self._mapped_fingerprint(created_ref)
+            created_ref = self.refs.put("device", device, f"{owner_path}:{position}"); fingerprint = self._mapped_fingerprint(created_ref)
             return {"ref": created_ref, "objectIdentity": device_identity, "name": name, "index": position, "createdFingerprint": fingerprint}
         except BaseException as error:
-            rollback_failed = False; deleter = getattr(track, "delete_device", None); current = self._items(getattr(track, "devices", [])); owned = [(position, device) for position, device in enumerate(current) if self._capture_object_identity(device) not in before_identities]
+            rollback_failed = False; deleter = getattr(owner, "delete_device", None); current = self._items(self._read_attr(owner, "devices") or []); owned = [(position, device) for position, device in enumerate(current) if self._capture_object_identity(device) not in before_identities]
             if owned and not callable(deleter): rollback_failed = True
             if callable(deleter):
                 for position, _ in reversed(owned):
                     try: deleter(position)
                     except BaseException: pass
-            if [self._capture_object_identity(device) for device in self._items(getattr(track, "devices", []))] != before_identity_order: rollback_failed = True
+            if [self._capture_object_identity(device) for device in self._items(self._read_attr(owner, "devices") or [])] != before_identity_order: rollback_failed = True
             if rollback_failed: raise ValueError("device insertion failed and exact transaction-owned cleanup failed") from error
             self.refs.restore(checkpoint); raise
 
@@ -3547,6 +6342,21 @@ class LiveObjectMapper:
         if [self._capture_object_identity(candidate) for candidate in self._items(getattr(owner, "devices", []))] != expected_order: raise ValueError("device deletion did not preserve the exact authorized siblings") from deletion_error
         self.refs.delete(str(reference)); return {"deleted": reference}
 
+    def _device_on_parameter(self, device: Any) -> Any | None:
+        """Name-independent structural probe for the conventional first
+        'Device On' parameter. Device.is_active is get/observe in the public
+        LOM and is never written; this is the only writable bypass surface,
+        and it never matches on localized parameter names."""
+        parameters = self._items(getattr(device, "parameters", []))
+        if not parameters: return None
+        candidate = parameters[0]
+        if self._read_attr(candidate, "is_enabled", "enabled") is not True: return None
+        minimum = self._read_attr(candidate, "min", "min_value"); maximum = self._read_attr(candidate, "max", "max_value"); value = self._read_attr(candidate, "value")
+        if not all(isinstance(item, (int, float)) and not isinstance(item, bool) and math.isfinite(float(item)) for item in (minimum, maximum, value)): return None
+        if float(maximum) - float(minimum) != 1.0 or float(value) not in (float(minimum), float(maximum)): return None
+        if self._read_attr(candidate, "is_quantized") is not True: return None
+        return candidate
+
     def _device_enable(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")
         enabled = args.get("enabled")
@@ -3555,55 +6365,69 @@ class LiveObjectMapper:
         _, device, _, _, _ = self._device_location(str(reference), args.get("expectedObjectIdentity"), args.get("expectedOwnerRef"), args.get("expectedOwnerIdentity"), args.get("expectedSiblings"), args.get("expectedTrackRef"), args.get("expectedTrackIdentity"))
         current_enabled = self._read_attr(device, "is_active", "is_enabled", "enabled"); expected_state = args.get("expectedStateRevision"); state_revision = hashlib.sha256(self._bounded_canonical({"enabled": current_enabled if isinstance(current_enabled, bool) else None}).encode("utf-8")).hexdigest()
         if not isinstance(expected_state, str) or not hmac.compare_digest(state_revision, expected_state): raise ValueError("device enable state changed since preview")
-        for attribute in ("is_active", "is_enabled", "enabled"):
-            current = self._read_attr(device, attribute)
-            if not isinstance(current, bool): continue
-            if current is enabled:
-                revision = self.refs.touch(reference); return {"changed": True, "enabled": enabled, "revision": revision}
-            setter_error: BaseException | None = None
-            try: setattr(device, attribute, enabled)
-            except BaseException as error: setter_error = error
-            observed = self._read_attr(device, attribute)
-            authoritative_enabled = self._read_attr(device, "is_active", "is_enabled", "enabled")
-            if setter_error is None and observed is enabled and authoritative_enabled is enabled:
-                revision = self.refs.touch(reference); return {"changed": True, "enabled": enabled, "revision": revision}
-            if observed is not current:
-                try: setattr(device, attribute, current)
-                except BaseException: pass
-                if self._read_attr(device, attribute) is not current: raise ValueError("device enable failed and exact rollback failed") from setter_error
-        # Enable state commonly lives on the "Device On" parameter.
-        for parameter in self._items(getattr(device, "parameters", [])):
-            parameter_name = str(self._read_attr(parameter, "name") or "")
-            if parameter_name.lower() in {"device on", "on"} or parameter_name.lower().startswith("device on"):
-                minimum = self._read_attr(parameter, "min", "min_value"); maximum = self._read_attr(parameter, "max", "max_value"); prior_value = self._read_attr(parameter, "value")
-                target = float(maximum if enabled else minimum) if isinstance(minimum, (int, float)) and isinstance(maximum, (int, float)) else (1.0 if enabled else 0.0)
-                setter_error: BaseException | None = None
-                try: parameter.value = target
-                except BaseException as error: setter_error = error
-                observed = self._read_attr(parameter, "value")
-                authoritative_enabled = self._read_attr(device, "is_active", "is_enabled", "enabled")
-                if setter_error is None and isinstance(observed, (int, float)) and float(observed) == target and (not isinstance(authoritative_enabled, bool) or authoritative_enabled is enabled):
-                    revision = self.refs.touch(reference); return {"changed": True, "enabled": enabled, "revision": revision}
-                if isinstance(prior_value, (int, float)) and observed != prior_value:
-                    try: parameter.value = prior_value
-                    except BaseException: pass
-                    restored = self._read_attr(parameter, "value")
-                    if not isinstance(restored, (int, float)) or float(restored) != float(prior_value): raise ValueError("device enable failed and exact rollback failed") from setter_error
+        if current_enabled is enabled:
+            revision = self.refs.touch(reference); return {"changed": True, "enabled": enabled, "revision": revision}
+        parameter = self._device_on_parameter(device)
+        if parameter is None:
+            raise ValueError("device enable is unavailable")
+        minimum = float(self._read_attr(parameter, "min", "min_value")); maximum = float(self._read_attr(parameter, "max", "max_value"))
+        target = maximum if enabled else minimum
+        prior_value = self._read_attr(parameter, "value")
+        setter_error: BaseException | None = None
+        try: parameter.value = target
+        except BaseException as error: setter_error = error
+        observed = self._read_attr(parameter, "value")
+        authoritative_enabled = self._read_attr(device, "is_active", "is_enabled", "enabled")
+        if setter_error is None and isinstance(observed, (int, float)) and float(observed) == target and (not isinstance(authoritative_enabled, bool) or authoritative_enabled is enabled):
+            revision = self.refs.touch(reference); return {"changed": True, "enabled": enabled, "revision": revision}
+        if isinstance(prior_value, (int, float)) and observed != prior_value:
+            try: parameter.value = prior_value
+            except BaseException: pass
+            restored = self._read_attr(parameter, "value")
+            if not isinstance(restored, (int, float)) or float(restored) != float(prior_value): raise ValueError("device enable failed and exact rollback failed") from setter_error
         if self._read_attr(device, "is_active", "is_enabled", "enabled") is not current_enabled: raise ValueError("device enable failed and exact authoritative rollback failed")
-        raise ValueError("device enable is unavailable")
+        raise ValueError("device enable is unavailable") from setter_error
 
     def _device_move(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref"); index = args.get("index")
         if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index <= 256: raise ValueError("device index is invalid")
         owner, device, _, current, owner_ref = self._device_location(str(reference), args.get("expectedObjectIdentity"), args.get("expectedOwnerRef"), args.get("expectedOwnerIdentity"), args.get("expectedSiblings"), args.get("expectedTrackRef"), args.get("expectedTrackIdentity"))
+        target_track_ref = args.get("targetTrackRef"); target_chain_ref = args.get("targetChainRef")
+        if target_track_ref is not None or target_chain_ref is not None:
+            if target_track_ref is not None and target_chain_ref is not None: raise ValueError("targetTrackRef and targetChainRef are mutually exclusive")
+            if target_track_ref is not None:
+                if not isinstance(target_track_ref, str) or not target_track_ref.startswith(f"{self.refs.epoch}:track:"): raise ValueError("target track reference is stale or invalid")
+                target = self.refs.get(target_track_ref); target_ref = target_track_ref
+            else:
+                if not isinstance(target_chain_ref, str) or not target_chain_ref.startswith(f"{self.refs.epoch}:chain:"): raise ValueError("target chain reference is stale or invalid")
+                target = self.refs.get(target_chain_ref); target_ref = target_chain_ref
+            if not isinstance(args.get("expectedTargetIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(target), args["expectedTargetIdentity"]): raise ValueError("move target identity changed since preview")
+            mover = getattr(self.song, "move_device", None)
+            if not callable(mover): raise ValueError("device move is unavailable")
+            source_devices = self._items(getattr(owner, "devices", [])); target_devices = self._items(getattr(target, "devices") or [])
+            if index > len(target_devices): raise ValueError("device index is outside the exact target sibling collection")
+            expected_identity = str(args.get("expectedObjectIdentity"))
+            try:
+                mover(device, target, index)
+                after_target = self._items(getattr(target, "devices") or []); after_source = self._items(getattr(owner, "devices", []))
+                if len(after_target) != len(target_devices) + 1 or len(after_source) != len(source_devices) - 1 or index >= len(after_target) or not self._capture_same_object(after_target[index], device, expected_identity): raise ValueError("cross-target device move was not confirmed")
+            except BaseException as error:
+                current_target = self._items(getattr(target, "devices") or []); current_source = self._items(getattr(owner, "devices", []))
+                if self._capture_index(current_target, device, expected_identity) is not None and (len(current_source) != len(source_devices) or len(current_target) != len(target_devices)):
+                    try: mover(device, owner, current)
+                    except BaseException: pass
+                if len(self._items(getattr(target, "devices") or [])) != len(target_devices) or len(self._items(getattr(owner, "devices", []))) != len(source_devices): raise ValueError("cross-target device move failed and exact rollback failed") from error
+                raise
+            target_path = ":".join(str(target_ref).split(":")[2:]); new_ref = self.refs.put("device", device, f"{target_path}:{index}")
+            return {"ref": new_ref, "objectIdentity": expected_identity, "index": index}
         devices_before = self._items(getattr(owner, "devices", [])); expected_identity = str(args.get("expectedObjectIdentity"))
         if index >= len(devices_before): raise ValueError("device index is outside the exact sibling collection")
         if index == current: return {"ref": reference, "objectIdentity": self._capture_object_identity(device), "index": index}
-        mover = getattr(owner, "move_device", None)
+        mover = getattr(self.song, "move_device", None)
         if not callable(mover): raise ValueError("device move is unavailable")
         before_identities = [self._capture_object_identity(candidate) for candidate in devices_before]
         try:
-            mover(current, index)
+            mover(device, owner, index)
             devices = self._items(getattr(owner, "devices", []))
             if len(devices) != len(devices_before) or index >= len(devices) or not self._capture_same_object(devices[index], device, expected_identity): raise ValueError("device move was not confirmed")
             after_identities = [self._capture_object_identity(candidate) for candidate in devices]
@@ -3613,7 +6437,7 @@ class LiveObjectMapper:
             rollback_failed = False; current_devices = self._items(getattr(owner, "devices", [])); moved_index = self._capture_index(current_devices, device, expected_identity)
             if moved_index is None: rollback_failed = True
             elif moved_index != current:
-                try: mover(moved_index, current)
+                try: mover(device, owner, current)
                 except BaseException: rollback_failed = True
             if [self._capture_object_identity(candidate) for candidate in self._items(getattr(owner, "devices", []))] != before_identities: rollback_failed = True
             if rollback_failed: raise ValueError("device move failed and exact rollback failed") from error
@@ -3642,11 +6466,33 @@ class LiveObjectMapper:
             raise ValueError("the Live application is unavailable")
         return application
 
-    _BROWSER_CATEGORIES = {"instruments", "audio_effects", "midi_effects", "drums", "plugins", "packs", "max_for_live", "clips"}
+    _BROWSER_CATEGORIES = {"instruments", "audio_effects", "midi_effects", "drums", "plugins", "packs", "max_for_live", "clips", "sounds", "samples", "user_library", "user_folders", "current_project"}
     _DEVICE_BROWSER_CATEGORIES = {"instruments", "audio_effects", "midi_effects", "plugins"}
+    # The current Cycling '74 LOM has no Browser class; Application.browser and
+    # its item tree are undocumented Python Remote Script internals. No root is
+    # a stable public binding; the tier labels below say so explicitly.
+    _BROWSER_SEARCHABLE_CATEGORIES = {"instruments", "audio_effects", "midi_effects", "drums", "plugins", "packs", "max_for_live", "clips"}
 
     def _browser_item_identity(self, path: str) -> str:
         return f"browser-path:{hashlib.sha256(path.encode('utf-8')).hexdigest()}"
+
+    def _browser_roots(self, args: dict[str, Any]) -> dict[str, Any]:
+        if args: raise ValueError("browser roots takes no arguments")
+        browser = self._browser()
+        roots = []
+        version_note = getattr(self, "_live_major_version", None) or "unknown"
+        for name in sorted(self._BROWSER_CATEGORIES):
+            node = self._read_attr(browser, name)
+            if node is not None:
+                roots.append({"name": name, "binding": "unofficial-internal", "searchable": True})
+        for name in ("legacy_libraries", "splice", "tunings"):
+            node = self._read_attr(browser, name)
+            if node is not None:
+                roots.append({"name": name, "binding": "unofficial-internal", "searchable": False})
+        if len(roots) > 64: raise ValueError("browser root collection exceeds its bound")
+        preview = getattr(browser, "preview_item", None)
+        state = {"roots": roots, "previewAvailable": callable(preview), "bindingEvidence": f"shape-probed on the connected build (Live {version_note}); undocumented Remote Script internals, version-specific"}
+        return {**state, "revision": hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()}
 
     def _browser_search(self, args: dict[str, Any]) -> dict[str, Any]:
         browser = self._browser()
@@ -5285,7 +8131,7 @@ def _authority_state_digest(mapper: LiveObjectMapper, args: dict[str, Any], oper
             references.append(value)
     collect(args)
     observed = []
-    attributes = ("name", "value", "min", "max", "is_enabled", "is_automatable", "arm", "mute", "solo", "current_monitoring_state", "input_routing_type", "input_routing_channel", "output_routing_type", "output_routing_channel", "gain", "pitch_coarse", "pitch_fine", "warping", "warping_mode", "fade_in_length", "fade_out_length", "loop_start", "loop_end", "start_time", "length", "is_playing", "is_triggered", "is_recording")
+    attributes = ("name", "value", "min", "max", "is_enabled", "is_automatable", "arm", "mute", "solo", "current_monitoring_state", "input_routing_type", "input_routing_channel", "output_routing_type", "output_routing_channel", "gain", "pitch_coarse", "pitch_fine", "warping", "warp_mode", "fade_in_length", "fade_out_length", "loop_start", "loop_end", "start_time", "length", "is_playing", "is_triggered", "is_recording")
     for reference in sorted(set(references)):
         try:
             revision = mapper.refs.revision(reference); row = mapper.get(reference)

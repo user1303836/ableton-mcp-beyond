@@ -22,7 +22,7 @@ export const LIVE_CAPABILITIES = [
   "arrangement.read", "arrangement.write", "audio", "audio.capture.resampling", "warp", "takes",
   "automation", "devices", "racks", "chains", "parameters", "browser",
   "device.parameter.write",
-  "routing", "recording", "projects", "mixing", "transport", "max", "osc", "view",
+  "routing", "recording", "projects", "mixing", "transport", "max", "osc", "view", "tuning", "groove",
   "realtime.events", "plugins", "subscriptions", "reconnect",
 ] as const;
 
@@ -34,12 +34,12 @@ export const LIVE_UNAVAILABLE_CAPABILITIES = [
 ] as const;
 
 export const SIMULATOR_CAPABILITIES = [
-  "session.read", "tracks", "scenes", "clips", "notes", "session.discovery", "session.structure", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write", "arrangement.read", "arrangement.write", "transport", "devices", "parameters", "device.parameter.write", "subscriptions", "reconnect", "view",
+  "session.read", "tracks", "scenes", "clips", "notes", "session.discovery", "session.structure", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write", "arrangement.read", "arrangement.write", "transport", "devices", "parameters", "device.parameter.write", "subscriptions", "reconnect", "view", "warp", "takes", "tuning", "groove",
 ] as const satisfies readonly LiveCapability[];
 
 export type LiveCapability = typeof LIVE_CAPABILITIES[number];
-export type LiveObjectKind = "set" | "track" | "scene" | "clip" | "clip-slot" | "session-playback" | "arrangement-clip" | "device" | "parameter" | "note" | "automation" | "locator" | "chain" | "drum_pad";
-export type LiveWireObjectKind = LiveObjectKind | "clip_slot" | "arrangement_clip" | "routing_choice" | "return_track" | "main_track" | "browser_item";
+export type LiveObjectKind = "set" | "track" | "scene" | "clip" | "clip-slot" | "session-playback" | "arrangement-clip" | "take-lane" | "take-lane-clip" | "groove" | "device" | "parameter" | "note" | "automation" | "locator" | "chain" | "drum_pad";
+export type LiveWireObjectKind = LiveObjectKind | "clip_slot" | "arrangement_clip" | "take_lane" | "take_lane_clip" | "groove" | "routing_choice" | "return_track" | "main_track" | "browser_item";
 /** Opaque references are simulator-local (`kind:key`) or production mapper
  * references (`epoch:wire_kind:key`). Callers must never parse authority from
  * either form; the adapter performs epoch and object-identity checks. */
@@ -85,16 +85,17 @@ export interface LiveStatus {
 
 export interface Note { pitch: number; start: number; duration: number; velocity: number; channel: number; id?: number | null; mute?: boolean | null; probability?: number | null; velocityDeviation?: number | null; releaseVelocity?: number | null; }
 export interface AutomationPoint { time: number; value: number; curve?: number; }
-export interface Parameter { ref: LiveRef; objectIdentity?: string; name: string; value: number; min: number; max: number; automatable: boolean; quantization?: number; enabled?: boolean; displayValue?: string; revision?: number; }
-export interface DeviceChain { ref: LiveRef; parentRef: LiveRef; objectIdentity?: string; index: number; name: string; mute: boolean | null; solo: boolean | null; devices: Device[]; }
-export interface DrumPad { ref: LiveRef; parentRef: LiveRef; index: number; name: string; mute: boolean | null; chains: DeviceChain[]; }
-export interface Device { ref: LiveRef; parentRef?: LiveRef; name: string; kind: "instrument" | "audio-effect" | "midi-effect" | "plugin" | "rack" | "device"; parameters: Parameter[]; objectIdentity?: string; enabled?: boolean; className?: string; canHaveChains?: boolean | null; canHaveDrumPads?: boolean | null; chains?: DeviceChain[]; drumPads?: DrumPad[]; macros?: { ref: LiveRef; objectIdentity?: string; name: string; value: unknown }[]; variationCount?: number; chainSelector?: unknown; }
-export interface Clip { ref: LiveRef; objectIdentity?: string; name: string; kind: "midi" | "audio"; start: number; length: number; notes: Note[]; notesRevision?: string; warp: boolean; takes: string[]; automation: AutomationPoint[]; envelopes?: Record<string, AutomationPoint[]>; isAudio?: boolean | null; gain?: number | null; pitchCoarse?: number | null; pitchFine?: number | null; warpMode?: number | null; warping?: boolean | null; fadeInLength?: number | null; fadeOutLength?: number | null; availableAudioFields?: string[]; loopStart?: number | null; loopEnd?: number | null; filePath?: string | null; muted?: boolean | null; colorIndex?: number | null; looping?: boolean | null; }
+export interface Parameter { ref: LiveRef; objectIdentity?: string; parentRef?: LiveRef; name: string; value: number; min: number; max: number; automatable: boolean; quantization?: number; enabled?: boolean; displayValue?: string; revision?: number; defaultValue?: number | null; originalName?: string | null; state?: number | null; valueItems?: string[] | null; }
+export interface DeviceChain { ref: LiveRef; parentRef: LiveRef; objectIdentity?: string; index: number; name: string; mute: boolean | null; solo: boolean | null; devices: Device[]; colorIndex?: number | null; autoColor?: boolean | null; hasAudioInput?: boolean | null; hasAudioOutput?: boolean | null; hasMidiInput?: boolean | null; hasMidiOutput?: boolean | null; mutedViaSolo?: boolean | null; inNote?: number | null; outNote?: number | null; chokeGroup?: number | null; mixer?: { volume: number | null; pan: number | null; sends: (number | null)[]; volumeRef?: LiveRef | null; panningRef?: LiveRef | null; sendRefs?: LiveRef[]; chainActivatorRef?: LiveRef | null; mixerIdentity?: string }; }
+export interface DrumPad { ref: LiveRef; parentRef: LiveRef; index: number; name: string; mute: boolean | null; chains: DeviceChain[]; note?: number | null; solo?: boolean | null; objectIdentity?: string; }
+export interface Device { ref: LiveRef; parentRef?: LiveRef; name: string; kind: "instrument" | "audio-effect" | "midi-effect" | "plugin" | "rack" | "device"; parameters: Parameter[]; objectIdentity?: string; enabled?: boolean; className?: string; canHaveChains?: boolean | null; canHaveDrumPads?: boolean | null; chains?: DeviceChain[]; drumPads?: DrumPad[]; macros?: { ref: LiveRef; objectIdentity?: string; name: string; value: unknown }[]; variationCount?: number; chainSelector?: unknown; view?: { isCollapsed?: boolean | null }; latencySamples?: number | null; latencyMs?: number | null; parameterBank?: number | null; comparison?: { capability?: boolean | null; activeSide?: number | null }; returnChains?: LiveRef[]; visibleMacroCount?: number | null; drift?: { modSources?: string[] | null; modTargets?: string[] | null; pitchBendRange?: number | null; voiceCount?: number | null; voiceMode?: number | null; voiceCountList?: string[] | null; voiceModeList?: string[] | null }; eq8?: { editMode?: number | null; globalMode?: number | null; oversample?: boolean | null; selectedBand?: number | null }; hybridReverb?: { irCategory?: string | null; irFile?: string | null; irCategoryList?: string[] | null; irFileList?: string[] | null; attack?: number | null; decay?: number | null; size?: number | null }; meld?: { engine?: number | null; unison?: number | null; monoPoly?: boolean | null; polyphony?: number | null }; drumCell?: { gain?: number | null }; looper?: { overdubAfterRecord?: boolean | null; recordLengthIndex?: number | null; loopLength?: number | null; tempo?: number | null; state?: number | null }; plugin?: { presets?: string[] | null; selectedPresetIndex?: number | null; isEditorOpen?: boolean | null }; maxDevice?: { audioIns?: string[] | null; audioOuts?: string[] | null; midiIns?: string[] | null; midiOuts?: string[] | null }; selectedVariationIndex?: number | null; macroMapped?: boolean[] | null; rackView?: { selectedChainRef?: LiveRef | null; selectedPadIndex?: number | null; padScrollPosition?: number | null; showChainDevices?: boolean | null }; }
+export interface Clip { ref: LiveRef; objectIdentity?: string; name: string; kind: "midi" | "audio"; start: number; length: number; notes: Note[]; notesRevision?: string; warp: boolean; takes: string[]; automation: AutomationPoint[]; envelopes?: Record<string, AutomationPoint[]>; isAudio?: boolean | null; gain?: number | null; pitchCoarse?: number | null; pitchFine?: number | null; warpMode?: number | null; warping?: boolean | null; fadeInLength?: number | null; fadeOutLength?: number | null; availableAudioFields?: string[]; loopStart?: number | null; loopEnd?: number | null; filePath?: string | null; muted?: boolean | null; colorIndex?: number | null; looping?: boolean | null; isTakeLaneClip?: boolean | null; groove?: { ref: LiveRef; name: string } | null; hasGroove?: boolean | null; launchMode?: number | null; legato?: boolean | null; playingPosition?: number | null; isPlaying?: boolean | null; isTriggered?: boolean | null; isRecording?: boolean | null; ramMode?: boolean | null; signatureNumerator?: number | null; signatureDenominator?: number | null; velocityAmount?: number | null; willRecordOnStart?: boolean | null; fireButtonState?: boolean | null; endTime?: number | null; availableWarpModes?: number[] | null; sampleLength?: number | null; warpMarkers?: Array<{ beatTime: number; sampleTime: number }> | null; clipView?: { gridQuantization?: number | null; gridIsTriplet?: boolean | null }; }
 export interface RoutingState { inputType: string | null; inputSubRouting: string | null; outputType: string | null; outputSubRouting: string | null; availableInputTypes: number; availableInputChannels: number; availableOutputTypes: number; availableOutputChannels: number; }
-export interface MixerState { volume: number | null; pan: number | null; cueVolume: number | null; mute: boolean | null; solo: boolean | null; sends: (number | null)[]; volumeRef: LiveRef | null; volumeIdentity?: string | null; panRef: LiveRef | null; panIdentity?: string | null; cueRef: LiveRef | null; cueIdentity?: string | null; sendRefs: LiveRef[]; sendIdentities?: string[]; }
-export interface ClipSlot { ref: LiveRef; parentRef: LiveRef; objectIdentity?: string; sceneIndex: number; clipRef?: LiveRef | null; empty: boolean; }
-export interface Track { ref: LiveRef; objectIdentity?: string; name: string; kind: "audio" | "midi" | "group" | "return" | "main" | "master" | "regular"; volume: number; pan: number; mute: boolean; solo: boolean; armed: boolean | null; monitoringState?: LiveMonitoringState; playingSlotIndex?: number | null; firedSlotIndex?: number | null; clips: Clip[]; clipSlots?: ClipSlot[]; mixer?: MixerState; routing?: RoutingState; devices: Device[]; sends: number[]; input?: string; output?: string; }
-export interface Scene { ref: LiveRef; objectIdentity?: string; name: string; index: number; }
+export interface MixerState { volume: number | null; pan: number | null; cueVolume: number | null; mute: boolean | null; solo: boolean | null; sends: (number | null)[]; volumeRef: LiveRef | null; volumeIdentity?: string | null; panRef: LiveRef | null; panIdentity?: string | null; cueRef: LiveRef | null; cueIdentity?: string | null; sendRefs: LiveRef[]; sendIdentities?: string[]; mixerIdentity?: string; trackActivator?: boolean; crossfader?: number; panningLeft?: number; panningRight?: number; trackActivatorRef?: LiveRef | null; crossfaderRef?: LiveRef | null; crossfadeAssign?: number | null; panningMode?: number | null; panningLeftRef?: LiveRef | null; panningRightRef?: LiveRef | null; songTempoRef?: LiveRef | null; }
+export interface ClipSlot { ref: LiveRef; parentRef: LiveRef; objectIdentity?: string; sceneIndex: number; clipRef?: LiveRef | null; empty: boolean; colorIndex?: number | null; controlsOtherClips?: boolean | null; hasStopButton?: boolean | null; isGroupSlot?: boolean | null; playingStatus?: number | null; willRecordOnStart?: boolean | null; fireButtonState?: boolean | null; }
+export interface Track { ref: LiveRef; objectIdentity?: string; name: string; kind: "audio" | "midi" | "group" | "return" | "main" | "master" | "regular"; volume: number; pan: number; mute: boolean; solo: boolean; armed: boolean | null; monitoringState?: LiveMonitoringState; playingSlotIndex?: number | null; firedSlotIndex?: number | null; clips: Clip[]; clipSlots?: ClipSlot[]; mixer?: MixerState; routing?: RoutingState; devices: Device[]; sends: number[]; input?: string; output?: string; takeLanes?: TakeLane[]; groupTrackRef?: LiveRef | null; isVisible?: boolean | null; isSelected?: boolean | null; isFrozen?: boolean | null; foldState?: boolean | null; implicitArm?: boolean | null; backToArranger?: boolean | null; mutedViaSolo?: boolean | null; inputMeterLeft?: number | null; inputMeterRight?: number | null; inputMeterLevel?: number | null; outputMeterLeft?: number | null; outputMeterRight?: number | null; outputMeterLevel?: number | null; performanceImpact?: number | null; view?: { selectedDeviceRef?: LiveRef | null; deviceInsertMode?: number | null; isCollapsed?: boolean | null }; }
+export interface TakeLane { ref: LiveRef; objectIdentity?: string; parentRef?: LiveRef; trackRef?: LiveRef; name: string; index: number; clips: Clip[]; }
+export interface Scene { ref: LiveRef; objectIdentity?: string; name: string; index: number; colorIndex?: number | null; isEmpty?: boolean | null; isTriggered?: boolean | null; tempo?: number | null; tempoEnabled?: boolean | null; signatureNumerator?: number | null; signatureDenominator?: number | null; timeSignatureEnabled?: boolean | null; fireButtonState?: boolean | null; triggerable?: boolean; }
 export interface LiveSnapshot {
   set: { ref: LiveRef; objectIdentity?: string; name: string; tempo?: number; playing?: boolean; position?: number; loop?: { enabled: boolean; start?: number; length?: number }; [key: string]: unknown };
   tracks: Track[];
@@ -104,21 +105,26 @@ export interface LiveSnapshot {
   browser?: { ref: LiveRef; name: string; kind: "device" | "sample" | "preset" }[];
   playback: SessionPlaybackState;
   selected?: LiveRef;
-  view?: { visibleView: string | null; follow: boolean | null };
+  view?: { visibleView: string | null; follow: boolean | null; drawMode?: boolean | null };
+  selection?: { trackRef?: LiveRef | null; sceneRef?: LiveRef | null; slotRef?: LiveRef | null; detailClipRef?: LiveRef | null; deviceRef?: LiveRef | null; parameterRef?: LiveRef | null; chainRef?: LiveRef | null };
+  song?: LiveSongState;
+  tuning?: { system: { name: string; lowestNote: Record<string, unknown> | null; highestNote: Record<string, unknown> | null; referencePitch: Record<string, unknown> | null; pseudoOctaveInCents: number | null; noteTunings: Array<{ note: number; deviation: number }> }; scale: { rootNote: number | null; scaleName: string | null; scaleMode: boolean | null; scaleIntervals: number[] } };
+  groovePool?: { amount: number | null; grooves: Array<{ ref: LiveRef; objectIdentity?: string; name: string; base: number | null; quantizationAmount: number | null; randomAmount: number | null; timingAmount: number | null; velocityAmount: number | null }> };
 }
+export interface LiveSongState { visibleTracks: LiveRef[]; appointedDevice: LiveRef | null; songLength: number | null; startTime: number | null; signatureNumerator: number | null; signatureDenominator: number | null; swingAmount: number | null; overdub: boolean | null; arrangementOverdub: boolean | null; backToArranger: boolean | null; canCaptureMidi: boolean | null; canUndo: boolean | null; canRedo: boolean | null; exclusiveArm: boolean | null; exclusiveSolo: boolean | null; isCountingIn: boolean | null; tempoFollowerEnabled: boolean | null; reEnableAutomationEnabled: boolean | null; sessionRecord: boolean | null; sessionAutomationRecord: boolean | null; clipTriggerQuantization: { name: string; value: number | null } | null; isAbletonLinkEnabled: boolean | null; isAbletonLinkStartStopSyncEnabled: boolean | null; tempoFollower: boolean | null; }
 export interface LiveEvent { epoch: number; sequence: number; type: "state" | "transport" | "object" | "meter" | "max" | "osc" | "reset"; ref?: LiveRef; payload: unknown; }
 
 export type LiveOperation =
   | "arrangement.clip.create" | "arrangement.clip.delete" | "arrangement.clip.move" | "arrangement.audio-clip.create" | "arrangement.automation.read" | "arrangement.automation.create" | "arrangement.automation.delete" | "arrangement.automation.point.insert" | "arrangement.automation.point.delete"
   | "audio.capture.cleanup" | "audio.capture.emergency-stop" | "audio.capture.inspect" | "audio.capture.start" | "audio.capture.status" | "audio.capture.stop" | "audio.clip.set" | "audio.warp-marker.read" | "audio.warp-marker.add" | "audio.warp-marker.move" | "audio.warp-marker.delete" | "audio.take-lane.read" | "audio.comp.read"
-  | "automation.envelope.create" | "automation.envelope.delete" | "automation.envelope.read" | "automation.point.delete" | "automation.point.insert"
-  | "browser.inspect" | "browser.load" | "browser.search" | "browser.preview.start" | "browser.preview.stop" | "clip.create" | "clip.delete" | "clip.duplicate" | "clip.move" | "clip.rename" | "clip.set"
-  | "device.delete" | "device.enable" | "device.insert" | "device.move" | "device.parameter.set" | "device.rename"
-  | "locator.add" | "locator.delete" | "locator.jump" | "locator.rename" | "mixer.set" | "note.add" | "note.add-batch" | "note.delete" | "note.update"
+  | "automation.envelope.clear" | "automation.envelope.create" | "automation.envelope.delete" | "automation.envelope.read" | "automation.point.delete" | "automation.point.insert"
+  | "browser.inspect" | "browser.load" | "browser.roots" | "browser.search" | "browser.preview.start" | "browser.preview.stop" | "chain.set" | "clip.action" | "clip.create" | "drum-pad.delete-all-chains" | "drum-pad.set" | "rack.action" | "rack.set" | "rack.view.set" | "clip.delete" | "clip.duplicate" | "clip.move" | "clip.rename" | "clip.set"
+  | "application.dialog" | "clip.view.set" | "device.bank.set" | "drift.set" | "drum-cell.set" | "eq8.set" | "hybrid-reverb.set" | "looper.action" | "looper.set" | "meld.set" | "plugin.set" | "simpler.replace-sample" | "device.comparison.save-to-slot" | "device.delete" | "device.enable" | "device.insert" | "device.move" | "device.parameter.set" | "device.rename" | "device.view.set" | "observe.poll" | "observe.subscribe" | "observe.unsubscribe" | "parameter.re-enable-automation" | "selection.set" | "song.view.set"
+  | "chain-mixer.set" | "compressor.sidechain.set" | "device-io.set" | "locator.add" | "locator.delete" | "locator.jump" | "locator.jump-to" | "locator.rename" | "mixer.extended.set" | "mixer.set" | "note.add" | "note.add-batch" | "note.delete" | "note.duplicate" | "note.quantize" | "note.read-by-id" | "note.read-selected" | "note.update"
   | "project.bounce" | "project.collect" | "project.export" | "project.new" | "project.open" | "project.save" | "project.save-as"
-  | "realtime.arm" | "realtime.disarm" | "realtime.stats" | "recording.arrangement" | "recording.session" | "routing.set"
-  | "scene.capture" | "scene.create" | "scene.delete" | "scene.rename" | "session.audition-launch" | "session.audition-stop" | "session.capture-midi" | "session.clip-launch" | "session.clip-stop" | "session.discover" | "session.emergency-stop"
-  | "tempo.set" | "track.create" | "track.delete" | "track.rename" | "transport.set" | "view.control" | "view.set" | "subscribe";
+  | "performance.read" | "realtime.arm" | "realtime.disarm" | "realtime.stats" | "recording.arrangement" | "recording.session" | "routing.set"
+  | "scene.capture" | "scene.create" | "scene.delete" | "scene.fire-selected" | "scene.rename" | "scene.set" | "session.audio-clip.create" | "session.audition-launch" | "session.audition-stop" | "session.capture-midi" | "session.clip-launch" | "session.clip-stop" | "session.discover" | "session.emergency-stop"
+  | "song.read" | "song.time-convert" | "scene.duplicate" | "tempo.set" | "track.create" | "track.create-return" | "track.delete" | "track.delete-return" | "track.duplicate" | "track.rename" | "track.select-instrument" | "track.view.set" | "transport.action" | "transport.set" | "groove.edit" | "groove.read" | "groove.set" | "take-lane.create" | "take-lane.rename" | "take-lane.clip.create" | "take-lane.audio-clip.create" | "tuning.read" | "tuning.set" | "view.control" | "view.set" | "subscribe";
 
 export interface LiveInvocation { operation: LiveOperation; args: Record<string, unknown>; }
 
@@ -154,25 +160,29 @@ const simulatorRevision = (value: unknown): string => createHash("sha256").updat
 
 function createSimulatorState(): LiveSnapshot {
   const initialNotes: Note[] = [{ pitch: 36, start: 0, duration: 0.25, velocity: 110, channel: 1, id: 1, mute: false, probability: 1, velocityDeviation: 0, releaseVelocity: 64 }];
-  const kick: Clip = { ref: ref("clip", "clip-1"), objectIdentity: "simulator:clip:clip-1", name: "Kick Pattern", kind: "midi", start: 0, length: 4, notes: initialNotes, notesRevision: simulatorRevision(initialNotes), warp: false, takes: ["take-1"], automation: [], muted: false, colorIndex: 0, looping: true, loopStart: 0, loopEnd: 4 };
-  const track: Track = { ref: ref("track", "track-1"), objectIdentity: "simulator:track:track-1", name: "Drums", kind: "midi", volume: 0.85, pan: 0, mute: false, solo: false, armed: false, monitoringState: "off", playingSlotIndex: null, firedSlotIndex: null, clips: [kick], clipSlots: [{ ref: ref("clip-slot", "track-1:0"), parentRef: ref("track", "track-1"), objectIdentity: "simulator:clip-slot:track-1:0", sceneIndex: 0, clipRef: kick.ref, empty: false }], mixer: { volume: 0.85, pan: 0, cueVolume: 1, mute: false, solo: false, sends: [0.5, 0.25], volumeRef: ref("parameter", "mixer:0:volume"), volumeIdentity: "simulator:parameter:mixer:0:volume", panRef: ref("parameter", "mixer:0:panning"), panIdentity: "simulator:parameter:mixer:0:panning", cueRef: ref("parameter", "mixer:0:cue_volume"), cueIdentity: "simulator:parameter:mixer:0:cue_volume", sendRefs: [ref("parameter", "mixer:0:sends:0"), ref("parameter", "mixer:0:sends:1")], sendIdentities: ["simulator:parameter:mixer:0:sends:0", "simulator:parameter:mixer:0:sends:1"] }, routing: { inputType: "Ext. In", inputSubRouting: "1", outputType: "Main", outputSubRouting: "1/2", availableInputTypes: 2, availableInputChannels: 16, availableOutputTypes: 3, availableOutputChannels: 4 }, devices: [], sends: [0, 0] };
-  const gain: Parameter = { ref: ref("parameter", "gain-1"), objectIdentity: "simulator:parameter:gain-1", name: "Gain", value: 0.5, min: 0, max: 1, automatable: true, quantization: 0, enabled: true, displayValue: "0.5", revision: 1 };
-  const device: Device = { ref: ref("device", "utility-1"), parentRef: track.ref, name: "Utility", kind: "audio-effect", parameters: [gain], objectIdentity: "simulator:device:utility-1", enabled: true };
+  const kick: Clip = { ref: ref("clip", "clip-1"), objectIdentity: "simulator:clip:clip-1", name: "Kick Pattern", kind: "midi", start: 0, length: 4, notes: initialNotes, notesRevision: simulatorRevision(initialNotes), warp: false, takes: ["take-1"], automation: [], muted: false, colorIndex: 0, looping: true, loopStart: 0, loopEnd: 4, clipView: { gridQuantization: 1, gridIsTriplet: false } };
+  const track: Track = { ref: ref("track", "track-1"), objectIdentity: "simulator:track:track-1", name: "Drums", kind: "midi", volume: 0.85, pan: 0, mute: false, solo: false, armed: false, monitoringState: "off", playingSlotIndex: null, firedSlotIndex: null, clips: [kick], clipSlots: [{ ref: ref("clip-slot", "track-1:0"), parentRef: ref("track", "track-1"), objectIdentity: "simulator:clip-slot:track-1:0", sceneIndex: 0, clipRef: kick.ref, empty: false, colorIndex: 2, controlsOtherClips: false, hasStopButton: true, isGroupSlot: false, playingStatus: 0, willRecordOnStart: false, fireButtonState: false }], mixer: { volume: 0.85, pan: 0, cueVolume: 1, mute: false, solo: false, sends: [0.5, 0.25], volumeRef: ref("parameter", "mixer:0:volume"), volumeIdentity: "simulator:parameter:mixer:0:volume", panRef: ref("parameter", "mixer:0:panning"), panIdentity: "simulator:parameter:mixer:0:panning", cueRef: ref("parameter", "mixer:0:cue_volume"), cueIdentity: "simulator:parameter:mixer:0:cue_volume", sendRefs: [ref("parameter", "mixer:0:sends:0"), ref("parameter", "mixer:0:sends:1")], sendIdentities: ["simulator:parameter:mixer:0:sends:0", "simulator:parameter:mixer:0:sends:1"], mixerIdentity: "simulator:mixer:track-1", trackActivatorRef: ref("parameter", "mixer:0:activator"), crossfaderRef: ref("parameter", "mixer:0:crossfader"), crossfadeAssign: 1, panningMode: 0, panningLeftRef: ref("parameter", "mixer:0:panning_left"), panningRightRef: ref("parameter", "mixer:0:panning_right"), trackActivator: true, crossfader: 0, panningLeft: 0, panningRight: 0 }, routing: { inputType: "Ext. In", inputSubRouting: "1", outputType: "Main", outputSubRouting: "1/2", availableInputTypes: 2, availableInputChannels: 16, availableOutputTypes: 3, availableOutputChannels: 4 }, devices: [], sends: [0, 0], groupTrackRef: null, isVisible: true, isSelected: true, isFrozen: false, foldState: null, implicitArm: false, backToArranger: false, mutedViaSolo: false, inputMeterLeft: 0.5, inputMeterRight: 0.4, inputMeterLevel: 0.45, outputMeterLeft: 0.6, outputMeterRight: 0.55, outputMeterLevel: 0.58, performanceImpact: 1, view: { selectedDeviceRef: ref("device", "utility-1"), deviceInsertMode: 1, isCollapsed: false }, takeLanes: [{ ref: ref("take-lane", "track-1:0"), objectIdentity: "simulator:take-lane:track-1:0", parentRef: ref("track", "track-1"), trackRef: ref("track", "track-1"), name: "Take 1", index: 0, clips: [] }] };
+  const gain: Parameter = { ref: ref("parameter", "gain-1"), objectIdentity: "simulator:parameter:gain-1", name: "Gain", value: 0.5, min: 0, max: 1, automatable: true, quantization: 0, enabled: true, displayValue: "0.5", revision: 1, defaultValue: 0.75, originalName: "Gain (dB)", state: 1, valueItems: ["Off", "On"] };
+  const device: Device = { ref: ref("device", "utility-1"), parentRef: track.ref, name: "Utility", kind: "audio-effect", parameters: [gain], objectIdentity: "simulator:device:utility-1", enabled: true, view: { isCollapsed: false }, latencySamples: 256, latencyMs: 5.8, parameterBank: 1, comparison: { capability: true, activeSide: 0 } };
   track.devices.push(device);
   return {
     set: { ref: ref("set", "set-1"), objectIdentity: "simulator:set:set-1", name: "Simulator Set", tempo: 120, playing: false, position: 0, loop: { enabled: false, start: 0, length: 4 } },
     tracks: [track],
-    scenes: [{ ref: ref("scene", "scene-1"), objectIdentity: "simulator:scene:scene-1", name: "Scene 1", index: 0 }],
+    scenes: [{ ref: ref("scene", "scene-1"), objectIdentity: "simulator:scene:scene-1", name: "Scene 1", index: 0, colorIndex: 1, isEmpty: false, isTriggered: false, tempo: 120, tempoEnabled: false, signatureNumerator: 4, signatureDenominator: 4, timeSignatureEnabled: false, fireButtonState: false, triggerable: true }],
     arrangement: { length: 16, locatorRevision: simulatorRevision([{ ref: ref("locator", "locator-1"), objectIdentity: "simulator:locator:locator-1", name: "Intro", position: 0 }]), locators: [{ ref: ref("locator", "locator-1"), objectIdentity: "simulator:locator:locator-1", name: "Intro", position: 0 }], clips: [] },
     arrangementClips: [],
     browser: [{ ref: ref("device", "utility-1"), name: "Utility", kind: "device" }, { ref: ref("clip", "sample-1"), name: "Kick Sample", kind: "sample" }],
     playback: { ref: ref("session-playback", "playback-1"), epoch: 1, revision: "1:stopped", transport: { playing: false, arrangementRecord: false, sessionRecord: false, position: 0, launchQuantization: { raw: "1-bar", normalized: "1-bar" }, loop: { enabled: false, start: 0, length: 4 }, punchIn: false, punchOut: false, metronome: false, countIn: 1 }, firedTargets: [], playingTargets: [] },
     selected: track.ref,
-    view: { visibleView: "Session", follow: false },
+    view: { visibleView: "Session", follow: false, drawMode: false },
+    selection: { trackRef: ref("track", "track-1"), sceneRef: ref("scene", "scene-1"), slotRef: ref("clip-slot", "track-1:0"), detailClipRef: ref("clip", "clip-1"), deviceRef: ref("device", "utility-1"), parameterRef: ref("parameter", "gain-1"), chainRef: null },
+    song: { visibleTracks: [ref("track", "track-1")], appointedDevice: ref("device", "utility-1"), songLength: 64, startTime: 0, signatureNumerator: 4, signatureDenominator: 4, swingAmount: 0, overdub: false, arrangementOverdub: false, backToArranger: false, canCaptureMidi: true, canUndo: true, canRedo: false, exclusiveArm: true, exclusiveSolo: true, isCountingIn: false, tempoFollowerEnabled: false, reEnableAutomationEnabled: false, sessionRecord: false, sessionAutomationRecord: false, clipTriggerQuantization: { name: "grid_sixteenth", value: 5 }, isAbletonLinkEnabled: true, isAbletonLinkStartStopSyncEnabled: false, tempoFollower: false },
+    tuning: { system: { name: "Equal", lowestNote: { note: 0, deviation: 0 }, highestNote: { note: 127, deviation: 0 }, referencePitch: { note: 69, frequency: 440 }, pseudoOctaveInCents: 1200, noteTunings: Array.from({ length: 128 }, (_, note) => ({ note, deviation: 0 })) }, scale: { rootNote: 0, scaleName: "Major", scaleMode: true, scaleIntervals: [0, 2, 4, 5, 7, 9, 11] } },
+    groovePool: { amount: 0, grooves: [{ ref: ref("groove", "groove-1"), objectIdentity: "simulator:groove:groove-1", name: "Swing 16", base: 3, quantizationAmount: 0.5, randomAmount: 0.1, timingAmount: 0.6, velocityAmount: 0.2 }] },
   };
 }
 
-export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "transport.set", "tempo.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "session.clip-launch", "session.clip-stop", "clip.create", "clip.delete", "track.create", "track.delete", "track.rename", "scene.create", "scene.delete", "scene.rename", "clip.rename", "device.rename", "locator.rename", "scene.capture", "note.add", "note.add-batch", "note.update", "note.delete", "locator.add", "locator.delete", "locator.jump", "session.capture-midi", "device.parameter.set", "clip.duplicate", "clip.move", "clip.set", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "arrangement.audio-clip.create", "audio.clip.set", "mixer.set", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.point.insert", "automation.point.delete", "device.insert", "device.delete", "device.enable", "device.move", "browser.search", "browser.inspect", "browser.load", "routing.set", "recording.session", "recording.arrangement", "view.set", "view.control"] as const;
+export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "transport.set", "tempo.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "session.clip-launch", "session.clip-stop", "clip.create", "clip.delete", "track.create", "track.delete", "track.rename", "track.create-return", "track.delete-return", "track.duplicate", "scene.duplicate", "track.view.set", "track.select-instrument", "scene.create", "scene.delete", "scene.rename", "scene.set", "scene.fire-selected", "clip.rename", "device.rename", "locator.rename", "scene.capture", "note.add", "note.add-batch", "note.update", "note.delete", "note.duplicate", "note.quantize", "note.read-by-id", "note.read-selected", "locator.add", "locator.delete", "locator.jump", "locator.jump-to", "song.read", "song.time-convert", "transport.action", "session.capture-midi", "device.parameter.set", "clip.duplicate", "clip.move", "clip.set", "clip.action", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "arrangement.audio-clip.create", "session.audio-clip.create", "take-lane.create", "take-lane.rename", "take-lane.clip.create", "take-lane.audio-clip.create", "audio.take-lane.read", "tuning.read", "tuning.set", "groove.read", "groove.set", "groove.edit", "chain.set", "drum-pad.set", "drum-pad.delete-all-chains", "rack.set", "rack.action", "rack.view.set", "audio.clip.set", "audio.warp-marker.read", "audio.warp-marker.add", "audio.warp-marker.move", "audio.warp-marker.delete", "mixer.set", "mixer.extended.set", "chain-mixer.set", "device-io.set", "compressor.sidechain.set", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.envelope.clear", "automation.point.insert", "automation.point.delete", "device.insert", "device.delete", "device.enable", "device.move", "device.bank.set", "parameter.re-enable-automation", "device.comparison.save-to-slot", "drift.set", "drum-cell.set", "eq8.set", "hybrid-reverb.set", "looper.action", "looper.set", "meld.set", "plugin.set", "simpler.replace-sample", "observe.subscribe", "observe.poll", "observe.unsubscribe", "selection.set", "song.view.set", "clip.view.set", "device.view.set", "application.dialog", "browser.search", "browser.inspect", "browser.load", "browser.roots", "routing.set", "recording.session", "recording.arrangement", "performance.read", "view.set", "view.control"] as const;
 
 export class DeterministicLiveSimulator implements LiveAdapter {
   private state = createSimulatorState();
@@ -198,6 +208,11 @@ export class DeterministicLiveSimulator implements LiveAdapter {
       if (track.ref === objectRef) return structuredClone(track);
       const clip = track.clips.find((item) => item.ref === objectRef);
       if (clip) return structuredClone(clip);
+      for (const lane of track.takeLanes ?? []) {
+        if (lane.ref === objectRef) return structuredClone(lane);
+        const laneClip = lane.clips.find((item) => item.ref === objectRef);
+        if (laneClip) return structuredClone(laneClip);
+      }
       for (const device of track.devices) {
         if (device.ref === objectRef) return structuredClone(device);
         const parameter = device.parameters.find((item) => item.ref === objectRef);
@@ -263,7 +278,7 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         const transport = this.state.playback.transport;
         const finite = (name: string): number | undefined => { const value = args[name]; if (value === null || value === undefined) return undefined; if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new TypeError(`${name} is invalid`); return value; };
         const bool = (name: string): boolean | undefined => { const value = args[name]; if (value === null || value === undefined) return undefined; if (typeof value !== "boolean") throw new TypeError(`${name} is invalid`); return value; };
-        const position = finite("position"); const loopStart = finite("loopStart"); const loopLength = finite("loopLength"); const countIn = finite("countIn");
+        const position = finite("position"); const loopStart = finite("loopStart"); const loopLength = finite("loopLength");
         const loopEnabled = bool("loopEnabled"); const metronome = bool("metronome"); const punchIn = bool("punchIn"); const punchOut = bool("punchOut");
         if (loopLength !== undefined && loopLength <= 0) throw new RangeError("loopLength is invalid");
         if (position !== undefined) { transport.position = position; this.state.set.position = position; }
@@ -273,7 +288,6 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         if (metronome !== undefined) transport.metronome = metronome;
         if (punchIn !== undefined) transport.punchIn = punchIn;
         if (punchOut !== undefined) transport.punchOut = punchOut;
-        if (countIn !== undefined) transport.countIn = countIn;
         this.state.playback.revision = `${this.epoch}:transport:${++this.sequence}`;
         this.emit({ type: "transport", payload: { operation } });
         return { changed: true, revision: this.state.playback.revision };
@@ -486,6 +500,19 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         target.name = name; this.emit({ type: "object", ref: reference, payload: { operation, name } }); return { renamed: reference, name };
       }
       case "device.insert": {
+        const chainRef = args.chainRef;
+        if (chainRef !== undefined && chainRef !== null) {
+          const track = this.findTrack(objectRef("trackRef"));
+          if (!track || args.expectedTrackIdentity !== track.objectIdentity) throw new Error("track identity changed since preview");
+          const found = this.findChain(chainRef as LiveRef);
+          if (!found) throw new Error("chain reference is stale or invalid");
+          const name = stringArg("deviceName");
+          if (simulatorCanonical(args.expectedSiblings) !== simulatorCanonical(found.chain.devices.map((device) => ({ ref: device.ref, objectIdentity: device.objectIdentity })))) throw new Error("chain device collection changed since preview");
+          const device: Device = { ref: ref("device", `${found.chain.ref}:${found.chain.devices.length}`), parentRef: found.chain.ref, name, kind: name.toLowerCase().includes("rack") ? "rack" : "device", className: name, parameters: [], objectIdentity: `simulator:device:${this.sequence + 1}:${found.chain.ref}:${found.chain.devices.length}`, enabled: true };
+          found.chain.devices.push(device);
+          this.emit({ type: "object", ref: found.chain.ref, payload: { operation, device } });
+          return { ref: device.ref, objectIdentity: device.objectIdentity, name, index: found.chain.devices.length - 1, createdFingerprint: simulatorRevision(device) };
+        }
         const track = this.findTrack(objectRef("trackRef"));
         if (!track || args.expectedTrackIdentity !== track.objectIdentity || simulatorCanonical(args.expectedSiblings) !== simulatorCanonical(track.devices.map((device) => ({ ref: device.ref, objectIdentity: device.objectIdentity })))) throw new Error("device insertion target changed since preview");
         const name = stringArg("deviceName");
@@ -522,6 +549,38 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         const deviceRef = objectRef("ref"); const expectedIdentity = stringArg("expectedObjectIdentity"); const expectedOwnerRef = objectRef("expectedOwnerRef"); const expectedOwnerIdentity = stringArg("expectedOwnerIdentity");
         const index = args.index;
         if (!Number.isInteger(index) || (index as number) < 0 || (index as number) > 256) throw new RangeError("device index is invalid");
+        if (args.targetTrackRef !== undefined && args.targetTrackRef !== null) {
+          const target = this.findTrack(args.targetTrackRef as LiveRef);
+          if (!target) throw new Error("move target reference is stale or invalid");
+          if (target.objectIdentity !== args.expectedTargetIdentity) throw new Error("move target identity changed since preview");
+          for (const track of this.state.tracks) {
+            const current = track.devices.findIndex((device) => device.ref === deviceRef && device.objectIdentity === expectedIdentity);
+            if (current >= 0) {
+              if ((index as number) > target.devices.length) throw new RangeError("device index is invalid");
+              const [device] = track.devices.splice(current, 1);
+              target.devices.splice(index as number, 0, device!);
+              this.emit({ type: "object", ref: target.ref, payload: { operation } });
+              return { ref: deviceRef, objectIdentity: device!.objectIdentity, index };
+            }
+          }
+          throw new Error("device move source identity changed since preview");
+        }
+        if (args.targetChainRef !== undefined && args.targetChainRef !== null) {
+          const found = this.findChain(args.targetChainRef as LiveRef);
+          if (!found) throw new Error("move target chain reference is stale or invalid");
+          if (found.chain.objectIdentity !== args.expectedTargetIdentity) throw new Error("move target identity changed since preview");
+          for (const track of this.state.tracks) {
+            const current = track.devices.findIndex((device) => device.ref === deviceRef && device.objectIdentity === expectedIdentity);
+            if (current >= 0) {
+              if ((index as number) > found.chain.devices.length) throw new RangeError("device index is invalid");
+              const [device] = track.devices.splice(current, 1);
+              found.chain.devices.splice(index as number, 0, device!);
+              this.emit({ type: "object", ref: found.chain.ref, payload: { operation } });
+              return { ref: deviceRef, objectIdentity: device!.objectIdentity, index };
+            }
+          }
+          throw new Error("device move source identity changed since preview");
+        }
         for (const track of this.state.tracks) {
           const current = track.devices.findIndex((device) => device.ref === deviceRef && device.objectIdentity === expectedIdentity && device.parentRef === expectedOwnerRef && track.objectIdentity === expectedOwnerIdentity && args.expectedTrackRef === track.ref && args.expectedTrackIdentity === track.objectIdentity);
           if (current >= 0) {
@@ -726,8 +785,15 @@ export class DeterministicLiveSimulator implements LiveAdapter {
       case "clip.set": {
         const clip = this.findClip(objectRef("ref"));
         if (clip.objectIdentity !== args.expectedObjectIdentity) throw new Error("clip identity changed since preview");
-        const clipAuthorityRevision = clip.ref.startsWith("arrangement-clip:") ? arrangementAuthorityRevision(clip.ref) : simulatorRevision(this.sessionClipAuthority(clip.ref));
-        const clipFields = ["muted", "colorIndex", "looping", "loopStart", "loopEnd"];
+        let clipAuthorityRevision: string;
+        if (clip.ref.startsWith("take-lane-clip:")) {
+          const foundLane = this.state.tracks.flatMap((track) => track.takeLanes ?? []).find((lane) => lane.clips.some((candidate) => candidate.ref === clip.ref));
+          if (!foundLane) throw new Error("take-lane clip hierarchy is unavailable");
+          clipAuthorityRevision = simulatorRevision({ takeLaneRevision: simulatorRevision(foundLane.clips.map((candidate) => ({ ref: candidate.ref, objectIdentity: candidate.objectIdentity }))), laneIdentity: foundLane.objectIdentity });
+        } else {
+          clipAuthorityRevision = clip.ref.startsWith("arrangement-clip:") ? arrangementAuthorityRevision(clip.ref) : simulatorRevision(this.sessionClipAuthority(clip.ref));
+        }
+        const clipFields = ["muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove"];
         const clipStateRevision = simulatorRevision(Object.fromEntries(clipFields.map((field) => [field, (clip as unknown as Record<string, unknown>)[field] ?? null])));
         if (args.expectedAuthorityRevision !== clipAuthorityRevision || args.expectedStateRevision !== clipStateRevision) throw new Error("clip hierarchy or state changed since preview");
         if (args.muted !== undefined) { if (typeof args.muted !== "boolean") throw new TypeError("muted is invalid"); clip.muted = args.muted; }
@@ -739,8 +805,844 @@ export class DeterministicLiveSimulator implements LiveAdapter {
           if (!Number.isFinite(start) || start < 0 || !Number.isFinite(end) || end < start) throw new RangeError("clip loop bounds are invalid");
           clip.loopStart = start; clip.loopEnd = end;
         }
+        if (args.grooveRef !== undefined) {
+          if (args.grooveRef === null) { clip.groove = null; clip.hasGroove = false; }
+          else {
+            const groove = this.state.groovePool!.grooves.find((candidate) => candidate.ref === args.grooveRef);
+            if (!groove) throw new Error("groove reference is stale or invalid");
+            clip.groove = { ref: groove.ref, name: groove.name }; clip.hasGroove = true;
+          }
+        }
         this.emit({ type: "object", ref: clip.ref, payload: { operation } });
         return { changed: true, revision: ++this.sequence };
+      }
+      case "audio.warp-marker.read": {
+        const clip = this.findClip(objectRef("ref"));
+        const markers = [...(clip.warpMarkers ?? [])].sort((a, b) => a.beatTime - b.beatTime);
+        return { revision: simulatorRevision(markers), markers };
+      }
+      case "audio.warp-marker.add":
+      case "audio.warp-marker.move":
+      case "audio.warp-marker.delete": {
+        const clip = this.findClip(objectRef("ref"));
+        if (clip.kind !== "audio") throw new Error("warp markers require an audio clip");
+        const clipAuthorityRevision = clip.ref.startsWith("arrangement-clip:") ? arrangementAuthorityRevision(clip.ref) : simulatorRevision(this.sessionClipAuthority(clip.ref));
+        if (clip.objectIdentity !== args.expectedObjectIdentity && args.expectedObjectIdentity !== undefined) throw new Error("clip identity changed since preview");
+        if (args.expectedClipAuthorityDigest !== clipAuthorityRevision) throw new Error("clip hierarchy changed since preview");
+        const markers = [...(clip.warpMarkers ?? [])].sort((a, b) => a.beatTime - b.beatTime);
+        if (args.expectedMarkerCollectionRevision !== simulatorRevision(markers)) throw new Error("warp-marker collection changed since preview");
+        const beatTime = args.beatTime;
+        if (typeof beatTime !== "number" || !Number.isFinite(beatTime)) throw new RangeError("beatTime is invalid");
+        clip.warpMarkers = markers;
+        if (operation === "audio.warp-marker.add") {
+          if (beatTime < 0 || markers.some((marker) => marker.beatTime === beatTime)) throw new RangeError("a warp marker already exists at that beat time");
+          clip.warpMarkers = [...markers, { beatTime, sampleTime: beatTime * 44100 }].sort((a, b) => a.beatTime - b.beatTime);
+        } else if (operation === "audio.warp-marker.move") {
+          const distance = args.distance;
+          if (typeof distance !== "number" || !Number.isFinite(distance)) throw new RangeError("distance is invalid");
+          const marker = markers.find((candidate) => candidate.beatTime === beatTime);
+          if (!marker) throw new Error("no warp marker exists at that beat time");
+          const target = beatTime + distance;
+          if (target < 0 || markers.some((candidate) => candidate !== marker && candidate.beatTime === target)) throw new RangeError("warp-marker move target collides with an existing marker");
+          marker.beatTime = target; marker.sampleTime = target * 44100;
+          clip.warpMarkers = [...markers].sort((a, b) => a.beatTime - b.beatTime);
+        } else {
+          if (!markers.some((candidate) => candidate.beatTime === beatTime)) throw new Error("no warp marker exists at that beat time");
+          clip.warpMarkers = markers.filter((candidate) => candidate.beatTime !== beatTime);
+        }
+        this.emit({ type: "object", ref: clip.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "session.audio-clip.create": {
+        const track = this.findTrack(objectRef("trackRef"));
+        const sceneIndex = args.sceneIndex;
+        if (!track || !Number.isInteger(sceneIndex) || (sceneIndex as number) < 0) throw new Error("audio import target is invalid");
+        const slot = (track.clipSlots ?? []).find((candidate) => candidate.sceneIndex === sceneIndex);
+        const scene = this.state.scenes.find((candidate) => candidate.index === sceneIndex);
+        if (!slot || !scene || args.expectedTrackIdentity !== track.objectIdentity || args.expectedSlotRef !== slot.ref || args.expectedSlotIdentity !== slot.objectIdentity || args.expectedSceneRef !== scene.ref || args.expectedSceneIdentity !== scene.objectIdentity) throw new Error("audio import target identity changed since preview");
+        if (slot.clipRef) throw new Error("session slot is occupied");
+        const filePath = args.filePath;
+        if (typeof filePath !== "string" || filePath.length < 1 || filePath.length > 1024 || !(filePath.startsWith("/") || /^[A-Za-z]:/.test(filePath))) throw new RangeError("filePath must be an absolute path");
+        const name = args.name;
+        if (name !== undefined && (typeof name !== "string" || name.length < 1 || name.length > 256)) throw new RangeError("name is invalid");
+        const clip: Clip = { ref: ref("clip", `${track.ref}:${sceneIndex}`), objectIdentity: `simulator:clip:${this.sequence + 1}`, name: (name as string | undefined) ?? filePath.split("/").pop() ?? "Audio Clip", kind: "audio", start: (sceneIndex as number) * 4, length: 4, notes: [], notesRevision: simulatorRevision([]), warp: true, takes: [], automation: [], isAudio: true, filePath, muted: false, warpMarkers: [{ beatTime: 1, sampleTime: 44100 }] };
+        track.clips.push(clip); slot.clipRef = clip.ref; slot.empty = false;
+        this.emit({ type: "object", ref: track.ref, payload: { operation, clip } });
+        return { ref: clip.ref, objectIdentity: clip.objectIdentity, name: clip.name, length: clip.length, filePath, createdFingerprint: simulatorRevision(clip) };
+      }
+      case "clip.action": {
+        const clip = this.findClip(objectRef("ref"));
+        if (clip.objectIdentity !== args.expectedObjectIdentity) throw new Error("clip identity changed since preview");
+        const clipAuthorityRevision = clip.ref.startsWith("arrangement-clip:") ? arrangementAuthorityRevision(clip.ref) : simulatorRevision(this.sessionClipAuthority(clip.ref));
+        if (args.expectedAuthorityRevision !== clipAuthorityRevision) throw new Error("clip hierarchy changed since preview");
+        const clipStateRevision = simulatorRevision({ isPlaying: clip.isPlaying ?? null, playingPosition: clip.playingPosition ?? null, length: clip.length ?? null, loopStart: clip.loopStart ?? null, loopEnd: clip.loopEnd ?? null });
+        if (args.expectedStateRevision !== clipStateRevision) throw new Error("clip state changed since preview");
+        const action = args.action;
+        if (["crop", "duplicate-loop", "duplicate-region"].includes(action as string) && args.expectedContentFingerprint !== simulatorRevision(clip)) throw new Error("clip content changed since preview");
+        if (action === "crop") { clip.length = (clip.loopEnd ?? clip.length) - (clip.loopStart ?? 0); }
+        else if (action === "duplicate-loop") { clip.length = clip.length + ((clip.loopEnd ?? clip.length) - (clip.loopStart ?? 0)); }
+        else if (action === "duplicate-region") {
+          const start = args.regionStart; const end = args.regionEnd;
+          if (typeof start !== "number" || !Number.isFinite(start) || start < 0 || typeof end !== "number" || !Number.isFinite(end) || end <= start) throw new RangeError("duplicate-region bounds are invalid");
+          const destination = args.destination;
+          if (typeof destination !== "number" || !Number.isFinite(destination) || destination < 0) throw new RangeError("duplicate-region destination is invalid");
+          clip.length = Math.max(clip.length, destination + (end - start));
+        } else if (action === "scrub-start") { const offset = args.offset; if (typeof offset !== "number" || !Number.isFinite(offset)) throw new RangeError("scrub position is invalid"); clip.playingPosition = offset; }
+        else if (action === "scrub-stop") { clip.playingPosition = 0; }
+        else if (action === "move-playing-position") { const offset = args.offset; if (typeof offset !== "number" || !Number.isFinite(offset)) throw new RangeError("playing-position offset is invalid"); clip.playingPosition = (clip.playingPosition ?? 0) + offset; }
+        else throw new RangeError("clip action is invalid");
+        this.emit({ type: "object", ref: clip.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "automation.envelope.clear": {
+        const clip = this.findClip(objectRef("clipRef"));
+        const clipAuthorityRevision = clip.ref.startsWith("arrangement-clip:") ? arrangementAuthorityRevision(clip.ref) : simulatorRevision(this.sessionClipAuthority(clip.ref));
+        if (args.expectedAuthorityDigest !== clipAuthorityRevision) throw new Error("clip hierarchy changed since preview");
+        const track = this.state.tracks.find((candidate) => candidate.clips.some((row) => row.ref === clip.ref));
+        if (!track) throw new Error("envelope clear requires a Session clip");
+        const walk = (devices: Device[]): Parameter[] => devices.flatMap((device) => [...(device.parameters ?? []), ...walk(device.chains?.flatMap((chain) => chain.devices ?? []) ?? []), ...walk(device.drumPads?.flatMap((pad) => pad.chains?.flatMap((chain) => chain.devices ?? []) ?? []) ?? [])]);
+        const parameters: Array<{ ref: string }> = walk(track.devices ?? []);
+        if (track.mixer) for (const ref of [track.mixer.volumeRef, track.mixer.panRef, track.mixer.cueRef, ...track.mixer.sendRefs]) if (ref) parameters.push({ ref });
+        const presence = parameters.map((parameter) => (clip.envelopes ?? {})[parameter.ref] !== undefined);
+        if (args.expectedEnvelopesRevision !== simulatorRevision(presence)) throw new Error("clip envelope collection changed since preview");
+        const cleared = presence.filter(Boolean).length;
+        clip.envelopes = {};
+        this.emit({ type: "object", ref: clip.ref, payload: { operation } });
+        return { cleared, envelopesRevision: simulatorRevision(parameters.map(() => false)) };
+      }
+      case "note.read-by-id": {
+        const clip = this.findClip(objectRef("ref"));
+        const noteIds = args.noteIds;
+        if (!Array.isArray(noteIds) || noteIds.length < 1 || noteIds.length > 1024 || !noteIds.every((value) => Number.isInteger(value) && (value as number) >= 0)) throw new RangeError("note ids are invalid");
+        const wanted = new Set(noteIds as number[]);
+        return { notes: clip.notes.filter((note) => wanted.has(note.id as number)), notesRevision: clip.notesRevision ?? simulatorRevision(clip.notes) };
+      }
+      case "note.read-selected": {
+        const clip = this.findClip(objectRef("ref"));
+        return { available: true, notes: clip.notes.slice(0, 0), notesRevision: clip.notesRevision ?? simulatorRevision(clip.notes) };
+      }
+      case "note.duplicate": {
+        const clip = this.findClip(objectRef("ref"));
+        const noteIds = args.noteIds;
+        if (simulatorCanonical(this.sessionClipAuthority(clip.ref)) !== simulatorCanonical(args.expectedClipAuthority)) throw new Error("note clip hierarchy identity changed since preview");
+        if (args.expectedNotesRevision !== (clip.notesRevision ?? simulatorRevision(clip.notes))) throw new Error("clip notes changed since preview");
+        if (!Array.isArray(noteIds) || noteIds.length < 1 || noteIds.length > 512 || new Set(noteIds).size !== noteIds.length || !noteIds.every((value) => Number.isInteger(value) && (value as number) >= 0)) throw new RangeError("note ids are invalid");
+        const wanted = new Set(noteIds as number[]);
+        const sources = clip.notes.filter((note) => wanted.has(note.id as number));
+        if (sources.length !== wanted.size) throw new Error("complete stable note identity is required for duplication");
+        let nextId = Math.max(0, ...clip.notes.map((note) => (note.id as number) ?? 0)) + 1;
+        for (const source of sources) clip.notes.push({ ...structuredClone(source), id: nextId++ });
+        clip.notesRevision = simulatorRevision(clip.notes);
+        this.emit({ type: "object", ref: clip.ref, payload: { operation } });
+        return { duplicated: sources.length, notesRevision: clip.notesRevision };
+      }
+      case "note.quantize": {
+        const clip = this.findClip(objectRef("ref"));
+        if (simulatorCanonical(this.sessionClipAuthority(clip.ref)) !== simulatorCanonical(args.expectedClipAuthority)) throw new Error("note clip hierarchy identity changed since preview");
+        if (args.expectedNotesRevision !== (clip.notesRevision ?? simulatorRevision(clip.notes))) throw new Error("clip notes changed since preview");
+        const grid = args.grid; const amount = args.amount;
+        if (typeof grid !== "number" || !Number.isFinite(grid) || grid <= 0 || typeof amount !== "number" || !Number.isFinite(amount) || amount < 0 || amount > 1) throw new RangeError("quantize arguments are invalid");
+        const pitch = args.pitch;
+        if (pitch !== undefined && (!Number.isInteger(pitch) || (pitch as number) < 0 || (pitch as number) > 127)) throw new RangeError("pitch is invalid");
+        for (const note of clip.notes) {
+          note.start = Math.round(note.start / grid) * grid * amount + note.start * (1 - amount);
+          if (pitch !== undefined) note.pitch = pitch as number;
+        }
+        clip.notesRevision = simulatorRevision(clip.notes);
+        this.emit({ type: "object", ref: clip.ref, payload: { operation } });
+        return { changed: true, notesRevision: clip.notesRevision };
+      }
+      case "audio.take-lane.read": {
+        const track = this.findTrack(objectRef("trackRef"));
+        return { lanes: (track?.takeLanes ?? []).map((lane) => ({ ref: lane.ref, name: lane.name })) };
+      }
+      case "take-lane.create": {
+        const track = this.findTrack(objectRef("trackRef"));
+        if (!track || args.expectedTrackIdentity !== track.objectIdentity) throw new Error("take-lane target track identity changed since preview");
+        const lanes = track.takeLanes ?? [];
+        const siblings = lanes.map((lane) => ({ ref: lane.ref, objectIdentity: lane.objectIdentity, name: lane.name }));
+        if (args.expectedTakeLaneCollectionRevision !== simulatorRevision(siblings)) throw new Error("take-lane collection changed since preview");
+        const name = args.name;
+        if (name !== undefined && (typeof name !== "string" || name.length < 1 || name.length > 256)) throw new RangeError("name is invalid");
+        const lane: TakeLane = { ref: ref("take-lane", `${track.ref}:${lanes.length}`), objectIdentity: `simulator:take-lane:${this.sequence + 1}`, parentRef: track.ref, trackRef: track.ref, name: (name as string | undefined) ?? `Take ${lanes.length + 1}`, index: lanes.length, clips: [] };
+        track.takeLanes = [...lanes, lane];
+        this.emit({ type: "object", ref: track.ref, payload: { operation, lane } });
+        return { ref: lane.ref, objectIdentity: lane.objectIdentity, name: lane.name, index: lane.index, createdFingerprint: simulatorRevision({ ref: lane.ref, objectIdentity: lane.objectIdentity, name: lane.name, index: lane.index }) };
+      }
+      case "take-lane.rename": {
+        const found = this.findTakeLane(objectRef("ref"));
+        if (!found) throw new Error("take-lane reference is stale or invalid");
+        const name = args.name;
+        if (typeof name !== "string" || name.length < 1 || name.length > 256) throw new RangeError("name is invalid");
+        if (found.lane.objectIdentity !== args.expectedObjectIdentity || found.lane.name !== args.expectedName) throw new Error("take-lane rename target changed since preview");
+        const siblings = (found.track.takeLanes ?? []).map((lane) => ({ ref: lane.ref, objectIdentity: lane.objectIdentity, name: lane.name }));
+        if (args.expectedAuthorityRevision !== simulatorRevision(siblings)) throw new Error("take-lane hierarchy changed since preview");
+        found.lane.name = name;
+        this.emit({ type: "object", ref: found.lane.ref, payload: { operation } });
+        return { renamed: found.lane.ref, name };
+      }
+      case "take-lane.clip.create":
+      case "take-lane.audio-clip.create": {
+        const found = this.findTakeLane(objectRef("takeLaneRef"));
+        if (!found) throw new Error("take-lane reference is stale or invalid");
+        if (found.lane.objectIdentity !== args.expectedTakeLaneIdentity) throw new Error("take-lane identity changed since preview");
+        const siblings = found.lane.clips.map((clip) => ({ ref: clip.ref, objectIdentity: clip.objectIdentity }));
+        if (args.expectedCollectionRevision !== simulatorRevision(siblings)) throw new Error("take-lane clip collection changed since preview");
+        const audio = operation === "take-lane.audio-clip.create";
+        const position = args.position;
+        if (typeof position !== "number" || !Number.isFinite(position) || position < 0) throw new RangeError("position is invalid");
+        const name = args.name;
+        let filePath: string | undefined;
+        let length = 4;
+        if (audio) {
+          filePath = args.filePath as string;
+          if (typeof filePath !== "string" || filePath.length < 1 || filePath.length > 1024 || !(filePath.startsWith("/") || /^[A-Za-z]:/.test(filePath))) throw new RangeError("filePath must be an absolute path");
+          if (name !== undefined && (typeof name !== "string" || name.length < 1 || name.length > 256)) throw new RangeError("name is invalid");
+        } else {
+          length = args.length as number;
+          if (typeof length !== "number" || !Number.isFinite(length) || length <= 0) throw new RangeError("length is invalid");
+          if (typeof name !== "string" || name.length < 1 || name.length > 256) throw new RangeError("name is invalid");
+        }
+        const clipName = audio ? ((name as string | undefined) ?? filePath!.split("/").pop() ?? "Audio Clip") : (name as string);
+        const clip: Clip = { ref: ref("take-lane-clip", `${found.lane.ref}:${position}`), objectIdentity: `simulator:take-lane-clip:${this.sequence + 1}`, name: clipName, kind: audio ? "audio" : "midi", start: position, length, notes: [], notesRevision: simulatorRevision([]), warp: audio, takes: [], automation: [], isAudio: audio, ...(audio ? { filePath } : {}), muted: false, isTakeLaneClip: true };
+        found.lane.clips.push(clip);
+        this.emit({ type: "object", ref: found.lane.ref, payload: { operation, clip } });
+        const result: Record<string, unknown> = { ref: clip.ref, objectIdentity: clip.objectIdentity, name: clip.name, start: position, length, createdFingerprint: simulatorRevision(clip) };
+        if (audio) result.filePath = filePath;
+        return result;
+      }
+      case "tuning.read": {
+        const state = this.state.tuning!;
+        return { tuningSystem: structuredClone(state.system), scale: structuredClone(state.scale), revision: simulatorRevision(state) };
+      }
+      case "tuning.set": {
+        if (args.setRef !== this.state.set.ref || args.expectedObjectIdentity !== this.state.set.objectIdentity) throw new Error("Set identity changed since preview");
+        if (args.expectedRevision !== simulatorRevision(this.state.tuning)) throw new Error("tuning or scale state changed since preview");
+        const tuning = this.state.tuning!;
+        if (args.name !== undefined) { if (typeof args.name !== "string" || args.name.length < 1 || args.name.length > 256) throw new RangeError("name is invalid"); tuning.system.name = args.name; }
+        const settingDict = (value: unknown): Record<string, unknown> => {
+          if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value as object).length > 8) throw new RangeError("tuning setting dictionaries are invalid");
+          for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+            if (key.length < 1 || key.length > 64) throw new RangeError("tuning setting dictionaries are invalid");
+            if (item === null || typeof item === "boolean") continue;
+            if (typeof item === "number" && Number.isFinite(item) && Math.abs(item) <= 1e9) continue;
+            if (typeof item === "string" && item.length <= 256) continue;
+            throw new RangeError("tuning setting dictionaries are invalid");
+          }
+          return structuredClone(value) as Record<string, unknown>;
+        };
+        if (args.lowestNote !== undefined) tuning.system.lowestNote = settingDict(args.lowestNote);
+        if (args.highestNote !== undefined) tuning.system.highestNote = settingDict(args.highestNote);
+        if (args.referencePitch !== undefined) tuning.system.referencePitch = settingDict(args.referencePitch);
+        if (args.noteTunings !== undefined) {
+          const rows = args.noteTunings;
+          if (!Array.isArray(rows) || rows.length !== 128 || !rows.every((row) => Number.isInteger((row as { note?: unknown }).note) && ((row as { note: number }).note >= 0) && ((row as { note: number }).note <= 127) && typeof (row as { deviation?: unknown }).deviation === "number" && Number.isFinite((row as { deviation: number }).deviation) && Math.abs((row as { deviation: number }).deviation) <= 1200)) throw new RangeError("noteTunings must contain exactly 128 valid entries");
+          if (new Set(rows.map((row) => (row as { note: number }).note)).size !== 128) throw new RangeError("noteTunings notes are invalid");
+          tuning.system.noteTunings = structuredClone(rows) as Array<{ note: number; deviation: number }>;
+        }
+        if (args.rootNote !== undefined) { if (!Number.isInteger(args.rootNote) || (args.rootNote as number) < 0 || (args.rootNote as number) > 11) throw new RangeError("rootNote is invalid"); tuning.scale.rootNote = args.rootNote as number; }
+        if (args.scaleName !== undefined) { if (typeof args.scaleName !== "string" || args.scaleName.length < 1 || args.scaleName.length > 256) throw new RangeError("scaleName is invalid"); tuning.scale.scaleName = args.scaleName; }
+        if (args.scaleMode !== undefined) { if (typeof args.scaleMode !== "boolean") throw new RangeError("scaleMode is invalid"); tuning.scale.scaleMode = args.scaleMode; }
+        if (args.scaleIntervals !== undefined) throw new RangeError("scaleIntervals is read-only and cannot be assigned");
+        this.emit({ type: "state", payload: { operation } });
+        return { changed: true, revision: simulatorRevision(this.state.tuning) };
+      }
+      case "groove.read": {
+        const pool = this.state.groovePool!;
+        return { grooveAmount: pool.amount, grooves: structuredClone(pool.grooves), revision: simulatorRevision(pool) };
+      }
+      case "groove.set": {
+        if (args.setRef !== this.state.set.ref || args.expectedObjectIdentity !== this.state.set.objectIdentity) throw new Error("Set identity changed since preview");
+        if (args.expectedRevision !== simulatorRevision(this.state.groovePool)) throw new Error("groove state changed since preview");
+        const value = args.grooveAmount;
+        if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1.3) throw new RangeError("grooveAmount is invalid");
+        this.state.groovePool!.amount = value;
+        this.emit({ type: "state", payload: { operation } });
+        return { changed: true, revision: simulatorRevision(this.state.groovePool) };
+      }
+      case "groove.edit": {
+        const groove = this.state.groovePool!.grooves.find((candidate) => candidate.ref === objectRef("ref"));
+        if (!groove) throw new Error("groove reference is stale or invalid");
+        if (groove.objectIdentity !== args.expectedObjectIdentity) throw new Error("groove identity changed since preview");
+        if (args.expectedRevision !== simulatorRevision(this.state.groovePool)) throw new Error("groove state changed since preview");
+        if (args.name !== undefined) { if (typeof args.name !== "string" || args.name.length < 1 || args.name.length > 256) throw new RangeError("name is invalid"); groove.name = args.name; }
+        if (args.base !== undefined) { if (!Number.isInteger(args.base) || (args.base as number) < 0 || (args.base as number) > 16) throw new RangeError("base is invalid"); groove.base = args.base as number; }
+        for (const field of ["quantizationAmount", "randomAmount", "timingAmount", "velocityAmount"] as const) {
+          if (args[field] !== undefined) { const value = args[field]; if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) throw new RangeError(`${field} is invalid`); (groove as unknown as Record<string, unknown>)[field] = value; }
+        }
+        this.emit({ type: "object", ref: groove.ref, payload: { operation } });
+        return { changed: true, revision: simulatorRevision(this.state.groovePool) };
+      }
+      case "scene.set": {
+        const scene = this.state.scenes.find((candidate) => candidate.ref === objectRef("ref"));
+        if (!scene) throw new Error("scene reference is stale or invalid");
+        if (scene.objectIdentity !== args.expectedObjectIdentity) throw new Error("scene identity changed since preview");
+        const siblings = this.state.scenes.map((candidate) => ({ ref: candidate.ref, objectIdentity: candidate.objectIdentity, name: candidate.name, colorIndex: candidate.colorIndex ?? null, tempo: candidate.tempo ?? null, tempoEnabled: candidate.tempoEnabled ?? null, signatureNumerator: candidate.signatureNumerator ?? null, signatureDenominator: candidate.signatureDenominator ?? null, timeSignatureEnabled: candidate.timeSignatureEnabled ?? null }));
+        if (args.expectedAuthorityRevision !== simulatorRevision(siblings)) throw new Error("scene collection changed since preview");
+        const state = { colorIndex: scene.colorIndex ?? null, tempo: scene.tempo ?? null, tempoEnabled: scene.tempoEnabled ?? null, signatureNumerator: scene.signatureNumerator ?? null, signatureDenominator: scene.signatureDenominator ?? null, timeSignatureEnabled: scene.timeSignatureEnabled ?? null };
+        if (args.expectedStateRevision !== simulatorRevision(state)) throw new Error("scene state changed since preview");
+        if (args.colorIndex !== undefined) { if (!Number.isInteger(args.colorIndex) || (args.colorIndex as number) < 0 || (args.colorIndex as number) > 69) throw new RangeError("colorIndex is invalid"); scene.colorIndex = args.colorIndex as number; }
+        if (args.tempo !== undefined) { const value = args.tempo; if (typeof value !== "number" || !Number.isFinite(value) || value < 20 || value > 999) throw new RangeError("tempo is invalid"); scene.tempo = value; }
+        if (args.tempoEnabled !== undefined) { if (typeof args.tempoEnabled !== "boolean") throw new TypeError("tempoEnabled is invalid"); scene.tempoEnabled = args.tempoEnabled; }
+        if (args.signatureNumerator !== undefined) { if (!Number.isInteger(args.signatureNumerator) || (args.signatureNumerator as number) < 1 || (args.signatureNumerator as number) > 99) throw new RangeError("signatureNumerator is invalid"); scene.signatureNumerator = args.signatureNumerator as number; }
+        if (args.signatureDenominator !== undefined) { if (!Number.isInteger(args.signatureDenominator) || (args.signatureDenominator as number) < 1 || (args.signatureDenominator as number) > 99) throw new RangeError("signatureDenominator is invalid"); scene.signatureDenominator = args.signatureDenominator as number; }
+        if (args.timeSignatureEnabled !== undefined) { if (typeof args.timeSignatureEnabled !== "boolean") throw new TypeError("timeSignatureEnabled is invalid"); scene.timeSignatureEnabled = args.timeSignatureEnabled; }
+        this.emit({ type: "object", ref: scene.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "scene.fire-selected": {
+        const scene = this.state.scenes.find((candidate) => candidate.ref === objectRef("ref"));
+        if (!scene) throw new Error("scene reference is stale or invalid");
+        if (scene.objectIdentity !== args.expectedObjectIdentity) throw new Error("scene identity changed since preview");
+        const siblings = this.state.scenes.map((candidate) => ({ ref: candidate.ref, objectIdentity: candidate.objectIdentity, name: candidate.name, colorIndex: candidate.colorIndex ?? null, tempo: candidate.tempo ?? null, tempoEnabled: candidate.tempoEnabled ?? null, signatureNumerator: candidate.signatureNumerator ?? null, signatureDenominator: candidate.signatureDenominator ?? null, timeSignatureEnabled: candidate.timeSignatureEnabled ?? null }));
+        if (args.expectedAuthorityRevision !== simulatorRevision(siblings)) throw new Error("scene collection changed since preview");
+        const state = { isTriggered: scene.isTriggered ?? null, playing: this.state.playback.transport.playing };
+        if (args.expectedStateRevision !== simulatorRevision(state)) throw new Error("scene fire state changed since preview");
+        scene.isTriggered = true; this.state.playback.transport.playing = true; this.state.set.playing = true;
+        this.emit({ type: "transport", payload: { operation } });
+        return { fired: true };
+      }
+      case "song.read": {
+        const state = structuredClone(this.state.song!);
+        return { ...state, revision: simulatorRevision(state) };
+      }
+      case "song.time-convert": {
+        if (args.setRef !== this.state.set.ref) throw new Error("set reference is stale or invalid");
+        if (args.query === "beats-loop") {
+          const loop = this.state.playback.transport.loop;
+          return { available: true, loopStart: loop?.start ?? 0, loopLength: loop?.length ?? 4, smpte: null };
+        }
+        if (args.query === "current-smpte") {
+          const format = args.smpteFormat ?? "smpte-25";
+          if (!["smpte-24", "smpte-25", "smpte-29", "smpte-30", "smpte-30-drop"].includes(format as string)) throw new RangeError("smpteFormat is invalid");
+          const tempo = this.state.set.tempo;
+          const position = this.state.playback.transport.position ?? 0;
+          if (typeof tempo !== "number" || !Number.isFinite(tempo) || tempo < 20 || tempo > 999) throw new Error("tempo is unavailable for time conversion");
+          const framesPerSecond = format === "smpte-24" ? 24 : format === "smpte-30" || format === "smpte-30-drop" ? 30 : 25;
+          const totalSeconds = Math.max(0, position * 60 / tempo);
+          const hours = Math.floor(totalSeconds / 3600); const minutes = Math.floor((totalSeconds % 3600) / 60); const seconds = Math.floor(totalSeconds % 60);
+          const frames = Math.floor((totalSeconds - Math.floor(totalSeconds)) * framesPerSecond);
+          return { available: true, loopStart: null, loopLength: null, smpte: { hours, minutes, seconds, frames } };
+        }
+        throw new RangeError("time-convert query is invalid");
+      }
+      case "transport.action": {
+        if (args.setRef !== this.state.set.ref || args.expectedObjectIdentity !== this.state.set.objectIdentity) throw new Error("Set identity changed since preview");
+        if (args.expectedRevision !== this.state.playback.revision) throw new Error("transport state changed since preview");
+        const action = args.action;
+        const transport = this.state.playback.transport;
+        if (action === "start" || action === "continue" || action === "play-selection") { transport.playing = true; this.state.set.playing = true; }
+        else if (action === "stop") { transport.playing = false; this.state.set.playing = false; }
+        else if (action === "force-link-beat-time") { if (typeof args.beatTime !== "number" || !Number.isFinite(args.beatTime)) throw new RangeError("beatTime is required for force-link-beat-time"); transport.position = args.beatTime; this.state.set.position = args.beatTime; }
+        else if (action === "stop-all-clips") { for (const track of this.state.tracks) { track.playingSlotIndex = null; track.firedSlotIndex = null; } transport.playing = false; this.state.set.playing = false; }
+        else if (action === "scrub") { if (typeof args.beatTime !== "number" || !Number.isFinite(args.beatTime)) throw new RangeError("beatTime distance is required for scrub"); transport.position = (transport.position ?? 0) + args.beatTime; }
+        else if (!["tap-tempo", "nudge-up", "nudge-down", "re-enable-automation", "trigger-session-record"].includes(action as string)) throw new RangeError("transport action is invalid");
+        this.state.playback.revision = `${this.epoch}:transport:${++this.sequence}`;
+        this.emit({ type: "transport", payload: { operation } });
+        return { done: true, revision: this.state.playback.revision };
+      }
+      case "locator.jump-to": {
+        const locator = this.state.arrangement.locators.find((candidate) => candidate.ref === objectRef("ref"));
+        if (!locator) throw new Error("locator reference is stale or invalid");
+        if (locator.objectIdentity !== args.expectedObjectIdentity) throw new Error("locator identity changed since preview");
+        if (args.expectedCollectionRevision !== simulatorRevision(this.state.arrangement.locators)) throw new Error("locator collection changed since preview");
+        this.state.playback.transport.position = locator.position; this.state.set.position = locator.position;
+        this.emit({ type: "transport", payload: { operation } });
+        return { position: locator.position };
+      }
+      case "track.create-return": {
+        if (args.expectedStructureRevision !== structureRevision()) throw new Error("structure changed since preview");
+        const name = args.name;
+        if (name !== undefined && (typeof name !== "string" || name.length < 1 || name.length > 256)) throw new RangeError("name is invalid");
+        const index = this.state.tracks.filter((track) => track.kind === "return").length;
+        const track: Track = { ref: ref("track", `return-${this.sequence + 1}`), objectIdentity: `simulator:track:${this.sequence + 1}`, name: (name as string | undefined) ?? `Return ${String.fromCharCode(65 + index)}`, kind: "return", volume: 0.85, pan: 0, mute: false, solo: false, armed: null, clips: [], devices: [], sends: [] };
+        this.state.tracks.push(track);
+        this.emit({ type: "state", payload: { operation } });
+        return { ref: track.ref, objectIdentity: track.objectIdentity, name: track.name, index, createdFingerprint: simulatorRevision({ ref: track.ref, objectIdentity: track.objectIdentity, name: track.name, index }) };
+      }
+      case "track.delete-return": {
+        const track = this.state.tracks.find((candidate) => candidate.ref === objectRef("ref") && candidate.kind === "return");
+        if (!track) throw new Error("return-track reference is stale or invalid");
+        if (args.expectedStructureRevision !== structureRevision()) throw new Error("structure changed since preview");
+        if (track.objectIdentity !== args.expectedObjectIdentity) throw new Error("return-track identity changed since preview");
+        this.state.tracks = this.state.tracks.filter((candidate) => candidate !== track);
+        this.emit({ type: "state", payload: { operation } });
+        return { deleted: objectRef("ref") };
+      }
+      case "track.duplicate": {
+        const index = this.state.tracks.findIndex((candidate) => candidate.ref === objectRef("ref"));
+        const track = this.state.tracks[index];
+        if (!track) throw new Error("track reference is stale or invalid");
+        if (args.expectedStructureRevision !== structureRevision()) throw new Error("structure changed since preview");
+        if (track.objectIdentity !== args.expectedObjectIdentity) throw new Error("track identity changed since preview");
+        // Rebuild the duplicated subgraph with fresh identities/refs and
+        // corrected parents; cloning only the top-level ref leaves every nested
+        // clip, slot, device, parameter, and lane aliased with the source.
+        let counter = 0;
+        const fresh = (kind: string) => `${kind}:dup-${this.sequence + 1}-${counter++}` as LiveRef;
+        const copy: Track = structuredClone(track);
+        copy.ref = ref("track", `track-dup-${this.sequence + 1}`); copy.objectIdentity = `simulator:${copy.ref}`; copy.name = `${track.name} copy`;
+        const clonedClipBySourceRef = new Map<string, LiveRef>();
+        copy.clips = (copy.clips ?? []).map((clip) => {
+          const sourceRef = clip.ref;
+          clip.ref = fresh("clip"); clip.objectIdentity = `simulator:${clip.ref}`;
+          clonedClipBySourceRef.set(sourceRef, clip.ref);
+          return clip;
+        });
+        copy.clipSlots = (copy.clipSlots ?? []).map((slot) => {
+          const sourceClipRef = slot.clipRef;
+          slot.ref = fresh("clip-slot"); slot.objectIdentity = `simulator:${slot.ref}`; slot.parentRef = copy.ref;
+          if (sourceClipRef) slot.clipRef = clonedClipBySourceRef.get(sourceClipRef) ?? null;
+          return slot;
+        });
+        const remapDevices = (devices: Track["devices"], parentRef: LiveRef): Track["devices"] => (devices ?? []).map((device) => {
+          device.ref = fresh("device"); device.objectIdentity = `simulator:${device.ref}`; device.parentRef = parentRef;
+          device.parameters = (device.parameters ?? []).map((parameter) => { parameter.ref = fresh("parameter"); parameter.objectIdentity = `simulator:${parameter.ref}`; return parameter; });
+          device.chains = (device.chains ?? []).map((chain) => {
+            chain.ref = fresh("chain"); chain.objectIdentity = `simulator:${chain.ref}`; chain.parentRef = device.ref;
+            chain.devices = remapDevices(chain.devices, chain.ref);
+            return chain;
+          });
+          device.drumPads = (device.drumPads ?? []).map((pad) => {
+            pad.ref = fresh("drum-pad"); pad.objectIdentity = `simulator:${pad.ref}`; pad.parentRef = device.ref;
+            pad.chains = (pad.chains ?? []).map((chain) => {
+              chain.ref = fresh("chain"); chain.objectIdentity = `simulator:${chain.ref}`; chain.parentRef = pad.ref;
+              chain.devices = remapDevices(chain.devices, chain.ref);
+              return chain;
+            });
+            return pad;
+          });
+          device.macros = (device.macros ?? []).map((macro) => { macro.ref = fresh("parameter"); macro.objectIdentity = `simulator:${macro.ref}`; return macro; });
+          return device;
+        });
+        copy.devices = remapDevices(copy.devices, copy.ref);
+        copy.takeLanes = (copy.takeLanes ?? []).map((lane) => {
+          lane.ref = fresh("take-lane"); lane.objectIdentity = `simulator:${lane.ref}`;
+          lane.clips = (lane.clips ?? []).map((clip) => { clip.ref = fresh("clip"); clip.objectIdentity = `simulator:${clip.ref}`; return clip; });
+          return lane;
+        });
+        this.state.tracks.splice(index + 1, 0, copy);
+        const allRefs = new Set<string>();
+        const collectRefs = (value: unknown): void => {
+          if (Array.isArray(value)) { for (const item of value) collectRefs(item); return; }
+          if (value && typeof value === "object") { const record = value as Record<string, unknown>; if (typeof record.ref === "string") { if (allRefs.has(record.ref)) throw new Error("duplicated track graph contains a duplicate ref"); allRefs.add(record.ref); } for (const item of Object.values(record)) collectRefs(item); }
+        };
+        collectRefs(copy);
+        this.emit({ type: "state", payload: { operation } });
+        return { ref: copy.ref, objectIdentity: copy.objectIdentity, name: copy.name, index: index + 1, createdFingerprint: simulatorRevision({ ref: copy.ref, objectIdentity: copy.objectIdentity, name: copy.name, index: index + 1 }) };
+      }
+      case "scene.duplicate": {
+        const index = this.state.scenes.findIndex((candidate) => candidate.ref === objectRef("ref"));
+        const scene = this.state.scenes[index];
+        if (!scene) throw new Error("scene reference is stale or invalid");
+        if (args.expectedStructureRevision !== structureRevision()) throw new Error("structure changed since preview");
+        if (scene.objectIdentity !== args.expectedObjectIdentity) throw new Error("scene identity changed since preview");
+        const copy: Scene = { ...structuredClone(scene), ref: ref("scene", `scene-${this.sequence + 1}`), objectIdentity: `simulator:scene:${this.sequence + 1}`, name: `${scene.name} copy`, index: index + 1 };
+        this.state.scenes.splice(index + 1, 0, copy);
+        this.state.scenes.forEach((candidate, position) => { candidate.index = position; });
+        // One ClipSlot per track for the new scene, mirroring the source scene's
+        // occupancy with freshly created clips where the source was occupied.
+        for (const track of this.state.tracks) {
+          const sourceSlot = (track.clipSlots ?? []).find((slot) => slot.sceneIndex === index);
+          const newSlot: ClipSlot = { ref: ref("clip-slot", `dup-${this.sequence + 1}-${track.ref}`), parentRef: track.ref, objectIdentity: `simulator:clip-slot:dup-${this.sequence + 1}-${track.ref}`, sceneIndex: index + 1, clipRef: null, empty: true };
+          if (sourceSlot?.clipRef) {
+            const sourceClip = (track.clips ?? []).find((clip) => clip.ref === sourceSlot.clipRef);
+            if (sourceClip) {
+              const clipCopy: Clip = { ...structuredClone(sourceClip), ref: ref("clip", `dup-${this.sequence + 1}-${track.ref}`), objectIdentity: `simulator:clip:dup-${this.sequence + 1}-${track.ref}` };
+              track.clips = [...(track.clips ?? []), clipCopy];
+              newSlot.clipRef = clipCopy.ref; newSlot.empty = false;
+            }
+          }
+          track.clipSlots = [...(track.clipSlots ?? []), newSlot];
+        }
+        this.emit({ type: "state", payload: { operation } });
+        return { ref: copy.ref, objectIdentity: copy.objectIdentity, name: copy.name, index: index + 1, createdFingerprint: simulatorRevision({ ref: copy.ref, objectIdentity: copy.objectIdentity, name: copy.name, index: index + 1 }) };
+      }
+      case "track.view.set": {
+        const track = this.findTrack(objectRef("ref"));
+        if (!track) throw new Error("track reference is stale or invalid");
+        if (track.objectIdentity !== args.expectedObjectIdentity) throw new Error("track identity changed since preview");
+        const state = { collapsed: track.view?.isCollapsed ?? null, deviceInsertMode: track.view?.deviceInsertMode ?? null };
+        if (args.expectedStateRevision !== simulatorRevision(state)) throw new Error("track view state changed since preview");
+        track.view = track.view ?? {};
+        if (args.collapsed !== undefined) { if (typeof args.collapsed !== "boolean") throw new TypeError("collapsed is invalid"); track.view.isCollapsed = args.collapsed; }
+        if (args.deviceInsertMode !== undefined) { if (!Number.isInteger(args.deviceInsertMode) || (args.deviceInsertMode as number) < 0 || (args.deviceInsertMode as number) > 8) throw new RangeError("deviceInsertMode is invalid"); track.view.deviceInsertMode = args.deviceInsertMode as number; }
+        this.emit({ type: "object", ref: track.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "track.select-instrument": {
+        const track = this.findTrack(objectRef("ref"));
+        if (!track) throw new Error("track reference is stale or invalid");
+        if (track.objectIdentity !== args.expectedObjectIdentity) throw new Error("track identity changed since preview");
+        const state = { collapsed: track.view?.isCollapsed ?? null, deviceInsertMode: track.view?.deviceInsertMode ?? null };
+        if (args.expectedStateRevision !== simulatorRevision(state)) throw new Error("track view state changed since preview");
+        const firstInstrument = (track.devices ?? [])[0];
+        track.view = track.view ?? {};
+        track.view.selectedDeviceRef = firstInstrument?.ref ?? null;
+        this.emit({ type: "object", ref: track.ref, payload: { operation } });
+        return { done: true };
+      }
+      case "selection.set": {
+        const selection = this.state.selection!;
+        if (args.expectedStateRevision !== simulatorRevision(selection)) throw new Error("selection state changed since preview");
+        if (args.trackRef !== undefined) { if (args.trackRef !== null && !this.state.tracks.some((track) => track.ref === args.trackRef)) throw new Error("track reference is stale or invalid"); selection.trackRef = args.trackRef as LiveRef | null; }
+        if (args.sceneRef !== undefined) { if (args.sceneRef !== null && !this.state.scenes.some((scene) => scene.ref === args.sceneRef)) throw new Error("scene reference is stale or invalid"); selection.sceneRef = args.sceneRef as LiveRef | null; }
+        if (args.slotRef !== undefined) { if (args.slotRef !== null && !this.state.tracks.some((track) => (track.clipSlots ?? []).some((slot) => slot.ref === args.slotRef))) throw new Error("clip-slot reference is stale or invalid"); selection.slotRef = args.slotRef as LiveRef | null; }
+        if (args.detailClipRef !== undefined) { if (args.detailClipRef !== null && !this.state.tracks.some((track) => track.clips.some((clip) => clip.ref === args.detailClipRef))) throw new Error("clip reference is stale or invalid"); selection.detailClipRef = args.detailClipRef as LiveRef | null; }
+        if (args.deviceRef !== undefined) { if (args.deviceRef !== null && !this.state.tracks.some((track) => track.devices.some((device) => device.ref === args.deviceRef))) throw new Error("device reference is stale or invalid"); selection.deviceRef = args.deviceRef as LiveRef | null; }
+        if (args.parameterRef !== undefined) { if (args.parameterRef !== null && !this.state.tracks.some((track) => track.devices.some((device) => device.parameters.some((parameter) => parameter.ref === args.parameterRef)))) throw new Error("parameter reference is stale or invalid"); selection.parameterRef = args.parameterRef as LiveRef | null; }
+        if (args.chainRef !== undefined) { if (args.chainRef !== null) throw new Error("chain reference is stale or invalid"); selection.chainRef = null; }
+        this.emit({ type: "state", payload: { operation } });
+        return { changed: true, revision: simulatorRevision(selection) };
+      }
+      case "song.view.set": {
+        if (args.expectedStateRevision !== simulatorRevision({ drawMode: this.state.view?.drawMode ?? null })) throw new Error("song view state changed since preview");
+        if (typeof args.drawMode !== "boolean") throw new TypeError("drawMode is invalid");
+        this.state.view = { ...(this.state.view ?? { visibleView: "Session", follow: false }), drawMode: args.drawMode };
+        this.emit({ type: "state", payload: { operation } });
+        return { changed: true, revision: simulatorRevision({ drawMode: this.state.view.drawMode }) };
+      }
+      case "clip.view.set": {
+        const clip = this.findClip(objectRef("ref"));
+        if (clip.objectIdentity !== args.expectedObjectIdentity) throw new Error("clip identity changed since preview");
+        const state = { gridQuantization: clip.clipView?.gridQuantization ?? null, gridIsTriplet: clip.clipView?.gridIsTriplet ?? null };
+        if (args.expectedStateRevision !== simulatorRevision(state)) throw new Error("clip view state changed since preview");
+        clip.clipView = clip.clipView ?? {};
+        if (args.gridQuantization !== undefined) { if (!Number.isInteger(args.gridQuantization) || (args.gridQuantization as number) < 0 || (args.gridQuantization as number) > 16) throw new RangeError("gridQuantization is invalid"); clip.clipView.gridQuantization = args.gridQuantization as number; }
+        if (args.gridIsTriplet !== undefined) { if (typeof args.gridIsTriplet !== "boolean") throw new TypeError("gridIsTriplet is invalid"); clip.clipView.gridIsTriplet = args.gridIsTriplet; }
+        if (args.showEnvelope !== undefined && typeof args.showEnvelope !== "boolean") throw new TypeError("showEnvelope is invalid");
+        this.emit({ type: "object", ref: clip.ref, payload: { operation, showLoop: args.showLoop === true } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "device.view.set": {
+        const device = this.state.tracks.flatMap((track) => track.devices).find((candidate) => candidate.ref === objectRef("ref"));
+        if (!device) throw new Error("device reference is stale or invalid");
+        if (device.objectIdentity !== args.expectedObjectIdentity) throw new Error("device identity changed since preview");
+        if (args.expectedStateRevision !== simulatorRevision({ collapsed: device.view?.isCollapsed ?? null })) throw new Error("device view state changed since preview");
+        if (typeof args.collapsed !== "boolean") throw new TypeError("collapsed is invalid");
+        device.view = { ...(device.view ?? {}), isCollapsed: args.collapsed };
+        this.emit({ type: "object", ref: device.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "application.dialog": {
+        const dialog = () => ({ buttonCount: 2, message: "Save changes before closing?", openDialogCount: 1 });
+        if (args.action === "read") return { ...dialog(), done: true };
+        if (args.action !== "press") throw new RangeError("dialog action is invalid");
+        if (!Number.isInteger(args.button) || (args.button as number) < 0 || (args.button as number) > 16) throw new RangeError("dialog button is invalid");
+        const current = dialog();
+        if (args.expectedMessage !== current.message || args.expectedButtonCount !== current.buttonCount || args.expectedOpenDialogCount !== current.openDialogCount) throw new Error("dialog state changed since preview");
+        if ((args.button as number) >= current.buttonCount) throw new RangeError("dialog button is not present in the current dialog");
+        return { ...dialog(), done: true };
+      }
+      case "performance.read": {
+        const tracks = this.state.tracks.map((track) => ({
+          ref: track.ref,
+          performanceImpact: track.performanceImpact ?? null,
+          inputMeterLeft: track.inputMeterLeft ?? null, inputMeterRight: track.inputMeterRight ?? null, inputMeterLevel: track.inputMeterLevel ?? null,
+          outputMeterLeft: track.outputMeterLeft ?? null, outputMeterRight: track.outputMeterRight ?? null, outputMeterLevel: track.outputMeterLevel ?? null,
+          devices: track.devices.map((device) => ({ ref: device.ref, latencySamples: device.latencySamples ?? null, latencyMs: device.latencyMs ?? null })),
+        }));
+        const state = { averageProcessUsage: 0.42, peakProcessUsage: 0.87, tracks };
+        return { ...state, sampledAt: Date.now(), revision: simulatorRevision(state) };
+      }
+      case "mixer.extended.set": {
+        const track = this.findTrack(objectRef("ref"));
+        if (!track?.mixer) throw new Error("mixer is unavailable");
+        const mixer = track.mixer;
+        if (track.objectIdentity !== args.expectedObjectIdentity) throw new Error("track identity changed since preview");
+        if (args.expectedMixerIdentity !== (mixer as unknown as { mixerIdentity?: string }).mixerIdentity && args.expectedMixerIdentity !== "simulator") throw new Error("mixer identity changed since preview");
+        const state = { crossfadeAssign: mixer.crossfadeAssign ?? null, panningMode: mixer.panningMode ?? null };
+        if (args.expectedStateRevision !== simulatorRevision(state)) throw new Error("extended mixer state changed since preview");
+        if (args.trackActivator !== undefined) { if (typeof args.trackActivator !== "boolean") throw new TypeError("trackActivator is invalid"); (mixer as unknown as Record<string, unknown>).trackActivator = args.trackActivator; }
+        if (args.crossfader !== undefined) { const value = args.crossfader; if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > 1) throw new RangeError("crossfader is invalid"); (mixer as unknown as Record<string, unknown>).crossfader = value; }
+        if (args.crossfadeAssign !== undefined) { if (!Number.isInteger(args.crossfadeAssign) || (args.crossfadeAssign as number) < 0 || (args.crossfadeAssign as number) > 2) throw new RangeError("crossfadeAssign is invalid"); mixer.crossfadeAssign = args.crossfadeAssign as number; }
+        if (args.panningMode !== undefined) { if (!Number.isInteger(args.panningMode) || (args.panningMode as number) < 0 || (args.panningMode as number) > 8) throw new RangeError("panningMode is invalid"); mixer.panningMode = args.panningMode as number; }
+        if (args.panningLeft !== undefined) { const value = args.panningLeft; if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > 1) throw new RangeError("panningLeft is invalid"); (mixer as unknown as Record<string, unknown>).panningLeft = value; }
+        if (args.panningRight !== undefined) { const value = args.panningRight; if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > 1) throw new RangeError("panningRight is invalid"); (mixer as unknown as Record<string, unknown>).panningRight = value; }
+        this.emit({ type: "object", ref: track.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "chain-mixer.set": {
+        const found = this.findChain(objectRef("ref"));
+        if (!found) throw new Error("chain reference is stale or invalid");
+        const mixer = found.chain.mixer;
+        if (!mixer) throw new Error("chain mixer is unavailable");
+        if (found.chain.objectIdentity !== args.expectedObjectIdentity) throw new Error("chain identity changed since preview");
+        if (args.expectedMixerIdentity !== mixer.mixerIdentity) throw new Error("chain mixer identity changed since preview");
+        if (args.expectedStateRevision !== simulatorRevision({ sends: mixer.sends })) throw new Error("chain mixer state changed since preview");
+        if (args.volume !== undefined) { const value = args.volume; if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) throw new RangeError("volume is invalid"); mixer.volume = value; }
+        if (args.pan !== undefined) { const value = args.pan; if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > 1) throw new RangeError("pan is invalid"); mixer.pan = value; }
+        if (args.sends !== undefined) { const values = args.sends; if (!Array.isArray(values) || values.length > mixer.sends.length || !values.every((value) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1)) throw new RangeError("sends are invalid"); (values as number[]).forEach((value, index) => { mixer.sends[index] = value; }); }
+        if (args.chainActivator !== undefined) { if (typeof args.chainActivator !== "boolean") throw new TypeError("chainActivator is invalid"); (mixer as unknown as Record<string, unknown>).chainActivator = args.chainActivator; }
+        this.emit({ type: "object", ref: found.chain.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "device-io.set": {
+        const device = this.state.tracks.flatMap((track) => track.devices).find((candidate) => candidate.ref === objectRef("ref"));
+        if (!device) throw new Error("device reference is stale or invalid");
+        if (device.objectIdentity !== args.expectedObjectIdentity) throw new Error("device identity changed since preview");
+        const io = (device as unknown as { deviceIo?: { routingType: string; routingChannel: string } }).deviceIo;
+        if (!io) throw new Error("device IO is unavailable on this shape");
+        if (args.expectedStateRevision !== simulatorRevision({ routingType: io.routingType, routingChannel: io.routingChannel })) throw new Error("device IO state changed since preview");
+        if (args.routingType !== undefined) { if (typeof args.routingType !== "string" || args.routingType.length < 1) throw new RangeError("routingType is invalid"); io.routingType = args.routingType; }
+        if (args.routingChannel !== undefined) { if (typeof args.routingChannel !== "string" || args.routingChannel.length < 1) throw new RangeError("routingChannel is invalid"); io.routingChannel = args.routingChannel; }
+        this.emit({ type: "object", ref: device.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "compressor.sidechain.set": {
+        const device = this.state.tracks.flatMap((track) => track.devices).find((candidate) => candidate.ref === objectRef("ref"));
+        if (!device) throw new Error("device reference is stale or invalid");
+        if (device.objectIdentity !== args.expectedObjectIdentity) throw new Error("device identity changed since preview");
+        const sidechain = (device as unknown as { sidechainRoutingType?: string }).sidechainRoutingType;
+        if (sidechain === undefined) throw new Error("sidechain routing is unavailable on this device shape");
+        if (args.expectedStateRevision !== simulatorRevision({ routingType: sidechain })) throw new Error("sidechain state changed since preview");
+        if (typeof args.routingType !== "string" || args.routingType.length < 1) throw new RangeError("routingType is invalid");
+        (device as unknown as { sidechainRoutingType?: string }).sidechainRoutingType = args.routingType;
+        this.emit({ type: "object", ref: device.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "device.bank.set": {
+        const device = this.state.tracks.flatMap((track) => track.devices).find((candidate) => candidate.ref === objectRef("ref"));
+        if (!device) throw new Error("device reference is stale or invalid");
+        if (device.objectIdentity !== args.expectedObjectIdentity) throw new Error("device identity changed since preview");
+        const bankCount = device.parameterBank ?? null;
+        if (bankCount === null) throw new Error("parameter banks are unavailable on this device");
+        if (args.expectedStateRevision !== simulatorRevision({ bankCount })) throw new Error("device bank state changed since preview");
+        if (!Number.isInteger(args.bank) || (args.bank as number) < 0 || (args.bank as number) > 32) throw new RangeError("bank is invalid");
+        if (args.scriptIndex !== undefined && (!Number.isInteger(args.scriptIndex) || (args.scriptIndex as number) < 0 || (args.scriptIndex as number) > 16)) throw new RangeError("scriptIndex is invalid");
+        if ((args.bank as number) >= bankCount) throw new RangeError("bank exceeds the device's parameter bank count");
+        (device as unknown as { chosenBank?: number }).chosenBank = args.bank as number;
+        this.emit({ type: "object", ref: device.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "parameter.re-enable-automation": {
+        const parameter = this.state.tracks.flatMap((track) => track.devices.flatMap((device) => device.parameters)).find((candidate) => candidate.ref === objectRef("ref"));
+        if (!parameter) throw new Error("parameter reference is stale or invalid");
+        if (parameter.objectIdentity !== args.expectedObjectIdentity) throw new Error("parameter identity changed since preview");
+        if (args.expectedStateRevision !== simulatorRevision({ automationState: "none" })) throw new Error("parameter automation state changed since preview");
+        this.emit({ type: "object", ref: parameter.ref, payload: { operation } });
+        return { done: true };
+      }
+      case "device.comparison.save-to-slot": {
+        const device = this.state.tracks.flatMap((track) => track.devices).find((candidate) => candidate.ref === objectRef("ref"));
+        if (!device) throw new Error("device reference is stale or invalid");
+        if (device.objectIdentity !== args.expectedObjectIdentity) throw new Error("device identity changed since preview");
+        if (args.expectedStateRevision !== simulatorRevision({ canCompareAb: device.comparison?.capability ?? null, isUsingComparePresetB: device.comparison?.activeSide === 1 })) throw new Error("comparison state changed since preview");
+        if (device.comparison?.capability !== true) throw new Error("A/B comparison is unavailable on this device");
+        this.emit({ type: "object", ref: device.ref, payload: { operation } });
+        return { done: true };
+      }
+      case "chain.set": {
+        const found = this.findChain(objectRef("ref"));
+        if (!found) throw new Error("chain reference is stale or invalid");
+        const chain = found.chain;
+        if (chain.objectIdentity !== args.expectedObjectIdentity) throw new Error("chain identity changed since preview");
+        const state = { colorIndex: chain.colorIndex ?? null, autoColor: chain.autoColor ?? null, mute: chain.mute ?? null, solo: chain.solo ?? null };
+        if (args.expectedStateRevision !== simulatorRevision(state)) throw new Error("chain state changed since preview");
+        if (args.colorIndex !== undefined) { if (!Number.isInteger(args.colorIndex) || (args.colorIndex as number) < 0 || (args.colorIndex as number) > 69) throw new RangeError("colorIndex is invalid"); chain.colorIndex = args.colorIndex as number; }
+        if (args.autoColor !== undefined) { if (typeof args.autoColor !== "boolean") throw new TypeError("autoColor is invalid"); chain.autoColor = args.autoColor; }
+        if (args.mute !== undefined) { if (typeof args.mute !== "boolean") throw new TypeError("mute is invalid"); chain.mute = args.mute; }
+        if (args.solo !== undefined) { if (typeof args.solo !== "boolean") throw new TypeError("solo is invalid"); chain.solo = args.solo; }
+        this.emit({ type: "object", ref: chain.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "drum-pad.set": {
+        const found = this.findDrumPad(objectRef("ref"));
+        if (!found) throw new Error("drum pad reference is stale or invalid");
+        const pad = found.pad;
+        if (pad.objectIdentity !== args.expectedObjectIdentity) throw new Error("drum pad identity changed since preview");
+        const state = { note: pad.note ?? null, solo: pad.solo ?? null };
+        if (args.expectedStateRevision !== simulatorRevision(state)) throw new Error("drum pad state changed since preview");
+        if (args.note !== undefined) throw new RangeError("DrumPad.note is read-only in the public LOM and cannot be assigned");
+        if (args.solo !== undefined) { if (typeof args.solo !== "boolean") throw new TypeError("solo is invalid"); pad.solo = args.solo; }
+        this.emit({ type: "object", ref: pad.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "drum-pad.delete-all-chains": {
+        const found = this.findDrumPad(objectRef("ref"));
+        if (!found) throw new Error("drum pad reference is stale or invalid");
+        const pad = found.pad;
+        if (pad.objectIdentity !== args.expectedObjectIdentity) throw new Error("drum pad identity changed since preview");
+        if (args.expectedStateRevision !== simulatorRevision(pad.chains.map((chain) => chain.objectIdentity))) throw new Error("drum pad chain collection changed since preview");
+        const deleted = pad.chains.length;
+        pad.chains = [];
+        this.emit({ type: "object", ref: pad.ref, payload: { operation } });
+        return { deleted };
+      }
+      case "rack.set": {
+        const device = this.state.tracks.flatMap((track) => track.devices).find((candidate) => candidate.ref === objectRef("ref"));
+        if (!device || device.canHaveChains !== true) throw new Error("rack operations require a rack device");
+        if (device.objectIdentity !== args.expectedObjectIdentity) throw new Error("rack identity changed since preview");
+        const state = { visibleMacroCount: device.visibleMacroCount ?? null, selectedVariationIndex: device.selectedVariationIndex ?? null, variationCount: device.variationCount ?? null, macros: (device.macros ?? []).map((macro) => macro.objectIdentity), chains: (device.chains ?? []).map((chain) => chain.objectIdentity), drumPads: (device.drumPads ?? []).map((pad) => pad.objectIdentity) };
+        if (args.expectedStateRevision !== simulatorRevision(state)) throw new Error("rack state changed since preview");
+        if (args.visibleMacroCount !== undefined) throw new RangeError("RackDevice.visible_macro_count is read-only in the public LOM; use rack.action add-macro/remove-macro to change it");
+        if (args.selectedVariationIndex !== undefined) { if (!Number.isInteger(args.selectedVariationIndex) || (args.selectedVariationIndex as number) < -1 || (args.selectedVariationIndex as number) > 256) throw new RangeError("selectedVariationIndex is invalid"); device.selectedVariationIndex = args.selectedVariationIndex as number; }
+        this.emit({ type: "object", ref: device.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "rack.action": {
+        const device = this.state.tracks.flatMap((track) => track.devices).find((candidate) => candidate.ref === objectRef("ref"));
+        if (!device || device.canHaveChains !== true) throw new Error("rack actions require a rack device");
+        if (device.objectIdentity !== args.expectedObjectIdentity) throw new Error("rack identity changed since preview");
+        const state = { visibleMacroCount: device.visibleMacroCount ?? null, selectedVariationIndex: device.selectedVariationIndex ?? null, variationCount: device.variationCount ?? null, macros: (device.macros ?? []).map((macro) => macro.objectIdentity), chains: (device.chains ?? []).map((chain) => chain.objectIdentity), drumPads: (device.drumPads ?? []).map((pad) => pad.objectIdentity) };
+        if (args.expectedStateRevision !== simulatorRevision(state)) throw new Error("rack state changed since preview");
+        const action = args.action;
+        // remove_macro(), recall_selected_variation(), and
+        // delete_selected_variation() take no index in the public LOM; macro
+        // count changes are observable through visible_macro_count.
+        if (["remove-macro", "recall-variation", "delete-variation"].includes(action as string) && args.index !== undefined) throw new RangeError("this rack action takes no index in the public LOM");
+        if (action === "add-macro") { device.visibleMacroCount = Math.min(16, (device.visibleMacroCount ?? 0) + 1); device.macros = [...(device.macros ?? []), { ref: ref("parameter", `${device.ref}:macro:${(device.macros ?? []).length}`), objectIdentity: `simulator:parameter:${this.sequence + 1}`, name: `Macro ${(device.macros ?? []).length + 1}`, value: 0 }]; }
+        else if (action === "remove-macro") { if ((device.visibleMacroCount ?? 1) <= 1) throw new Error("cannot remove the last macro"); device.visibleMacroCount = (device.visibleMacroCount ?? 1) - 1; device.macros?.splice((device.macros ?? []).length - 1, 1); }
+        else if (action === "randomize-macros") { for (const macro of device.macros ?? []) macro.value = Math.round(Math.random() * 100) / 100; }
+        else if (action === "insert-chain") { const chain: DeviceChain = { ref: ref("chain", `${device.ref}:${(device.chains ?? []).length}`), parentRef: device.ref, objectIdentity: `simulator:chain:${this.sequence + 1}`, index: (device.chains ?? []).length, name: "New Chain", mute: false, solo: false, devices: [] }; device.chains = [...(device.chains ?? []), chain]; }
+        else if (action === "copy-pad") { const source = args.sourceIndex; const target = args.targetIndex; if (!Number.isInteger(source) || !Number.isInteger(target) || (source as number) < 0 || (target as number) < 0) throw new RangeError("copy-pad requires sourceIndex and targetIndex"); }
+        else if (action === "store-variation") { device.variationCount = (device.variationCount ?? 0) + 1; }
+        else if (action === "recall-variation") { /* recall_selected_variation: no observable index change in the simulator */ }
+        else if (action === "delete-variation") { device.variationCount = Math.max(0, (device.variationCount ?? 0) - 1); }
+        else throw new RangeError("rack action is invalid");
+        this.emit({ type: "object", ref: device.ref, payload: { operation } });
+        return { done: true, revision: ++this.sequence };
+      }
+      case "rack.view.set": {
+        const device = this.state.tracks.flatMap((track) => track.devices).find((candidate) => candidate.ref === objectRef("ref"));
+        if (!device || device.canHaveChains !== true) throw new Error("rack view requires a rack device");
+        if (device.objectIdentity !== args.expectedObjectIdentity) throw new Error("rack identity changed since preview");
+        const state = { padScrollPosition: device.rackView?.padScrollPosition ?? null, showChainDevices: device.rackView?.showChainDevices ?? null };
+        if (args.expectedStateRevision !== simulatorRevision(state)) throw new Error("rack view state changed since preview");
+        device.rackView = device.rackView ?? {};
+        if (args.selectedChainRef !== undefined) { if (args.selectedChainRef !== null && !this.findChain(args.selectedChainRef as LiveRef)) throw new Error("selectedChainRef is stale or invalid"); device.rackView.selectedChainRef = args.selectedChainRef as LiveRef | null; }
+        if (args.selectedPadIndex !== undefined) { if (!Number.isInteger(args.selectedPadIndex) || (args.selectedPadIndex as number) < -1 || (args.selectedPadIndex as number) > 127) throw new RangeError("selectedPadIndex is invalid"); device.rackView.selectedPadIndex = args.selectedPadIndex as number; }
+        if (args.padScrollPosition !== undefined) { if (!Number.isInteger(args.padScrollPosition) || (args.padScrollPosition as number) < 0 || (args.padScrollPosition as number) > 127) throw new RangeError("padScrollPosition is invalid"); device.rackView.padScrollPosition = args.padScrollPosition as number; }
+        if (args.showChainDevices !== undefined) { if (typeof args.showChainDevices !== "boolean") throw new TypeError("showChainDevices is invalid"); device.rackView.showChainDevices = args.showChainDevices; }
+        this.emit({ type: "object", ref: device.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "drift.set":
+      case "drum-cell.set":
+      case "eq8.set":
+      case "hybrid-reverb.set":
+      case "looper.set":
+      case "meld.set":
+      case "plugin.set": {
+        const device = this.state.tracks.flatMap((track) => track.devices).find((candidate) => candidate.ref === objectRef("ref"));
+        if (!device) throw new Error("device reference is stale or invalid");
+        if (device.objectIdentity !== args.expectedObjectIdentity) throw new Error("device identity changed since preview");
+        const familyKey = { "drift.set": "drift", "drum-cell.set": "drumCell", "eq8.set": "eq8", "hybrid-reverb.set": "hybridReverb", "looper.set": "looper", "meld.set": "meld", "plugin.set": "plugin" }[operation as string] as "drift" | "drumCell" | "eq8" | "hybridReverb" | "looper" | "meld" | "plugin";
+        const fieldMap: Record<string, string[]> = {
+          "drift.set": ["pitchBendRange", "voiceCount", "voiceMode"],
+          "drum-cell.set": ["gain"],
+          "eq8.set": ["editMode", "globalMode", "oversample", "selectedBand"],
+          "hybrid-reverb.set": ["irCategory", "irFile", "attack", "decay", "size"],
+          "looper.set": ["overdubAfterRecord", "recordLengthIndex"],
+          "meld.set": ["engine", "unison", "monoPoly", "polyphony"],
+          "plugin.set": ["presetIndex", "isEditorOpen"],
+        };
+        const fields = fieldMap[operation as keyof typeof fieldMap];
+        if (!fields) throw new Error("specialized operation mapping is unavailable");
+        const row = (device[familyKey] ??= {}) as unknown as Record<string, unknown>;
+        const state = Object.fromEntries(fields.map((field) => [field, row[field] ?? null]));
+        if (args.expectedStateRevision !== simulatorRevision(state)) throw new Error("device state changed since preview");
+        for (const field of fields) {
+          if (args[field] === undefined) continue;
+          const value = args[field];
+          if (field === "oversample" || field === "monoPoly" || field === "isEditorOpen" || field === "overdubAfterRecord") { if (typeof value !== "boolean") throw new TypeError(`${field} is invalid`); row[field] = value; continue; }
+          if (field === "irCategory" || field === "irFile") {
+            if (typeof value !== "string" || value.length < 1) throw new RangeError(`${field} is invalid`);
+            const list = row[field === "irCategory" ? "irCategoryList" : "irFileList"];
+            if (!Array.isArray(list) || !list.includes(value)) throw new RangeError(`${field} is not an available choice`);
+            row[field] = value; continue;
+          }
+          if (typeof value !== "number" || !Number.isFinite(value)) throw new RangeError(`${field} is invalid`);
+          if (["pitchBendRange", "voiceCount", "voiceMode", "editMode", "globalMode", "selectedBand", "engine", "unison", "polyphony", "presetIndex", "recordLengthIndex"].includes(field) && !Number.isInteger(value)) throw new RangeError(`${field} is invalid`);
+          row[field] = value;
+        }
+        this.emit({ type: "object", ref: device.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence };
+      }
+      case "looper.action": {
+        const device = this.state.tracks.flatMap((track) => track.devices).find((candidate) => candidate.ref === objectRef("ref"));
+        if (!device) throw new Error("device reference is stale or invalid");
+        if (device.objectIdentity !== args.expectedObjectIdentity) throw new Error("device identity changed since preview");
+        const row = (device.looper ??= {}) as Record<string, unknown>;
+        const state = { overdubAfterRecord: row.overdubAfterRecord ?? null, recordLengthIndex: row.recordLengthIndex ?? null, loopLength: row.loopLength ?? null, tempo: row.tempo ?? null, state: row.state ?? null };
+        if (args.expectedStateRevision !== simulatorRevision(state)) throw new Error("looper state changed since preview");
+        const action = args.action;
+        if (typeof action !== "string" || !["record", "overdub", "play", "stop", "clear", "undo", "double-speed", "half-speed", "export"].includes(action)) throw new RangeError("looper action is invalid");
+        if (action === "export") {
+          const slotRef = args.slotRef;
+          if (typeof slotRef !== "string") throw new RangeError("export requires an exact target clip slot");
+          const slot = this.state.tracks.flatMap((track) => track.clipSlots ?? []).find((candidate) => candidate.ref === slotRef);
+          if (!slot) throw new Error("export target clip slot is stale or invalid");
+          if (slot.clipRef !== null && slot.clipRef !== undefined) throw new Error("export target clip slot is not empty");
+          const clip: Clip = { ref: ref("clip", `looper-export-${this.sequence + 1}`), objectIdentity: `simulator:clip:looper-export:${this.sequence + 1}`, name: "Looper Export", kind: "audio", start: 0, length: (row.loopLength as number | undefined) ?? 4, notes: [], warp: true, takes: [], automation: [], muted: false };
+          slot.clipRef = clip.ref; slot.empty = false;
+          const track = this.state.tracks.find((candidate) => (candidate.clipSlots ?? []).includes(slot));
+          track?.clips.push(clip);
+        } else if (args.slotRef !== undefined) throw new RangeError("slotRef is only valid for the export action");
+        this.emit({ type: "object", ref: device.ref, payload: { operation, action } });
+        return { done: true, revision: ++this.sequence };
+      }
+      case "simpler.replace-sample": {
+        const device = this.state.tracks.flatMap((track) => track.devices).find((candidate) => candidate.ref === objectRef("ref"));
+        if (!device) throw new Error("device reference is stale or invalid");
+        if (device.objectIdentity !== args.expectedObjectIdentity) throw new Error("device identity changed since preview");
+        const filePath = args.filePath;
+        if (typeof filePath !== "string" || filePath.length < 1 || filePath.length > 1024 || !(filePath.startsWith("/") || /^[A-Za-z]:/.test(filePath))) throw new RangeError("filePath must be an absolute path");
+        const currentPath = (device as unknown as { samplePath?: string }).samplePath ?? "";
+        if (args.expectedStateRevision !== simulatorRevision({ filePath: currentPath })) throw new Error("simpler sample state changed since preview");
+        (device as unknown as { samplePath?: string }).samplePath = filePath;
+        this.emit({ type: "object", ref: device.ref, payload: { operation } });
+        return { changed: true, revision: ++this.sequence, filePath };
+      }
+      case "observe.subscribe": {
+        const topics = args.topics;
+        if (!Array.isArray(topics) || topics.length < 1 || topics.length > 64) throw new RangeError("topics are invalid");
+        const interval = args.minIntervalMs ?? 250;
+        if (!Number.isInteger(interval) || (interval as number) < 100 || (interval as number) > 60000) throw new RangeError("minIntervalMs is invalid");
+        this.observeSubscriptions ??= new Map();
+        if (this.observeSubscriptions.size >= 8) throw new Error("observe subscription quota is exhausted");
+        const seen = new Set<string>();
+        const validated = topics.map((topic) => {
+          if (!topic || typeof topic !== "object" || !["transport", "selection", "track", "clip", "device", "parameter", "groove", "tuning", "scene", "meters", "rack"].includes((topic as { kind?: unknown }).kind as string)) throw new RangeError("observe topic is invalid");
+          const kind = (topic as { kind: string }).kind;
+          const ref = (topic as { ref?: unknown }).ref;
+          if (ref !== undefined && typeof ref !== "string") throw new RangeError("observe topic ref is invalid");
+          const key = `${kind}:${(ref as string | undefined) ?? ""}`;
+          if (seen.has(key)) throw new RangeError("duplicate observe topic");
+          seen.add(key);
+          return { kind, ref: ref as string | undefined, revision: this.observeTopicDigest(kind, ref as string | undefined) };
+        });
+        const subscriptionId = `obs_${(++this.observeSequence).toString(36)}_${Math.random().toString(36).slice(2, 18)}`;
+        this.observeSubscriptions.set(subscriptionId, { topics: validated, minIntervalMs: interval as number, sequence: 0, lastPollMs: -(interval as number) });
+        return { subscriptionId, topics: validated.map((topic) => ({ kind: topic.kind, ...(topic.ref !== undefined ? { ref: topic.ref } : {}) })), minIntervalMs: interval, revisions: Object.fromEntries(validated.map((topic) => [`${topic.kind}:${topic.ref ?? ""}`, topic.revision])) };
+      }
+      case "observe.poll": {
+        const subscriptionId = args.subscriptionId;
+        if (typeof subscriptionId !== "string") throw new TypeError("subscriptionId is invalid");
+        const subscription = this.observeSubscriptions?.get(subscriptionId);
+        if (!subscription) throw new Error("observe subscription is unknown or expired");
+        const now = Date.now();
+        if (now - subscription.lastPollMs < subscription.minIntervalMs) throw new Error("observe poll is faster than the negotiated minimum interval");
+        subscription.lastPollMs = now;
+        const events: Array<{ kind: string; ref: string | null; revision: string; changedFields: string[] }> = [];
+        let overflow = false;
+        for (const topic of subscription.topics) {
+          const digest = this.observeTopicDigest(topic.kind, topic.ref);
+          if (digest !== topic.revision) {
+            if (events.length >= 64) { overflow = true; break; }
+            events.push({ kind: topic.kind, ref: topic.ref ?? null, revision: digest, changedFields: this.observeChangedFields(topic.kind, topic.ref) });
+            topic.revision = digest;
+          }
+        }
+        if (overflow) for (const topic of subscription.topics) topic.revision = this.observeTopicDigest(topic.kind, topic.ref);
+        subscription.sequence += 1;
+        return { events, overflow, sequence: subscription.sequence };
+      }
+      case "observe.unsubscribe": {
+        const subscriptionId = args.subscriptionId;
+        if (typeof subscriptionId !== "string") throw new TypeError("subscriptionId is invalid");
+        if (!this.observeSubscriptions?.delete(subscriptionId)) throw new Error("observe subscription is unknown or expired");
+        return { unsubscribed: true };
       }
       case "locator.jump": {
         const direction = args.direction;
@@ -762,8 +1664,9 @@ export class DeterministicLiveSimulator implements LiveAdapter {
       }
       case "view.control": {
         const action = args.action;
-        const actions = ["zoom-in", "zoom-out", "scroll-left", "scroll-right", "follow-on", "follow-off", "collapse-track", "expand-track"];
+        const actions = ["zoom-in", "zoom-out", "scroll-left", "scroll-right", "follow-on", "follow-off", "collapse-track", "expand-track", "hide-view", "focus-view", "browser-toggle"];
         if (typeof action !== "string" || !actions.includes(action)) throw new RangeError("view control action is invalid");
+        if ((action === "hide-view" || action === "focus-view") && (typeof args.view !== "string" || args.view.length < 1 || args.view.length > 64)) throw new RangeError("view name is required");
         if (action === "follow-on" || action === "follow-off") this.state.view = { visibleView: this.state.view?.visibleView ?? "Session", follow: action === "follow-on" };
         if (action === "collapse-track" || action === "expand-track") { const track = this.findTrack(objectRef("trackRef")); if (!track) throw new Error("track reference is stale or invalid"); }
         this.emit({ type: "state", payload: { operation } });
@@ -852,6 +1755,12 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         if (args.input !== undefined) track.input = stringArg("input");
         if (args.output !== undefined) track.output = stringArg("output");
         this.emit({ type: "object", ref: track.ref, payload: { operation, input: track.input, output: track.output } }); return structuredClone(track);
+      }
+      case "browser.roots": {
+        const searchable = new Set(["instruments", "audio_effects", "midi_effects", "drums", "plugins", "packs", "max_for_live", "clips", "sounds", "samples", "user_library", "user_folders", "current_project"]);
+        const roots = ["instruments", "sounds", "samples", "user_library", "current_project", "legacy_libraries", "tunings"].map((name) => ({ name, binding: "unofficial-internal", searchable: searchable.has(name) }));
+        const state = { roots, previewAvailable: false, bindingEvidence: "shape-probed on the connected build (Live simulator); undocumented Remote Script internals, version-specific" };
+        return { ...state, revision: simulatorRevision(state) };
       }
       case "browser.search": {
         const query = stringArg("query").toLowerCase();
@@ -946,7 +1855,99 @@ export class DeterministicLiveSimulator implements LiveAdapter {
     { id: "drums/Kick Core", objectIdentity: "simulator:browser:drums/Kick Core", name: "Kick Core", category: "drums", path: "drums/Kick Core", isDevice: false },
   ]; }
   private findClipWithTrack(objectRef: LiveRef): { track: Track; clip: Clip } | undefined { for (const track of this.state.tracks) { const clip = track.clips.find((item) => item.ref === objectRef); if (clip) return { track, clip }; } return undefined; }
-  private find(objectRef: LiveRef): Track | Clip | Device | Parameter | undefined { for (const track of this.state.tracks) { if (track.ref === objectRef) return track; const clip = track.clips.find((item) => item.ref === objectRef); if (clip) return clip; for (const device of track.devices) { if (device.ref === objectRef) return device; const parameter = device.parameters.find((item) => item.ref === objectRef); if (parameter) return parameter; } } return undefined; }
+  private find(objectRef: LiveRef): Track | Clip | Device | Parameter | undefined { for (const track of this.state.tracks) { if (track.ref === objectRef) return track; const clip = track.clips.find((item) => item.ref === objectRef); if (clip) return clip; for (const lane of track.takeLanes ?? []) { const laneClip = lane.clips.find((item) => item.ref === objectRef); if (laneClip) return laneClip; } for (const device of track.devices) { if (device.ref === objectRef) return device; const parameter = device.parameters.find((item) => item.ref === objectRef); if (parameter) return parameter; } } return undefined; }
+  private observeSequence = 0;
+  private observeSubscriptions?: Map<string, { topics: Array<{ kind: string; ref?: string; revision: string }>; minIntervalMs: number; sequence: number; lastPollMs: number }>;
+
+  private observeTopicDigest(kind: string, reference?: string): string {
+    switch (kind) {
+      case "transport": {
+        const transport = this.state.playback.transport;
+        return simulatorRevision({ transport, tempo: this.state.set.tempo, signature: [this.state.song?.signatureNumerator ?? null, this.state.song?.signatureDenominator ?? null] });
+      }
+      case "selection": return simulatorRevision(this.state.selection);
+      case "track": {
+        const track = this.findTrack(reference as LiveRef);
+        if (!track) throw new Error("track topics require a track ref");
+        return simulatorRevision({ arm: track.armed, mute: track.mute, solo: track.solo, fold: track.foldState ?? null, frozen: track.isFrozen ?? null, routing: [track.routing?.inputType ?? "", track.routing?.outputType ?? ""] });
+      }
+      case "clip": {
+        const clip = this.findClip(reference as LiveRef);
+        return simulatorRevision({ playing: clip.isPlaying ?? null, loopStart: clip.loopStart ?? null, loopEnd: clip.loopEnd ?? null, looping: clip.looping ?? null, notes: clip.notes, warpMarkers: clip.warpMarkers ?? [], launchMode: clip.launchMode ?? null });
+      }
+      case "device": {
+        const device = this.state.tracks.flatMap((track) => track.devices).find((candidate) => candidate.ref === (reference as LiveRef));
+        if (!device) throw new Error("device topics require a device ref");
+        return simulatorRevision({ enabled: device.enabled ?? null, bank: device.parameterBank ?? null, view: device.view?.isCollapsed ?? null, parameters: device.parameters.map((parameter) => parameter.value) });
+      }
+      case "parameter": {
+        const parameter = this.state.tracks.flatMap((track) => track.devices.flatMap((device) => device.parameters)).find((candidate) => candidate.ref === (reference as LiveRef));
+        if (!parameter) throw new Error("parameter topics require a parameter ref");
+        return simulatorRevision({ value: parameter.value });
+      }
+      case "groove": return simulatorRevision(this.state.groovePool);
+      case "tuning": return simulatorRevision(this.state.tuning);
+      case "scene": {
+        const scene = this.state.scenes.find((candidate) => candidate.ref === (reference as LiveRef));
+        if (!scene) throw new Error("scene topics require a scene ref");
+        return simulatorRevision({ colorIndex: scene.colorIndex ?? null, tempo: scene.tempo ?? null, tempoEnabled: scene.tempoEnabled ?? null, signatureNumerator: scene.signatureNumerator ?? null, signatureDenominator: scene.signatureDenominator ?? null, timeSignatureEnabled: scene.timeSignatureEnabled ?? null, isTriggered: scene.isTriggered ?? null });
+      }
+      case "meters": {
+        const track = this.findTrack(reference as LiveRef);
+        if (!track) throw new Error("meter topics require a track ref");
+        return simulatorRevision({ in: [track.inputMeterLeft ?? null, track.inputMeterRight ?? null], out: [track.outputMeterLeft ?? null, track.outputMeterRight ?? null], impact: track.performanceImpact ?? null });
+      }
+      case "rack": {
+        const device = this.state.tracks.flatMap((track) => track.devices).find((candidate) => candidate.ref === (reference as LiveRef));
+        if (!device) throw new Error("rack topics require a device ref");
+        return simulatorRevision({ macros: (device.macros ?? []).map((macro) => macro.objectIdentity), chains: (device.chains ?? []).map((chain) => chain.objectIdentity), variationCount: device.variationCount ?? null, selectedVariationIndex: device.selectedVariationIndex ?? null, visibleMacroCount: device.visibleMacroCount ?? null });
+      }
+      default: throw new Error("observe topic kind is invalid");
+    }
+  }
+
+  private observeChangedFields(kind: string, reference?: string): string[] {
+    switch (kind) {
+      case "transport": return ["playing", "position", "loop"];
+      case "clip": return ["playing", "notesRevision", "markers", "loop"];
+      case "device": return ["enabled", "bank"];
+      case "parameter": return ["value"];
+      case "groove": return ["grooveAmount"];
+      case "tuning": return ["referencePitch", "rootNote"];
+      case "scene": return ["isTriggered", "tempo"];
+      case "rack": return ["macros", "chains", "variationCount", "selectedVariationIndex"];
+      default: return [kind];
+    }
+  }
+
+  private findTakeLane(reference: LiveRef): { track: Track; lane: TakeLane } | undefined {
+    for (const track of this.state.tracks) {
+      const lane = (track.takeLanes ?? []).find((candidate) => candidate.ref === reference);
+      if (lane) return { track, lane };
+    }
+    return undefined;
+  }
+
+  private findChain(reference: LiveRef): { device: Device; chain: DeviceChain } | undefined {
+    for (const track of this.state.tracks) {
+      for (const device of track.devices) {
+        const chain = (device.chains ?? []).find((candidate) => candidate.ref === reference);
+        if (chain) return { device, chain };
+      }
+    }
+    return undefined;
+  }
+
+  private findDrumPad(reference: LiveRef): { device: Device; pad: DrumPad } | undefined {
+    for (const track of this.state.tracks) {
+      for (const device of track.devices) {
+        const pad = (device.drumPads ?? []).find((candidate) => candidate.ref === reference);
+        if (pad) return { device, pad };
+      }
+    }
+    return undefined;
+  }
+
   private findTrack(objectRef: LiveRef): Track | undefined { return this.state.tracks.find((track) => track.ref === objectRef); }
   private findClip(objectRef: LiveRef): Clip { const value = this.find(objectRef); if (!value || !("notes" in value)) throw new Error(`unknown clip reference: ${objectRef}`); return value; }
   private emit(event: Omit<LiveEvent, "epoch" | "sequence">): void { const complete = { ...event, epoch: this.epoch, sequence: ++this.sequence }; for (const listener of this.listeners) listener(structuredClone(complete)); }

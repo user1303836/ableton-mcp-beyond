@@ -15,18 +15,44 @@
 | やりたいこと | ツール | 知っておくべきこと |
 |---|---|---|
 | MIDI またはオーディオトラックとシーンを作成 | `live_session_structure_preview/apply` | 挿入位置はレギュラートラックのみ。return/main トラックが挿入スロットとして扱われることはありません |
+| リターントラックと複製 | `live_track_structure_preview/apply` | リターントラックの作成、トラック/シーンの複製。構造フェンスとガード付きクリーンアップ付き。リターントラックの削除は明示的で正直にアンドゥ不可 |
+| トラックの健全性と状態を読む | `live_snapshot`、`live_discover` | グループ関係、可視性、選択メンバーシップ、フリーズ/フォールド状態、暗黙アーム、バックトゥアレンジャー、ソロ経由ミュート、全入出力メーター、パフォーマンス影響を全トラック行で公開 |
+| パフォーマンスとレイテンシ診断 | `live_performance_read` | 有界なオンデマンドサンプル 1 回分: 平均/ピークプロセス使用率、トラックごとのメーターとパフォーマンス影響、サンプルとミリ秒でのデバイスレイテンシ。ポイントインタイムのエビデンス。メーターは Live UI メーターであり、デコード済みオーディオ解析ではない |
+| 既存デバイスを削除 | `live_device_delete_preview/apply` | 正確なアイデンティティと兄弟フェンスで既存デバイスを明示的に削除。正直にアンドゥ不可 |
+| トラックビューと楽器フォーカス | `live_track_view_preview/apply` | 折りたたみ状態とデバイス挿入モード(正確なアンドゥ付き)、Live のデバイスビューでの楽器選択(瞬時、アンドゥ不可) |
+| Live の選択とビューを駆動 | `live_selection_preview/apply`、`live_clip_view_preview/apply`、`live_device_view_preview/apply`、`live_view_preview/apply` | Song.View 選択(トラック、シーン、ハイライトスロット、ディテールクリップ、デバイス、パラメータ、チェーン)、ドローモード、クリップグリッド量子化/トリプレット/エンベロープ可視と show-loop、デバイス折りたたみ(形状ゲート)、メインビュー切替/非表示/フォーカス、ズーム/スクロール、フォローソング、トラック折りたたみ、Browser モード切替 — 状態が回復可能な箇所はすべて正確に復元 |
+| アプリケーションダイアログ | `live_application_dialog_preview/apply` | 現在のダイアログ状態を読み取り、プレビューした状態が正確に保持されている間だけダイアログボタンを 1 つ押下 — ダイアログボタンは破壊的な場合があり、状態が変わった瞬間に拒否 |
 | MIDI クリップを作成してノートを書き込む | `live_midi_clip_preview/apply`、`live_note_update_preview/apply`、`live_note_delete_preview/apply` | 完全な表現フィールド: velocity、channel、probability、velocity deviation、release velocity、mute。安定したノート ID。クリップごとに 1 回の不可分バッチ |
 | デバイスとプラグインのパラメータを変更 | `live_device_parameter_preview/apply` | 権威ある境界を持つ公開数値パラメータが対象。書き込み後に検証。ガード付きアンドゥ付き |
 | インストゥルメント、エフェクト、プリセットをロード | `live_browser_search`、`live_browser_load_preview/apply` | 正確な Browser アイテムを選択したトラックにロード。プラグインは Live 自身の Browser に表示されている必要があります |
-| デバイスを挿入、有効化、移動、削除 | `live_device_preview/apply` | 削除はトランザクション自身が作成したデバイスに限定(正確なクリーンアップ)。任意の削除は拒否 |
+| デバイスを挿入、有効化、移動、削除 | `live_device_preview/apply`、`live_device_delete_preview/apply` | 削除はトランザクション自身が作成したデバイスに限定(正確なクリーンアップ)。既存デバイスの明示的な削除はフェンス付きで正直にアンドゥ不可 |
+| 高度なデバイスとパラメータ制御 | `live_device_advanced_preview/apply`、`live_device_parameter_preview/apply` | すべての行でパラメータメタデータ(デフォルト値、元の名前、状態、列挙項目、表示値)を公開。パラメータバンク(正確なアンドゥ付き)。オートメーション再有効化と A/B 比較保存(瞬時)。チェーンデバイス挿入(空チェーンガード)。`Song.move_device` によるクロストラック/チェーンデバイス移動(正確な逆移動アンドゥ付き)。バイパスは読み取り専用の `Device.is_active` から書き込み可能を推測せず、プローブ済みの Device On パラメータのみ使用 |
+| 専用デバイス API | `live_device_specialized_preview/apply`、`live_looper_preview/apply`、`live_simpler_preview/apply` | Drift ピッチベンドレンジとボイス数/モードの index-and-list メンバー(モジュレーションマトリックスリストはデバイス行)。Drum Cell セマンティックゲイン。Eq8 編集/グローバルモード、`oversample`、ビュー選択バンド。Hybrid Reverb は index-and-list で IR カテゴリ/ファイルを選択し、IR attack/decay/size をシェーピング。Meld エンジン、unison voices、モノ/ポリ、poly voices。プラグインプリセット発見/選択とエディターウィンドウ状態(読み書き)。Looper は double/half speed を含むトランスポートアクション(瞬時)、正確な空クリップスロットへのエクスポート、書き込み可能な `overdubAfterRecord`/`recordLengthIndex`(正確なアンドゥ)を提供し、`loopLength`/`tempo` はデバイス行で読み取り専用。Simpler サンプル置換はステージング済みファイル権限と逆置換アンドゥ付き。すべてデバイスクラスとメンバー存在で形状ネゴシエート |
+| 未カバーの専用デバイス | — | RoarDevice、ShifterDevice、SpectralResonatorDevice、WavetableDevice にはまだセマンティックマッピングがありません。それらの汎用パラメータは標準のデバイスパラメータワークフローで引き続き利用でき、正確に取得した Live 形状が揃った場合にのみ専用ファミリーを提供します(明示的なディスポジション: 延期、主張しない)。Sample サーフェス(クリップ行を超えるスライス/warp/サンプルメタデータ)と Simpler の残りのサーフェス(エンベロープ、フィルター、LFO、再生モード)も同様に延期され、正直に未主張です |
 | ミックス: ボリューム、パン、ミュート、ソロ、キュー、センド | `live_mixer_preview/apply` | 事前値を先にキャプチャするため、ミックスの変更を正確に取り消せます |
+| 拡張ミキサーとクロスフェード | `live_mixer_extended_preview/apply` | トラックアクティベーター、クロスフェーダー、クロスフェード割り当て、パンニングモード、スプリットステレオ左右パンナー(正確なアンドゥ付き)。マスタートラックのセマンティックテンポパラメータはミキサー行で読み取り専用で公開。テンポ変更は従来どおりテンポワークフロー経由 |
+| ラックチェーンミキサー | `live_chain_mixer_preview/apply` | チェーンのボリューム、パン、センド、チェーンアクティベーター(正確なアンドゥ付き) |
+| チェーン、ドラムパッド、ラック | `live_chain_preview/apply`、`live_drum_pad_preview/apply`、`live_rack_preview/apply`、`live_rack_view_preview/apply` | チェーンカラー/オートカラー/ミュート/ソロ、ドラムチェーンのノートとチョークグループを行で公開。ドラムパッドのノート/ソロ(正確なアンドゥ付き)と明示的な全チェーン削除(アンドゥ不可)。ラックのリターンチェーン、マクロ状態、可視マクロ数、選択バリエーションを行で公開。マクロ追加/削除/ランダム化、チェーン挿入、パッドコピー、バリエーション保存/呼出/削除は瞬時アクション。ラックビューの選択チェーン/パッド、パッドスクロール、チェーンデバイス可視性は正確なアンドゥ付き |
+| デバイスルーティングとサイドチェーン | `live_device_io_preview/apply`、`live_routing_preview/apply` | トラックルーティング(型付き、フィードバック拒否)は `live_routing_*` に、デバイスレベル IO タイプ/チャネルとコンプレッサーサイドチェーンソースは `live_device_io_*` に — 別々の型付きサーフェス。それぞれ形状ゲートで、状態がある箇所はアンドゥ可能 |
 | Session クリップを起動・停止 | `live_clip_launch_preview/apply/stop` | 一度に 1 つの確認済み起動。マッパー所有の再生のみ停止 |
 | シーンを安全にオーディション | `live_session_audition_preview/apply/stop`、`live_session_emergency_stop` | 出力セーフティの確認と、停止済み・非アーム・非モニターのベースラインが必要。独立した緊急停止が常に利用可能 |
-| 再生の開始/停止、位置、ループ、メトロノーム、パンチ、カウントイン | `live_transport_preview/apply` | リビジョンフェンス付き。アンドゥ可能 |
+| 再生の開始/停止、位置、ループ、メトロノーム、パンチ | `live_transport_preview/apply` | リビジョンフェンス付き。アンドゥ可能。カウントインは読み取り専用で報告 |
 | テンポを変更 | `live_tempo_preview/apply` | 有界 BPM、事後条件検証付き |
-| ロケーター操作と再生ヘッドのジャンプ | `live_arrangement_section_preview/apply`、`live_locator_jump_preview/apply` | ロケーターの作成/削除/名前変更。再生ヘッドフェンス付きで次/前のロケーターへジャンプ |
+| ロケーター操作と再生ヘッドのジャンプ | `live_arrangement_section_preview/apply`、`live_locator_jump_preview/apply` | ロケーターの作成/削除/名前変更。次/前のロケーター、または `CuePoint.jump` で正確なロケーターへ、再生ヘッドフェンス付きでジャンプ |
 | タイムライン上でクリップを編成 | `live_arrangement_clip_preview/apply`、`live_clip_duplicate_preview/apply`、`live_clip_move_preview/apply` | クリップの作成、複製、移動。トランザクション作成クリップのクリーンアップは正確。任意の Arrangement 削除は拒否 |
 | オーディオファイルを Arrangement にインポート | `live_arrangement_clip_preview/apply` に `kind: "audio"` | ファイルバックのオーディオクリップを選択したトラックの正確な位置に配置し、作成されたアイデンティティを検証 |
+| オーディオファイルを Session スロットにインポート | `live_audio_import_preview/apply` | 明示的なファイル権限: 許可ルート、正規パス、サイズ/タイプチェック、SHA-256 と適用時再検証(anti-TOCTOU)、インポートしたクリップのガード付きクリーンアップ |
+| テイクレーンを操作 | ディスカバリ、`live_object_rename`(kind `takeLane`)、`live_arrangement_clip_preview/apply`(`takeLaneRef`)、`live_audio_import_preview/apply`(`takeLaneRef`) | レーンとそのクリップの読み取り、レーン作成、レーン名変更、レーン内での MIDI またはファイルオーディオクリップ作成。公開 LOM にテイクレーン削除がないため、レーンとレーンクリップの作成は正直にアンドゥ不可。コンプ領域編集は公開 API がなく利用不可 |
+| ワープマーカーを編集 | `live_warp_marker_preview/apply` | ビートタイムでマーカーを追加/移動/削除(サンプルタイムマッピングは Live が所有)。マーカーコレクションフェンス、正確なロールバック、ガード付きアンドゥ |
+| クリップのクロップ、複製、スクラブ | `live_clip_action_preview/apply` | ループへのクロップ、ループ/リージョンの複製、スクラブ、再生位置の移動。コンテンツアクションは正直にアンドゥ不可と表示 |
+| ノートのクオンタイズと複製 | `live_note_edit_preview/apply` | タイミングまたはピッチのクオンタイズ、安定ノート ID による対象複製。正確な事前コンテンツアンドゥ付き |
+| チューニングとスケールを編集 | `live_tuning_preview/apply` | チューニングシステム名、ノート範囲、基準ピッチ、全 128 ノートチューニング、ルートノート、スケール名/モード/インターバル。長さ/範囲制約の検証と正確なロールバック。再生ピッチにグローバルに影響し、`live_undo` で正確に復元 |
+| グルーヴプールを操作 | `live_groove_preview/apply`、`live_clip_properties_preview/apply`(`grooveRef`) | グローバルグルーヴ量とグルーヴごとの名前/base/クオンタイズ/ランダム/タイミング/ベロシティ編集(正確なアンドゥ付き)。クリッププロパティ経由でクリップのグルーヴを割り当て/クリア(クリップ行に `hasGroove` を公開)。公開 API に完全なグルーヴインポート/抽出ワークフローはなく、グルーヴはプールに既存である必要がある |
+| シーンを編集して発火 | `live_scene_preview/apply`、`live_scene_fire_preview/apply` | シーンのカラー、テンポ(+有効化)、拍子の分子/分母/有効化を正確なアンドゥ付きで編集。シーン行は空/発火/発火ボタン状態を、クリップスロット行はカラー、停止ボタン、グループスロット、再生、レコードオンスタート状態を公開。直接発火(fire-as-selected)は独立した、フェンス付き、可聴、アンドゥ不可のアクション — ガード付きシーンオーディションが聴取チェックの安全な経路のまま |
+| 深い Song と Link 状態を読む | `live_song_state` | 可視トラック、任命デバイス、ソング長/開始、拍子、スウィング、オーバーダブ/アレンジメントオーバーダブ、バックトゥアレンジャー、キャプチャ/アンドゥ/リドゥ可否、排他アーム/ソロ、カウントイン中、テンポフォロワー、オートメーション再有効化、Session 録音/オートメーション、Ableton Link 有効/スタートストップ同期 — ビート↔SMPTE とループ時間変換付き |
+| トランスポートを駆動 | `live_transport_preview/apply`、`live_transport_action_preview/apply` | リビジョンフェンス付きの位置/ループ/メトロノーム/パンチ編集(アンドゥ可能)と瞬時アクション: 開始、続行、停止、選択再生、スクラブ、タップテンポ、ナッジ上下、オートメーション再有効化、Session 録音トリガー、Link ビートタイム強制(フェンス付き、可聴アクションはアンドゥ不可と表示。緊急停止は別のまま) |
+| ID または選択でノートを読む | `live_note_read` | 読み取り専用の対象ノート読み取り。Live が公開する場合は現在の選択も |
+| クリップの全エンベロープをクリア | `live_automation_preview/apply` に `clear-envelopes` | クリップ上の全エンベロープ(デバイス、ラック、ミキサーパラメータ)のカウント済み・プレゼンスフェンス付きクリア。正直にアンドゥ不可 |
 | クリップのミュート、カラー、ループ | `live_clip_properties_preview/apply` | 任意のクリップのミュートとカラー。MIDI クリップのループ境界(オーディオループは `live_audio_clip_*`) |
 | オーディオクリップのサウンドを編集: ゲイン、ピッチ、ワープ、フェード | `live_audio_clip_preview/apply` | 正確なクリップがアドバタイズするフィールドのみ書き込み。ワープモードとフェードを含む |
 | クリップオートメーションを書く | `live_automation_preview/apply` | エンベロープ作成、ポイント挿入、範囲削除、エンベロープリビジョンフェンス付き |
@@ -37,8 +63,10 @@
 | 変更を取り消す | `live_undo` | 事前の状態が一致している間は正確に復元。他の変更があった場合は拒否 |
 | オーディオを解析(ラウドネス、トゥルーピーク、スペクトル) | `audio_analyze`、`audio_compare_reference`、`audio_diagnose_live_context` | ITU-R BS.1770/EBU R128 規格、プライバシー保護、結果に生 PCM を含まない |
 | ビューを切り替え、Arrangement ビューを制御 | `live_view_preview/apply` | Session/Arranger の切り替え、ズーム/スクロール、フォローソング、トラック折りたたみ。UI のみ、音楽状態には触れない |
-| Browser を検索してアイテムを検査 | `live_browser_search` | 読み取り専用 |
+| Browser を検索してアイテムを検査 | `live_browser_search`、`live_browser_roots` | 有界 DFS 名マッチ(タグ/フィルター/類似検索ではない — それらの公開 API はない)。形状ゲートのルート(sounds、samples、User Library、ユーザーフォルダ、現在のプロジェクト)と、各バインディングの階層を `live_browser_roots` が報告。内部バインディングは安定した公開 LOM API ではない |
+| Browser プレビューとホットスワップ | — | 明示的に辞退: `preview_item`/`stop_preview` は非公式バインディングで、事後条件を検証できる権威ある可観測プレビュー状態がなく、かつ可聴。ホットスワップ/近接プリセットロードも同じ検証可能性の理由で延期。予約済み `browser.preview.*` 契約は権威あるプレビュー状態が存在するまでフェイルクローズのまま |
 | Set を読む: トラック、クリップ、デバイス、ルーティング、再生 | `live_snapshot`、`live_discover`、`live_status` | 読み取り専用。古い参照は推測せず拒否 |
+| 状態変化を観察 | `live_observe_subscribe`、`live_observe_poll`、`live_observe_unsubscribe` | 文書化された可観測状態に対する有界ネゴシエート済みトピック — トランスポート、選択、トラック、クリップ、デバイス、パラメータ、グルーヴ、チューニング、シーン、メーター、ラック状態。クォータ(8 サブスクリプション、各 64 トピック)、リビジョンによる重複排除、変更フィールドリスト、明示的オーバーフロー、ネゴシエート済み最小ポール間隔、すべてのイベントにリビジョン/アイデンティティ — いずれも変更権限ではない |
 
 ## エビデンス範囲
 
@@ -64,7 +92,7 @@
 | 正規 Live 契約 | `ableton-live/v1`、操作レジストリ、マニフェスト/ハッシュ | `registry.ts`、`live.ts`、Python マッパー。R/G/A/RT。厳密スキーマと単一正規ダイジェスト | `registry.test.ts`、Python 契約テスト、パッケージ/候補検証 | 過去の macOS 実 Live ネゴシエーションは古いレジストリダイジェストを使用。現在のダイジェストでの正確な候補証明が必要 | `DEVELOPER_GUIDE.md`、`LIVE_SAFETY.md`。未サポートの形状は利用不可のまま |
 | 認証ブリッジ | status/snapshot/discover/get と用途別操作 | `remote-adapter.ts`、Python リスナー。ループバックチャレンジ、HMAC、エポック/シーケンス/デッドラインフェンス | `registry.test.ts`、`live.test.ts`、パッケージジャーニー | パッケージ fake-Live と macOS 実 Live | `OPERATIONS.md`、`RECOVERY.md`。リモートネットワークモードなし |
 | 参照、ディスカバリ、選択 | set、track/return/main、scene、slot、clip、note、locator、device、parameter、routing、playback、selection | レジストリ + マッパー走査。R。親スコープの参照/カーソル/リビジョン。選択は正規の参照可能な track/scene/slot 参照を再利用 | レジストリ、ホスト、Python テスト | `phase-3-readonly-live-discovery.json` と以降の実 Live フェーズエビデンス | `USER_GUIDE.md`。古い参照/エポックは拒否 |
-| トランスポート、ループ、メトロノーム、パンチ、カウントイン | `transport.set`、transport preview/apply/undo | ホストトランザクション + マッパー。再生が変化しうる場合は G/A | ホスト/Python/パッケージジャーニー | `phase-5a-transport-clip-live.txt`(macOS 実 Live) | `LIVE_SAFETY.md`。新鮮な再生/録音状態が必要 |
+| トランスポート、ループ、メトロノーム、パンチ | `transport.set`、transport preview/apply/undo | ホストトランザクション + マッパー。再生が変化しうる場合は G/A | ホスト/Python/パッケージジャーニー | `phase-5a-transport-clip-live.txt`(macOS 実 Live) | `LIVE_SAFETY.md`。新鮮な再生/録音状態が必要。`Song.count_in_duration` は公開 LOM で get/observe であり、報告のみで書き込まない |
 | 再生ヘッドキューナビゲーション | `locator.jump` 次/前 | 再生ヘッドとロケーターのフェンス付きホスト preview/apply。G | ホストと Python テスト | パッケージ fake-Live とシミュレーター。現在の候補での実 Live 証明は保留中 | `USER_GUIDE.md`。絶対位置指定は `transport.set`。ナビゲーション自体にアンドゥは提供しない |
 | Session オーディションと緊急停止 | `session.audition-launch/stop`、`session.emergency-stop`、再生ディスカバリ | 専用ホスト/マッパートランザクション。A。予測不可能トークン、正確なターゲット、リプレイ、所有停止 | ホスト、Python、パッケージジャーニー | `phase-4-guarded-audition.json` と外部保持の正確な候補読み取り専用ステータス | `LIVE_SAFETY.md`、`RECOVERY.md`。外部再生は所有として主張されない |
 | Session 構造 | track/scene 作成/削除/名前変更と clip/device/locator 名前変更。スロットと Session クリップのディスカバリ | preview/apply/undo マネージャー + マッパー。G。挿入インデックスは変更前にレギュラートラックとシーンに対して有界チェック | ホスト/Python/パッケージジャーニー | 実 Live フェーズ 5 エビデンス。パッケージ fake-Live | `USER_GUIDE.md`。作成は return/main トラックをレギュラートラックの挿入位置として扱わない。group/return/main の編集は正規操作が存在する場合のみ公開 |
@@ -134,3 +162,21 @@
 候補ホスト結果、同じ Git SHA と成果物 SHA-256 を名指しする外部保持の
 実 Live 観測が必要です。Windows Server ホストエビデンスが Windows
 Live/Windows 11 のセルを埋めることはありません。
+
+## 実行可能と予約済みレジストリ契約
+
+正規レジストリには、マッパーが現在アドバタイズする数より多くの操作 ID
+が含まれます。ネゴシエート済みの実行可能な操作のみが `live_status` /
+`capabilities` の `operations.executable` に表示されます。残り
+(`operations.reserved`)は厳密な契約であり、アダプターが実行・検証
+できるまでフェイルクローズします。予約済み ID は動作するケイパビリティ
+のエビデンスではありません。
+
+| 予約済み操作 ID | ディスポジション |
+|---|---|
+| `audio.warp-marker.read/add/move/delete` | 実装済み(ワープマーカーファミリーはこのブランチで出荷)。スキーマはビートタイムでマーカーをアドレス — 整数 ID は捏造しない |
+| `audio.take-lane.read`、`audio.comp.read` | テイクレーンのディスカバリ/作成/名前変更とレーンクリップ作成は実装済み。コンプ領域編集は制限されたまま(公開 API なし)のため、`audio.comp.read` は予約済みのまま |
+| `arrangement.automation.*` | Arrangement オートメーション作成には安定した公開 API がない。予約済み・フェイルクローズのまま |
+| `browser.preview.start/stop` | Browser プレビューは非公式 Python バインディングを使用。ディスポジションは Browser ファミリー作業で決定 |
+| `project.new/open/save/save-as/collect/export/bounce` | 公開 Remote Script API なし。`live_project_save` / `live_project_open` は明示的な制限レポーターのまま |
+| `session.discover` | 予約済みエイリアス。ディスカバリは `discover`/`snapshot`/`get` が提供 |

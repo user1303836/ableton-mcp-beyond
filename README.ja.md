@@ -69,7 +69,7 @@ Live を再起動し、検証します: `npm run diagnostics -- --config /abs/pa
 | Windows ホスト | CI 契約を設定済み。現在の正確な SHA の結果が必要。Windows 11 + Live は未認証 |
 | Linux / Live 11 以前 | 非対応 |
 
-ケイパビリティは接続時にネゴシエートされるため、エージェントは常にその Live 環境で何ができるかを正確に把握できます。完全なマトリクス: [docs/SUPPORT_MATRIX.md](docs/ja/SUPPORT_MATRIX.md)。
+ケイパビリティは接続時にネゴシエートされるため、エージェントは常にその Live 環境で何ができるかを正確に把握できます。完全なマトリクス: [docs/SUPPORT_MATRIX.md](docs/ja/SUPPORT_MATRIX.md) · [docs/EXTENSION_SURFACES.md](docs/ja/EXTENSION_SURFACES.md)。
 
 ## ドキュメント
 
@@ -83,6 +83,7 @@ Live を再起動し、検証します: `npm run diagnostics -- --config /abs/pa
 | [USER_JOURNEYS](docs/ja/USER_JOURNEYS.md) | 5 つのガイド付き作曲ワークフロー |
 | [REALTIME_CONTROL](docs/ja/REALTIME_CONTROL.md) | アームされた UDP/OSC/XY コントロールプレーン |
 | [CAPABILITY_MATRIX](docs/ja/CAPABILITY_MATRIX.md) | エージェントにできることの早見表と、ドメイン別のケイパビリティ/エビデンス詳細 |
+| [EXTENSION_SURFACES](docs/ja/EXTENSION_SURFACES.md) | Max/Link/Push/Connection Kit の評価と非公開 UI 機能のディスポジション |
 | [DELIVERY](docs/ja/DELIVERY.md) | パッケージ成果物のインストール、アップグレード、ロールバック、アンインストール |
 | [DISTRIBUTION_POLICY](docs/ja/DISTRIBUTION_POLICY.md) | ローカル MIT 成果物、必須チェック、緊急手順 |
 | [IMPLEMENTATION_STATUS](docs/ja/IMPLEMENTATION_STATUS.md) | 検証済みの内容と現在の制限 |

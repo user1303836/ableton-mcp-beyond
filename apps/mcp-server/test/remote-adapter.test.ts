@@ -139,6 +139,35 @@ test("remote adapter hides cleanup tokens and binds destructive cleanup to the c
   finally { await adapter?.close(); await close(server); }
 });
 
+test("remote adapter retains and strips audio-clip creation tokens across create, replay, and owned undo", async () => {
+  const seen: Record<string, unknown>[] = []; const token = "a".repeat(48);
+  const server = framedServer((request, socket) => {
+    seen.push(request);
+    if (request.method === "status") { socket.write(`${JSON.stringify(response(request.id as string, status({ operations: [...requiredOperations, "session.audio-clip.create", "clip.delete"] })))}\n`); return; }
+    if (request.method === "retire") { socket.write(`${JSON.stringify(response(request.id as string, { retired: 1 }))}\n`); return; }
+    const argsDigest = createHash("sha256").update(canonical(request.args ?? {})).digest("hex");
+    if (request.method === "preflight") socket.write(`${JSON.stringify(response(request.id as string, { preflightToken: "p".repeat(32), confirmation: "c".repeat(32), operation: request.operation, argsDigest, stateDigest: "a".repeat(64), impact: "mutates-live", expiresAt: Date.now() + 5000 }))}\n`);
+    else if (request.method === "prepare") socket.write(`${JSON.stringify(response(request.id as string, { authorityToken: "t".repeat(32), operation: request.operation, argsDigest, stateDigest: "a".repeat(64), expiresAt: Date.now() + 5000 }))}\n`);
+    else if (request.operation === "session.audio-clip.create") { socket.write(`${JSON.stringify(response(request.id as string, { ref: "1:clip:0:1", objectIdentity: "live:clip:0:1", name: "Imported", length: 4, filePath: "/tmp/staged.wav", createdFingerprint: "f".repeat(64), ownershipToken: token }))}\n`); }
+    else { assert.equal(request.ownershipToken, token); socket.write(`${JSON.stringify(response(request.id as string, { deleted: "1:clip:0:1" }))}\n`); }
+  });
+  const port = await listen(server); let adapter: RemoteScriptLiveAdapter | undefined; const transactionId = "creating-audio-import-transaction";
+  try {
+    adapter = await RemoteScriptLiveAdapter.connect({ host: "127.0.0.1", port, secret, timeoutMs: 500 });
+    const createArgs = { trackRef: "1:track:0", sceneIndex: 1, filePath: "/tmp/staged.wav", expectedTrackIdentity: "live:track:0", expectedSlotRef: "1:clip_slot:0:1", expectedSlotIdentity: "live:slot:0:1", expectedSceneRef: "1:scene:1", expectedSceneIdentity: "live:scene:1" };
+    const created = await adapter.invokeAsync({ operation: "session.audio-clip.create", args: createArgs }, { deadlineMs: Date.now() + 1000, idempotencyKey: "create-owned-audio-clip", transactionId }) as Record<string, unknown>;
+    assert.equal(created.ownershipToken, undefined, "the cleanup token is never leaked into results");
+    const replayed = await adapter.invokeAsync({ operation: "session.audio-clip.create", args: createArgs }, { deadlineMs: Date.now() + 1000, idempotencyKey: "create-owned-audio-clip", transactionId }) as Record<string, unknown>;
+    assert.equal(replayed.ownershipToken, undefined);
+    const deleteInvocation = { operation: "clip.delete" as const, args: { ref: "1:clip:0:1", expectedObjectIdentity: "live:clip:0:1", expectedTrackRef: "1:track:0", expectedTrackIdentity: "live:track:0", expectedSlotRef: "1:clip_slot:0:1", expectedSlotIdentity: "live:slot:0:1", expectedSceneRef: "1:scene:1", expectedSceneIdentity: "live:scene:1" } };
+    await assert.rejects(adapter.invokeAsync(deleteInvocation, { deadlineMs: Date.now() + 1000, idempotencyKey: "foreign-clip-delete", transactionId: "foreign-audio-transaction" }), /lacks transaction-owned authority/);
+    const beforeDelete = seen.length;
+    assert.deepEqual(await adapter.invokeAsync(deleteInvocation, { deadlineMs: Date.now() + 1000, idempotencyKey: "owned-clip-delete", transactionId }), { deleted: "1:clip:0:1" });
+    assert.equal(seen.slice(beforeDelete).filter((row) => ["preflight", "prepare", "invoke"].includes(String(row.method))).every((row) => row.ownershipToken === token), true);
+  }
+  finally { await adapter?.close(); await close(server); }
+});
+
 test("remote adapter reconnects to the same bridge epoch and reconciles a lost mutation acknowledgement", async () => {
   let executed = false; let executions = 0; let dropFirst = true;
   const result = { captured: true, ref: "1:scene:captured", objectIdentity: "live:captured-scene", createdFingerprint: "f".repeat(64) }; const wireResult = { ...result, ownershipToken: "o".repeat(48) };

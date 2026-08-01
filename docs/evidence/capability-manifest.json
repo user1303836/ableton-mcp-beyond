@@ -1,0 +1,1270 @@
+{
+  "schema": "ableton-mcp-capability-manifest/v1",
+  "registryHash": "a8a73b3157bd771b112b822164d4e9bec57f2a47078727ec157f83593af6f48a",
+  "operationCount": 154,
+  "coverageRules": [
+    "Covered means reachable end to end from MCP through the negotiated bridge with a verified response.",
+    "Read, write, call, and observe access are tracked separately per family notes.",
+    "Generic DeviceParameter access never counts as semantic coverage of specialized device members.",
+    "Simulator, fake-Live, and packaged-contract evidence is never real-Live evidence.",
+    "Executable operations are negotiated at connect time; reserved operations fail closed and report the actual limitation."
+  ],
+  "families": [
+    {
+      "family": "session-read",
+      "surface": "Song/Track/Scene/Clip/ClipSlot/Chain/Device/Parameter (LOM)",
+      "operations": [
+        {
+          "id": "status",
+          "status": "executable-negotiated",
+          "access": [
+            "read"
+          ]
+        },
+        {
+          "id": "snapshot",
+          "status": "executable-negotiated",
+          "access": [
+            "read"
+          ]
+        },
+        {
+          "id": "discover",
+          "status": "executable-negotiated",
+          "access": [
+            "read"
+          ]
+        },
+        {
+          "id": "get",
+          "status": "executable-negotiated",
+          "access": [
+            "read"
+          ]
+        },
+        {
+          "id": "reconnect",
+          "status": "executable-negotiated",
+          "access": [
+            "read"
+          ]
+        },
+        {
+          "id": "session.playback",
+          "status": "executable-negotiated",
+          "access": [
+            "read"
+          ]
+        },
+        {
+          "id": "audio.comp.read",
+          "status": "reserved-fail-closed",
+          "access": [
+            "read"
+          ]
+        },
+        {
+          "id": "session.discover",
+          "status": "reserved-fail-closed",
+          "access": [
+            "call"
+          ]
+        }
+      ],
+      "firstTested": "12.4.5b8 (phase 3 discovery; expanded surfaces pending exact candidate)"
+    },
+    {
+      "family": "transport-locators",
+      "surface": "Song transport, loop, metronome, punch, cue points, Link",
+      "operations": [
+        {
+          "id": "transport.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "transport.action",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "tempo.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "locator.add",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "locator.delete",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "locator.rename",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "locator.jump",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "locator.jump-to",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        }
+      ],
+      "firstTested": "12.4.5b8 phase 5a (actions pending exact candidate)"
+    },
+    {
+      "family": "session-structure",
+      "surface": "Track/Scene/ClipSlot/Scene lifecycle",
+      "operations": [
+        {
+          "id": "track.create",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "track.delete",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "track.rename",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "scene.create",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "scene.delete",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "scene.rename",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "scene.capture",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "session.audition-stop",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "session.emergency-stop",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "session.clip-launch",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "session.clip-stop",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "session.capture-midi",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "clip.create",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "clip.delete",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "clip.rename",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "clip.duplicate",
+          "status": "executable-negotiated",
+          "access": [
+            "write",
+            "call"
+          ]
+        },
+        {
+          "id": "clip.move",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "clip.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "clip.action",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "arrangement.clip.create",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "arrangement.clip.delete",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "arrangement.clip.move",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        }
+      ],
+      "firstTested": "12.4.5b8 phases 4-5 (expanded properties pending exact candidate)"
+    },
+    {
+      "family": "midi-notes",
+      "surface": "Clip MIDI notes",
+      "operations": [
+        {
+          "id": "note.add",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "note.add-batch",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "note.update",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "note.delete",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "note.duplicate",
+          "status": "executable-negotiated",
+          "access": [
+            "write",
+            "call"
+          ]
+        },
+        {
+          "id": "note.quantize",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "note.read-by-id",
+          "status": "executable-negotiated",
+          "access": [
+            "read"
+          ]
+        },
+        {
+          "id": "note.read-selected",
+          "status": "executable-negotiated",
+          "access": [
+            "read"
+          ]
+        }
+      ],
+      "firstTested": "12.4.5b8 phase 5 (targeted APIs pending exact candidate)"
+    },
+    {
+      "family": "audio-warp",
+      "surface": "Audio clips, warp markers, samples",
+      "operations": [
+        {
+          "id": "audio.clip.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "audio.warp-marker.read",
+          "status": "executable-negotiated",
+          "access": [
+            "read"
+          ]
+        },
+        {
+          "id": "audio.warp-marker.add",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "audio.warp-marker.move",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "audio.warp-marker.delete",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "session.audio-clip.create",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "arrangement.audio-clip.create",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "audio.capture.inspect",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "audio.capture.start",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "audio.capture.stop",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "audio.capture.status",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "audio.capture.emergency-stop",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "audio.capture.cleanup",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        }
+      ],
+      "firstTested": "12.4.5b8 phase 8 capture (warp/sample editing pending exact candidate)"
+    },
+    {
+      "family": "take-lanes",
+      "surface": "Track.take_lanes and TakeLane clips",
+      "operations": [
+        {
+          "id": "audio.take-lane.read",
+          "status": "executable-negotiated",
+          "access": [
+            "read"
+          ]
+        },
+        {
+          "id": "take-lane.create",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "take-lane.rename",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "take-lane.clip.create",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "take-lane.audio-clip.create",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        }
+      ],
+      "firstTested": "pending exact candidate (comp editing unsupported by public LOM)"
+    },
+    {
+      "family": "tuning-groove",
+      "surface": "Song.tuning_system, scale, GroovePool",
+      "operations": [
+        {
+          "id": "tuning.read",
+          "status": "executable-negotiated",
+          "access": [
+            "read"
+          ]
+        },
+        {
+          "id": "tuning.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "groove.read",
+          "status": "executable-negotiated",
+          "access": [
+            "read"
+          ]
+        },
+        {
+          "id": "groove.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "groove.edit",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        }
+      ],
+      "firstTested": "pending exact candidate"
+    },
+    {
+      "family": "scenes-slots",
+      "surface": "Scene/ClipSlot properties and fire",
+      "operations": [
+        {
+          "id": "scene.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "scene.fire-selected",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "session.audition-launch",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        }
+      ],
+      "firstTested": "12.4.5b8 phase 4 audition (properties pending exact candidate)"
+    },
+    {
+      "family": "song-link",
+      "surface": "Song state, Link, time conversion",
+      "operations": [
+        {
+          "id": "song.read",
+          "status": "executable-negotiated",
+          "access": [
+            "read"
+          ]
+        },
+        {
+          "id": "song.time-convert",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        }
+      ],
+      "firstTested": "pending exact candidate"
+    },
+    {
+      "family": "track-structure",
+      "surface": "Return tracks, duplication, Track.View",
+      "operations": [
+        {
+          "id": "track.create-return",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "track.delete-return",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "track.duplicate",
+          "status": "executable-negotiated",
+          "access": [
+            "write",
+            "call"
+          ]
+        },
+        {
+          "id": "scene.duplicate",
+          "status": "executable-negotiated",
+          "access": [
+            "write",
+            "call"
+          ]
+        },
+        {
+          "id": "track.view.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write",
+            "call"
+          ]
+        },
+        {
+          "id": "track.select-instrument",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        }
+      ],
+      "firstTested": "pending exact candidate"
+    },
+    {
+      "family": "selection-views",
+      "surface": "Song.View, Clip.View, Device.View, Application.View, dialogs",
+      "operations": [
+        {
+          "id": "selection.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "song.view.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write",
+            "call"
+          ]
+        },
+        {
+          "id": "clip.view.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write",
+            "call"
+          ]
+        },
+        {
+          "id": "device.view.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write",
+            "call"
+          ]
+        },
+        {
+          "id": "view.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "view.control",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "application.dialog",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        }
+      ],
+      "firstTested": "pending exact candidate"
+    },
+    {
+      "family": "performance",
+      "surface": "Application usage, meters, latency",
+      "operations": [
+        {
+          "id": "performance.read",
+          "status": "executable-negotiated",
+          "access": [
+            "read"
+          ]
+        }
+      ],
+      "firstTested": "pending exact candidate"
+    },
+    {
+      "family": "mixer-routing",
+      "surface": "MixerDevice, ChainMixerDevice, DeviceIO, sidechains",
+      "operations": [
+        {
+          "id": "mixer.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "mixer.extended.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "device-io.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "compressor.sidechain.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "routing.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        }
+      ],
+      "firstTested": "12.4.5b8 phase 6 routing (extended surfaces pending exact candidate)"
+    },
+    {
+      "family": "devices-parameters",
+      "surface": "Device/Parameter metadata, banks, comparison, move",
+      "operations": [
+        {
+          "id": "device.insert",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "device.delete",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "device.enable",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "device.move",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "device.rename",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "device.parameter.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "device.bank.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write",
+            "call"
+          ]
+        },
+        {
+          "id": "device.comparison.save-to-slot",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "parameter.re-enable-automation",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        }
+      ],
+      "firstTested": "12.4.5b8 phase 6 devices (metadata/banks pending exact candidate)"
+    },
+    {
+      "family": "chains-racks-pads",
+      "surface": "Chain, DrumChain, DrumPad, RackDevice",
+      "operations": [
+        {
+          "id": "chain.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "chain-mixer.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "drum-pad.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "drum-pad.delete-all-chains",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "rack.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "rack.action",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "rack.view.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write",
+            "call"
+          ]
+        }
+      ],
+      "firstTested": "12.4.5b8 phase 6 discovery (edits pending exact candidate)"
+    },
+    {
+      "family": "specialized-devices",
+      "surface": "Drift/DrumCell/Eq8/HybridReverb/Looper/Max/Meld/Plugin/Simpler",
+      "operations": [
+        {
+          "id": "drift.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "drum-cell.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "eq8.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "hybrid-reverb.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "looper.action",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "looper.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "meld.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "plugin.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "simpler.replace-sample",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        }
+      ],
+      "firstTested": "pending exact candidate (Live 12 device APIs)"
+    },
+    {
+      "family": "automation",
+      "surface": "Clip envelopes and points",
+      "operations": [
+        {
+          "id": "automation.envelope.read",
+          "status": "executable-negotiated",
+          "access": [
+            "read"
+          ]
+        },
+        {
+          "id": "automation.envelope.create",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "automation.envelope.delete",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "automation.envelope.clear",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "automation.point.insert",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "automation.point.delete",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
+          ]
+        }
+      ],
+      "firstTested": "12.4.5b8 phase 5e (arrangement automation unsupported by public LOM)"
+    },
+    {
+      "family": "recording",
+      "surface": "Session/Arrangement recording",
+      "operations": [
+        {
+          "id": "recording.session",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "recording.arrangement",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        }
+      ],
+      "firstTested": "12.4.5b8 phase 6cd"
+    },
+    {
+      "family": "browser",
+      "surface": "Browser roots, search, load",
+      "operations": [
+        {
+          "id": "browser.roots",
+          "status": "executable-negotiated",
+          "access": [
+            "read"
+          ]
+        },
+        {
+          "id": "browser.search",
+          "status": "executable-negotiated",
+          "access": [
+            "read"
+          ]
+        },
+        {
+          "id": "browser.inspect",
+          "status": "executable-negotiated",
+          "access": [
+            "read"
+          ]
+        },
+        {
+          "id": "browser.load",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "browser.preview.start",
+          "status": "reserved-fail-closed",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "browser.preview.stop",
+          "status": "reserved-fail-closed",
+          "access": [
+            "call"
+          ]
+        }
+      ],
+      "firstTested": "12.4.5b8 phase 6ab (preview declined; internal bindings never stable public APIs)"
+    },
+    {
+      "family": "observe",
+      "surface": "Negotiated bounded observer model",
+      "operations": [
+        {
+          "id": "observe.subscribe",
+          "status": "executable-negotiated",
+          "access": [
+            "observe"
+          ]
+        },
+        {
+          "id": "observe.poll",
+          "status": "executable-negotiated",
+          "access": [
+            "observe"
+          ]
+        },
+        {
+          "id": "observe.unsubscribe",
+          "status": "executable-negotiated",
+          "access": [
+            "observe"
+          ]
+        }
+      ],
+      "firstTested": "pending exact candidate"
+    },
+    {
+      "family": "authority",
+      "surface": "Transaction authority preflight/prepare/retire",
+      "operations": [
+        {
+          "id": "authority.preflight",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "authority.prepare",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "authority.retire",
+          "status": "executable-negotiated",
+          "access": [
+            "call"
+          ]
+        }
+      ],
+      "firstTested": "internal transaction machinery (not a user-facing Live surface)"
+    },
+    {
+      "family": "realtime-subscriptions",
+      "surface": "Signed event subscriptions and realtime plane",
+      "operations": [
+        {
+          "id": "subscribe",
+          "status": "executable-negotiated",
+          "access": [
+            "observe"
+          ]
+        },
+        {
+          "id": "realtime.arm",
+          "status": "executable-negotiated",
+          "access": [
+            "observe"
+          ]
+        },
+        {
+          "id": "realtime.disarm",
+          "status": "executable-negotiated",
+          "access": [
+            "observe"
+          ]
+        },
+        {
+          "id": "realtime.stats",
+          "status": "executable-negotiated",
+          "access": [
+            "observe"
+          ]
+        }
+      ],
+      "firstTested": "12.4.5b8 phases 7b/7c"
+    },
+    {
+      "family": "projects",
+      "surface": "Project info and verified backup",
+      "operations": [
+        {
+          "id": "project.bounce",
+          "status": "reserved-fail-closed",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "project.collect",
+          "status": "reserved-fail-closed",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "project.export",
+          "status": "reserved-fail-closed",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "project.new",
+          "status": "reserved-fail-closed",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "project.open",
+          "status": "reserved-fail-closed",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "project.save",
+          "status": "reserved-fail-closed",
+          "access": [
+            "call"
+          ]
+        },
+        {
+          "id": "project.save-as",
+          "status": "reserved-fail-closed",
+          "access": [
+            "call"
+          ]
+        }
+      ],
+      "firstTested": "12.4.5b8 phase 7a info/backup (save/open/export stay reserved limitation reporters)"
+    },
+    {
+      "family": "arrangement-automation",
+      "surface": "Arrangement automation lanes (reserved)",
+      "operations": [
+        {
+          "id": "arrangement.automation.create",
+          "status": "reserved-fail-closed",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "arrangement.automation.delete",
+          "status": "reserved-fail-closed",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "arrangement.automation.point.delete",
+          "status": "reserved-fail-closed",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "arrangement.automation.point.insert",
+          "status": "reserved-fail-closed",
+          "access": [
+            "write"
+          ]
+        },
+        {
+          "id": "arrangement.automation.read",
+          "status": "reserved-fail-closed",
+          "access": [
+            "read"
+          ]
+        }
+      ],
+      "firstTested": "unsupported by the stable public LOM; stays reserved and fail-closed"
+    }
+  ]
+}
