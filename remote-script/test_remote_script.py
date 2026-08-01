@@ -609,7 +609,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "ce266b9a31dd8b51952592786313a578887a7e1ae526b062d35b5d4c48516199")
+        self.assertEqual(digest, "8ec75548fcbc5cf5fc1d1d24551daeb3f21aa2b835b91749287bbdacdccff1e8")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -3297,3 +3297,74 @@ class SongTransportLinkTests(unittest.TestCase):
         self.assertEqual(result["smpteSeconds"], 4.0 * 60.0 / 120.0); self.assertEqual(result["beats"], 10.0 * 120.0 / 60.0)
         self.assertEqual((result["loopBeats"], result["loopSmpteSeconds"]), (8.0, 4.0))
         validate_operation_payload("song.time-convert", "result", result)
+
+
+class TrackStructureExpansionTests(unittest.TestCase):
+    def test_track_rows_expose_state_meters_and_view(self):
+        song = FakeSong()
+        track = song.tracks[0]
+        track.is_visible = True; track.is_frozen = False; track.implicit_arm = False
+        track.back_to_arranger = False; track.muted_via_solo = False
+        track.input_meter_left = 0.5; track.input_meter_right = 0.4; track.input_meter_level = 0.45
+        track.output_meter_left = 0.6; track.output_meter_right = 0.55; track.output_meter_level = 0.58
+        track.performance_impact = 1
+        track.view = type("TrackView", (), {"is_collapsed": False, "device_insert_mode": 1, "selected_device": track.devices[0]})()
+        song.view = type("SongView", (), {"selected_track": track})()
+        mapper = LiveObjectMapper(song)
+        row = mapper.snapshot()["tracks"][0]
+        self.assertEqual((row["isVisible"], row["isSelected"], row["isFrozen"], row["implicitArm"]), (True, True, False, False))
+        self.assertEqual((row["outputMeterLeft"], row["outputMeterLevel"], row["performanceImpact"]), (0.6, 0.58, 1))
+        self.assertEqual((row["view"]["isCollapsed"], row["view"]["deviceInsertMode"]), (False, 1))
+        self.assertIsNotNone(row["view"]["selectedDeviceRef"])
+
+    def test_return_track_create_and_delete_with_fencing(self):
+        song = FakeSong()
+        created_holder = []
+        def create_return_track():
+            track = FakeTrack(); track.name = "Return A"; created_holder.append(track); song.return_tracks.append(track); return track
+        song.create_return_track = create_return_track
+        song.delete_return_track = lambda index: song.return_tracks.pop(index)
+        mapper = LiveObjectMapper(song)
+        self.assertTrue(mapper._operation_supported("track.create-return"))
+        result = mapper.invoke("track.create-return", {"name": "Verb", "expectedStructureRevision": mapper._structure_revision()})
+        self.assertEqual((result["name"], result["index"]), ("Verb", 0)); validate_operation_payload("track.create-return", "result", result)
+        self.assertEqual(len(song.return_tracks), 1)
+        with self.assertRaisesRegex(ValueError, "changed since preview"): mapper.invoke("track.create-return", {"name": "X", "expectedStructureRevision": "0" * 64})
+        self.assertTrue(mapper._operation_supported("track.delete-return"))
+        deleted = mapper.invoke("track.delete-return", {"ref": result["ref"], "expectedObjectIdentity": result["objectIdentity"], "expectedStructureRevision": mapper._structure_revision()})
+        self.assertEqual(deleted, {"deleted": result["ref"]}); self.assertEqual(len(song.return_tracks), 0)
+
+    def test_track_and_scene_duplication(self):
+        song = FakeSong()
+        def duplicate_track(index):
+            import copy
+            new = copy.copy(song.tracks[index]); song.tracks.insert(index + 1, new); return new
+        def duplicate_scene(index):
+            new = FakeScene(f"{song.scenes[index].name} copy"); song.scenes.insert(index + 1, new); return new
+        song.duplicate_track = duplicate_track; song.duplicate_scene = duplicate_scene
+        mapper = LiveObjectMapper(song)
+        self.assertTrue(mapper._operation_supported("track.duplicate")); self.assertTrue(mapper._operation_supported("scene.duplicate"))
+        track_row = mapper.snapshot()["tracks"][0]
+        result = mapper.invoke("track.duplicate", {"ref": track_row["ref"], "expectedObjectIdentity": track_row["objectIdentity"], "expectedStructureRevision": mapper._structure_revision()})
+        self.assertEqual(result["index"], 1); validate_operation_payload("track.duplicate", "result", result); self.assertEqual(len(song.tracks), 2)
+        scene_row = mapper.snapshot()["scenes"][0]
+        result = mapper.invoke("scene.duplicate", {"ref": scene_row["ref"], "expectedObjectIdentity": scene_row["objectIdentity"], "expectedStructureRevision": mapper._structure_revision()})
+        self.assertEqual(result["index"], 1); validate_operation_payload("scene.duplicate", "result", result); self.assertEqual(len(song.scenes), 2)
+
+    def test_track_view_set_and_select_instrument(self):
+        song = FakeSong()
+        track = song.tracks[0]
+        track.view = type("TrackView", (), {"is_collapsed": False, "device_insert_mode": 1, "selected_device": None})()
+        selected = []
+        track.view.select_instrument = lambda: selected.append(True)
+        mapper = LiveObjectMapper(song)
+        self.assertTrue(mapper._operation_supported("track.view.set")); self.assertTrue(mapper._operation_supported("track.select-instrument"))
+        row = mapper.snapshot()["tracks"][0]
+        def fences(): return {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedStateRevision": mapper._track_view_state_revision(track)}
+        result = mapper.invoke("track.view.set", {**fences(), "collapsed": True, "deviceInsertMode": 2})
+        self.assertTrue(result["changed"]); validate_operation_payload("track.view.set", "result", result)
+        self.assertTrue(track.view.is_collapsed); self.assertEqual(track.view.device_insert_mode, 2)
+        with self.assertRaisesRegex(ValueError, "is invalid"): mapper.invoke("track.view.set", {**fences(), "deviceInsertMode": 99})
+        result = mapper.invoke("track.select-instrument", fences())
+        self.assertEqual(result, {"done": True}); self.assertEqual(selected, [True])
+        with self.assertRaisesRegex(ValueError, "no fields"): mapper.invoke("track.view.set", fences())

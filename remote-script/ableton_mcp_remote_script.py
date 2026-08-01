@@ -776,6 +776,18 @@ class LiveObjectMapper:
         if operation == "song.time-convert":
             song = self.song
             return callable(getattr(song, "get_beats_loop_time", None)) or callable(getattr(song, "get_smpte_loop_time", None))
+        if operation == "track.create-return":
+            return callable(getattr(self.song, "create_return_track", None))
+        if operation == "track.delete-return":
+            return callable(getattr(self.song, "delete_return_track", None)) and bool(self._items(getattr(self.song, "return_tracks", [])))
+        if operation == "track.duplicate":
+            return callable(getattr(self.song, "duplicate_track", None)) and bool(self._items(getattr(self.song, "tracks", [])))
+        if operation == "scene.duplicate":
+            return callable(getattr(self.song, "duplicate_scene", None)) and bool(self._items(getattr(self.song, "scenes", [])))
+        if operation == "track.view.set":
+            return any(getattr(track, "view", None) is not None and (self._read_attr(getattr(track, "view", None), "is_collapsed") is not None or self._read_attr(getattr(track, "view", None), "device_insert_mode") is not None) for track in tracks)
+        if operation == "track.select-instrument":
+            return any(callable(getattr(getattr(track, "view", None), "select_instrument", None)) for track in tracks)
         return False
 
     def capabilities(self, operations: set[str] | None = None) -> list[str]:
@@ -1272,7 +1284,7 @@ class LiveObjectMapper:
                 "firedSlotIndex": self._slot_index(self._read_attr(track, "fired_slot_index")),
                 "mixer": self._mixer_row(track, index),
                 "routing": self._routing_row(track),
-                "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track, index), "takeLanes": self._take_lane_rows(track, index),
+                "clips": clips, "clipSlots": slot_rows, "devices": self._device_items(track, index), "takeLanes": self._take_lane_rows(track, index), **self._track_state_fields(track, index),
             })
         scene_rows = [self._scene_row(scene, i) for i, scene in enumerate(scenes)]
         locators = self._locator_items()
@@ -2132,6 +2144,18 @@ class LiveObjectMapper:
             return self._locator_jump_to(args)
         if operation == "song.time-convert":
             return self._song_time_convert(args)
+        if operation == "track.create-return":
+            return self._track_create_return(args)
+        if operation == "track.delete-return":
+            return self._track_delete_return(args)
+        if operation == "track.duplicate":
+            return self._track_duplicate(args)
+        if operation == "scene.duplicate":
+            return self._scene_duplicate(args)
+        if operation == "track.view.set":
+            return self._track_view_set(args)
+        if operation == "track.select-instrument":
+            return self._track_select_instrument(args)
         if operation == "take-lane.create":
             return self._take_lane_create(args)
         if operation == "take-lane.rename":
@@ -4089,6 +4113,168 @@ class LiveObjectMapper:
             except BaseException: loop_smpte = None
         available = beats_value is not None or smpte_value is not None or loop_beats is not None or loop_smpte is not None
         return {"available": available, "beats": beats_value, "smpteSeconds": smpte_value, "loopBeats": loop_beats, "loopSmpteSeconds": loop_smpte}
+
+    def _track_state_fields(self, track: Any, track_index: int) -> dict[str, Any]:
+        def optional_bool(obj: Any, name: str) -> bool | None:
+            value = self._read_attr(obj, name)
+            return value if isinstance(value, bool) else None
+        def optional_float(obj: Any, name: str) -> float | None:
+            value = self._read_attr(obj, name)
+            return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+        group = self._read_attr(track, "group_track")
+        group_ref = self.refs.put("track", group, f"group:{track_index}") if group is not None else None
+        view = getattr(track, "view", None)
+        selected_device = self._read_attr(view, "selected_device") if view is not None else None
+        device_insert_mode = self._read_attr(view, "device_insert_mode") if view is not None else None
+        selected_track = self._read_attr(getattr(self.song, "view", None), "selected_track")
+        return {
+            "groupTrackRef": group_ref,
+            "isVisible": optional_bool(track, "is_visible"),
+            "isSelected": (selected_track is track) if selected_track is not None else None,
+            "isFrozen": optional_bool(track, "is_frozen"),
+            "foldState": optional_bool(track, "fold_state") if optional_bool(track, "fold_state") is not None else optional_bool(track, "is_folded"),
+            "implicitArm": optional_bool(track, "implicit_arm"),
+            "backToArranger": optional_bool(track, "back_to_arranger"),
+            "mutedViaSolo": optional_bool(track, "muted_via_solo"),
+            "inputMeterLeft": optional_float(track, "input_meter_left"),
+            "inputMeterRight": optional_float(track, "input_meter_right"),
+            "inputMeterLevel": optional_float(track, "input_meter_level"),
+            "outputMeterLeft": optional_float(track, "output_meter_left"),
+            "outputMeterRight": optional_float(track, "output_meter_right"),
+            "outputMeterLevel": optional_float(track, "output_meter_level"),
+            "performanceImpact": int(self._read_attr(track, "performance_impact")) if isinstance(self._read_attr(track, "performance_impact"), int) and not isinstance(self._read_attr(track, "performance_impact"), bool) else None,
+            "view": {
+                "selectedDeviceRef": self.refs.put("device", selected_device, f"view:{track_index}") if selected_device is not None else None,
+                "deviceInsertMode": int(device_insert_mode) if isinstance(device_insert_mode, int) and not isinstance(device_insert_mode, bool) else None,
+                "isCollapsed": optional_bool(view, "is_collapsed") if view is not None else None,
+            },
+        }
+
+    def _track_view_state_revision(self, track: Any) -> str:
+        view = getattr(track, "view", None)
+        collapsed = self._read_attr(view, "is_collapsed") if view is not None else None
+        mode = self._read_attr(view, "device_insert_mode") if view is not None else None
+        return hashlib.sha256(self._bounded_canonical({"collapsed": collapsed if isinstance(collapsed, bool) else None, "deviceInsertMode": int(mode) if isinstance(mode, int) and not isinstance(mode, bool) else None}).encode("utf-8")).hexdigest()
+
+    def _track_create_return(self, args: dict[str, Any]) -> dict[str, Any]:
+        if set(args) - {"name", "expectedStructureRevision"}: raise ValueError("return-track creation arguments are invalid")
+        if not isinstance(args.get("expectedStructureRevision"), str) or not hmac.compare_digest(self._structure_revision(), args["expectedStructureRevision"]): raise ValueError("structure changed since preview")
+        creator = getattr(self.song, "create_return_track", None)
+        if not callable(creator): raise ValueError("return-track creation is unavailable")
+        name = args.get("name")
+        if name is not None and (not isinstance(name, str) or not 1 <= len(name) <= 256): raise ValueError("name is invalid")
+        before = self._items(getattr(self.song, "return_tracks", [])); before_identities = [self._capture_object_identity(item) for item in before]
+        track = creator()
+        after = self._items(getattr(self.song, "return_tracks", [])); created = [candidate for candidate in after if self._capture_object_identity(candidate) not in set(before_identities)]
+        if track is None or len(after) != len(before) + 1 or len(created) != 1: raise ValueError("return-track creation was not confirmed")
+        created_track = created[0]
+        if name is not None and hasattr(created_track, "name"): created_track.name = name
+        if name is not None and str(getattr(created_track, "name", "")) != name: raise ValueError("return-track name was not confirmed")
+        index = len(after) - 1; reference = self.refs.put("return_track", created_track, str(index)); identity = self._capture_object_identity(created_track)
+        fingerprint = hashlib.sha256(self._bounded_canonical({"ref": reference, "objectIdentity": identity, "name": str(getattr(created_track, "name", "")), "index": index}).encode("utf-8")).hexdigest()
+        return {"ref": reference, "objectIdentity": identity, "name": str(getattr(created_track, "name", "")), "index": index, "createdFingerprint": fingerprint}
+
+    def _track_delete_return(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:return_track:") or set(args) - {"ref", "expectedObjectIdentity", "expectedStructureRevision"}: raise ValueError("return-track deletion authority is invalid")
+        if not isinstance(args.get("expectedStructureRevision"), str) or not hmac.compare_digest(self._structure_revision(), args["expectedStructureRevision"]): raise ValueError("structure changed since preview")
+        returns = self._items(getattr(self.song, "return_tracks", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+        if not 0 <= index < len(returns): raise ValueError("return-track hierarchy changed")
+        track = returns[index]
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(track), args["expectedObjectIdentity"]): raise ValueError("return-track identity changed since preview")
+        deleter = getattr(self.song, "delete_return_track", None)
+        if not callable(deleter): raise ValueError("return-track deletion is unavailable")
+        deleter(index)
+        remaining = self._items(getattr(self.song, "return_tracks", []))
+        if len(remaining) != len(returns) - 1 or any(self._capture_object_identity(candidate) == self._capture_object_identity(track) for candidate in remaining): raise ValueError("return-track deletion was not confirmed")
+        return {"deleted": reference}
+
+    def _track_duplicate(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:track:") or set(args) - {"ref", "expectedObjectIdentity", "expectedStructureRevision"}: raise ValueError("track duplication authority is invalid")
+        if not isinstance(args.get("expectedStructureRevision"), str) or not hmac.compare_digest(self._structure_revision(), args["expectedStructureRevision"]): raise ValueError("structure changed since preview")
+        tracks = self._items(getattr(self.song, "tracks", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+        if not 0 <= index < len(tracks): raise ValueError("track hierarchy changed")
+        track = tracks[index]
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(track), args["expectedObjectIdentity"]): raise ValueError("track identity changed since preview")
+        duplicator = getattr(self.song, "duplicate_track", None)
+        if not callable(duplicator): raise ValueError("track duplication is unavailable")
+        before = len(tracks)
+        duplicator(index)
+        after = self._items(getattr(self.song, "tracks", []))
+        if len(after) != before + 1: raise ValueError("track duplication was not confirmed")
+        created = after[index + 1]; reference_new = self.refs.put("track", created, str(index + 1)); identity = self._capture_object_identity(created)
+        fingerprint = hashlib.sha256(self._bounded_canonical({"ref": reference_new, "objectIdentity": identity, "name": str(getattr(created, "name", "")), "index": index + 1}).encode("utf-8")).hexdigest()
+        return {"ref": reference_new, "objectIdentity": identity, "name": str(getattr(created, "name", "")), "index": index + 1, "createdFingerprint": fingerprint}
+
+    def _scene_duplicate(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:scene:") or set(args) - {"ref", "expectedObjectIdentity", "expectedStructureRevision"}: raise ValueError("scene duplication authority is invalid")
+        if not isinstance(args.get("expectedStructureRevision"), str) or not hmac.compare_digest(self._structure_revision(), args["expectedStructureRevision"]): raise ValueError("structure changed since preview")
+        scenes = self._items(getattr(self.song, "scenes", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+        if not 0 <= index < len(scenes): raise ValueError("scene hierarchy changed")
+        scene = scenes[index]
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(scene), args["expectedObjectIdentity"]): raise ValueError("scene identity changed since preview")
+        duplicator = getattr(self.song, "duplicate_scene", None)
+        if not callable(duplicator): raise ValueError("scene duplication is unavailable")
+        before = len(scenes)
+        duplicator(index)
+        after = self._items(getattr(self.song, "scenes", []))
+        if len(after) != before + 1: raise ValueError("scene duplication was not confirmed")
+        created = after[index + 1]; reference_new = self.refs.put("scene", created, str(index + 1)); identity = self._capture_object_identity(created)
+        fingerprint = hashlib.sha256(self._bounded_canonical({"ref": reference_new, "objectIdentity": identity, "name": str(getattr(created, "name", "")), "index": index + 1}).encode("utf-8")).hexdigest()
+        return {"ref": reference_new, "objectIdentity": identity, "name": str(getattr(created, "name", "")), "index": index + 1, "createdFingerprint": fingerprint}
+
+    def _track_view_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:track:") or set(args) - {"ref", "collapsed", "deviceInsertMode", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("track view authority is invalid")
+        tracks = self._items(getattr(self.song, "tracks", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+        if not 0 <= index < len(tracks): raise ValueError("track hierarchy changed")
+        track = tracks[index]; view = getattr(track, "view", None)
+        if view is None: raise ValueError("track view is unavailable")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(track), args["expectedObjectIdentity"]): raise ValueError("track identity changed since preview")
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(self._track_view_state_revision(track), args["expectedStateRevision"]): raise ValueError("track view state changed since preview")
+        proposals = []
+        if "collapsed" in args:
+            value = args["collapsed"]
+            if not isinstance(value, bool): raise ValueError("collapsed is invalid")
+            proposals.append(("is_collapsed", value))
+        if "deviceInsertMode" in args:
+            value = args["deviceInsertMode"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 8: raise ValueError("deviceInsertMode is invalid")
+            proposals.append(("device_insert_mode", value))
+        if not proposals: raise ValueError("track view mutation has no fields")
+        assignments = [(attribute, value, self._read_attr(view, attribute)) for attribute, value in proposals]
+        before_revision = self._track_view_state_revision(track)
+        try:
+            for attribute, value, _ in assignments: setattr(view, attribute, value)
+            for attribute, value, _ in assignments:
+                observed = self._read_attr(view, attribute)
+                if isinstance(value, bool):
+                    if observed is not value: raise ValueError("track view change was not confirmed")
+                elif not isinstance(observed, int) or isinstance(observed, bool) or observed != value: raise ValueError("track view change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for attribute, _, prior in reversed(assignments):
+                try: setattr(view, attribute, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or self._track_view_state_revision(track) != before_revision: raise ValueError("track view change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _track_select_instrument(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:track:") or set(args) - {"ref", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("track instrument selection authority is invalid")
+        tracks = self._items(getattr(self.song, "tracks", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+        if not 0 <= index < len(tracks): raise ValueError("track hierarchy changed")
+        track = tracks[index]
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(track), args["expectedObjectIdentity"]): raise ValueError("track identity changed since preview")
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(self._track_view_state_revision(track), args["expectedStateRevision"]): raise ValueError("track view state changed since preview")
+        view = getattr(track, "view", None); selector = getattr(view, "select_instrument", None) if view is not None else None
+        if not callable(selector): raise ValueError("instrument selection is unavailable")
+        selector()
+        return {"done": True}
 
     def _slot_state_fields(self, slot: Any) -> dict[str, Any]:
         def optional_bool(name: str) -> bool | None:

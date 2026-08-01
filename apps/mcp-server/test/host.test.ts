@@ -23,7 +23,7 @@ test("requires initialization and exposes only read-only tools", () => {
   assert.equal(initializedResponse.serverInfo.version, packageMetadata.version);
   assert.equal(host.handle(initialized), null);
   const tools = (host.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
-  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply"]);
+  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply"]);
   const auditionPreview = tools.find((tool: { name: string }) => tool.name === "live_session_audition_preview");
   assert.deepEqual(auditionPreview.inputSchema.properties.outputSafety.required, ["safe", "provenance"]);
   const auditionStop = tools.find((tool: { name: string }) => tool.name === "live_session_audition_stop");
@@ -440,7 +440,7 @@ test("cancels an in-flight audio worker without a response", async () => {
 test("rejects duplicates, unsupported methods, and unknown fields", () => {
   const host = new McpHost();
   ready(host);
-  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 102);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 108);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).error.message, "Duplicate request identifier");
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set", arguments: {} } }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 4, method: "tools/list", debug: true }) as any).error.code, -32600);
@@ -1855,4 +1855,49 @@ test("song state reads, time conversion, transport actions, and exact cue jumps"
   assert.equal(jumped.state, "applied"); assert.equal((simulator as any).state.playback.transport.position, 16);
   assert.equal(((await call(13, "live_locator_jump_preview", {})) as any).error.code, -32602);
   (simulator as any).state.playback.transport.position = 0; (simulator as any).state.set.position = 0;
+});
+
+test("track structure (return tracks, duplication), device deletion, and track view", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const snapshot = JSON.parse(((await call(2, "live_snapshot", {})) as any).result.content[0].text);
+  const trackRow = snapshot.snapshot.tracks[0];
+  assert.equal(trackRow.isVisible, true); assert.equal(trackRow.outputMeterLevel, 0.58); assert.equal(trackRow.performanceImpact, 1);
+  assert.equal(trackRow.view.isCollapsed, false); assert.equal(trackRow.view.deviceInsertMode, 1);
+  const createPreview = JSON.parse(((await call(3, "live_track_structure_preview", { action: "create-return", name: "Verb" })) as any).result.content[0].text);
+  const created = JSON.parse(((await call(4, "live_track_structure_apply", { transactionId: createPreview.transactionId, confirmation: "apply", idempotencyKey: "return-create-1" })) as any).result.content[0].text);
+  assert.equal(created.state, "applied"); assert.equal(created.result.name, "Verb");
+  const returnTrack = (simulator as any).state.tracks.find((t: any) => t.kind === "return");
+  assert.ok(returnTrack);
+  const createUndone = JSON.parse(((await call(5, "live_undo", { transactionId: createPreview.transactionId, confirmation: "undo", idempotencyKey: "return-create-undo" })) as any).result.content[0].text);
+  assert.equal(createUndone.state, "undone");
+  assert.equal((simulator as any).state.tracks.some((t: any) => t.kind === "return"), false);
+  const dupPreview = JSON.parse(((await call(6, "live_track_structure_preview", { action: "duplicate-track", ref: "track:track-1" })) as any).result.content[0].text);
+  const duped = JSON.parse(((await call(7, "live_track_structure_apply", { transactionId: dupPreview.transactionId, confirmation: "apply", idempotencyKey: "track-dup-1" })) as any).result.content[0].text);
+  assert.equal(duped.state, "applied"); assert.equal((simulator as any).state.tracks.length, 2);
+  const dupUndone = JSON.parse(((await call(8, "live_undo", { transactionId: dupPreview.transactionId, confirmation: "undo", idempotencyKey: "track-dup-undo" })) as any).result.content[0].text);
+  assert.equal(dupUndone.state, "undone"); assert.equal((simulator as any).state.tracks.length, 1);
+  const sceneDupPreview = JSON.parse(((await call(9, "live_track_structure_preview", { action: "duplicate-scene", ref: "scene:scene-1" })) as any).result.content[0].text);
+  await call(10, "live_track_structure_apply", { transactionId: sceneDupPreview.transactionId, confirmation: "apply", idempotencyKey: "scene-dup-1" });
+  assert.equal((simulator as any).state.scenes.length, 2);
+  await call(11, "live_undo", { transactionId: sceneDupPreview.transactionId, confirmation: "undo", idempotencyKey: "scene-dup-undo" });
+  assert.equal((simulator as any).state.scenes.length, 1);
+  const viewPreview = JSON.parse(((await call(12, "live_track_view_preview", { ref: "track:track-1", collapsed: true, deviceInsertMode: 2 })) as any).result.content[0].text);
+  const viewApplied = JSON.parse(((await call(13, "live_track_view_apply", { transactionId: viewPreview.transactionId, confirmation: "apply", idempotencyKey: "trackview-1" })) as any).result.content[0].text);
+  assert.equal(viewApplied.state, "applied");
+  assert.equal((simulator as any).state.tracks[0].view.isCollapsed, true); assert.equal((simulator as any).state.tracks[0].view.deviceInsertMode, 2);
+  const viewUndone = JSON.parse(((await call(14, "live_undo", { transactionId: viewPreview.transactionId, confirmation: "undo", idempotencyKey: "trackview-undo" })) as any).result.content[0].text);
+  assert.equal(viewUndone.state, "undone");
+  assert.equal((simulator as any).state.tracks[0].view.isCollapsed, false); assert.equal((simulator as any).state.tracks[0].view.deviceInsertMode, 1);
+  const instrumentPreview = JSON.parse(((await call(15, "live_track_view_preview", { ref: "track:track-1", selectInstrument: true })) as any).result.content[0].text);
+  const instrumentApplied = JSON.parse(((await call(16, "live_track_view_apply", { transactionId: instrumentPreview.transactionId, confirmation: "apply", idempotencyKey: "trackview-2" })) as any).result.content[0].text);
+  assert.equal(instrumentApplied.state, "applied");
+  assert.equal(((await call(17, "live_undo", { transactionId: instrumentPreview.transactionId, confirmation: "undo", idempotencyKey: "trackview-inst-undo" })) as any).result.isError, true);
+  const deletePreview = JSON.parse(((await call(18, "live_device_delete_preview", { ref: "device:utility-1" })) as any).result.content[0].text);
+  assert.equal(deletePreview.impact, "deletes-device-no-undo");
+  const deleted = JSON.parse(((await call(19, "live_device_delete_apply", { transactionId: deletePreview.transactionId, confirmation: "apply", idempotencyKey: "devdel-1" })) as any).result.content[0].text);
+  assert.equal(deleted.state, "applied"); assert.equal((simulator as any).state.tracks[0].devices.length, 0);
+  assert.equal(((await call(20, "live_undo", { transactionId: deletePreview.transactionId, confirmation: "undo", idempotencyKey: "devdel-undo" })) as any).result.isError, true);
 });

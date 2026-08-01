@@ -15,6 +15,10 @@ most content edits can be undone with `live_undo`.
 | I want to… | Tools | Worth knowing |
 |---|---|---|
 | Create MIDI or audio tracks and scenes | `live_session_structure_preview/apply` | Insert positions address regular tracks only; return/main tracks are never treated as insert slots |
+| Return tracks and duplication | `live_track_structure_preview/apply` | Create return tracks, duplicate tracks or scenes with structure fencing and guarded cleanup; return-track deletion is explicit and honestly non-undoable |
+| Read track health and state | `live_snapshot`, `live_discover` | Group membership, visibility, selection, frozen/fold state, implicit arm, back-to-arranger, muted-via-solo, all input/output meters, and performance impact on every track row |
+| Delete an existing device | `live_device_delete_preview/apply` | Explicit deletion of an existing device with exact identity and sibling fencing; honestly non-undoable |
+| Track view and instrument focus | `live_track_view_preview/apply` | Collapse state and device insert mode with exact undo, plus instrument selection in Live's device view (momentary, non-undoable) |
 | Create MIDI clips and write notes | `live_midi_clip_preview/apply`, `live_note_update_preview/apply`, `live_note_delete_preview/apply` | Full expressive fields: velocity, channel, probability, velocity deviation, release velocity, mute; stable note IDs; one atomic batch per clip |
 | Change device and plug-in parameters | `live_device_parameter_preview/apply` | Works on published numeric parameters with authoritative bounds; the value is verified after the write; guarded undo included |
 | Load instruments, effects, and presets | `live_browser_search`, `live_browser_load_preview/apply` | Loads the exact Browser item onto the chosen track; plug-ins must be visible in Live's own Browser |

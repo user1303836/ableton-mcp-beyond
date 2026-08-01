@@ -96,6 +96,20 @@ are. Source, schemas, and tests are the final authority.
   state is reported and the decision is documented. Verified at the host,
   simulator, Python contract, and packaged fake-Live levels; exact-candidate
   real-Live proof is pending.
+- Track rows now expose group-track relationship, visibility, selection
+  membership, frozen/fold state, implicit arm, back-to-arranger,
+  muted-via-solo, all input/output meters, and performance impact, plus
+  Track.View selected device, device insert mode, and collapsed state.
+  Guarded return-track creation (with cleanup) and explicit return-track
+  deletion (honestly non-undoable), guarded track and scene duplication,
+  guarded existing-device deletion with exact sibling fencing (explicitly
+  non-undoable), and track-view edits with exact restore. Clip-slot
+  duplication is served by the existing `clip.duplicate` slot-to-slot
+  operation, running-clip jumping by `clip.action`
+  (move-playing-position), and direct stop-all by the transport action —
+  each documented at its tool. Verified at the host, simulator, Python
+  contract, and packaged fake-Live levels; exact-candidate real-Live proof
+  is pending.
 - Purpose-specific preview/apply/verify/undo or cleanup workflows with exact
   object and hierarchy identities, state/content revisions, creation-time
   fingerprints, epochs, expiry, idempotency, fresh postconditions, bounded
