@@ -2300,6 +2300,66 @@
       }
     },
     {
+      "id": "browser.roots",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "roots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "binding": {
+                  "type": "string",
+                  "enum": [
+                    "public",
+                    "internal"
+                  ]
+                },
+                "searchable": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "name",
+                "binding",
+                "searchable"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 64
+          },
+          "previewAvailable": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "roots",
+          "previewAvailable",
+          "revision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "id": "browser.search",
       "method": "invoke",
       "request": {

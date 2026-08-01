@@ -658,6 +658,12 @@ class LiveObjectMapper:
                 return operation != "browser.load" or callable(getattr(browser, "load_item", None))
             except ValueError:
                 return False
+        if operation == "browser.roots":
+            try:
+                self._browser()
+                return True
+            except ValueError:
+                return False
         if operation == "track.rename": return any(hasattr(track, "name") for track in self._items(getattr(self.song, "tracks", [])))
         if operation == "scene.rename": return any(hasattr(scene, "name") for scene in self._items(getattr(self.song, "scenes", [])))
         if operation == "clip.rename": return any(hasattr(getattr(slot, "clip", None), "name") for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])) if getattr(slot, "clip", None) is not None)
@@ -2376,6 +2382,8 @@ class LiveObjectMapper:
             return self._device_move(args)
         if operation == "browser.search":
             return self._browser_search(args)
+        if operation == "browser.roots":
+            return self._browser_roots(args)
         if operation == "browser.inspect":
             return self._browser_inspect(args)
         if operation == "browser.load":
@@ -6203,11 +6211,29 @@ class LiveObjectMapper:
             raise ValueError("the Live application is unavailable")
         return application
 
-    _BROWSER_CATEGORIES = {"instruments", "audio_effects", "midi_effects", "drums", "plugins", "packs", "max_for_live", "clips"}
+    _BROWSER_CATEGORIES = {"instruments", "audio_effects", "midi_effects", "drums", "plugins", "packs", "max_for_live", "clips", "sounds", "samples", "user_library", "user_folders", "current_project"}
     _DEVICE_BROWSER_CATEGORIES = {"instruments", "audio_effects", "midi_effects", "plugins"}
+    _BROWSER_PUBLIC_BINDING_CATEGORIES = {"instruments", "audio_effects", "midi_effects", "drums", "plugins", "packs", "max_for_live", "clips"}
 
     def _browser_item_identity(self, path: str) -> str:
         return f"browser-path:{hashlib.sha256(path.encode('utf-8')).hexdigest()}"
+
+    def _browser_roots(self, args: dict[str, Any]) -> dict[str, Any]:
+        if args: raise ValueError("browser roots takes no arguments")
+        browser = self._browser()
+        roots = []
+        for name in sorted(self._BROWSER_CATEGORIES):
+            node = self._read_attr(browser, name)
+            if node is not None:
+                roots.append({"name": name, "binding": "public" if name in self._BROWSER_PUBLIC_BINDING_CATEGORIES else "internal", "searchable": True})
+        for name in ("legacy_libraries", "splice", "tunings"):
+            node = self._read_attr(browser, name)
+            if node is not None:
+                roots.append({"name": name, "binding": "internal", "searchable": False})
+        if len(roots) > 64: raise ValueError("browser root collection exceeds its bound")
+        preview = getattr(browser, "preview_item", None)
+        state = {"roots": roots, "previewAvailable": callable(preview)}
+        return {**state, "revision": hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()}
 
     def _browser_search(self, args: dict[str, Any]) -> dict[str, Any]:
         browser = self._browser()

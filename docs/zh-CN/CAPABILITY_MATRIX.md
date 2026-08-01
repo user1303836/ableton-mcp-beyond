@@ -60,7 +60,8 @@
 | 撤销更改 | `live_undo` | 在先前状态仍匹配时精确恢复;被其他改动破坏时拒绝 |
 | 分析音频(响度、真峰值、频谱) | `audio_analyze`、`audio_compare_reference`、`audio_diagnose_live_context` | ITU-R BS.1770/EBU R128 标准,隐私保护,结果不含原始 PCM |
 | 切换视图并控制 Arrangement 视图 | `live_view_preview/apply` | Session/Arranger 切换、缩放/滚动、跟随播放、轨道折叠;仅 UI,不触碰音乐状态 |
-| 搜索 Browser 并检查项目 | `live_browser_search` | 只读 |
+| 搜索 Browser 并检查项目 | `live_browser_search`、`live_browser_roots` | 有界 DFS 名称匹配(非标签/过滤/相似度搜索 —— 无公共 API);按形态协商的根(sounds、samples、User Library、用户文件夹、当前工程),各绑定的层级由 `live_browser_roots` 报告。内部绑定绝非稳定公共 LOM API |
+| Browser 预览与热交换 | —— | 明确拒绝:`preview_item`/`stop_preview` 是非官方绑定,且不存在可用于验证后置条件的权威可观察预览状态,同时它是可发声的。热交换/邻近预置加载因同样可验证性原因推迟。保留的 `browser.preview.*` 契约保持故障关闭,直至存在权威预览状态 |
 | 读取 Set:轨道、剪辑、设备、路由、播放 | `live_snapshot`、`live_discover`、`live_status` | 只读;过时引用被拒绝,绝不猜测 |
 | 观察状态变化 | `live_observe_subscribe`、`live_observe_poll`、`live_observe_unsubscribe` | 对文档可观察状态的受限协商主题 —— 走带、选择、轨道、剪辑、设备、参数、律动、律制、场景、电平与机架状态。配额(8 订阅、各 64 主题)、按修订去重、变更字段列表、显式溢出、协商最小轮询间隔,以及每个事件携带修订/身份 —— 均非变更权限 |
 

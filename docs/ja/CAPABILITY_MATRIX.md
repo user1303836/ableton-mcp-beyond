@@ -62,7 +62,8 @@
 | 変更を取り消す | `live_undo` | 事前の状態が一致している間は正確に復元。他の変更があった場合は拒否 |
 | オーディオを解析(ラウドネス、トゥルーピーク、スペクトル) | `audio_analyze`、`audio_compare_reference`、`audio_diagnose_live_context` | ITU-R BS.1770/EBU R128 規格、プライバシー保護、結果に生 PCM を含まない |
 | ビューを切り替え、Arrangement ビューを制御 | `live_view_preview/apply` | Session/Arranger の切り替え、ズーム/スクロール、フォローソング、トラック折りたたみ。UI のみ、音楽状態には触れない |
-| Browser を検索してアイテムを検査 | `live_browser_search` | 読み取り専用 |
+| Browser を検索してアイテムを検査 | `live_browser_search`、`live_browser_roots` | 有界 DFS 名マッチ(タグ/フィルター/類似検索ではない — それらの公開 API はない)。形状ゲートのルート(sounds、samples、User Library、ユーザーフォルダ、現在のプロジェクト)と、各バインディングの階層を `live_browser_roots` が報告。内部バインディングは安定した公開 LOM API ではない |
+| Browser プレビューとホットスワップ | — | 明示的に辞退: `preview_item`/`stop_preview` は非公式バインディングで、事後条件を検証できる権威ある可観測プレビュー状態がなく、かつ可聴。ホットスワップ/近接プリセットロードも同じ検証可能性の理由で延期。予約済み `browser.preview.*` 契約は権威あるプレビュー状態が存在するまでフェイルクローズのまま |
 | Set を読む: トラック、クリップ、デバイス、ルーティング、再生 | `live_snapshot`、`live_discover`、`live_status` | 読み取り専用。古い参照は推測せず拒否 |
 | 状態変化を観察 | `live_observe_subscribe`、`live_observe_poll`、`live_observe_unsubscribe` | 文書化された可観測状態に対する有界ネゴシエート済みトピック — トランスポート、選択、トラック、クリップ、デバイス、パラメータ、グルーヴ、チューニング、シーン、メーター、ラック状態。クォータ(8 サブスクリプション、各 64 トピック)、リビジョンによる重複排除、変更フィールドリスト、明示的オーバーフロー、ネゴシエート済み最小ポール間隔、すべてのイベントにリビジョン/アイデンティティ — いずれも変更権限ではない |
 

@@ -609,7 +609,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "9a74f60c0275910692c87331669429c3b83c81cf8d59007e02dd0e629821c908")
+        self.assertEqual(digest, "66dc58221e9008e5ec8025d3458a73f2f306139b5852d02a4524b71c2b3de32b")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -3930,3 +3930,37 @@ class ObserverModelTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "quota is exhausted"):
             for _ in range(9):
                 mapper.invoke("observe.subscribe", {"topics": [{"kind": "transport"}], "minIntervalMs": 100})
+
+
+class BrowserSurfaceTests(unittest.TestCase):
+    def test_browser_roots_reports_public_and_internal_bindings(self):
+        class Item:
+            def __init__(self, name, children=None): self.name = name; self.children = children or []
+        class Browser:
+            instruments = Item("instruments", [Item("Operator")])
+            sounds = Item("sounds", [Item("Bass")])
+            samples = Item("samples", [Item("Kick.wav")])
+            legacy_libraries = Item("legacy", [])
+            tunings = Item("tunings", [])
+            def preview_item(self, item): pass
+        mapper = LiveObjectMapper(FakeSong()); mapper._browser = lambda: Browser()
+        self.assertTrue(mapper._operation_supported("browser.roots"))
+        result = mapper.invoke("browser.roots", {})
+        names = {root["name"]: (root["binding"], root["searchable"]) for root in result["roots"]}
+        self.assertEqual(names["instruments"], ("public", True))
+        self.assertEqual(names["sounds"], ("internal", True))
+        self.assertEqual(names["samples"], ("internal", True))
+        self.assertEqual(names["legacy_libraries"], ("internal", False))
+        self.assertEqual(names["tunings"], ("internal", False))
+        self.assertTrue(result["previewAvailable"])
+        validate_operation_payload("browser.roots", "result", result)
+        search = mapper.invoke("browser.search", {"category": "sounds", "limit": 10})
+        self.assertEqual([item["name"] for item in search["items"]], ["Bass"])
+
+    def test_browser_preview_item_declined_by_design(self):
+        registry, _ = operation_registry()
+        preview_ops = [item["id"] for item in registry["operations"] if item["id"] in {"browser.preview.start", "browser.preview.stop"}]
+        self.assertEqual(sorted(preview_ops), ["browser.preview.start", "browser.preview.stop"])
+        mapper = LiveObjectMapper(FakeSong())
+        self.assertFalse(mapper._operation_supported("browser.preview.start"))
+        self.assertFalse(mapper._operation_supported("browser.preview.stop"))
