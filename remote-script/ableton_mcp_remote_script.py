@@ -804,6 +804,14 @@ class LiveObjectMapper:
             return callable(getattr(application, "get_dialog_state", None)) or callable(getattr(application, "press_dialog_button", None))
         if operation == "performance.read":
             return True
+        if operation == "mixer.extended.set":
+            return any(self._read_attr(self._read_attr(track, "mixer_device"), "track_activator") is not None or self._read_attr(self._read_attr(track, "mixer_device"), "crossfader") is not None or self._read_attr(self._read_attr(track, "mixer_device"), "panning_left") is not None for track in tracks)
+        if operation == "chain-mixer.set":
+            return any(self._read_attr(self._read_attr(chain, "mixer_device"), "volume") is not None for track in tracks for device in self._items(getattr(track, "devices", [])) for chain in self._items(self._read_attr(device, "chains") or []))
+        if operation == "device-io.set":
+            return any(getattr(device, "device_io", None) is not None for track in tracks for device in self._items(getattr(track, "devices", []))) or any(getattr(track, "device_io", None) is not None for track in tracks)
+        if operation == "compressor.sidechain.set":
+            return any(self._read_attr(device, "sidechain_routing_type") is not None for track in tracks for device in self._items(getattr(track, "devices", [])))
         return False
 
     def capabilities(self, operations: set[str] | None = None) -> list[str]:
@@ -1195,6 +1203,7 @@ class LiveObjectMapper:
                 "mute": bool(mute) if isinstance(mute, bool) else None,
                 "solo": bool(solo) if isinstance(solo, bool) else None,
                 "devices": chain_devices,
+                "mixer": self._chain_mixer_fields(chain, chain_ref),
             })
         return rows
 
@@ -2186,6 +2195,14 @@ class LiveObjectMapper:
             return self._application_dialog(args)
         if operation == "performance.read":
             return self._performance_read(args)
+        if operation == "mixer.extended.set":
+            return self._mixer_extended_set(args)
+        if operation == "chain-mixer.set":
+            return self._chain_mixer_set(args)
+        if operation == "device-io.set":
+            return self._device_io_set(args)
+        if operation == "compressor.sidechain.set":
+            return self._compressor_sidechain_set(args)
         if operation == "take-lane.create":
             return self._take_lane_create(args)
         if operation == "take-lane.rename":
@@ -4514,6 +4531,198 @@ class LiveObjectMapper:
         state = {"averageProcessUsage": average, "peakProcessUsage": peak, "tracks": tracks}
         return {**state, "sampledAt": int(time.time() * 1000), "revision": hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()}
 
+    def _set_parameter_direct(self, parameter: Any, target: float, attribute_name: str) -> None:
+        prior = self._read_attr(parameter, "value")
+        if not isinstance(prior, (int, float)) or isinstance(prior, bool):
+            raise ValueError(f"{attribute_name} prior state is unavailable")
+        setter_error: BaseException | None = None
+        try: parameter.value = float(target)
+        except BaseException as error: setter_error = error
+        observed = self._read_attr(parameter, "value")
+        if setter_error is None and isinstance(observed, (int, float)) and not isinstance(observed, bool) and float(observed) == float(target): return
+        if isinstance(prior, (int, float)) and observed != prior:
+            try: parameter.value = prior
+            except BaseException: pass
+            restored = self._read_attr(parameter, "value")
+            if not isinstance(restored, (int, float)) or float(restored) != float(prior): raise ValueError(f"{attribute_name} change failed and exact rollback failed") from setter_error
+        raise ValueError(f"{attribute_name} change was not confirmed") from setter_error
+
+    def _mixer_extended_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:track:") or set(args) - {"ref", "trackActivator", "crossfader", "crossfadeAssign", "panningMode", "panningLeft", "panningRight", "expectedObjectIdentity", "expectedMixerIdentity", "expectedStateRevision"}:
+            raise ValueError("extended mixer authority is invalid")
+        tracks = self._items(getattr(self.song, "tracks", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+        if not 0 <= index < len(tracks): raise ValueError("track hierarchy changed")
+        track = tracks[index]; mixer = self._read_attr(track, "mixer_device")
+        if mixer is None: raise ValueError("mixer is unavailable on this track")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(track), args["expectedObjectIdentity"]): raise ValueError("track identity changed since preview")
+        if not isinstance(args.get("expectedMixerIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(mixer), args["expectedMixerIdentity"]): raise ValueError("mixer identity changed since preview")
+        state = {"crossfadeAssign": self._read_attr(mixer, "crossfade_assign"), "panningMode": self._read_attr(mixer, "panning_mode")}
+        state_revision = hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("extended mixer state changed since preview")
+        proposals = []
+        if "trackActivator" in args:
+            parameter = self._read_attr(mixer, "track_activator")
+            if parameter is None: raise ValueError("track activator is unavailable")
+            value = args["trackActivator"]
+            if not isinstance(value, bool): raise ValueError("trackActivator is invalid")
+            proposals.append((parameter, 1.0 if value else 0.0, "track activator"))
+        if "crossfader" in args:
+            parameter = self._read_attr(mixer, "crossfader")
+            if parameter is None: raise ValueError("crossfader is unavailable")
+            value = args["crossfader"]
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not -1 <= float(value) <= 1: raise ValueError("crossfader is invalid")
+            proposals.append((parameter, float(value), "crossfader"))
+        for field, attr in (("panningLeft", "panning_left"), ("panningRight", "panning_right")):
+            if field in args:
+                parameter = self._read_attr(mixer, attr)
+                if parameter is None: raise ValueError(f"{attr} is unavailable")
+                value = args[field]
+                if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not -1 <= float(value) <= 1: raise ValueError(f"{field} is invalid")
+                proposals.append((parameter, float(value), field))
+        if "crossfadeAssign" in args:
+            value = args["crossfadeAssign"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 2: raise ValueError("crossfadeAssign is invalid")
+            prior_assign = self._read_attr(mixer, "crossfade_assign")
+            try: mixer.crossfade_assign = value
+            except BaseException as error: raise ValueError("crossfadeAssign change failed") from error
+            if self._read_attr(mixer, "crossfade_assign") != value:
+                try: mixer.crossfade_assign = prior_assign
+                except BaseException: pass
+                raise ValueError("crossfadeAssign change was not confirmed")
+        if "panningMode" in args:
+            value = args["panningMode"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 8: raise ValueError("panningMode is invalid")
+            prior_mode = self._read_attr(mixer, "panning_mode")
+            try: mixer.panning_mode = value
+            except BaseException as error: raise ValueError("panningMode change failed") from error
+            if self._read_attr(mixer, "panning_mode") != value:
+                try: mixer.panning_mode = prior_mode
+                except BaseException: pass
+                raise ValueError("panningMode change was not confirmed")
+        for parameter, target, name in proposals: self._set_parameter_direct(parameter, target, name)
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _chain_mixer_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:chain:") or set(args) - {"ref", "volume", "pan", "sends", "chainActivator", "expectedObjectIdentity", "expectedMixerIdentity", "expectedStateRevision"}:
+            raise ValueError("chain mixer authority is invalid")
+        chain = self.refs.get(reference); mixer = self._read_attr(chain, "mixer_device")
+        if mixer is None: raise ValueError("chain mixer is unavailable")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(chain), args["expectedObjectIdentity"]): raise ValueError("chain identity changed since preview")
+        if not isinstance(args.get("expectedMixerIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(mixer), args["expectedMixerIdentity"]): raise ValueError("chain mixer identity changed since preview")
+        sends_now = [self._read_attr(send, "value") for send in self._items(self._read_attr(mixer, "sends") or [])]
+        state_revision = hashlib.sha256(self._bounded_canonical({"sends": sends_now}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("chain mixer state changed since preview")
+        proposals = []
+        if "volume" in args:
+            parameter = self._read_attr(mixer, "volume")
+            if parameter is None: raise ValueError("chain volume is unavailable")
+            value = args["volume"]
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not 0 <= float(value) <= 1: raise ValueError("volume is invalid")
+            proposals.append((parameter, float(value), "chain volume"))
+        if "pan" in args:
+            parameter = self._read_attr(mixer, "panning")
+            if parameter is None: raise ValueError("chain panning is unavailable")
+            value = args["pan"]
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not -1 <= float(value) <= 1: raise ValueError("pan is invalid")
+            proposals.append((parameter, float(value), "chain panning"))
+        if "sends" in args:
+            values = args["sends"]
+            send_params = self._items(self._read_attr(mixer, "sends") or [])
+            if not isinstance(values, list) or len(values) > len(send_params) or not all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 1 for value in values): raise ValueError("sends are invalid")
+            for send, value in zip(send_params, values): proposals.append((send, float(value), "chain send"))
+        if "chainActivator" in args:
+            parameter = self._read_attr(mixer, "chain_activator")
+            if parameter is None: raise ValueError("chain activator is unavailable")
+            value = args["chainActivator"]
+            if not isinstance(value, bool): raise ValueError("chainActivator is invalid")
+            proposals.append((parameter, 1.0 if value else 0.0, "chain activator"))
+        if not proposals: raise ValueError("chain mixer mutation has no fields")
+        for parameter, target, name in proposals: self._set_parameter_direct(parameter, target, name)
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _device_io_fields(self, owner: Any) -> dict[str, Any]:
+        io = getattr(owner, "device_io", None)
+        if io is None: return {"availableRoutingTypes": [], "routingType": None, "routingChannel": None, "defaultExternalRoutingChannelIsNone": None}
+        types = [str(self._read_attr(item, "name") or "") for item in self._items(self._read_attr(io, "available_routing_types") or [])][:64]
+        routing_type = self._read_attr(io, "routing_type"); routing_channel = self._read_attr(io, "routing_channel")
+        default_none = self._read_attr(io, "default_external_routing_channel_is_none")
+        return {
+            "availableRoutingTypes": types,
+            "routingType": str(self._read_attr(routing_type, "name") or "") if routing_type is not None else None,
+            "routingChannel": str(self._read_attr(routing_channel, "name") or "") if routing_channel is not None else None,
+            "defaultExternalRoutingChannelIsNone": default_none if isinstance(default_none, bool) else None,
+        }
+
+    def _device_io_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:") or set(args) - {"ref", "routingType", "routingChannel", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("device IO authority is invalid")
+        owner = self.refs.get(reference); io = getattr(owner, "device_io", None)
+        if io is None: raise ValueError("device IO is unavailable on this shape")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(owner), args["expectedObjectIdentity"]): raise ValueError("device IO identity changed since preview")
+        current = self._device_io_fields(owner)
+        state_revision = hashlib.sha256(self._bounded_canonical({"routingType": current["routingType"], "routingChannel": current["routingChannel"]}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("device IO state changed since preview")
+        if "routingType" not in args and "routingChannel" not in args: raise ValueError("device IO mutation has no fields")
+        available = self._items(self._read_attr(io, "available_routing_types") or [])
+        if "routingType" in args:
+            wanted = args["routingType"]
+            if not isinstance(wanted, str) or not 1 <= len(wanted) <= 128: raise ValueError("routingType is invalid")
+            target = next((item for item in available if str(self._read_attr(item, "name") or "") == wanted), None)
+            if target is None: raise ValueError("routingType is not an available choice")
+            prior = self._read_attr(io, "routing_type")
+            try: io.routing_type = target
+            except BaseException as error: raise ValueError("device IO routing change failed") from error
+            observed = self._read_attr(io, "routing_type")
+            if str(self._read_attr(observed, "name") or "") != wanted:
+                try: io.routing_type = prior
+                except BaseException: pass
+                raise ValueError("device IO routing change was not confirmed")
+        if "routingChannel" in args:
+            wanted = args["routingChannel"]
+            if not isinstance(wanted, str) or not 1 <= len(wanted) <= 128: raise ValueError("routingChannel is invalid")
+            channels = self._items(self._read_attr(io, "available_routing_channels") or [])
+            target = next((item for item in channels if str(self._read_attr(item, "name") or "") == wanted), None)
+            if target is None: raise ValueError("routingChannel is not an available choice")
+            prior = self._read_attr(io, "routing_channel")
+            try: io.routing_channel = target
+            except BaseException as error: raise ValueError("device IO channel change failed") from error
+            observed = self._read_attr(io, "routing_channel")
+            if str(self._read_attr(observed, "name") or "") != wanted:
+                try: io.routing_channel = prior
+                except BaseException: pass
+                raise ValueError("device IO channel change was not confirmed")
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _compressor_sidechain_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or set(args) - {"ref", "routingType", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("sidechain authority is invalid")
+        device = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("device identity changed since preview")
+        current = self._read_attr(device, "sidechain_routing_type")
+        if current is None: raise ValueError("sidechain routing is unavailable on this device shape")
+        state_revision = hashlib.sha256(self._bounded_canonical({"routingType": str(self._read_attr(current, "name") or "")}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("sidechain state changed since preview")
+        wanted = args.get("routingType")
+        if not isinstance(wanted, str) or not 1 <= len(wanted) <= 128: raise ValueError("routingType is invalid")
+        available = self._items(self._read_attr(device, "available_sidechain_routing_types") or [])
+        target = next((item for item in available if str(self._read_attr(item, "name") or "") == wanted), None)
+        if target is None: raise ValueError("routingType is not an available sidechain choice")
+        prior = current
+        try: device.sidechain_routing_type = target
+        except BaseException as error: raise ValueError("sidechain routing change failed") from error
+        observed = self._read_attr(device, "sidechain_routing_type")
+        if str(self._read_attr(observed, "name") or "") != wanted:
+            try: device.sidechain_routing_type = prior
+            except BaseException: pass
+            raise ValueError("sidechain routing change was not confirmed")
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
     def _slot_state_fields(self, slot: Any) -> dict[str, Any]:
         def optional_bool(name: str) -> bool | None:
             value = self._read_attr(slot, name)
@@ -4588,6 +4797,9 @@ class LiveObjectMapper:
             value = self._read_attr(track, name)
             return bool(value) if isinstance(value, bool) else None
 
+        is_main = self._track_kind(track) == "main"
+        song_tempo = self._read_attr(mixer, "song_tempo") if is_main and mixer is not None else None
+
         volume_param = self._read_attr(mixer, "volume") if mixer is not None else None
         pan_param = self._read_attr(mixer, "panning") if mixer is not None else None
         cue_param = self._read_attr(mixer, "cue_volume") if mixer is not None else None
@@ -4607,7 +4819,46 @@ class LiveObjectMapper:
             "cueIdentity": self._capture_object_identity(cue_param) if cue_param is not None else None,
             "sendRefs": [self.refs.put("parameter", send, f"mixer:{track_index}:sends:{send_index}") for send_index, send in enumerate(send_params)],
             "sendIdentities": [self._capture_object_identity(send) for send in send_params],
+            **self._mixer_extended_fields(mixer, track, track_index),
+            "songTempoRef": self.refs.put("parameter", song_tempo, f"mixer:{track_index}:song_tempo") if song_tempo is not None else None,
         }
+
+    def _mixer_extended_fields(self, mixer: Any, track: Any, track_index: int) -> dict[str, Any]:
+        if mixer is None:
+            return {"trackActivatorRef": None, "crossfaderRef": None, "crossfadeAssign": None, "panningMode": None, "panningLeftRef": None, "panningRightRef": None}
+        def param_ref(name: str, key: str) -> str | None:
+            parameter = self._read_attr(mixer, name)
+            return self.refs.put("parameter", parameter, key) if parameter is not None else None
+        assign = self._read_attr(mixer, "crossfade_assign")
+        mode = self._read_attr(mixer, "panning_mode")
+        return {
+            "trackActivatorRef": param_ref("track_activator", f"mixer:{track_index}:activator"),
+            "crossfaderRef": param_ref("crossfader", f"mixer:{track_index}:crossfader"),
+            "crossfadeAssign": int(assign) if isinstance(assign, int) and not isinstance(assign, bool) else None,
+            "panningMode": int(mode) if isinstance(mode, int) and not isinstance(mode, bool) else None,
+            "panningLeftRef": param_ref("panning_left", f"mixer:{track_index}:panning_left"),
+            "panningRightRef": param_ref("panning_right", f"mixer:{track_index}:panning_right"),
+        }
+
+    def _chain_mixer_fields(self, chain: Any, chain_key: str) -> dict[str, Any]:
+        mixer = self._read_attr(chain, "mixer_device")
+        if mixer is None:
+            return {"volumeRef": None, "panningRef": None, "sendRefs": [], "chainActivatorRef": None, "volume": None, "pan": None, "sends": []}
+        def param_value(obj: Any) -> float | None:
+            value = self._read_attr(obj, "value") if obj is not None else None
+            return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+        volume_param = self._read_attr(mixer, "volume"); pan_param = self._read_attr(mixer, "panning")
+        send_params = self._items(self._read_attr(mixer, "sends") or [])
+        activator = self._read_attr(mixer, "chain_activator")
+        return {
+            "volume": param_value(volume_param), "pan": param_value(pan_param),
+            "sends": [param_value(send) for send in send_params],
+            "volumeRef": self.refs.put("parameter", volume_param, f"{chain_key}:volume") if volume_param is not None else None,
+            "panningRef": self.refs.put("parameter", pan_param, f"{chain_key}:panning") if pan_param is not None else None,
+            "sendRefs": [self.refs.put("parameter", send, f"{chain_key}:sends:{send_index}") for send_index, send in enumerate(send_params)],
+            "chainActivatorRef": self.refs.put("parameter", activator, f"{chain_key}:activator") if activator is not None else None,
+        }
+
 
     def _resolve_parameter(self, reference: str) -> Any:
         if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:parameter:"):

@@ -178,7 +178,7 @@ interface NoteEditTransaction {
 interface ClipLifecycleTransaction {
   id: string;
   epoch: number;
-  kind: "rename" | "duplicate" | "arrangement-create" | "arrangement-delete" | "arrangement-audio-create" | "arrangement-take-lane-create" | "move" | "audio-set" | "mixer-set" | "automation" | "browser-load" | "device" | "routing-set" | "recording" | "backup" | "realtime-arm" | "capture-midi" | "scene-capture" | "view" | "locator-jump" | "clip-set" | "session-audio-create" | "warp-marker" | "clip-action" | "note-target" | "tuning" | "groove" | "scene-set" | "scene-fire" | "transport-action" | "track-structure" | "device-delete" | "track-view" | "selection" | "clip-view" | "device-view" | "dialog";
+  kind: "rename" | "duplicate" | "arrangement-create" | "arrangement-delete" | "arrangement-audio-create" | "arrangement-take-lane-create" | "move" | "audio-set" | "mixer-set" | "automation" | "browser-load" | "device" | "routing-set" | "recording" | "backup" | "realtime-arm" | "capture-midi" | "scene-capture" | "view" | "locator-jump" | "clip-set" | "session-audio-create" | "warp-marker" | "clip-action" | "note-target" | "tuning" | "groove" | "scene-set" | "scene-fire" | "transport-action" | "track-structure" | "device-delete" | "track-view" | "selection" | "clip-view" | "device-view" | "dialog" | "mixer-extended" | "chain-mixer" | "device-io";
   fence: string;
   clipRef?: LiveRef;
   payload: Record<string, unknown>;
@@ -994,6 +994,42 @@ const implementedTools = [
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   },
   {
+    name: "live_mixer_extended_preview",
+    description: "Read-only preflight for extended mixer controls: track activator, crossfader, crossfade assignment, panning mode, and split-stereo left/right panners.",
+    inputSchema: { type: "object", properties: { trackRef: { type: "string", minLength: 1, maxLength: 256 }, trackActivator: { type: "boolean" }, crossfader: { type: "number", minimum: -1, maximum: 1 }, crossfadeAssign: { type: "integer", minimum: 0, maximum: 2 }, panningMode: { type: "integer", minimum: 0, maximum: 8 }, panningLeft: { type: "number", minimum: -1, maximum: 1 }, panningRight: { type: "number", minimum: -1, maximum: 1 } }, required: ["trackRef"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_mixer_extended_apply",
+    description: "Apply an exact, unexpired extended-mixer preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_chain_mixer_preview",
+    description: "Read-only preflight for a rack chain's mixer: volume, pan, sends, and chain activator.",
+    inputSchema: { type: "object", properties: { chainRef: { type: "string", minLength: 1, maxLength: 256 }, volume: { type: "number", minimum: 0, maximum: 1 }, pan: { type: "number", minimum: -1, maximum: 1 }, sends: { type: "array", maxItems: 64, items: { type: "number", minimum: 0, maximum: 1 } }, chainActivator: { type: "boolean" } }, required: ["chainRef"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_chain_mixer_apply",
+    description: "Apply an exact, unexpired chain-mixer preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_device_io_preview",
+    description: "Read-only preflight for device-level routing (device IO type/channel where Live exposes it) or a compressor's sidechain source — separate typed surfaces, never conflated.",
+    inputSchema: { type: "object", properties: { action: { type: "string", enum: ["routing", "sidechain"] }, deviceRef: { type: "string", minLength: 1, maxLength: 256 }, routingType: { type: "string", minLength: 1, maxLength: 128 }, routingChannel: { type: "string", minLength: 1, maxLength: 128 } }, required: ["action", "deviceRef", "routingType"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_device_io_apply",
+    description: "Apply an exact, unexpired device-IO preview with confirmation and idempotency.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
+  {
     name: "live_application_dialog_preview",
     description: "Read the current application dialog state and preflight one guarded dialog-button press. Dialog buttons can be destructive (save/discard); the press fences on the exact observed state.",
     inputSchema: { type: "object", properties: { button: { type: "integer", minimum: 0, maximum: 16 } }, additionalProperties: false },
@@ -1167,7 +1203,7 @@ export class McpHost {
     if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handle(input);
     const name = input.params.name;
     const toolArguments = input.params.arguments;
-    if (![ "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_application_dialog_preview", "live_application_dialog_apply"].includes(name)) return this.handle(input);
+    if (![ "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_application_dialog_preview", "live_application_dialog_apply"].includes(name)) return this.handle(input);
     // Reuse the synchronous validator and request bookkeeping, then execute the
     // adapter operation asynchronously. Invalid requests never reach Live.
     const id = this.requestId(input.id);
@@ -1261,6 +1297,12 @@ export class McpHost {
       if (name === "live_device_view_preview") return await this.liveDeviceViewPreviewAsync(id, toolArguments);
       if (name === "live_device_view_apply") return await this.liveDeviceViewApplyAsync(id, toolArguments, signal);
       if (name === "live_performance_read") return await this.livePerformanceReadAsync(id, toolArguments);
+      if (name === "live_mixer_extended_preview") return await this.liveMixerExtendedPreviewAsync(id, toolArguments);
+      if (name === "live_mixer_extended_apply") return await this.liveMixerExtendedApplyAsync(id, toolArguments, signal);
+      if (name === "live_chain_mixer_preview") return await this.liveChainMixerPreviewAsync(id, toolArguments);
+      if (name === "live_chain_mixer_apply") return await this.liveChainMixerApplyAsync(id, toolArguments, signal);
+      if (name === "live_device_io_preview") return await this.liveDeviceIoPreviewAsync(id, toolArguments);
+      if (name === "live_device_io_apply") return await this.liveDeviceIoApplyAsync(id, toolArguments, signal);
       if (name === "live_application_dialog_preview") return await this.liveApplicationDialogPreviewAsync(id, toolArguments);
       if (name === "live_application_dialog_apply") return await this.liveApplicationDialogApplyAsync(id, toolArguments, signal);
       if (name === "live_automation_preview") return await this.liveAutomationPreviewAsync(id, toolArguments);
@@ -4507,6 +4549,213 @@ export class McpHost {
     } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Dialog state is uncertain; inspect Live before retrying."); }
   }
 
+  private async liveMixerExtendedPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    const fields = ["trackActivator", "crossfader", "crossfadeAssign", "panningMode", "panningLeft", "panningRight"] as const;
+    if (!isObject(params) || !hasOnly(params, ["trackRef", ...fields]) || !isNonEmptyString(params.trackRef, 256)) return error(id, -32602, "trackRef is required");
+    const proposed: Record<string, unknown> = {};
+    for (const field of fields) {
+      const value = params[field];
+      if (value === undefined) continue;
+      if (field === "trackActivator" && typeof value !== "boolean") return error(id, -32602, "trackActivator must be boolean");
+      if ((field === "crossfader" || field === "panningLeft" || field === "panningRight") && (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > 1)) return error(id, -32602, `${field} must be -1 to 1`);
+      if (field === "crossfadeAssign" && (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 2)) return error(id, -32602, "crossfadeAssign must be 0-2");
+      if (field === "panningMode" && (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 8)) return error(id, -32602, "panningMode must be 0-8");
+      proposed[field] = value;
+    }
+    if (Object.keys(proposed).length === 0) return error(id, -32602, "at least one extended mixer field is required");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      if (!(status.operations ?? []).includes("mixer.extended.set")) throw new Error("extended mixer editing is unavailable");
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const track = (snapshot.tracks as unknown as JsonObject[]).find((candidate) => candidate.ref === params.trackRef);
+      if (!track || !isNonEmptyString(track.objectIdentity, 256)) throw new Error("track identity is not authoritative");
+      const mixer = track.mixer as JsonObject | undefined;
+      if (!mixer || !isNonEmptyString(mixer.mixerIdentity as string, 256)) throw new Error("mixer identity is not authoritative");
+      const prior: Record<string, unknown> = {};
+      for (const field of Object.keys(proposed)) prior[field] = mixer[field] ?? null;
+      const state = { crossfadeAssign: mixer.crossfadeAssign ?? null, panningMode: mixer.panningMode ?? null };
+      const payload: Record<string, unknown> = { ref: params.trackRef, ...proposed, expectedObjectIdentity: track.objectIdentity, expectedMixerIdentity: mixer.mixerIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") };
+      const fence = JSON.stringify({ ref: params.trackRef, objectIdentity: track.objectIdentity, mixerIdentity: mixer.mixerIdentity, state });
+      const transaction: ClipLifecycleTransaction = { id: `mixerext_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "mixer-extended", fence, clipRef: params.trackRef as LiveRef, payload, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "extended mixer");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, trackRef: params.trackRef, prior, proposed, impact: "edits-extended-mixer", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Extended-mixer preview requires fresh authoritative state."); }
+  }
+
+  private async liveMixerExtendedApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "mixer-extended" || (transaction.state === "previewed" && transaction.expiresAt <= Date.now())) return this.transactionError(id, "Unknown or expired extended-mixer transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    const reconciliation = transaction.state === "uncertain" && transaction.applyKey === params.idempotencyKey;
+    if (transaction.state !== "previewed" && !reconciliation) return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      if (reconciliation) await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
+      if (!reconciliation) { const snapshot = await adapter.snapshotAsync(context); const track = (snapshot.tracks as unknown as JsonObject[]).find((candidate) => candidate.ref === transaction.clipRef);
+        const mixer = track?.mixer as JsonObject | undefined;
+        const state = { crossfadeAssign: mixer?.crossfadeAssign ?? null, panningMode: mixer?.panningMode ?? null };
+        if (!track || !mixer || JSON.stringify({ ref: transaction.clipRef, objectIdentity: track.objectIdentity, mixerIdentity: mixer.mixerIdentity, state }) !== transaction.fence) return this.transactionError(id, "track, mixer, or extended state changed since preview; preview again"); }
+      transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
+      const result = await adapter.invokeAsync({ operation: "mixer.extended.set", args: transaction.payload }, context) as { changed?: unknown; revision?: unknown };
+      if (result.changed !== true) throw new Error("extended mixer change was not confirmed");
+      const verified = ((await adapter.snapshotAsync(context)).tracks as unknown as JsonObject[]).find((candidate) => candidate.ref === transaction.clipRef)?.mixer as JsonObject | undefined;
+      for (const field of ["trackActivator", "crossfader", "crossfadeAssign", "panningMode", "panningLeft", "panningRight"]) if (transaction.payload[field] !== undefined && verified?.[field] !== transaction.payload[field]) throw new Error("extended mixer postcondition was not confirmed");
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", revision: result.revision, idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Extended-mixer state is uncertain; perform fresh discovery before retrying."); }
+  }
+
+  private async liveChainMixerPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    const fields = ["volume", "pan", "sends", "chainActivator"] as const;
+    if (!isObject(params) || !hasOnly(params, ["chainRef", ...fields]) || !isNonEmptyString(params.chainRef, 256)) return error(id, -32602, "chainRef is required");
+    const proposed: Record<string, unknown> = {};
+    for (const field of fields) {
+      const value = params[field];
+      if (value === undefined) continue;
+      if (field === "chainActivator" && typeof value !== "boolean") return error(id, -32602, "chainActivator must be boolean");
+      if (field === "volume" && (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1)) return error(id, -32602, "volume must be 0-1");
+      if (field === "pan" && (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > 1)) return error(id, -32602, "pan must be -1 to 1");
+      if (field === "sends" && (!Array.isArray(value) || value.length > 64 || !value.every((item) => typeof item === "number" && Number.isFinite(item) && item >= 0 && item <= 1))) return error(id, -32602, "sends must be 0-1 values");
+      proposed[field] = value;
+    }
+    if (Object.keys(proposed).length === 0) return error(id, -32602, "at least one chain mixer field is required");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      if (!(status.operations ?? []).includes("chain-mixer.set")) throw new Error("chain mixer editing is unavailable");
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const found = this.chainRow(snapshot, params.chainRef as LiveRef);
+      const mixer = found.chain.mixer as JsonObject | undefined;
+      if (!mixer || !isNonEmptyString(mixer.mixerIdentity as string, 256)) throw new Error("chain mixer identity is not authoritative");
+      if (Array.isArray(proposed.sends) && (proposed.sends as unknown[]).length > ((mixer.sends as unknown[]) ?? []).length) return error(id, -32602, "chain has fewer sends than proposed");
+      const prior: Record<string, unknown> = {};
+      for (const field of Object.keys(proposed)) prior[field] = structuredClone(mixer[field] ?? null);
+      const payload: Record<string, unknown> = { ref: params.chainRef, ...proposed, expectedObjectIdentity: found.chain.objectIdentity, expectedMixerIdentity: mixer.mixerIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity({ sends: mixer.sends ?? [] })).digest("hex") };
+      const fence = JSON.stringify({ ref: params.chainRef, objectIdentity: found.chain.objectIdentity, mixerIdentity: mixer.mixerIdentity, sends: mixer.sends ?? [] });
+      const transaction: ClipLifecycleTransaction = { id: `chainmix_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "chain-mixer", fence, clipRef: params.chainRef as LiveRef, payload, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "chain mixer");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, chainRef: params.chainRef, prior, proposed, impact: "edits-chain-mixer", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Chain-mixer preview requires fresh authoritative state."); }
+  }
+
+  private async liveChainMixerApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "chain-mixer" || (transaction.state === "previewed" && transaction.expiresAt <= Date.now())) return this.transactionError(id, "Unknown or expired chain-mixer transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    const reconciliation = transaction.state === "uncertain" && transaction.applyKey === params.idempotencyKey;
+    if (transaction.state !== "previewed" && !reconciliation) return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      if (reconciliation) await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
+      if (!reconciliation) { const snapshot = await adapter.snapshotAsync(context); const found = this.chainRow(snapshot, transaction.clipRef!);
+        const mixer = found.chain.mixer as JsonObject | undefined;
+        if (JSON.stringify({ ref: transaction.clipRef, objectIdentity: found.chain.objectIdentity, mixerIdentity: mixer?.mixerIdentity, sends: mixer?.sends ?? [] }) !== transaction.fence) return this.transactionError(id, "chain or mixer state changed since preview; preview again"); }
+      transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
+      const result = await adapter.invokeAsync({ operation: "chain-mixer.set", args: transaction.payload }, context) as { changed?: unknown; revision?: unknown };
+      if (result.changed !== true) throw new Error("chain mixer change was not confirmed");
+      const verified = this.chainRow(await adapter.snapshotAsync(context), transaction.clipRef!).chain.mixer as JsonObject | undefined;
+      for (const field of ["volume", "pan", "sends", "chainActivator"]) if (transaction.payload[field] !== undefined && JSON.stringify(verified?.[field]) !== JSON.stringify(transaction.payload[field])) throw new Error("chain mixer postcondition was not confirmed");
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", revision: result.revision, idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Chain-mixer state is uncertain; perform fresh discovery before retrying."); }
+  }
+
+  private chainRow(snapshot: LiveSnapshot, chainRef: LiveRef): { device: JsonObject; chain: JsonObject } {
+    const walk = (devices: JsonObject[]): JsonObject | undefined => {
+      for (const device of devices) {
+        const chains = ((device.chains as unknown[]) ?? []).filter(isObject);
+        const found = chains.find((chain) => chain.ref === chainRef);
+        if (found) return found;
+        for (const chain of chains) { const nested = walk(((chain.devices as unknown[]) ?? []).filter(isObject)); if (nested) return nested; }
+        for (const pad of ((device.drumPads as unknown[]) ?? []).filter(isObject)) { for (const chain of ((pad.chains as unknown[]) ?? []).filter(isObject)) { const nested = walk(((chain.devices as unknown[]) ?? []).filter(isObject)); if (nested) return nested; } }
+      }
+      return undefined;
+    };
+    for (const track of snapshot.tracks as unknown as JsonObject[]) {
+      const devices = ((track.devices as unknown[]) ?? []).filter(isObject);
+      const found = walk(devices);
+      if (found) return { device: devices[0]!, chain: found };
+    }
+    throw new Error("chain reference is not authoritative");
+  }
+
+  private async liveDeviceIoPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, ["action", "deviceRef", "routingType", "routingChannel"]) || !isNonEmptyString(params.deviceRef, 256) || !isNonEmptyString(params.routingType, 128)) return error(id, -32602, "action, deviceRef, and routingType are required");
+    if (params.action !== "routing" && params.action !== "sidechain") return error(id, -32602, "action must be routing or sidechain");
+    if (params.action === "routing" && params.routingChannel !== undefined && !isNonEmptyString(params.routingChannel, 128)) return error(id, -32602, "routingChannel is invalid");
+    try {
+      const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
+      const operation = params.action === "routing" ? "device-io.set" : "compressor.sidechain.set";
+      if (!(status.operations ?? []).includes(operation)) throw new Error(`${operation} is unavailable on this Live shape`);
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const row = this.deviceRow(snapshot, params.deviceRef as LiveRef);
+      let state: Record<string, unknown>;
+      if (params.action === "routing") {
+        const io = (row.device as unknown as { deviceIo?: { routingType?: unknown; routingChannel?: unknown } }).deviceIo;
+        if (!io) return this.transactionError(id, "device IO is unavailable on this exact device");
+        state = { routingType: io.routingType ?? null, routingChannel: io.routingChannel ?? null };
+      } else {
+        const sidechain = (row.device as unknown as { sidechainRoutingType?: unknown }).sidechainRoutingType;
+        if (sidechain === undefined) return this.transactionError(id, "sidechain routing is unavailable on this exact device");
+        state = { routingType: sidechain };
+      }
+      const payload: Record<string, unknown> = { action: params.action, ref: params.deviceRef, routingType: params.routingType, ...(params.routingChannel !== undefined ? { routingChannel: params.routingChannel } : {}), expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") };
+      const prior = { ...state };
+      const fence = JSON.stringify({ ref: params.deviceRef, objectIdentity: row.device.objectIdentity, state });
+      const transaction: ClipLifecycleTransaction = { id: `devio_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "device-io", fence, payload, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "device IO");
+      return this.successText(id, { transactionId: transaction.id, epoch: transaction.epoch, action: params.action, deviceRef: params.deviceRef, prior, impact: "edits-device-routing", confirmation: "apply", expiresAt: transaction.expiresAt });
+    } catch (cause) { return this.adapterToolError(id, cause, "Device-IO preview requires fresh authoritative state."); }
+  }
+
+  private async liveDeviceIoApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
+    if (!transaction || transaction.kind !== "device-io" || (transaction.state === "previewed" && transaction.expiresAt <= Date.now())) return this.transactionError(id, "Unknown or expired device-IO transaction");
+    if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
+    const reconciliation = transaction.state === "uncertain" && transaction.applyKey === params.idempotencyKey;
+    if (transaction.state !== "previewed" && !reconciliation) return this.transactionError(id, "Transaction is no longer applicable");
+    if (signal?.aborted) return null;
+    try {
+      if (reconciliation) await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
+      const status = this.requireConnected("session.read");
+      if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
+      const adapter = this.asyncAdapter();
+      const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
+      if (!reconciliation) { const snapshot = await adapter.snapshotAsync(context); const row = this.deviceRow(snapshot, transaction.payload.ref as LiveRef);
+        const device = row.device as unknown as { deviceIo?: { routingType?: unknown; routingChannel?: unknown }; sidechainRoutingType?: unknown };
+        const state = transaction.payload.action === "routing" ? { routingType: device.deviceIo?.routingType ?? null, routingChannel: device.deviceIo?.routingChannel ?? null } : { routingType: device.sidechainRoutingType };
+        if (JSON.stringify({ ref: transaction.payload.ref, objectIdentity: row.device.objectIdentity, state }) !== transaction.fence) return this.transactionError(id, "device or routing state changed since preview; preview again"); }
+      const operation = transaction.payload.action === "routing" ? "device-io.set" : "compressor.sidechain.set";
+      transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
+      const args = Object.fromEntries(Object.entries(transaction.payload).filter(([key]) => key !== "action"));
+      const result = await adapter.invokeAsync({ operation, args }, context) as { changed?: unknown; revision?: unknown };
+      if (result.changed !== true) throw new Error("device routing change was not confirmed");
+      const verified = this.deviceRow(await adapter.snapshotAsync(context), transaction.payload.ref as LiveRef).device as unknown as { deviceIo?: { routingType?: unknown; routingChannel?: unknown }; sidechainRoutingType?: unknown };
+      if (transaction.payload.action === "routing") {
+        if (verified.deviceIo?.routingType !== transaction.payload.routingType) throw new Error("device routing postcondition was not confirmed");
+        if (transaction.payload.routingChannel !== undefined && verified.deviceIo?.routingChannel !== transaction.payload.routingChannel) throw new Error("device channel postcondition was not confirmed");
+      } else if (verified.sidechainRoutingType !== transaction.payload.routingType) throw new Error("sidechain postcondition was not confirmed");
+      transaction.applyKey = params.idempotencyKey as string;
+      transaction.state = "applied";
+      return this.successText(id, { transactionId: transaction.id, state: "applied", revision: result.revision, idempotent: false });
+    } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Device-IO state is uncertain; perform fresh discovery before retrying."); }
+  }
+
   private automationAuthorityDigest(snapshot: LiveSnapshot, clipRef: LiveRef, parameterRef: LiveRef): string {
     return createHash("sha256").update(canonicalMutationIdentity({ clip: this.clipAuthority(snapshot, clipRef), parameter: this.parameterAuthority(snapshot, parameterRef) })).digest("hex");
   }
@@ -5720,6 +5969,69 @@ export class McpHost {
         devview.state = "undone"; return this.successText(id, { transactionId: devview.id, state: "undone", idempotent: false });
       } catch (cause) { devview.state = "uncertain"; return this.adapterToolError(id, cause, "Device-view undo is uncertain; perform fresh discovery."); }
     }
+    if (!transaction && String(params.transactionId).startsWith("mixerext_")) {
+      const mixerext = this.clipLifecycleTransactions.get(params.transactionId as string);
+      if (!mixerext || mixerext.kind !== "mixer-extended") return this.transactionError(id, "Unknown or expired extended-mixer transaction");
+      if (mixerext.state === "undone" && mixerext.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: mixerext.id, state: "undone", idempotent: true });
+      const reconciliation = mixerext.state === "uncertain" && mixerext.undoKey === params.idempotencyKey;
+      if ((mixerext.state !== "applied" && !reconciliation) || !mixerext.prior) return this.transactionError(id, "Only an applied or exact-key uncertain extended-mixer transaction can be undone");
+      try {
+        this.beginUndoRecovery(mixerext, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== mixerext.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+        const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; mixerext.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(mixerext, adapter, context);
+        const snapshot = await adapter.snapshotAsync(context); const track = (snapshot.tracks as unknown as JsonObject[]).find((candidate) => candidate.ref === mixerext.clipRef); const mixer = track?.mixer as JsonObject | undefined;
+        if (!track || !mixer || !isNonEmptyString(mixer.mixerIdentity as string, 256)) throw new Error("extended mixer authority is unavailable");
+        if (!reconciliation) { for (const [field, value] of Object.entries(mixerext.payload)) { if (["ref", "expectedObjectIdentity", "expectedMixerIdentity", "expectedStateRevision"].includes(field)) continue; if (mixer[field] !== value) return this.transactionError(id, "extended mixer changed after apply; undo refused"); } }
+        const state = { crossfadeAssign: mixer.crossfadeAssign ?? null, panningMode: mixer.panningMode ?? null };
+        mixerext.state = "undoing";
+        const priorFields = Object.fromEntries(Object.entries(mixerext.prior as Record<string, unknown>).filter(([, value]) => value !== null));
+        const result = await this.invokeUndoRecovery(mixerext, adapter, "mixer.extended.set", { ref: mixerext.clipRef, ...priorFields, expectedObjectIdentity: track.objectIdentity, expectedMixerIdentity: mixer.mixerIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") }, context) as { changed?: unknown };
+        if (result.changed !== true) throw new Error("extended mixer restoration was not confirmed");
+        mixerext.state = "undone"; return this.successText(id, { transactionId: mixerext.id, state: "undone", idempotent: false });
+      } catch (cause) { mixerext.state = "uncertain"; return this.adapterToolError(id, cause, "Extended-mixer undo is uncertain; perform fresh discovery."); }
+    }
+    if (!transaction && String(params.transactionId).startsWith("chainmix_")) {
+      const chainmix = this.clipLifecycleTransactions.get(params.transactionId as string);
+      if (!chainmix || chainmix.kind !== "chain-mixer") return this.transactionError(id, "Unknown or expired chain-mixer transaction");
+      if (chainmix.state === "undone" && chainmix.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: chainmix.id, state: "undone", idempotent: true });
+      const reconciliation = chainmix.state === "uncertain" && chainmix.undoKey === params.idempotencyKey;
+      if ((chainmix.state !== "applied" && !reconciliation) || !chainmix.clipRef || !chainmix.prior) return this.transactionError(id, "Only an applied or exact-key uncertain chain-mixer transaction can be undone");
+      try {
+        this.beginUndoRecovery(chainmix, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== chainmix.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+        const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; chainmix.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(chainmix, adapter, context);
+        const snapshot = await adapter.snapshotAsync(context); const found = this.chainRow(snapshot, chainmix.clipRef); const mixer = found.chain.mixer as JsonObject | undefined;
+        if (!mixer || !isNonEmptyString(mixer.mixerIdentity as string, 256)) throw new Error("chain mixer authority is unavailable");
+        if (!reconciliation) { for (const [field, value] of Object.entries(chainmix.payload)) { if (["ref", "expectedObjectIdentity", "expectedMixerIdentity", "expectedStateRevision"].includes(field)) continue; if (JSON.stringify(mixer[field]) !== JSON.stringify(value)) return this.transactionError(id, "chain mixer changed after apply; undo refused"); } }
+        chainmix.state = "undoing";
+        const chainPriorFields = Object.fromEntries(Object.entries(chainmix.prior as Record<string, unknown>).filter(([, value]) => value !== null));
+        const result = await this.invokeUndoRecovery(chainmix, adapter, "chain-mixer.set", { ref: chainmix.clipRef, ...chainPriorFields, expectedObjectIdentity: found.chain.objectIdentity, expectedMixerIdentity: mixer.mixerIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity({ sends: mixer.sends ?? [] })).digest("hex") }, context) as { changed?: unknown };
+        if (result.changed !== true) throw new Error("chain mixer restoration was not confirmed");
+        chainmix.state = "undone"; return this.successText(id, { transactionId: chainmix.id, state: "undone", idempotent: false });
+      } catch (cause) { chainmix.state = "uncertain"; return this.adapterToolError(id, cause, "Chain-mixer undo is uncertain; perform fresh discovery."); }
+    }
+    if (!transaction && String(params.transactionId).startsWith("devio_")) {
+      const devio = this.clipLifecycleTransactions.get(params.transactionId as string);
+      if (!devio || devio.kind !== "device-io") return this.transactionError(id, "Unknown or expired device-IO transaction");
+      if (devio.state === "undone" && devio.undoKey === params.idempotencyKey) return this.successText(id, { transactionId: devio.id, state: "undone", idempotent: true });
+      const reconciliation = devio.state === "uncertain" && devio.undoKey === params.idempotencyKey;
+      if ((devio.state !== "applied" && !reconciliation) || !devio.prior) return this.transactionError(id, "Only an applied or exact-key uncertain device-IO transaction can be undone");
+      try {
+        this.beginUndoRecovery(devio, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== devio.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
+        const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; devio.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(devio, adapter, context);
+        const snapshot = await adapter.snapshotAsync(context); const row = this.deviceRow(snapshot, devio.payload.ref as LiveRef);
+        const device = row.device as unknown as { deviceIo?: { routingType?: unknown; routingChannel?: unknown }; sidechainRoutingType?: unknown };
+        const operation = devio.payload.action === "routing" ? "device-io.set" : "compressor.sidechain.set";
+        const current = devio.payload.action === "routing" ? { routingType: device.deviceIo?.routingType ?? null, routingChannel: device.deviceIo?.routingChannel ?? null } : { routingType: device.sidechainRoutingType };
+        if (!reconciliation) { for (const [field, value] of Object.entries(current)) { if (value !== undefined && value !== devio.payload[field]) return this.transactionError(id, "device routing changed after apply; undo refused"); } }
+        devio.state = "undoing";
+        const args: Record<string, unknown> = { ref: devio.payload.ref, expectedObjectIdentity: row.device.objectIdentity, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(current)).digest("hex") };
+        const prior = devio.prior as Record<string, unknown>;
+        if (prior.routingType !== undefined && prior.routingType !== null) args.routingType = prior.routingType;
+        if (devio.payload.action === "routing" && prior.routingChannel !== undefined && prior.routingChannel !== null) args.routingChannel = prior.routingChannel;
+        const result = await this.invokeUndoRecovery(devio, adapter, operation, args, context) as { changed?: unknown };
+        if (result.changed !== true) throw new Error("device routing restoration was not confirmed");
+        devio.state = "undone"; return this.successText(id, { transactionId: devio.id, state: "undone", idempotent: false });
+      } catch (cause) { devio.state = "uncertain"; return this.adapterToolError(id, cause, "Device-IO undo is uncertain; perform fresh discovery."); }
+    }
     if (!transaction && String(params.transactionId).startsWith("groove_")) {
       const groove = this.clipLifecycleTransactions.get(params.transactionId as string);
       if (!groove || groove.kind !== "groove") return this.transactionError(id, "Unknown or expired groove transaction");
@@ -6119,7 +6431,7 @@ export class McpHost {
     }
     if (params.arguments !== undefined && !isObject(params.arguments)) return error(id, -32602, "Tool arguments must be an object");
     if (this.recoveryFinalizationInFlight && !["server_status", "capabilities", "plan_user_journey", "live_status", "live_snapshot", "live_discover"].includes(params.name)) return this.adapterToolError(id, new Error("recovery finalization safety barrier is in progress"), "Wait for terminal recovery finalization before any synchronous mutation.");
-    const argumentTools = new Set(["plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_application_dialog_preview", "live_application_dialog_apply"]);
+    const argumentTools = new Set(["plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_application_dialog_preview", "live_application_dialog_apply"]);
     if (!argumentTools.has(params.name) && params.arguments !== undefined && Object.keys(params.arguments as JsonObject).length !== 0) {
       return error(id, -32602, "Tool arguments must be an empty object");
     }
@@ -6144,7 +6456,7 @@ export class McpHost {
     if (params.name === "live_status") return this.liveStatus(id);
     if (params.name === "live_snapshot") return this.liveSnapshot(id);
     if (params.name === "live_discover") return this.liveDiscover(id, params.arguments);
-    if (["audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_backup_preview", "live_project_backup_apply", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_application_dialog_preview", "live_application_dialog_apply"].includes(params.name)) return error(id, -32001, "This operation requires the asynchronous host request path");
+    if (["audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_backup_preview", "live_project_backup_apply", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_application_dialog_preview", "live_application_dialog_apply"].includes(params.name)) return error(id, -32001, "This operation requires the asynchronous host request path");
     if (params.name === "live_device_parameter_preview") return this.liveDeviceParameterPreview(id, params.arguments);
     if (params.name === "live_device_parameter_apply") return this.liveDeviceParameterApply(id, params.arguments);
     if (params.name === "live_session_structure_preview") return this.liveSessionStructurePreview(id, params.arguments);
@@ -6218,6 +6530,9 @@ export class McpHost {
       if (name.startsWith("live_device_view_")) return hasAll("devices") && hasOperations("snapshot", "device.view.set");
       if (name.startsWith("live_application_dialog_")) return hasOperations("application.dialog");
       if (name === "live_performance_read") return hasAll("session.read") && hasOperations("performance.read");
+      if (name.startsWith("live_mixer_extended_")) return hasAll("mixing") && hasOperations("snapshot", "mixer.extended.set");
+      if (name.startsWith("live_chain_mixer_")) return hasAll("racks", "chains") && hasOperations("snapshot", "chain-mixer.set");
+      if (name.startsWith("live_device_io_")) return hasAll("devices") && hasOperations("snapshot") && hasAnyOperation("device-io.set", "compressor.sidechain.set");
       if (name.startsWith("live_clip_move_")) return hasOperations("snapshot", "clip.move", "arrangement.clip.move");
       if (name.startsWith("live_clip_duplicate_")) return hasAll("clips") && hasOperations("snapshot", "clip.duplicate", "clip.delete", "arrangement.clip.delete");
       if (name.startsWith("live_audio_clip_")) return hasAll("audio") && hasOperations("snapshot", "audio.clip.set");

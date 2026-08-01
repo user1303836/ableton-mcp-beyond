@@ -27,6 +27,9 @@ most content edits can be undone with `live_undo`.
 | Load instruments, effects, and presets | `live_browser_search`, `live_browser_load_preview/apply` | Loads the exact Browser item onto the chosen track; plug-ins must be visible in Live's own Browser |
 | Insert, enable, move, or remove devices | `live_device_preview/apply` | Removal is limited to devices the transaction itself created (exact cleanup); arbitrary deletion is refused |
 | Mix: volume, pan, mute, solo, cue, sends | `live_mixer_preview/apply` | Prior values are captured first, so a mix move can be undone exactly |
+| Extended mixer and crossfade | `live_mixer_extended_preview/apply` | Track activator, crossfader, crossfade assignment, panning mode, and split-stereo left/right panners with exact undo. The master track's semantic tempo parameter is exposed read-only on its mixer row; tempo changes still go through the tempo workflow |
+| Rack chain mixers | `live_chain_mixer_preview/apply` | Chain volume, pan, sends, and chain activator with exact undo |
+| Device routing and sidechains | `live_device_io_preview/apply`, `live_routing_preview/apply` | Track routing (typed, feedback-refused) stays in `live_routing_*`; device-level IO type/channel and compressor sidechain sources live in `live_device_io_*` — separate typed surfaces, each shape-gated and undoable where state exists |
 | Launch and stop Session clips | `live_clip_launch_preview/apply/stop` | One confirmed launch at a time; only mapper-owned playback is stopped |
 | Audition a scene safely | `live_session_audition_preview/apply/stop`, `live_session_emergency_stop` | Requires an output-safety confirmation and a stopped, unarmed, unmonitored baseline; independent emergency stop always remains available |
 | Start/stop playback, set position, loop, metronome, punch | `live_transport_preview/apply` | Revision-fenced; undoable; count-in is reported read-only |

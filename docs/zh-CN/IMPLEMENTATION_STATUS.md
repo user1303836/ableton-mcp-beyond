@@ -74,6 +74,14 @@
   自有回滚与恢复,因此只上报 `can_undo`/`can_redo` 状态并记录该决定。
   已在宿主、模拟器、Python 契约与打包 fake-Live 层面验证;精确候选的
   真实 Live 证明待完成。
+- 扩展混音控制:轨道激活器、交叉推子、交叉分配、声像模式与分离立体声
+  左/右声像,带精确恢复;主轨道的语义歌曲速度参数在其混音行上只读
+  暴露,速度工作流保持单一来源。Rack 链混音器(音量、声像、发送、链
+  激活器)经类型化链面,以及设备级路由(设备 IO 类型/通道,Live 暴露
+  处的 `default_external_routing_channel_is_none`)与压缩器侧链选择
+  经另一类型化面 —— 轨道路由、链路由与设备侧链路由在设计上保持
+  分离。已在宿主、模拟器、Python 契约与打包 fake-Live 层面验证;精确
+  候选的真实 Live 证明待完成。
 - 性能与延迟诊断:`Application.average_process_usage` 与
   `peak_process_usage`、逐轨道输入/输出电平表与 `performance_impact`、
   以采样和毫秒计的设备延迟,合并为一次有界按需采样。遥测仅为时间点

@@ -105,6 +105,17 @@ are. Source, schemas, and tests are the final authority.
   history) is documented rather than implied. Verified at the host,
   simulator, Python contract, and packaged fake-Live levels; exact-candidate
   real-Live proof is pending.
+- Extended mixer controls: track activator, crossfader, crossfade
+  assignment, panning mode, and split-stereo left/right panners with exact
+  restore; the master track's semantic song-tempo parameter is exposed
+  read-only on its mixer row so the tempo workflow stays single-sourced.
+  Rack chain mixers (volume, pan, sends, chain activator) through a typed
+  chain surface, and device-level routing (device IO type/channel,
+  `default_external_routing_channel_is_none` where Live exposes it) and
+  compressor sidechain selection through a separate typed surface — track
+  routing, chain routing, and device sidechain routing remain distinct by
+  design. Verified at the host, simulator, Python contract, and packaged
+  fake-Live levels; exact-candidate real-Live proof is pending.
 - Song.View selections (track, scene, highlighted slot, detail clip,
   device, parameter, chain) and draw mode with exact restore; clip view
   grid quantization, triplet grid, envelope visibility, and show-loop;

@@ -609,7 +609,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "4339296401564c6f7047964492445f10e2eb13764ecc0ad6c7424eeab8b41a48")
+        self.assertEqual(digest, "a5b4c458af2ad00cdb1eb75fb90f0a5d2095796a1e0f2a217d987dfccf3088d1")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -3481,3 +3481,93 @@ class PerformanceDiagnosticsTests(unittest.TestCase):
         validate_operation_payload("performance.read", "result", result)
         device_row = mapper.snapshot()["tracks"][0]["devices"][0]
         self.assertEqual((device_row["latencySamples"], device_row["latencyMs"]), (256, 5.8))
+
+
+class FakeMixerDevice:
+    def __init__(self):
+        self.volume = FakeParameter(); self.panning = FakeParameter(); self.cue_volume = FakeParameter()
+        self.sends = [FakeParameter(), FakeParameter()]
+        self.track_activator = FakeParameter(); self.track_activator.value = 1.0; self.track_activator.quantization = 1.0
+        self.crossfader = FakeParameter(); self.crossfader.value = 0.0; self.crossfader.min = -1.0; self.crossfader.max = 1.0
+        self.crossfade_assign = 1
+        self.panning_mode = 0
+        self.panning_left = FakeParameter(); self.panning_left.value = 0.0; self.panning_left.min = -1.0; self.panning_left.max = 1.0
+        self.panning_right = FakeParameter(); self.panning_right.value = 0.0; self.panning_right.min = -1.0; self.panning_right.max = 1.0
+        self.chain_activator = FakeParameter(); self.chain_activator.value = 1.0; self.chain_activator.quantization = 1.0
+        self.song_tempo = FakeParameter(); self.song_tempo.value = 120.0; self.song_tempo.min = 20.0; self.song_tempo.max = 999.0
+
+
+class MixerRoutingExpansionTests(unittest.TestCase):
+    def _mapper_with_mixer(self):
+        song = FakeSong()
+        song.tracks[0].mixer_device = FakeMixerDevice()
+        return song, LiveObjectMapper(song)
+
+    def test_mixer_extended_fields_and_set(self):
+        song, mapper = self._mapper_with_mixer()
+        row = mapper.snapshot()["tracks"][0]["mixer"]
+        self.assertIsNotNone(row["trackActivatorRef"]); self.assertIsNotNone(row["crossfaderRef"])
+        self.assertEqual((row["crossfadeAssign"], row["panningMode"]), (1, 0))
+        self.assertIsNotNone(row["panningLeftRef"]); self.assertIsNotNone(row["panningRightRef"])
+        track_row = mapper.snapshot()["tracks"][0]
+        mixer = song.tracks[0].mixer_device
+        def fences():
+            return {"ref": track_row["ref"], "expectedObjectIdentity": track_row["objectIdentity"], "expectedMixerIdentity": mapper._capture_object_identity(mixer),
+                    "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({"crossfadeAssign": mixer.crossfade_assign, "panningMode": mixer.panning_mode}).encode()).hexdigest()}
+        self.assertTrue(mapper._operation_supported("mixer.extended.set"))
+        result = mapper.invoke("mixer.extended.set", {**fences(), "trackActivator": False, "crossfader": -0.5, "crossfadeAssign": 0, "panningMode": 1, "panningLeft": -0.25, "panningRight": 0.25})
+        self.assertTrue(result["changed"]); validate_operation_payload("mixer.extended.set", "result", result)
+        self.assertEqual(mixer.track_activator.value, 0.0); self.assertEqual(mixer.crossfader.value, -0.5)
+        self.assertEqual((mixer.crossfade_assign, mixer.panning_mode), (0, 1))
+        self.assertEqual((mixer.panning_left.value, mixer.panning_right.value), (-0.25, 0.25))
+        with self.assertRaisesRegex(ValueError, "is invalid"): mapper.invoke("mixer.extended.set", {**fences(), "crossfader": 2.0})
+        with self.assertRaisesRegex(ValueError, "is invalid"): mapper.invoke("mixer.extended.set", {**fences(), "crossfadeAssign": 3})
+
+    def test_chain_mixer_fields_and_set(self):
+        song = FakeSong()
+        chain = type("Chain", (), {"name": "Chain 1", "devices": [], "mute": False, "solo": False, "mixer_device": FakeMixerDevice()})()
+        rack = FakeDevice(); rack.name = "Rack"; rack.can_have_chains = True; rack.chains = [chain]
+        song.tracks[0].devices = [rack]
+        mapper = LiveObjectMapper(song)
+        chain_row = mapper.snapshot()["tracks"][0]["devices"][0]["chains"][0]
+        self.assertIn("mixer", chain_row); self.assertIsNotNone(chain_row["mixer"]["volumeRef"])
+        mixer = chain.mixer_device
+        def fences():
+            return {"ref": chain_row["ref"], "expectedObjectIdentity": chain_row["objectIdentity"], "expectedMixerIdentity": mapper._capture_object_identity(mixer),
+                    "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({"sends": [send.value for send in mixer.sends]}).encode()).hexdigest()}
+        self.assertTrue(mapper._operation_supported("chain-mixer.set"))
+        result = mapper.invoke("chain-mixer.set", {**fences(), "volume": 0.5, "pan": -0.5, "sends": [0.25, 0.75], "chainActivator": False})
+        self.assertTrue(result["changed"]); validate_operation_payload("chain-mixer.set", "result", result)
+        self.assertEqual((mixer.volume.value, mixer.panning.value), (0.5, -0.5))
+        self.assertEqual([send.value for send in mixer.sends], [0.25, 0.75]); self.assertEqual(mixer.chain_activator.value, 0.0)
+        with self.assertRaisesRegex(ValueError, "invalid"): mapper.invoke("chain-mixer.set", {**fences(), "sends": [0.5, 0.5, 0.5]})
+
+    def test_device_io_and_compressor_sidechain_shape_gated(self):
+        song = FakeSong()
+        device = song.tracks[0].devices[0]
+        class FakeChoice:
+            def __init__(self, name): self.name = name
+        class FakeIo:
+            def __init__(self):
+                self.available_routing_types = [FakeChoice("Ext. In"), FakeChoice("Main")]
+                self.available_routing_channels = [FakeChoice("1"), FakeChoice("1/2")]
+                self.routing_type = self.available_routing_types[0]
+                self.routing_channel = self.available_routing_channels[0]
+                self.default_external_routing_channel_is_none = True
+        device.device_io = FakeIo()
+        device.available_sidechain_routing_types = [FakeChoice("None"), FakeChoice("Ext. In")]
+        device.sidechain_routing_type = device.available_sidechain_routing_types[0]
+        mapper = LiveObjectMapper(song)
+        self.assertTrue(mapper._operation_supported("device-io.set")); self.assertTrue(mapper._operation_supported("compressor.sidechain.set"))
+        device_row = mapper.snapshot()["tracks"][0]["devices"][0]
+        io_state = mapper._device_io_fields(device)
+        io_revision = hashlib.sha256(mapper._bounded_canonical({"routingType": io_state["routingType"], "routingChannel": io_state["routingChannel"]}).encode()).hexdigest()
+        result = mapper.invoke("device-io.set", {"ref": device_row["ref"], "routingType": "Main", "routingChannel": "1/2", "expectedObjectIdentity": device_row["objectIdentity"], "expectedStateRevision": io_revision})
+        self.assertTrue(result["changed"]); validate_operation_payload("device-io.set", "result", result)
+        self.assertEqual(device.device_io.routing_type.name, "Main"); self.assertEqual(device.device_io.routing_channel.name, "1/2")
+        fresh_revision = hashlib.sha256(mapper._bounded_canonical({"routingType": "Main", "routingChannel": "1/2"}).encode()).hexdigest()
+        with self.assertRaisesRegex(ValueError, "not an available choice"): mapper.invoke("device-io.set", {"ref": device_row["ref"], "routingType": "Bogus", "expectedObjectIdentity": device_row["objectIdentity"], "expectedStateRevision": fresh_revision})
+        sc_revision = hashlib.sha256(mapper._bounded_canonical({"routingType": "None"}).encode()).hexdigest()
+        result = mapper.invoke("compressor.sidechain.set", {"ref": device_row["ref"], "routingType": "Ext. In", "expectedObjectIdentity": device_row["objectIdentity"], "expectedStateRevision": sc_revision})
+        self.assertTrue(result["changed"]); validate_operation_payload("compressor.sidechain.set", "result", result)
+        self.assertEqual(device.sidechain_routing_type.name, "Ext. In")

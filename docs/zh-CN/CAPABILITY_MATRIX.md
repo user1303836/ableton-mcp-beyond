@@ -25,6 +25,9 @@
 | 加载乐器、效果和预置 | `live_browser_search`、`live_browser_load_preview/apply` | 把确切的 Browser 项目加载到选定轨道;插件必须在 Live 自己的 Browser 中可见 |
 | 插入、启用、移动或移除设备 | `live_device_preview/apply` | 移除仅限于事务自身创建的设备(精确清理);拒绝任意删除 |
 | 混音:音量、声像、静音、独奏、cue、发送 | `live_mixer_preview/apply` | 先捕获先前值,混音改动可以精确撤销 |
+| 扩展混音与交叉淡化 | `live_mixer_extended_preview/apply` | 轨道激活器、交叉推子、交叉分配、声像模式与分离立体声左/右声像,带精确撤销。主轨道的语义速度参数在其混音行上只读暴露;速度更改仍走速度工作流 |
+| Rack 链混音器 | `live_chain_mixer_preview/apply` | 链音量、声像、发送与链激活器,带精确撤销 |
+| 设备路由与侧链 | `live_device_io_preview/apply`、`live_routing_preview/apply` | 轨道路由(类型化,拒绝反馈)留在 `live_routing_*`;设备级 IO 类型/通道与压缩器侧链源在 `live_device_io_*` —— 分离的类型化面,各按形态协商,有状态处可撤销 |
 | 触发和停止 Session 剪辑 | `live_clip_launch_preview/apply/stop` | 一次一个已确认触发;只停止映射器拥有的播放 |
 | 安全地试听场景 | `live_session_audition_preview/apply/stop`、`live_session_emergency_stop` | 需要输出安全确认以及已停止、未 armed、未监听的基线;独立紧急停止始终可用 |
 | 开始/停止播放、设置位置、循环、节拍器、穿入穿出 | `live_transport_preview/apply` | 修订栅栏;可撤销;预备拍为只读上报 |

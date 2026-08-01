@@ -34,7 +34,7 @@ function registryPath(): string {
 
 export function loadLiveRegistry(): LiveRegistry {
   const parsed = JSON.parse(readFileSync(registryPath(), "utf8")) as LiveRegistry;
-  if (!parsed || parsed.version !== 1 || parsed.protocol !== "ableton-live/v1" || !Array.isArray(parsed.operations) || parsed.operations.length === 0 || parsed.operations.length > 128) throw new Error("invalid Live operation registry");
+  if (!parsed || parsed.version !== 1 || parsed.protocol !== "ableton-live/v1" || !Array.isArray(parsed.operations) || parsed.operations.length === 0 || parsed.operations.length > 192) throw new Error("invalid Live operation registry");
   const ids = parsed.operations.map((operation) => operation.id);
   if (ids.some((id) => typeof id !== "string" || id.length < 1 || id.length > 128) || new Set(ids).size !== ids.length || ids.some((id, index) => index > 0 && ids[index - 1]! >= id)) throw new Error("registry operation identifiers must be unique and sorted");
   const validateSchema = (schema: unknown, depth = 0): void => {

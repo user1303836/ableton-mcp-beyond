@@ -27,6 +27,9 @@
 | インストゥルメント、エフェクト、プリセットをロード | `live_browser_search`、`live_browser_load_preview/apply` | 正確な Browser アイテムを選択したトラックにロード。プラグインは Live 自身の Browser に表示されている必要があります |
 | デバイスを挿入、有効化、移動、削除 | `live_device_preview/apply` | 削除はトランザクション自身が作成したデバイスに限定(正確なクリーンアップ)。任意の削除は拒否 |
 | ミックス: ボリューム、パン、ミュート、ソロ、キュー、センド | `live_mixer_preview/apply` | 事前値を先にキャプチャするため、ミックスの変更を正確に取り消せます |
+| 拡張ミキサーとクロスフェード | `live_mixer_extended_preview/apply` | トラックアクティベーター、クロスフェーダー、クロスフェード割り当て、パンニングモード、スプリットステレオ左右パンナー(正確なアンドゥ付き)。マスタートラックのセマンティックテンポパラメータはミキサー行で読み取り専用で公開。テンポ変更は従来どおりテンポワークフロー経由 |
+| ラックチェーンミキサー | `live_chain_mixer_preview/apply` | チェーンのボリューム、パン、センド、チェーンアクティベーター(正確なアンドゥ付き) |
+| デバイスルーティングとサイドチェーン | `live_device_io_preview/apply`、`live_routing_preview/apply` | トラックルーティング(型付き、フィードバック拒否)は `live_routing_*` に、デバイスレベル IO タイプ/チャネルとコンプレッサーサイドチェーンソースは `live_device_io_*` に — 別々の型付きサーフェス。それぞれ形状ゲートで、状態がある箇所はアンドゥ可能 |
 | Session クリップを起動・停止 | `live_clip_launch_preview/apply/stop` | 一度に 1 つの確認済み起動。マッパー所有の再生のみ停止 |
 | シーンを安全にオーディション | `live_session_audition_preview/apply/stop`、`live_session_emergency_stop` | 出力セーフティの確認と、停止済み・非アーム・非モニターのベースラインが必要。独立した緊急停止が常に利用可能 |
 | 再生の開始/停止、位置、ループ、メトロノーム、パンチ | `live_transport_preview/apply` | リビジョンフェンス付き。アンドゥ可能。カウントインは読み取り専用で報告 |
