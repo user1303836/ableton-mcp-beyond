@@ -105,6 +105,18 @@ are. Source, schemas, and tests are the final authority.
   history) is documented rather than implied. Verified at the host,
   simulator, Python contract, and packaged fake-Live levels; exact-candidate
   real-Live proof is pending.
+- Deep device and parameter surfaces: parameter rows now expose default
+  value, original name, state, enumeration items, and display-value
+  semantics; device rows expose parameter banks, comparison capability and
+  active side, class display name/type, latency, and (shape-gated) collapsed
+  view state. Parameter bank edits restore exactly; automation re-enable and
+  A/B comparison save-to-slot ship as momentary actions; chain device
+  insertion is empty-owner guarded; and cross-track/chain device movement
+  runs through `Song.move_device` with an exact inverse-move undo. Writable
+  bypass is never inferred from read-only `Device.is_active` — only the
+  name-independently probed Device On parameter is used. Verified at the
+  host, simulator, Python contract, and packaged fake-Live levels;
+  exact-candidate real-Live proof is pending.
 - Extended mixer controls: track activator, crossfader, crossfade
   assignment, panning mode, and split-stereo left/right panners with exact
   restore; the master track's semantic song-tempo parameter is exposed

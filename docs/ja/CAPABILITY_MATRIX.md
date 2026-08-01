@@ -25,7 +25,8 @@
 | MIDI クリップを作成してノートを書き込む | `live_midi_clip_preview/apply`、`live_note_update_preview/apply`、`live_note_delete_preview/apply` | 完全な表現フィールド: velocity、channel、probability、velocity deviation、release velocity、mute。安定したノート ID。クリップごとに 1 回の不可分バッチ |
 | デバイスとプラグインのパラメータを変更 | `live_device_parameter_preview/apply` | 権威ある境界を持つ公開数値パラメータが対象。書き込み後に検証。ガード付きアンドゥ付き |
 | インストゥルメント、エフェクト、プリセットをロード | `live_browser_search`、`live_browser_load_preview/apply` | 正確な Browser アイテムを選択したトラックにロード。プラグインは Live 自身の Browser に表示されている必要があります |
-| デバイスを挿入、有効化、移動、削除 | `live_device_preview/apply` | 削除はトランザクション自身が作成したデバイスに限定(正確なクリーンアップ)。任意の削除は拒否 |
+| デバイスを挿入、有効化、移動、削除 | `live_device_preview/apply`、`live_device_delete_preview/apply` | 削除はトランザクション自身が作成したデバイスに限定(正確なクリーンアップ)。既存デバイスの明示的な削除はフェンス付きで正直にアンドゥ不可 |
+| 高度なデバイスとパラメータ制御 | `live_device_advanced_preview/apply`、`live_device_parameter_preview/apply` | すべての行でパラメータメタデータ(デフォルト値、元の名前、状態、列挙項目、表示値)を公開。パラメータバンク(正確なアンドゥ付き)。オートメーション再有効化と A/B 比較保存(瞬時)。チェーンデバイス挿入(空チェーンガード)。`Song.move_device` によるクロストラック/チェーンデバイス移動(正確な逆移動アンドゥ付き)。バイパスは読み取り専用の `Device.is_active` から書き込み可能を推測せず、プローブ済みの Device On パラメータのみ使用 |
 | ミックス: ボリューム、パン、ミュート、ソロ、キュー、センド | `live_mixer_preview/apply` | 事前値を先にキャプチャするため、ミックスの変更を正確に取り消せます |
 | 拡張ミキサーとクロスフェード | `live_mixer_extended_preview/apply` | トラックアクティベーター、クロスフェーダー、クロスフェード割り当て、パンニングモード、スプリットステレオ左右パンナー(正確なアンドゥ付き)。マスタートラックのセマンティックテンポパラメータはミキサー行で読み取り専用で公開。テンポ変更は従来どおりテンポワークフロー経由 |
 | ラックチェーンミキサー | `live_chain_mixer_preview/apply` | チェーンのボリューム、パン、センド、チェーンアクティベーター(正確なアンドゥ付き) |

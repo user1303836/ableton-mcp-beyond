@@ -23,7 +23,8 @@
 | 创建 MIDI 剪辑并写入音符 | `live_midi_clip_preview/apply`、`live_note_update_preview/apply`、`live_note_delete_preview/apply` | 完整表情字段:velocity、channel、probability、velocity deviation、release velocity、mute;稳定音符 ID;每个剪辑一次原子批量 |
 | 调整设备和插件参数 | `live_device_parameter_preview/apply` | 作用于具有权威边界的已发布数值参数;写入后验证;含受护栏撤销 |
 | 加载乐器、效果和预置 | `live_browser_search`、`live_browser_load_preview/apply` | 把确切的 Browser 项目加载到选定轨道;插件必须在 Live 自己的 Browser 中可见 |
-| 插入、启用、移动或移除设备 | `live_device_preview/apply` | 移除仅限于事务自身创建的设备(精确清理);拒绝任意删除 |
+| 插入、启用、移动或移除设备 | `live_device_preview/apply`、`live_device_delete_preview/apply` | 移除仅限于事务自身创建的设备(精确清理);显式删除现有设备带栅栏且诚实不可撤销 |
+| 深层设备与参数控制 | `live_device_advanced_preview/apply`、`live_device_parameter_preview/apply` | 每行参数暴露元数据(默认值、原名、状态、枚举项、显示值);参数库带精确撤销;自动化重启用与 A/B 对比保存(瞬时);链设备插入(空链守卫);经 `Song.move_device` 的跨轨道/链设备移动,带精确反向移动撤销。Bypass 绝不从只读 `Device.is_active` 推断可写 —— 只使用探针验证的 Device On 参数 |
 | 混音:音量、声像、静音、独奏、cue、发送 | `live_mixer_preview/apply` | 先捕获先前值,混音改动可以精确撤销 |
 | 扩展混音与交叉淡化 | `live_mixer_extended_preview/apply` | 轨道激活器、交叉推子、交叉分配、声像模式与分离立体声左/右声像,带精确撤销。主轨道的语义速度参数在其混音行上只读暴露;速度更改仍走速度工作流 |
 | Rack 链混音器 | `live_chain_mixer_preview/apply` | 链音量、声像、发送与链激活器,带精确撤销 |

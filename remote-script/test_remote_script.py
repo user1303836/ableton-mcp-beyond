@@ -609,7 +609,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "a5b4c458af2ad00cdb1eb75fb90f0a5d2095796a1e0f2a217d987dfccf3088d1")
+        self.assertEqual(digest, "8f1a72fc7abedd4ca74c1eec5bc5ecd4c289324c537e8af8a1b1d1320fa5e326")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -3571,3 +3571,85 @@ class MixerRoutingExpansionTests(unittest.TestCase):
         result = mapper.invoke("compressor.sidechain.set", {"ref": device_row["ref"], "routingType": "Ext. In", "expectedObjectIdentity": device_row["objectIdentity"], "expectedStateRevision": sc_revision})
         self.assertTrue(result["changed"]); validate_operation_payload("compressor.sidechain.set", "result", result)
         self.assertEqual(device.sidechain_routing_type.name, "Ext. In")
+
+
+class DeviceParameterExpansionTests(unittest.TestCase):
+    def test_parameter_rows_expose_metadata_and_device_bank_comparison(self):
+        song = FakeSong()
+        parameter = song.tracks[0].devices[0].parameters[0]
+        parameter.default_value = 0.75; parameter.original_name = "Gain (dB)"; parameter.state = 1
+        parameter.value_items = ["Off", "On"]
+        device = song.tracks[0].devices[0]
+        device.parameter_bank = 1; device.can_compare = True; device.compare_active_side = 0
+        mapper = LiveObjectMapper(song)
+        row = mapper.snapshot()["tracks"][0]["devices"][0]["parameters"][0]
+        self.assertEqual((row["defaultValue"], row["originalName"], row["state"]), (0.75, "Gain (dB)", 1))
+        self.assertEqual(row["valueItems"], ["Off", "On"])
+        device_row = mapper.snapshot()["tracks"][0]["devices"][0]
+        self.assertEqual(device_row["parameterBank"], 1)
+        self.assertEqual(device_row["comparison"], {"capability": True, "activeSide": 0})
+
+    def test_device_bank_set_with_rollback(self):
+        song = FakeSong()
+        device = song.tracks[0].devices[0]; device.parameter_bank = 1
+        mapper = LiveObjectMapper(song)
+        row = mapper.snapshot()["tracks"][0]["devices"][0]
+        def fences(): return {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({"bank": device.parameter_bank}).encode()).hexdigest()}
+        self.assertTrue(mapper._operation_supported("device.bank.set"))
+        result = mapper.invoke("device.bank.set", {**fences(), "bank": 2})
+        self.assertTrue(result["changed"]); validate_operation_payload("device.bank.set", "result", result)
+        self.assertEqual(device.parameter_bank, 2)
+        with self.assertRaisesRegex(ValueError, "is invalid"): mapper.invoke("device.bank.set", {**fences(), "bank": 99})
+
+    def test_parameter_re_enable_automation_and_comparison_save(self):
+        song = FakeSong()
+        parameter = song.tracks[0].devices[0].parameters[0]
+        called = []
+        parameter.re_enable_automation = lambda: called.append(True)
+        device = song.tracks[0].devices[0]
+        stored = []
+        device.store_to_compare_slot = lambda slot: stored.append(slot)
+        mapper = LiveObjectMapper(song)
+        self.assertTrue(mapper._operation_supported("parameter.re-enable-automation")); self.assertTrue(mapper._operation_supported("device.comparison.save-to-slot"))
+        parameter_row = mapper.snapshot()["tracks"][0]["devices"][0]["parameters"][0]
+        result = mapper.invoke("parameter.re-enable-automation", {"ref": parameter_row["ref"], "expectedObjectIdentity": parameter_row["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({"automationState": "none"}).encode()).hexdigest()})
+        self.assertEqual(result, {"done": True}); validate_operation_payload("parameter.re-enable-automation", "result", result); self.assertEqual(called, [True])
+        device_row = mapper.snapshot()["tracks"][0]["devices"][0]
+        result = mapper.invoke("device.comparison.save-to-slot", {"ref": device_row["ref"], "slot": 1, "expectedObjectIdentity": device_row["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({"activeSide": None}).encode()).hexdigest()})
+        self.assertEqual(result, {"done": True}); self.assertEqual(stored, [1])
+        with self.assertRaisesRegex(ValueError, "is invalid"): mapper.invoke("device.comparison.save-to-slot", {"ref": device_row["ref"], "slot": 5, "expectedObjectIdentity": device_row["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({"activeSide": None}).encode()).hexdigest()})
+
+    def test_cross_track_and_chain_device_move(self):
+        song = FakeSong()
+        source = FakeDevice(); source.name = "Mover"
+        song.tracks[0].devices = [source]
+        target_track = FakeTrack(); target_track.name = "Target"; target_track.devices = []
+        song.tracks.append(target_track)
+        def move_device(device, target, position):
+            for owner in song.tracks:
+                if device in owner.devices: owner.devices.remove(device)
+            target.devices.insert(position, device)
+        song.move_device = move_device
+        mapper = LiveObjectMapper(song)
+        self.assertTrue(mapper._operation_supported("device.move"))
+        snapshot = mapper.snapshot()
+        source_row = snapshot["tracks"][0]["devices"][0]; target_row = snapshot["tracks"][1]
+        args = {"ref": source_row["ref"], "index": 0, "targetTrackRef": target_row["ref"], "expectedTargetIdentity": target_row["objectIdentity"],
+                "expectedObjectIdentity": source_row["objectIdentity"], "expectedOwnerRef": snapshot["tracks"][0]["ref"], "expectedOwnerIdentity": snapshot["tracks"][0]["objectIdentity"],
+                "expectedSiblings": [{"ref": source_row["ref"], "objectIdentity": source_row["objectIdentity"]}], "expectedTrackRef": snapshot["tracks"][0]["ref"], "expectedTrackIdentity": snapshot["tracks"][0]["objectIdentity"]}
+        result = mapper.invoke("device.move", args)
+        self.assertEqual(result["index"], 0); self.assertEqual(len(song.tracks[0].devices), 0); self.assertEqual(song.tracks[1].devices, [source])
+
+    def test_chain_device_insert_shape_gated(self):
+        song = FakeSong()
+        chain = type("Chain", (), {"name": "Chain 1", "devices": [], "mute": False, "solo": False})()
+        def insert_device(name, index=-1):
+            device = FakeDevice(); device.name = name; chain.devices.append(device); return device
+        chain.insert_device = insert_device
+        rack = FakeDevice(); rack.name = "Rack"; rack.can_have_chains = True; rack.chains = [chain]
+        song.tracks[0].devices = [rack]
+        mapper = LiveObjectMapper(song)
+        self.assertTrue(mapper._operation_supported("device.insert"))
+        track_row = mapper.snapshot()["tracks"][0]; chain_row = track_row["devices"][0]["chains"][0]
+        result = mapper.invoke("device.insert", {"trackRef": track_row["ref"], "chainRef": chain_row["ref"], "deviceName": "Inserted", "expectedTrackIdentity": track_row["objectIdentity"], "expectedSiblings": []})
+        self.assertEqual(len(chain.devices), 1); self.assertEqual(chain.devices[0].name, "Inserted")

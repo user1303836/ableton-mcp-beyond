@@ -3445,6 +3445,112 @@
       }
     },
     {
+      "id": "device.bank.set",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "bank": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 32
+          },
+          "expectedObjectIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedStateRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "ref",
+          "bank",
+          "expectedObjectIdentity",
+          "expectedStateRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "boolean",
+            "const": true
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "changed",
+          "revision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "device.comparison.save-to-slot",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "slot": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "expectedObjectIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedStateRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "ref",
+          "slot",
+          "expectedObjectIdentity",
+          "expectedStateRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "done": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "done"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "id": "device.delete",
       "method": "invoke",
       "request": {
@@ -3690,6 +3796,14 @@
               "additionalProperties": false
             },
             "maxItems": 256
+          },
+          "chainRef": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 256
           }
         },
         "required": [
@@ -3807,6 +3921,30 @@
           },
           "expectedTrackIdentity": {
             "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "targetTrackRef": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "targetChainRef": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedTargetIdentity": {
+            "type": [
+              "string",
+              "null"
+            ],
             "minLength": 1,
             "maxLength": 256
           }
@@ -5850,6 +5988,50 @@
         },
         "required": [
           "updated"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "parameter.re-enable-automation",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedObjectIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedStateRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "ref",
+          "expectedObjectIdentity",
+          "expectedStateRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "done": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "done"
         ],
         "additionalProperties": false
       }

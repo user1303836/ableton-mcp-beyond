@@ -645,7 +645,7 @@ class LiveObjectMapper:
         if operation == "automation.envelope.delete":
             return any(getattr(slot, "clip", None) is not None and callable(getattr(getattr(slot, "clip", None), "clear_envelope", None)) for track in self._items(getattr(self.song, "tracks", [])) for slot in self._items(getattr(track, "clip_slots", [])))
         if operation == "device.insert":
-            return any(callable(getattr(track, "insert_device", None)) for track in self._items(getattr(self.song, "tracks", [])))
+            return any(callable(getattr(track, "insert_device", None)) for track in self._items(getattr(self.song, "tracks", []))) or any(callable(getattr(chain, "insert_device", None)) for track in self._items(getattr(self.song, "tracks", [])) for device in self._items(getattr(track, "devices", [])) for chain in self._items(self._read_attr(device, "chains") or []))
         if operation == "device.delete":
             return any(callable(getattr(track, "delete_device", None)) for track in self._items(getattr(self.song, "tracks", [])))
         if operation == "device.enable":
@@ -812,6 +812,12 @@ class LiveObjectMapper:
             return any(getattr(device, "device_io", None) is not None for track in tracks for device in self._items(getattr(track, "devices", []))) or any(getattr(track, "device_io", None) is not None for track in tracks)
         if operation == "compressor.sidechain.set":
             return any(self._read_attr(device, "sidechain_routing_type") is not None for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "device.bank.set":
+            return any(isinstance(self._read_attr(device, "parameter_bank"), int) and not isinstance(self._read_attr(device, "parameter_bank"), bool) for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation == "parameter.re-enable-automation":
+            return any(callable(getattr(parameter, "re_enable_automation", None)) for track in tracks for device in self._items(getattr(track, "devices", [])) for parameter in self._items(getattr(device, "parameters", [])))
+        if operation == "device.comparison.save-to-slot":
+            return any(callable(getattr(device, "store_to_compare_slot", None)) or callable(getattr(device, "save_to_comparison_slot", None)) for track in tracks for device in self._items(getattr(track, "devices", [])))
         return False
 
     def capabilities(self, operations: set[str] | None = None) -> list[str]:
@@ -1159,8 +1165,13 @@ class LiveObjectMapper:
                 "automatable": bool(self._read_attr(parameter, "is_automatable", "automatable") if self._read_attr(parameter, "is_automatable", "automatable") is not None else True),
                 "automationState": str(self._read_attr(parameter, "automation_state") or "none"),
                 "displayValue": str(display), "revision": self.refs.revision(parameter_ref),
+                "defaultValue": float(self._read_attr(parameter, "default_value")) if isinstance(self._read_attr(parameter, "default_value"), (int, float)) and not isinstance(self._read_attr(parameter, "default_value"), bool) and math.isfinite(float(self._read_attr(parameter, "default_value"))) else None,
+                "originalName": str(self._read_attr(parameter, "original_name") or "") if isinstance(self._read_attr(parameter, "original_name"), str) else None,
+                "state": int(self._read_attr(parameter, "state")) if isinstance(self._read_attr(parameter, "state"), int) and not isinstance(self._read_attr(parameter, "state"), bool) else None,
+                "valueItems": [str(item) for item in self._items(self._read_attr(parameter, "value_items") or [])][:64] if self._read_attr(parameter, "value_items") is not None else None,
             })
         enabled = self._read_attr(device, "is_active", "is_enabled", "enabled")
+        parameter_bank = self._read_attr(device, "parameter_bank")
         row: dict[str, Any] = {
             "ref": device_ref, "parentRef": track_ref, "chainPosition": index,
             "objectIdentity": self._capture_object_identity(device),
@@ -1172,6 +1183,11 @@ class LiveObjectMapper:
             "canHaveDrumPads": self._read_attr(device, "can_have_drum_pads") if isinstance(self._read_attr(device, "can_have_drum_pads"), bool) else None,
             "latencySamples": int(self._read_attr(device, "latency_in_samples")) if isinstance(self._read_attr(device, "latency_in_samples"), int) and not isinstance(self._read_attr(device, "latency_in_samples"), bool) else None,
             "latencyMs": float(self._read_attr(device, "latency_in_ms")) if isinstance(self._read_attr(device, "latency_in_ms"), (int, float)) and not isinstance(self._read_attr(device, "latency_in_ms"), bool) and math.isfinite(float(self._read_attr(device, "latency_in_ms"))) else None,
+            "parameterBank": int(parameter_bank) if isinstance(parameter_bank, int) and not isinstance(parameter_bank, bool) else None,
+            "comparison": {
+                "capability": self._read_attr(device, "can_compare") if isinstance(self._read_attr(device, "can_compare"), bool) else None,
+                "activeSide": int(self._read_attr(device, "compare_active_side")) if isinstance(self._read_attr(device, "compare_active_side"), int) and not isinstance(self._read_attr(device, "compare_active_side"), bool) else None,
+            },
             "parameters": parameters,
         }
         if row["canHaveChains"] is True:
@@ -2203,6 +2219,12 @@ class LiveObjectMapper:
             return self._device_io_set(args)
         if operation == "compressor.sidechain.set":
             return self._compressor_sidechain_set(args)
+        if operation == "device.bank.set":
+            return self._device_bank_set(args)
+        if operation == "parameter.re-enable-automation":
+            return self._parameter_re_enable_automation(args)
+        if operation == "device.comparison.save-to-slot":
+            return self._device_comparison_save_to_slot(args)
         if operation == "take-lane.create":
             return self._take_lane_create(args)
         if operation == "take-lane.rename":
@@ -4723,6 +4745,54 @@ class LiveObjectMapper:
         revision = self.refs.touch(reference)
         return {"changed": True, "revision": revision}
 
+    def _device_bank_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or set(args) - {"ref", "bank", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("device bank authority is invalid")
+        device = self.refs.get(reference)
+        bank_count = self._read_attr(device, "parameter_bank")
+        if not isinstance(bank_count, int) or isinstance(bank_count, bool): raise ValueError("parameter banks are unavailable on this device")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("device identity changed since preview")
+        state_revision = hashlib.sha256(self._bounded_canonical({"bank": bank_count}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("device bank state changed since preview")
+        value = args.get("bank")
+        if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 32: raise ValueError("bank is invalid")
+        prior = bank_count
+        try:
+            device.parameter_bank = value
+            if self._read_attr(device, "parameter_bank") != value: raise ValueError("device bank change was not confirmed")
+        except BaseException as error:
+            try: device.parameter_bank = prior
+            except BaseException: raise ValueError("device bank change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
+
+    def _parameter_re_enable_automation(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:parameter:") or set(args) - {"ref", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("parameter automation authority is invalid")
+        parameter = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(parameter), args["expectedObjectIdentity"]): raise ValueError("parameter identity changed since preview")
+        state_revision = hashlib.sha256(self._bounded_canonical({"automationState": str(self._read_attr(parameter, "automation_state") or "none")}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("parameter automation state changed since preview")
+        method = getattr(parameter, "re_enable_automation", None)
+        if not callable(method): raise ValueError("automation re-enable is unavailable on this parameter")
+        method()
+        return {"done": True}
+
+    def _device_comparison_save_to_slot(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:device:") or set(args) - {"ref", "slot", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("comparison authority is invalid")
+        device = self.refs.get(reference)
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(device), args["expectedObjectIdentity"]): raise ValueError("device identity changed since preview")
+        state_revision = hashlib.sha256(self._bounded_canonical({"activeSide": self._read_attr(device, "compare_active_side") if isinstance(self._read_attr(device, "compare_active_side"), int) and not isinstance(self._read_attr(device, "compare_active_side"), bool) else None}).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("comparison state changed since preview")
+        slot = args.get("slot")
+        if not isinstance(slot, int) or isinstance(slot, bool) or slot not in (0, 1): raise ValueError("comparison slot is invalid")
+        method = getattr(device, "store_to_compare_slot", None) or getattr(device, "save_to_comparison_slot", None)
+        if not callable(method): raise ValueError("comparison save-to-slot is unavailable on this device shape")
+        method(slot)
+        return {"done": True}
+
     def _slot_state_fields(self, slot: Any) -> dict[str, Any]:
         def optional_bool(name: str) -> bool | None:
             value = self._read_attr(slot, name)
@@ -5280,39 +5350,55 @@ class LiveObjectMapper:
         if not isinstance(track_ref, str) or not track_ref.startswith(f"{self.refs.epoch}:track:"):
             raise ValueError("track reference is stale or invalid")
         self.snapshot(); track = self.refs.get(track_ref)
-        authority = self._top_level_device_authority(track, track_ref); expected_authority = {"expectedTrackIdentity": args.get("expectedTrackIdentity"), "expectedSiblings": args.get("expectedSiblings")}
-        if not hmac.compare_digest(self._bounded_canonical(authority), self._bounded_canonical(expected_authority)):
-            raise ValueError("device insertion target changed since preview")
+        chain_ref = args.get("chainRef")
+        if chain_ref is not None:
+            if not isinstance(chain_ref, str) or not chain_ref.startswith(f"{self.refs.epoch}:chain:"): raise ValueError("chain reference is stale or invalid")
+            chain = self.refs.get(chain_ref)
+            inserter = getattr(chain, "insert_device", None)
+            if not callable(inserter): raise ValueError("chain device insertion is unavailable on this Live shape")
+            owner = chain
+            sibling_source = self._items(self._read_attr(chain, "devices") or [])
+            current_siblings = [{"ref": self.refs.put("device", device, f"{chain_ref}:{index}"), "objectIdentity": self._capture_object_identity(device)} for index, device in enumerate(sibling_source)]
+            expected_siblings = args.get("expectedSiblings")
+            if not isinstance(expected_siblings, list) or not hmac.compare_digest(self._bounded_canonical(current_siblings), self._bounded_canonical(expected_siblings)): raise ValueError("chain device collection changed since preview")
+            expected_track_identity = args.get("expectedTrackIdentity")
+            if not isinstance(expected_track_identity, str) or not hmac.compare_digest(self._capture_object_identity(track), expected_track_identity): raise ValueError("track identity changed since preview")
+        else:
+            owner = track
+            authority = self._top_level_device_authority(track, track_ref); expected_authority = {"expectedTrackIdentity": args.get("expectedTrackIdentity"), "expectedSiblings": args.get("expectedSiblings")}
+            if not hmac.compare_digest(self._bounded_canonical(authority), self._bounded_canonical(expected_authority)):
+                raise ValueError("device insertion target changed since preview")
+            inserter = getattr(track, "insert_device", None)
+            if not callable(inserter):
+                raise ValueError("device insertion is unavailable")
         name = args.get("deviceName")
         if not isinstance(name, str) or not 1 <= len(name) <= 256:
             raise ValueError("device name is invalid")
         index = args.get("index")
         if index is not None and (not isinstance(index, int) or isinstance(index, bool) or not -1 <= index <= 256):
             raise ValueError("device index is invalid")
-        inserter = getattr(track, "insert_device", None)
-        if not callable(inserter):
-            raise ValueError("device insertion is unavailable")
         all_tracks = self._all_track_objects(); track_index = self._capture_index(all_tracks, track, str(args.get("expectedTrackIdentity")))
         if track_index is None or track_ref != f"{self.refs.epoch}:track:{track_index}": raise ValueError("device insertion track hierarchy is stale")
-        before_devices = self._items(getattr(track, "devices", []))
+        before_devices = self._items(self._read_attr(owner, "devices") or [])
         if before_devices: raise ValueError("device insertion requires an empty exact owner so cleanup cannot affect siblings")
+        owner_path = ":".join(str(owner is track and track_ref or chain_ref).split(":")[2:])
         before_identity_order = [self._capture_object_identity(device) for device in before_devices]; before_identities = set(before_identity_order); checkpoint = self.refs.checkpoint(); expected_position = len(before_devices) if index is None or index == -1 else index
         if expected_position > len(before_devices): raise ValueError("device insertion index exceeds the exact sibling boundary")
         try:
-            inserter(name, -1 if index is None else index); devices = self._items(getattr(track, "devices", [])); created = [(position, device) for position, device in enumerate(devices) if self._capture_object_identity(device) not in before_identities]
+            inserter(name, -1 if index is None else index); devices = self._items(self._read_attr(owner, "devices") or []); created = [(position, device) for position, device in enumerate(devices) if self._capture_object_identity(device) not in before_identities]
             if len(devices) != len(before_devices) + 1 or len(created) != 1: raise ValueError("device insertion did not produce one identity-distinct device")
             position, device = created[0]; final_identity_order = [self._capture_object_identity(candidate) for candidate in devices]; expected_identity_order = list(before_identity_order); device_identity = self._capture_object_identity(device); expected_identity_order.insert(expected_position, device_identity)
             if position != expected_position or final_identity_order != expected_identity_order or str(self._read_attr(device, "name") or "") != name: raise ValueError("device insertion did not confirm the exact requested name, index, and siblings")
-            created_ref = self.refs.put("device", device, f"{track_index}:{position}"); fingerprint = self._mapped_fingerprint(created_ref)
+            created_ref = self.refs.put("device", device, f"{owner_path}:{position}"); fingerprint = self._mapped_fingerprint(created_ref)
             return {"ref": created_ref, "objectIdentity": device_identity, "name": name, "index": position, "createdFingerprint": fingerprint}
         except BaseException as error:
-            rollback_failed = False; deleter = getattr(track, "delete_device", None); current = self._items(getattr(track, "devices", [])); owned = [(position, device) for position, device in enumerate(current) if self._capture_object_identity(device) not in before_identities]
+            rollback_failed = False; deleter = getattr(owner, "delete_device", None); current = self._items(self._read_attr(owner, "devices") or []); owned = [(position, device) for position, device in enumerate(current) if self._capture_object_identity(device) not in before_identities]
             if owned and not callable(deleter): rollback_failed = True
             if callable(deleter):
                 for position, _ in reversed(owned):
                     try: deleter(position)
                     except BaseException: pass
-            if [self._capture_object_identity(device) for device in self._items(getattr(track, "devices", []))] != before_identity_order: rollback_failed = True
+            if [self._capture_object_identity(device) for device in self._items(self._read_attr(owner, "devices") or [])] != before_identity_order: rollback_failed = True
             if rollback_failed: raise ValueError("device insertion failed and exact transaction-owned cleanup failed") from error
             self.refs.restore(checkpoint); raise
 
@@ -5383,6 +5469,34 @@ class LiveObjectMapper:
         reference = args.get("ref"); index = args.get("index")
         if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index <= 256: raise ValueError("device index is invalid")
         owner, device, _, current, owner_ref = self._device_location(str(reference), args.get("expectedObjectIdentity"), args.get("expectedOwnerRef"), args.get("expectedOwnerIdentity"), args.get("expectedSiblings"), args.get("expectedTrackRef"), args.get("expectedTrackIdentity"))
+        target_track_ref = args.get("targetTrackRef"); target_chain_ref = args.get("targetChainRef")
+        if target_track_ref is not None or target_chain_ref is not None:
+            if target_track_ref is not None and target_chain_ref is not None: raise ValueError("targetTrackRef and targetChainRef are mutually exclusive")
+            if target_track_ref is not None:
+                if not isinstance(target_track_ref, str) or not target_track_ref.startswith(f"{self.refs.epoch}:track:"): raise ValueError("target track reference is stale or invalid")
+                target = self.refs.get(target_track_ref); target_ref = target_track_ref
+            else:
+                if not isinstance(target_chain_ref, str) or not target_chain_ref.startswith(f"{self.refs.epoch}:chain:"): raise ValueError("target chain reference is stale or invalid")
+                target = self.refs.get(target_chain_ref); target_ref = target_chain_ref
+            if not isinstance(args.get("expectedTargetIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(target), args["expectedTargetIdentity"]): raise ValueError("move target identity changed since preview")
+            mover = getattr(self.song, "move_device", None)
+            if not callable(mover): raise ValueError("device move is unavailable")
+            source_devices = self._items(getattr(owner, "devices", [])); target_devices = self._items(getattr(target, "devices") or [])
+            if index > len(target_devices): raise ValueError("device index is outside the exact target sibling collection")
+            expected_identity = str(args.get("expectedObjectIdentity"))
+            try:
+                mover(device, target, index)
+                after_target = self._items(getattr(target, "devices") or []); after_source = self._items(getattr(owner, "devices", []))
+                if len(after_target) != len(target_devices) + 1 or len(after_source) != len(source_devices) - 1 or index >= len(after_target) or not self._capture_same_object(after_target[index], device, expected_identity): raise ValueError("cross-target device move was not confirmed")
+            except BaseException as error:
+                current_target = self._items(getattr(target, "devices") or []); current_source = self._items(getattr(owner, "devices", []))
+                if self._capture_index(current_target, device, expected_identity) is not None and (len(current_source) != len(source_devices) or len(current_target) != len(target_devices)):
+                    try: mover(device, owner, current)
+                    except BaseException: pass
+                if len(self._items(getattr(target, "devices") or [])) != len(target_devices) or len(self._items(getattr(owner, "devices", []))) != len(source_devices): raise ValueError("cross-target device move failed and exact rollback failed") from error
+                raise
+            target_path = ":".join(str(target_ref).split(":")[2:]); new_ref = self.refs.put("device", device, f"{target_path}:{index}")
+            return {"ref": new_ref, "objectIdentity": expected_identity, "index": index}
         devices_before = self._items(getattr(owner, "devices", [])); expected_identity = str(args.get("expectedObjectIdentity"))
         if index >= len(devices_before): raise ValueError("device index is outside the exact sibling collection")
         if index == current: return {"ref": reference, "objectIdentity": self._capture_object_identity(device), "index": index}
