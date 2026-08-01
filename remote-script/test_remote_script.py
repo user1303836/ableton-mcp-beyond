@@ -609,7 +609,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "5c85f64023820899ac92510c35ce1b5ded76387757f7acc41cd96c6384ac67a4")
+        self.assertEqual(digest, "9a74f60c0275910692c87331669429c3b83c81cf8d59007e02dd0e629821c908")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -3880,3 +3880,53 @@ class SpecializedDeviceTests(unittest.TestCase):
         result = mapper.invoke("simpler.replace-sample", {"ref": rows[1]["ref"], "filePath": "/new/b.wav", "expectedObjectIdentity": rows[1]["objectIdentity"], "expectedStateRevision": sample_revision})
         self.assertTrue(result["changed"]); self.assertEqual(simpler.sample.file_path, "/new/b.wav")
         with self.assertRaisesRegex(ValueError, "absolute path"): mapper.invoke("simpler.replace-sample", {"ref": rows[1]["ref"], "filePath": "b.wav", "expectedObjectIdentity": rows[1]["objectIdentity"], "expectedStateRevision": sample_revision})
+
+
+class ObserverModelTests(unittest.TestCase):
+    def test_subscribe_poll_unsubscribe_with_dedup_and_revision_context(self):
+        song = FakeSong()
+        song.tuning_system = FakeTuningSystem()
+        song.root_note = 0; song.scale_name = "Major"; song.scale_mode = "Ionian"; song.scale_intervals = [0, 2, 4, 5, 7, 9, 11]
+        song.groove_pool = FakeGroovePool(); song.groove_amount = 0.0
+        clip = FakeClip(4.0); clip.add_new_notes([{"pitch": 60, "start_time": 0.0, "duration": 0.5, "velocity": 100}])
+        song.tracks[0].clip_slots[0].clip = clip
+        scene = song.scenes[0]; scene.color_index = 1; scene.tempo = 120.0
+        mapper = LiveObjectMapper(song)
+        snapshot = mapper.snapshot()
+        track_ref = snapshot["tracks"][0]["ref"]; clip_ref = snapshot["tracks"][0]["clips"][0]["ref"]; scene_ref = snapshot["scenes"][0]["ref"]
+        result = mapper.invoke("observe.subscribe", {"topics": [{"kind": "transport"}, {"kind": "selection"}, {"kind": "track", "ref": track_ref}, {"kind": "clip", "ref": clip_ref}, {"kind": "groove"}, {"kind": "tuning"}, {"kind": "scene", "ref": scene_ref}], "minIntervalMs": 100})
+        self.assertTrue(result["subscriptionId"].startswith("obs_")); self.assertEqual(len(result["topics"]), 7)
+        self.assertEqual(len(result["revisions"]), 7); validate_operation_payload("observe.subscribe", "result", result)
+        subscription_id = result["subscriptionId"]
+        import time as _time
+        _time.sleep(0.11)
+        quiet = mapper.invoke("observe.poll", {"subscriptionId": subscription_id})
+        self.assertEqual(quiet["events"], []); self.assertFalse(quiet["overflow"]); self.assertEqual(quiet["sequence"], 1)
+        song.is_playing = True; clip.loop_start = 1.0; song.groove_amount = 0.5
+        _time.sleep(0.11)
+        changed = mapper.invoke("observe.poll", {"subscriptionId": subscription_id})
+        kinds = {event["kind"] for event in changed["events"]}
+        self.assertIn("transport", kinds); self.assertIn("clip", kinds); self.assertIn("groove", kinds)
+        self.assertNotIn("selection", kinds); self.assertNotIn("tuning", kinds)
+        for event in changed["events"]:
+            self.assertEqual(len(event["revision"]), 64); self.assertIsInstance(event["changedFields"], list)
+        validate_operation_payload("observe.poll", "result", changed)
+        _time.sleep(0.11)
+        quiet_again = mapper.invoke("observe.poll", {"subscriptionId": subscription_id})
+        self.assertEqual(quiet_again["events"], [])
+        with self.assertRaisesRegex(ValueError, "minimum interval"):
+            mapper.invoke("observe.poll", {"subscriptionId": subscription_id})
+        result = mapper.invoke("observe.unsubscribe", {"subscriptionId": subscription_id})
+        self.assertEqual(result, {"unsubscribed": True}); validate_operation_payload("observe.unsubscribe", "result", result)
+        with self.assertRaisesRegex(ValueError, "unknown or expired"): mapper.invoke("observe.poll", {"subscriptionId": subscription_id})
+
+    def test_observe_quotas_and_overflow(self):
+        song = FakeSong(); mapper = LiveObjectMapper(song)
+        track_ref = mapper.snapshot()["tracks"][0]["ref"]
+        topics = [{"kind": "meters", "ref": track_ref}] * 2
+        with self.assertRaisesRegex(ValueError, "duplicate"): mapper.invoke("observe.subscribe", {"topics": topics})
+        with self.assertRaisesRegex(ValueError, "invalid"): mapper.invoke("observe.subscribe", {"topics": [{"kind": "bogus"}]})
+        with self.assertRaisesRegex(ValueError, "invalid"): mapper.invoke("observe.subscribe", {"topics": []})
+        with self.assertRaisesRegex(ValueError, "quota is exhausted"):
+            for _ in range(9):
+                mapper.invoke("observe.subscribe", {"topics": [{"kind": "transport"}], "minIntervalMs": 100})

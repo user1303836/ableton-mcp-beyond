@@ -65,6 +65,7 @@ most content edits can be undone with `live_undo`.
 | Switch views and control the Arrangement view | `live_view_preview/apply` | Session/Arranger switching, zoom/scroll, follow-song, track collapse; UI-only, no musical state touched |
 | Search the Browser and inspect items | `live_browser_search` | Read-only |
 | Read the Set: tracks, clips, devices, routing, playback | `live_snapshot`, `live_discover`, `live_status` | Read-only; stale references are rejected, never guessed |
+| Observe state changes | `live_observe_subscribe`, `live_observe_poll`, `live_observe_unsubscribe` | Bounded negotiated topics over documented observable state — transport, selection, track, clip, device, parameter, groove, tuning, scene, meters, and rack state. Quotas (8 subscriptions, 64 topics each), dedup-by-revision, changed-field lists, explicit overflow, negotiated minimum poll interval, and revision/identity on every event — none of it mutation authority |
 
 ## Evidence scope
 

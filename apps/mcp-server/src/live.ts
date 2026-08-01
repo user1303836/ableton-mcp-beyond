@@ -119,7 +119,7 @@ export type LiveOperation =
   | "audio.capture.cleanup" | "audio.capture.emergency-stop" | "audio.capture.inspect" | "audio.capture.start" | "audio.capture.status" | "audio.capture.stop" | "audio.clip.set" | "audio.warp-marker.read" | "audio.warp-marker.add" | "audio.warp-marker.move" | "audio.warp-marker.delete" | "audio.take-lane.read" | "audio.comp.read"
   | "automation.envelope.clear" | "automation.envelope.create" | "automation.envelope.delete" | "automation.envelope.read" | "automation.point.delete" | "automation.point.insert"
   | "browser.inspect" | "browser.load" | "browser.search" | "browser.preview.start" | "browser.preview.stop" | "chain.set" | "clip.action" | "clip.create" | "drum-pad.delete-all-chains" | "drum-pad.set" | "rack.action" | "rack.set" | "rack.view.set" | "clip.delete" | "clip.duplicate" | "clip.move" | "clip.rename" | "clip.set"
-  | "application.dialog" | "clip.view.set" | "device.bank.set" | "drift.set" | "drum-cell.set" | "eq8.set" | "hybrid-reverb.set" | "looper.action" | "looper.set" | "meld.set" | "plugin.set" | "simpler.replace-sample" | "device.comparison.save-to-slot" | "device.delete" | "device.enable" | "device.insert" | "device.move" | "device.parameter.set" | "device.rename" | "device.view.set" | "parameter.re-enable-automation" | "selection.set" | "song.view.set"
+  | "application.dialog" | "clip.view.set" | "device.bank.set" | "drift.set" | "drum-cell.set" | "eq8.set" | "hybrid-reverb.set" | "looper.action" | "looper.set" | "meld.set" | "plugin.set" | "simpler.replace-sample" | "device.comparison.save-to-slot" | "device.delete" | "device.enable" | "device.insert" | "device.move" | "device.parameter.set" | "device.rename" | "device.view.set" | "observe.poll" | "observe.subscribe" | "observe.unsubscribe" | "parameter.re-enable-automation" | "selection.set" | "song.view.set"
   | "chain-mixer.set" | "compressor.sidechain.set" | "device-io.set" | "locator.add" | "locator.delete" | "locator.jump" | "locator.jump-to" | "locator.rename" | "mixer.extended.set" | "mixer.set" | "note.add" | "note.add-batch" | "note.delete" | "note.duplicate" | "note.quantize" | "note.read-by-id" | "note.read-selected" | "note.update"
   | "project.bounce" | "project.collect" | "project.export" | "project.new" | "project.open" | "project.save" | "project.save-as"
   | "performance.read" | "realtime.arm" | "realtime.disarm" | "realtime.stats" | "recording.arrangement" | "recording.session" | "routing.set"
@@ -182,7 +182,7 @@ function createSimulatorState(): LiveSnapshot {
   };
 }
 
-export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "transport.set", "tempo.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "session.clip-launch", "session.clip-stop", "clip.create", "clip.delete", "track.create", "track.delete", "track.rename", "track.create-return", "track.delete-return", "track.duplicate", "scene.duplicate", "track.view.set", "track.select-instrument", "scene.create", "scene.delete", "scene.rename", "scene.set", "scene.fire-selected", "clip.rename", "device.rename", "locator.rename", "scene.capture", "note.add", "note.add-batch", "note.update", "note.delete", "note.duplicate", "note.quantize", "note.read-by-id", "note.read-selected", "locator.add", "locator.delete", "locator.jump", "locator.jump-to", "song.read", "song.time-convert", "transport.action", "session.capture-midi", "device.parameter.set", "clip.duplicate", "clip.move", "clip.set", "clip.action", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "arrangement.audio-clip.create", "session.audio-clip.create", "take-lane.create", "take-lane.rename", "take-lane.clip.create", "take-lane.audio-clip.create", "audio.take-lane.read", "tuning.read", "tuning.set", "groove.read", "groove.set", "groove.edit", "chain.set", "drum-pad.set", "drum-pad.delete-all-chains", "rack.set", "rack.action", "rack.view.set", "audio.clip.set", "audio.warp-marker.read", "audio.warp-marker.add", "audio.warp-marker.move", "audio.warp-marker.delete", "mixer.set", "mixer.extended.set", "chain-mixer.set", "device-io.set", "compressor.sidechain.set", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.envelope.clear", "automation.point.insert", "automation.point.delete", "device.insert", "device.delete", "device.enable", "device.move", "device.bank.set", "parameter.re-enable-automation", "device.comparison.save-to-slot", "drift.set", "drum-cell.set", "eq8.set", "hybrid-reverb.set", "looper.action", "looper.set", "meld.set", "plugin.set", "simpler.replace-sample", "selection.set", "song.view.set", "clip.view.set", "device.view.set", "application.dialog", "browser.search", "browser.inspect", "browser.load", "routing.set", "recording.session", "recording.arrangement", "performance.read", "view.set", "view.control"] as const;
+export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "transport.set", "tempo.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "session.clip-launch", "session.clip-stop", "clip.create", "clip.delete", "track.create", "track.delete", "track.rename", "track.create-return", "track.delete-return", "track.duplicate", "scene.duplicate", "track.view.set", "track.select-instrument", "scene.create", "scene.delete", "scene.rename", "scene.set", "scene.fire-selected", "clip.rename", "device.rename", "locator.rename", "scene.capture", "note.add", "note.add-batch", "note.update", "note.delete", "note.duplicate", "note.quantize", "note.read-by-id", "note.read-selected", "locator.add", "locator.delete", "locator.jump", "locator.jump-to", "song.read", "song.time-convert", "transport.action", "session.capture-midi", "device.parameter.set", "clip.duplicate", "clip.move", "clip.set", "clip.action", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "arrangement.audio-clip.create", "session.audio-clip.create", "take-lane.create", "take-lane.rename", "take-lane.clip.create", "take-lane.audio-clip.create", "audio.take-lane.read", "tuning.read", "tuning.set", "groove.read", "groove.set", "groove.edit", "chain.set", "drum-pad.set", "drum-pad.delete-all-chains", "rack.set", "rack.action", "rack.view.set", "audio.clip.set", "audio.warp-marker.read", "audio.warp-marker.add", "audio.warp-marker.move", "audio.warp-marker.delete", "mixer.set", "mixer.extended.set", "chain-mixer.set", "device-io.set", "compressor.sidechain.set", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.envelope.clear", "automation.point.insert", "automation.point.delete", "device.insert", "device.delete", "device.enable", "device.move", "device.bank.set", "parameter.re-enable-automation", "device.comparison.save-to-slot", "drift.set", "drum-cell.set", "eq8.set", "hybrid-reverb.set", "looper.action", "looper.set", "meld.set", "plugin.set", "simpler.replace-sample", "observe.subscribe", "observe.poll", "observe.unsubscribe", "selection.set", "song.view.set", "clip.view.set", "device.view.set", "application.dialog", "browser.search", "browser.inspect", "browser.load", "routing.set", "recording.session", "recording.arrangement", "performance.read", "view.set", "view.control"] as const;
 
 export class DeterministicLiveSimulator implements LiveAdapter {
   private state = createSimulatorState();
@@ -1479,6 +1479,56 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         this.emit({ type: "object", ref: device.ref, payload: { operation } });
         return { changed: true, revision: ++this.sequence, filePath };
       }
+      case "observe.subscribe": {
+        const topics = args.topics;
+        if (!Array.isArray(topics) || topics.length < 1 || topics.length > 64) throw new RangeError("topics are invalid");
+        const interval = args.minIntervalMs ?? 250;
+        if (!Number.isInteger(interval) || (interval as number) < 100 || (interval as number) > 60000) throw new RangeError("minIntervalMs is invalid");
+        this.observeSubscriptions ??= new Map();
+        if (this.observeSubscriptions.size >= 8) throw new Error("observe subscription quota is exhausted");
+        const seen = new Set<string>();
+        const validated = topics.map((topic) => {
+          if (!topic || typeof topic !== "object" || !["transport", "selection", "track", "clip", "device", "parameter", "groove", "tuning", "scene", "meters", "rack"].includes((topic as { kind?: unknown }).kind as string)) throw new RangeError("observe topic is invalid");
+          const kind = (topic as { kind: string }).kind;
+          const ref = (topic as { ref?: unknown }).ref;
+          if (ref !== undefined && typeof ref !== "string") throw new RangeError("observe topic ref is invalid");
+          const key = `${kind}:${(ref as string | undefined) ?? ""}`;
+          if (seen.has(key)) throw new RangeError("duplicate observe topic");
+          seen.add(key);
+          return { kind, ref: ref as string | undefined, revision: this.observeTopicDigest(kind, ref as string | undefined) };
+        });
+        const subscriptionId = `obs_${(++this.observeSequence).toString(36)}_${Math.random().toString(36).slice(2, 18)}`;
+        this.observeSubscriptions.set(subscriptionId, { topics: validated, minIntervalMs: interval as number, sequence: 0, lastPollMs: -(interval as number) });
+        return { subscriptionId, topics: validated.map((topic) => ({ kind: topic.kind, ...(topic.ref !== undefined ? { ref: topic.ref } : {}) })), minIntervalMs: interval, revisions: Object.fromEntries(validated.map((topic) => [`${topic.kind}:${topic.ref ?? ""}`, topic.revision])) };
+      }
+      case "observe.poll": {
+        const subscriptionId = args.subscriptionId;
+        if (typeof subscriptionId !== "string") throw new TypeError("subscriptionId is invalid");
+        const subscription = this.observeSubscriptions?.get(subscriptionId);
+        if (!subscription) throw new Error("observe subscription is unknown or expired");
+        const now = Date.now();
+        if (now - subscription.lastPollMs < subscription.minIntervalMs) throw new Error("observe poll is faster than the negotiated minimum interval");
+        subscription.lastPollMs = now;
+        const events: Array<{ kind: string; ref: string | null; revision: string; changedFields: string[] }> = [];
+        let overflow = false;
+        for (const topic of subscription.topics) {
+          const digest = this.observeTopicDigest(topic.kind, topic.ref);
+          if (digest !== topic.revision) {
+            if (events.length >= 64) { overflow = true; break; }
+            events.push({ kind: topic.kind, ref: topic.ref ?? null, revision: digest, changedFields: this.observeChangedFields(topic.kind, topic.ref) });
+            topic.revision = digest;
+          }
+        }
+        if (overflow) for (const topic of subscription.topics) topic.revision = this.observeTopicDigest(topic.kind, topic.ref);
+        subscription.sequence += 1;
+        return { events, overflow, sequence: subscription.sequence };
+      }
+      case "observe.unsubscribe": {
+        const subscriptionId = args.subscriptionId;
+        if (typeof subscriptionId !== "string") throw new TypeError("subscriptionId is invalid");
+        if (!this.observeSubscriptions?.delete(subscriptionId)) throw new Error("observe subscription is unknown or expired");
+        return { unsubscribed: true };
+      }
       case "locator.jump": {
         const direction = args.direction;
         if (direction !== "next" && direction !== "previous") throw new RangeError("locator jump direction is invalid");
@@ -1685,6 +1735,70 @@ export class DeterministicLiveSimulator implements LiveAdapter {
   ]; }
   private findClipWithTrack(objectRef: LiveRef): { track: Track; clip: Clip } | undefined { for (const track of this.state.tracks) { const clip = track.clips.find((item) => item.ref === objectRef); if (clip) return { track, clip }; } return undefined; }
   private find(objectRef: LiveRef): Track | Clip | Device | Parameter | undefined { for (const track of this.state.tracks) { if (track.ref === objectRef) return track; const clip = track.clips.find((item) => item.ref === objectRef); if (clip) return clip; for (const lane of track.takeLanes ?? []) { const laneClip = lane.clips.find((item) => item.ref === objectRef); if (laneClip) return laneClip; } for (const device of track.devices) { if (device.ref === objectRef) return device; const parameter = device.parameters.find((item) => item.ref === objectRef); if (parameter) return parameter; } } return undefined; }
+  private observeSequence = 0;
+  private observeSubscriptions?: Map<string, { topics: Array<{ kind: string; ref?: string; revision: string }>; minIntervalMs: number; sequence: number; lastPollMs: number }>;
+
+  private observeTopicDigest(kind: string, reference?: string): string {
+    switch (kind) {
+      case "transport": {
+        const transport = this.state.playback.transport;
+        return simulatorRevision({ transport, tempo: this.state.set.tempo, signature: [this.state.song?.signatureNumerator ?? null, this.state.song?.signatureDenominator ?? null] });
+      }
+      case "selection": return simulatorRevision(this.state.selection);
+      case "track": {
+        const track = this.findTrack(reference as LiveRef);
+        if (!track) throw new Error("track topics require a track ref");
+        return simulatorRevision({ arm: track.armed, mute: track.mute, solo: track.solo, fold: track.foldState ?? null, frozen: track.isFrozen ?? null, routing: [track.routing?.inputType ?? "", track.routing?.outputType ?? ""] });
+      }
+      case "clip": {
+        const clip = this.findClip(reference as LiveRef);
+        return simulatorRevision({ playing: clip.isPlaying ?? null, loopStart: clip.loopStart ?? null, loopEnd: clip.loopEnd ?? null, looping: clip.looping ?? null, notes: clip.notes, warpMarkers: clip.warpMarkers ?? [], launchMode: clip.launchMode ?? null });
+      }
+      case "device": {
+        const device = this.state.tracks.flatMap((track) => track.devices).find((candidate) => candidate.ref === (reference as LiveRef));
+        if (!device) throw new Error("device topics require a device ref");
+        return simulatorRevision({ enabled: device.enabled ?? null, bank: device.parameterBank ?? null, view: device.view?.isCollapsed ?? null, parameters: device.parameters.map((parameter) => parameter.value) });
+      }
+      case "parameter": {
+        const parameter = this.state.tracks.flatMap((track) => track.devices.flatMap((device) => device.parameters)).find((candidate) => candidate.ref === (reference as LiveRef));
+        if (!parameter) throw new Error("parameter topics require a parameter ref");
+        return simulatorRevision({ value: parameter.value });
+      }
+      case "groove": return simulatorRevision(this.state.groovePool);
+      case "tuning": return simulatorRevision(this.state.tuning);
+      case "scene": {
+        const scene = this.state.scenes.find((candidate) => candidate.ref === (reference as LiveRef));
+        if (!scene) throw new Error("scene topics require a scene ref");
+        return simulatorRevision({ colorIndex: scene.colorIndex ?? null, tempo: scene.tempo ?? null, tempoEnabled: scene.tempoEnabled ?? null, signatureNumerator: scene.signatureNumerator ?? null, signatureDenominator: scene.signatureDenominator ?? null, timeSignatureEnabled: scene.timeSignatureEnabled ?? null, isTriggered: scene.isTriggered ?? null });
+      }
+      case "meters": {
+        const track = this.findTrack(reference as LiveRef);
+        if (!track) throw new Error("meter topics require a track ref");
+        return simulatorRevision({ in: [track.inputMeterLeft ?? null, track.inputMeterRight ?? null], out: [track.outputMeterLeft ?? null, track.outputMeterRight ?? null], impact: track.performanceImpact ?? null });
+      }
+      case "rack": {
+        const device = this.state.tracks.flatMap((track) => track.devices).find((candidate) => candidate.ref === (reference as LiveRef));
+        if (!device) throw new Error("rack topics require a device ref");
+        return simulatorRevision({ macros: (device.macros ?? []).map((macro) => macro.objectIdentity), chains: (device.chains ?? []).map((chain) => chain.objectIdentity), variationCount: device.variationCount ?? null, selectedVariationIndex: device.selectedVariationIndex ?? null, visibleMacroCount: device.visibleMacroCount ?? null });
+      }
+      default: throw new Error("observe topic kind is invalid");
+    }
+  }
+
+  private observeChangedFields(kind: string, reference?: string): string[] {
+    switch (kind) {
+      case "transport": return ["playing", "position", "loop"];
+      case "clip": return ["playing", "notesRevision", "markers", "loop"];
+      case "device": return ["enabled", "bank"];
+      case "parameter": return ["value"];
+      case "groove": return ["grooveAmount"];
+      case "tuning": return ["referencePitch", "rootNote"];
+      case "scene": return ["isTriggered", "tempo"];
+      case "rack": return ["macros", "chains", "variationCount", "selectedVariationIndex"];
+      default: return [kind];
+    }
+  }
+
   private findTakeLane(reference: LiveRef): { track: Track; lane: TakeLane } | undefined {
     for (const track of this.state.tracks) {
       const lane = (track.takeLanes ?? []).find((candidate) => candidate.ref === reference);

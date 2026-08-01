@@ -846,6 +846,8 @@ class LiveObjectMapper:
             return any(self._read_attr(device, "is_editor_open") is not None or self._read_attr(device, "presets") is not None for track in tracks for device in self._items(getattr(track, "devices", [])))
         if operation == "simpler.replace-sample":
             return any(callable(getattr(device, "replace_sample", None)) for track in tracks for device in self._items(getattr(track, "devices", [])))
+        if operation in {"observe.subscribe", "observe.poll", "observe.unsubscribe"}:
+            return True
         return False
 
     def capabilities(self, operations: set[str] | None = None) -> list[str]:
@@ -2320,6 +2322,12 @@ class LiveObjectMapper:
             return self._plugin_set(args)
         if operation == "simpler.replace-sample":
             return self._simpler_replace_sample(args)
+        if operation == "observe.subscribe":
+            return self._observe_subscribe(args)
+        if operation == "observe.poll":
+            return self._observe_poll(args)
+        if operation == "observe.unsubscribe":
+            return self._observe_unsubscribe(args)
         if operation == "take-lane.create":
             return self._take_lane_create(args)
         if operation == "take-lane.rename":
@@ -5318,6 +5326,124 @@ class LiveObjectMapper:
         method()
         revision = self.refs.touch(reference)
         return {"done": True, "revision": revision}
+
+    _OBSERVE_KINDS = {"transport", "selection", "track", "clip", "device", "parameter", "groove", "tuning", "scene", "meters", "rack"}
+
+    def _observe_topic_digest(self, topic: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        kind = topic["kind"]; reference = topic.get("ref")
+        def digest(state: Any, fields: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+            return hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest(), fields
+        if kind == "transport":
+            transport = self._playback()["transport"]
+            return digest({"transport": transport, "tempo": self._read_attr(self.song, "tempo"), "signature": [self._read_attr(self.song, "signature_numerator"), self._read_attr(self.song, "signature_denominator")]}, {"playing": transport.get("playing"), "position": transport.get("position"), "loop": transport.get("loop")})
+        if kind == "selection":
+            state = self._selection_state()
+            return digest(state, state)
+        if kind == "track":
+            if not isinstance(reference, str): raise ValueError("track topics require a track ref")
+            track = self.refs.get(reference)
+            state = {"arm": self._read_attr(track, "arm"), "mute": self._read_attr(track, "mute"), "solo": self._read_attr(track, "solo"), "fold": self._read_attr(track, "fold_state", "is_folded"), "frozen": self._read_attr(track, "is_frozen"), "routing": [str(self._read_attr(self._read_attr(track, "input_routing_type"), "name") or ""), str(self._read_attr(self._read_attr(track, "output_routing_type"), "name") or "")]}
+            return digest(state, state)
+        if kind == "clip":
+            if not isinstance(reference, str): raise ValueError("clip topics require a clip ref")
+            clip = self.refs.get(reference)
+            notes = self._read_notes(clip)
+            markers = self._warp_marker_rows(clip) if self._read_attr(clip, "is_audio_clip") is True else []
+            state = {"playing": self._read_attr(clip, "is_playing"), "loopStart": self._read_attr(clip, "loop_start"), "loopEnd": self._read_attr(clip, "loop_end"), "looping": self._read_attr(clip, "looping"), "notes": notes, "warpMarkers": markers, "launchMode": self._read_attr(clip, "launch_mode")}
+            return digest(state, {"playing": state["playing"], "notesRevision": hashlib.sha256(self._bounded_canonical(notes).encode("utf-8")).hexdigest(), "markers": len(markers), "loop": [state["loopStart"], state["loopEnd"], state["looping"]]})
+        if kind == "device":
+            if not isinstance(reference, str): raise ValueError("device topics require a device ref")
+            device = self.refs.get(reference)
+            state = {"enabled": self._read_attr(device, "is_active", "is_enabled", "enabled"), "bank": self._read_attr(device, "parameter_bank"), "view": self._read_attr(getattr(device, "view", None), "is_collapsed"), "parameters": [self._read_attr(parameter, "value") for parameter in self._items(getattr(device, "parameters", []))]}
+            return digest(state, {"enabled": state["enabled"], "bank": state["bank"]})
+        if kind == "parameter":
+            if not isinstance(reference, str): raise ValueError("parameter topics require a parameter ref")
+            parameter = self.refs.get(reference)
+            value = self._read_attr(parameter, "value")
+            return digest({"value": value, "state": self._read_attr(parameter, "automation_state")}, {"value": value})
+        if kind == "groove":
+            state = self._groove_state()
+            return digest(state, {"grooveAmount": state["grooveAmount"]})
+        if kind == "tuning":
+            state = self._tuning_state()
+            return digest(state, {"referencePitch": state["tuningSystem"]["referencePitch"], "rootNote": state["scale"]["rootNote"]})
+        if kind == "scene":
+            if not isinstance(reference, str): raise ValueError("scene topics require a scene ref")
+            scenes = self._items(getattr(self.song, "scenes", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+            if not 0 <= index < len(scenes): raise ValueError("scene hierarchy changed")
+            scene = scenes[index]
+            state = {**self._scene_state_fields(scene), "isTriggered": self._read_attr(scene, "is_triggered")}
+            return digest(state, {"isTriggered": state["isTriggered"], "tempo": state["tempo"]})
+        if kind == "meters":
+            if not isinstance(reference, str): raise ValueError("meter topics require a track ref")
+            track = self.refs.get(reference)
+            state = {"in": [self._read_attr(track, "input_meter_left"), self._read_attr(track, "input_meter_right")], "out": [self._read_attr(track, "output_meter_left"), self._read_attr(track, "output_meter_right")], "impact": self._read_attr(track, "performance_impact")}
+            return digest(state, state)
+        if kind == "rack":
+            if not isinstance(reference, str): raise ValueError("rack topics require a device ref")
+            device = self.refs.get(reference)
+            state = self._rack_state(device)
+            return digest(state, {"macros": len(state["macros"]), "chains": len(state["chains"]), "variationCount": state["variationCount"], "selectedVariationIndex": state["selectedVariationIndex"]})
+        raise ValueError("observe topic kind is invalid")
+
+    def _observe_subscribe(self, args: dict[str, Any]) -> dict[str, Any]:
+        topics = args.get("topics")
+        if not isinstance(topics, list) or not 1 <= len(topics) <= 64: raise ValueError("topics are invalid")
+        if not hasattr(self, "_observe_subscriptions"): self._observe_subscriptions = {}
+        if len(self._observe_subscriptions) >= 8: raise ValueError("observe subscription quota is exhausted")
+        interval = args.get("minIntervalMs", 250)
+        if not isinstance(interval, int) or isinstance(interval, bool) or not 100 <= interval <= 60000: raise ValueError("minIntervalMs is invalid")
+        validated = []
+        seen = set()
+        for topic in topics:
+            if not isinstance(topic, dict) or set(topic) - {"kind", "ref"} or topic.get("kind") not in self._OBSERVE_KINDS: raise ValueError("observe topic is invalid")
+            reference = topic.get("ref")
+            if reference is not None and not isinstance(reference, str): raise ValueError("observe topic ref is invalid")
+            key = f"{topic['kind']}:{reference or ''}"
+            if key in seen: raise ValueError("duplicate observe topic")
+            seen.add(key)
+            digest, _ = self._observe_topic_digest(topic)
+            validated.append({"kind": topic["kind"], "ref": reference, "revision": digest})
+        import secrets as _secrets
+        subscription_id = f"obs_{_secrets.token_urlsafe(16)}"
+        self._observe_subscriptions[subscription_id] = {"topics": validated, "minIntervalMs": interval, "sequence": 0, "lastPollMs": -interval}
+        return {"subscriptionId": subscription_id,
+                "topics": [{"kind": topic["kind"], **({"ref": topic["ref"]} if topic["ref"] is not None else {})} for topic in validated],
+                "minIntervalMs": interval,
+                "revisions": {f"{topic['kind']}:{topic['ref'] or ''}": topic["revision"] for topic in validated}}
+
+    def _observe_poll(self, args: dict[str, Any]) -> dict[str, Any]:
+        subscription_id = args.get("subscriptionId")
+        if not isinstance(subscription_id, str) or set(args) - {"subscriptionId"}: raise ValueError("observe poll arguments are invalid")
+        subscriptions = getattr(self, "_observe_subscriptions", None)
+        if not subscriptions or subscription_id not in subscriptions: raise ValueError("observe subscription is unknown or expired")
+        subscription = subscriptions[subscription_id]
+        now = int(time.time() * 1000)
+        if now - subscription["lastPollMs"] < subscription["minIntervalMs"]: raise ValueError("observe poll is faster than the negotiated minimum interval")
+        subscription["lastPollMs"] = now
+        events = []; overflow = False
+        for index, topic in enumerate(subscription["topics"]):
+            digest, fields = self._observe_topic_digest(topic)
+            if digest != topic["revision"]:
+                if len(events) >= 64:
+                    overflow = True; break
+                changed = sorted(str(field) for field, value in fields.items() if value is not None)[:32]
+                events.append({"kind": topic["kind"], "ref": topic["ref"], "revision": digest, "changedFields": changed})
+                topic["revision"] = digest
+        if overflow:
+            for topic in subscription["topics"]:
+                digest, _ = self._observe_topic_digest(topic)
+                topic["revision"] = digest
+        subscription["sequence"] += 1
+        return {"events": events, "overflow": overflow, "sequence": subscription["sequence"]}
+
+    def _observe_unsubscribe(self, args: dict[str, Any]) -> dict[str, Any]:
+        subscription_id = args.get("subscriptionId")
+        if not isinstance(subscription_id, str) or set(args) - {"subscriptionId"}: raise ValueError("observe unsubscribe arguments are invalid")
+        subscriptions = getattr(self, "_observe_subscriptions", None)
+        if not subscriptions or subscription_id not in subscriptions: raise ValueError("observe subscription is unknown or expired")
+        del subscriptions[subscription_id]
+        return {"unsubscribed": True}
 
     def _looper_set(self, args: dict[str, Any]) -> dict[str, Any]:
         return self._specialized_set(str(args.get("ref")), args, {

@@ -62,6 +62,7 @@
 | 切换视图并控制 Arrangement 视图 | `live_view_preview/apply` | Session/Arranger 切换、缩放/滚动、跟随播放、轨道折叠;仅 UI,不触碰音乐状态 |
 | 搜索 Browser 并检查项目 | `live_browser_search` | 只读 |
 | 读取 Set:轨道、剪辑、设备、路由、播放 | `live_snapshot`、`live_discover`、`live_status` | 只读;过时引用被拒绝,绝不猜测 |
+| 观察状态变化 | `live_observe_subscribe`、`live_observe_poll`、`live_observe_unsubscribe` | 对文档可观察状态的受限协商主题 —— 走带、选择、轨道、剪辑、设备、参数、律动、律制、场景、电平与机架状态。配额(8 订阅、各 64 主题)、按修订去重、变更字段列表、显式溢出、协商最小轮询间隔,以及每个事件携带修订/身份 —— 均非变更权限 |
 
 ## 证据范围
 

@@ -120,6 +120,19 @@ are. Source, schemas, and tests are the final authority.
   Live versions are recorded in the capability matrix. Verified at the host,
   simulator, Python contract, and packaged fake-Live levels; exact-candidate
   real-Live proof is pending.
+- A negotiated, bounded observer model over documented observable state:
+  transport, selection, track (arm/mute/solo/fold/freeze/routing), clip
+  (playback, notes, warp markers, loop, launch), device and parameter
+  values/states, rack chains/pads/macros/variations, groove and tuning,
+  scene tempo/signature/trigger, and meters/performance. Subscriptions are
+  quota-bounded (eight concurrent, sixty-four topics each), deduplicated by
+  revision digest with changed-field lists, overflow-explicit, and fenced to
+  a negotiated minimum poll interval, and every event carries revision and
+  identity context — none of it mutation authority. The pull-based poll
+  model is documented as the backpressure design (no unbounded push queue)
+  alongside the existing five-property subscription channel. Verified at
+  the host, simulator, Python contract, and packaged fake-Live levels;
+  exact-candidate real-Live proof is pending.
 - Chain, rack, macro, and drum pad surfaces: chain color/index, auto-color,
   audio/MIDI I/O flags, muted-via-solo, and typed chain mixers on rows with
   chain color/mute/solo edits restoring exactly; drum-chain input/output
