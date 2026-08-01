@@ -106,9 +106,11 @@ export interface LiveSnapshot {
   playback: SessionPlaybackState;
   selected?: LiveRef;
   view?: { visibleView: string | null; follow: boolean | null };
+  song?: LiveSongState;
   tuning?: { system: { name: string; lowestNote: number | null; highestNote: number | null; referencePitch: number | null; pseudoOctaveInCents: number | null; noteTunings: Array<{ note: number; deviation: number }> }; scale: { rootNote: number | null; scaleName: string | null; scaleMode: string | null; scaleIntervals: number[] } };
   groovePool?: { amount: number | null; grooves: Array<{ ref: LiveRef; objectIdentity?: string; name: string; base: number | null; quantizationAmount: number | null; randomAmount: number | null; timingAmount: number | null; velocityAmount: number | null }> };
 }
+export interface LiveSongState { visibleTracks: LiveRef[]; appointedDevice: LiveRef | null; songLength: number | null; startTime: number | null; signatureNumerator: number | null; signatureDenominator: number | null; swingAmount: number | null; overdub: boolean | null; arrangementOverdub: boolean | null; backToArranger: boolean | null; canCaptureMidi: boolean | null; canUndo: boolean | null; canRedo: boolean | null; exclusiveArm: boolean | null; exclusiveSolo: boolean | null; isCountingIn: boolean | null; tempoFollowerEnabled: boolean | null; reEnableAutomationEnabled: boolean | null; sessionRecord: boolean | null; sessionAutomationRecord: boolean | null; clipTriggerQuantization: string | null; isAbletonLinkEnabled: boolean | null; isAbletonLinkStartStopSyncEnabled: boolean | null; tempoFollower: boolean | null; }
 export interface LiveEvent { epoch: number; sequence: number; type: "state" | "transport" | "object" | "meter" | "max" | "osc" | "reset"; ref?: LiveRef; payload: unknown; }
 
 export type LiveOperation =
@@ -117,11 +119,11 @@ export type LiveOperation =
   | "automation.envelope.clear" | "automation.envelope.create" | "automation.envelope.delete" | "automation.envelope.read" | "automation.point.delete" | "automation.point.insert"
   | "browser.inspect" | "browser.load" | "browser.search" | "browser.preview.start" | "browser.preview.stop" | "clip.action" | "clip.create" | "clip.delete" | "clip.duplicate" | "clip.move" | "clip.rename" | "clip.set"
   | "device.delete" | "device.enable" | "device.insert" | "device.move" | "device.parameter.set" | "device.rename"
-  | "locator.add" | "locator.delete" | "locator.jump" | "locator.rename" | "mixer.set" | "note.add" | "note.add-batch" | "note.delete" | "note.duplicate" | "note.quantize" | "note.read-by-id" | "note.read-selected" | "note.update"
+  | "locator.add" | "locator.delete" | "locator.jump" | "locator.jump-to" | "locator.rename" | "mixer.set" | "note.add" | "note.add-batch" | "note.delete" | "note.duplicate" | "note.quantize" | "note.read-by-id" | "note.read-selected" | "note.update"
   | "project.bounce" | "project.collect" | "project.export" | "project.new" | "project.open" | "project.save" | "project.save-as"
   | "realtime.arm" | "realtime.disarm" | "realtime.stats" | "recording.arrangement" | "recording.session" | "routing.set"
   | "scene.capture" | "scene.create" | "scene.delete" | "scene.fire-selected" | "scene.rename" | "scene.set" | "session.audio-clip.create" | "session.audition-launch" | "session.audition-stop" | "session.capture-midi" | "session.clip-launch" | "session.clip-stop" | "session.discover" | "session.emergency-stop"
-  | "tempo.set" | "track.create" | "track.delete" | "track.rename" | "transport.set" | "groove.edit" | "groove.read" | "groove.set" | "take-lane.create" | "take-lane.rename" | "take-lane.clip.create" | "take-lane.audio-clip.create" | "tuning.read" | "tuning.set" | "view.control" | "view.set" | "subscribe";
+  | "song.read" | "song.time-convert" | "tempo.set" | "track.create" | "track.delete" | "track.rename" | "transport.action" | "transport.set" | "groove.edit" | "groove.read" | "groove.set" | "take-lane.create" | "take-lane.rename" | "take-lane.clip.create" | "take-lane.audio-clip.create" | "tuning.read" | "tuning.set" | "view.control" | "view.set" | "subscribe";
 
 export interface LiveInvocation { operation: LiveOperation; args: Record<string, unknown>; }
 
@@ -172,12 +174,13 @@ function createSimulatorState(): LiveSnapshot {
     playback: { ref: ref("session-playback", "playback-1"), epoch: 1, revision: "1:stopped", transport: { playing: false, arrangementRecord: false, sessionRecord: false, position: 0, launchQuantization: { raw: "1-bar", normalized: "1-bar" }, loop: { enabled: false, start: 0, length: 4 }, punchIn: false, punchOut: false, metronome: false, countIn: 1 }, firedTargets: [], playingTargets: [] },
     selected: track.ref,
     view: { visibleView: "Session", follow: false },
+    song: { visibleTracks: [ref("track", "track-1")], appointedDevice: ref("device", "utility-1"), songLength: 64, startTime: 0, signatureNumerator: 4, signatureDenominator: 4, swingAmount: 0, overdub: false, arrangementOverdub: false, backToArranger: false, canCaptureMidi: true, canUndo: true, canRedo: false, exclusiveArm: true, exclusiveSolo: true, isCountingIn: false, tempoFollowerEnabled: false, reEnableAutomationEnabled: false, sessionRecord: false, sessionAutomationRecord: false, clipTriggerQuantization: "1_bar", isAbletonLinkEnabled: true, isAbletonLinkStartStopSyncEnabled: false, tempoFollower: false },
     tuning: { system: { name: "Equal", lowestNote: 0, highestNote: 127, referencePitch: 440, pseudoOctaveInCents: 1200, noteTunings: Array.from({ length: 128 }, (_, note) => ({ note, deviation: 0 })) }, scale: { rootNote: 0, scaleName: "Major", scaleMode: "Ionian", scaleIntervals: [0, 2, 4, 5, 7, 9, 11] } },
     groovePool: { amount: 0, grooves: [{ ref: ref("groove", "groove-1"), objectIdentity: "simulator:groove:groove-1", name: "Swing 16", base: 3, quantizationAmount: 0.5, randomAmount: 0.1, timingAmount: 0.6, velocityAmount: 0.2 }] },
   };
 }
 
-export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "transport.set", "tempo.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "session.clip-launch", "session.clip-stop", "clip.create", "clip.delete", "track.create", "track.delete", "track.rename", "scene.create", "scene.delete", "scene.rename", "scene.set", "scene.fire-selected", "clip.rename", "device.rename", "locator.rename", "scene.capture", "note.add", "note.add-batch", "note.update", "note.delete", "note.duplicate", "note.quantize", "note.read-by-id", "note.read-selected", "locator.add", "locator.delete", "locator.jump", "session.capture-midi", "device.parameter.set", "clip.duplicate", "clip.move", "clip.set", "clip.action", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "arrangement.audio-clip.create", "session.audio-clip.create", "take-lane.create", "take-lane.rename", "take-lane.clip.create", "take-lane.audio-clip.create", "audio.take-lane.read", "tuning.read", "tuning.set", "groove.read", "groove.set", "groove.edit", "audio.clip.set", "audio.warp-marker.read", "audio.warp-marker.add", "audio.warp-marker.move", "audio.warp-marker.delete", "mixer.set", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.envelope.clear", "automation.point.insert", "automation.point.delete", "device.insert", "device.delete", "device.enable", "device.move", "browser.search", "browser.inspect", "browser.load", "routing.set", "recording.session", "recording.arrangement", "view.set", "view.control"] as const;
+export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "transport.set", "tempo.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "session.clip-launch", "session.clip-stop", "clip.create", "clip.delete", "track.create", "track.delete", "track.rename", "scene.create", "scene.delete", "scene.rename", "scene.set", "scene.fire-selected", "clip.rename", "device.rename", "locator.rename", "scene.capture", "note.add", "note.add-batch", "note.update", "note.delete", "note.duplicate", "note.quantize", "note.read-by-id", "note.read-selected", "locator.add", "locator.delete", "locator.jump", "locator.jump-to", "song.read", "song.time-convert", "transport.action", "session.capture-midi", "device.parameter.set", "clip.duplicate", "clip.move", "clip.set", "clip.action", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "arrangement.audio-clip.create", "session.audio-clip.create", "take-lane.create", "take-lane.rename", "take-lane.clip.create", "take-lane.audio-clip.create", "audio.take-lane.read", "tuning.read", "tuning.set", "groove.read", "groove.set", "groove.edit", "audio.clip.set", "audio.warp-marker.read", "audio.warp-marker.add", "audio.warp-marker.move", "audio.warp-marker.delete", "mixer.set", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.envelope.clear", "automation.point.insert", "automation.point.delete", "device.insert", "device.delete", "device.enable", "device.move", "browser.search", "browser.inspect", "browser.load", "routing.set", "recording.session", "recording.arrangement", "view.set", "view.control"] as const;
 
 export class DeterministicLiveSimulator implements LiveAdapter {
   private state = createSimulatorState();
@@ -1041,6 +1044,41 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         scene.isTriggered = true; this.state.playback.transport.playing = true; this.state.set.playing = true;
         this.emit({ type: "transport", payload: { operation } });
         return { fired: true };
+      }
+      case "song.read": {
+        const state = structuredClone(this.state.song!);
+        return { ...state, revision: simulatorRevision(state) };
+      }
+      case "song.time-convert": {
+        if (args.setRef !== this.state.set.ref) throw new Error("set reference is stale or invalid");
+        const tempo = this.state.set.tempo;
+        if (typeof tempo !== "number" || !Number.isFinite(tempo) || tempo < 20 || tempo > 999) throw new Error("tempo is unavailable for time conversion");
+        const beats = args.smpteSeconds !== undefined ? (args.smpteSeconds as number) * tempo / 60 : null;
+        const smpteSeconds = args.beatTime !== undefined ? (args.beatTime as number) * 60 / tempo : null;
+        const loopLength = this.state.playback.transport.loop?.length ?? null;
+        return { available: true, beats, smpteSeconds, loopBeats: loopLength, loopSmpteSeconds: loopLength !== null ? loopLength * 60 / tempo : null };
+      }
+      case "transport.action": {
+        if (args.setRef !== this.state.set.ref || args.expectedObjectIdentity !== this.state.set.objectIdentity) throw new Error("Set identity changed since preview");
+        if (args.expectedRevision !== this.state.playback.revision) throw new Error("transport state changed since preview");
+        const action = args.action;
+        const transport = this.state.playback.transport;
+        if (action === "start" || action === "continue" || action === "play-selection") { transport.playing = true; this.state.set.playing = true; }
+        else if (action === "stop") { transport.playing = false; this.state.set.playing = false; }
+        else if (action === "force-link-beat-time") { if (typeof args.beatTime !== "number" || !Number.isFinite(args.beatTime)) throw new RangeError("beatTime is required for force-link-beat-time"); transport.position = args.beatTime; this.state.set.position = args.beatTime; }
+        else if (!["scrub", "tap-tempo", "nudge-up", "nudge-down", "re-enable-automation", "trigger-session-record"].includes(action as string)) throw new RangeError("transport action is invalid");
+        this.state.playback.revision = `${this.epoch}:transport:${++this.sequence}`;
+        this.emit({ type: "transport", payload: { operation } });
+        return { done: true, revision: this.state.playback.revision };
+      }
+      case "locator.jump-to": {
+        const locator = this.state.arrangement.locators.find((candidate) => candidate.ref === objectRef("ref"));
+        if (!locator) throw new Error("locator reference is stale or invalid");
+        if (locator.objectIdentity !== args.expectedObjectIdentity) throw new Error("locator identity changed since preview");
+        if (args.expectedCollectionRevision !== simulatorRevision(this.state.arrangement.locators)) throw new Error("locator collection changed since preview");
+        this.state.playback.transport.position = locator.position; this.state.set.position = locator.position;
+        this.emit({ type: "transport", payload: { operation } });
+        return { position: locator.position };
       }
       case "locator.jump": {
         const direction = args.direction;

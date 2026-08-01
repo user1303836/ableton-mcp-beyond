@@ -609,7 +609,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "a3e6d4c05da7765e9414a8f2f3d409e5a0e67ccc2ab2ba0a1c616734f80e4435")
+        self.assertEqual(digest, "ce266b9a31dd8b51952592786313a578887a7e1ae526b062d35b5d4c48516199")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -3219,3 +3219,81 @@ class SceneSlotExpansionTests(unittest.TestCase):
         result = mapper.invoke("scene.fire-selected", {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedAuthorityRevision": mapper._scene_collection_revision(), "expectedStateRevision": state})
         self.assertEqual(result, {"fired": True}); validate_operation_payload("scene.fire-selected", "result", result)
         self.assertTrue(scene.is_triggered); self.assertTrue(song.is_playing)
+
+
+class SongTransportLinkTests(unittest.TestCase):
+    def _mapper_with_song_state(self):
+        song = FakeSong()
+        song.visible_tracks = list(song.tracks); song.appointed_device = song.tracks[0].devices[0]
+        song.length = 64.0; song.start_time = 0.0
+        song.signature_numerator = 4; song.signature_denominator = 4; song.swing_amount = 0.0
+        song.overdub = False; song.arrangement_overdub = False; song.back_to_arranger = False
+        song.can_capture_midi = True; song.can_undo = True; song.can_redo = False
+        song.exclusive_arm = True; song.exclusive_solo = True; song.is_counting_in = False
+        song.tempo_follower_enabled = False; song.re_enable_automation_enabled = False
+        song.session_automation_record = False
+        song.is_ableton_link_enabled = True; song.is_ableton_link_start_stop_sync_enabled = False
+        song.tempo = 120.0
+        return song, LiveObjectMapper(song)
+
+    def test_song_read_exposes_state(self):
+        song, mapper = self._mapper_with_song_state()
+        set_ref = mapper.snapshot()["set"]["ref"]
+        result = mapper.invoke("song.read", {"setRef": set_ref})
+        self.assertEqual(len(result["visibleTracks"]), 1); self.assertIsNotNone(result["appointedDevice"])
+        self.assertEqual((result["songLength"], result["signatureNumerator"], result["swingAmount"]), (64.0, 4, 0.0))
+        self.assertEqual((result["canCaptureMidi"], result["canUndo"], result["canRedo"]), (True, True, False))
+        self.assertEqual((result["exclusiveArm"], result["exclusiveSolo"], result["isCountingIn"]), (True, True, False))
+        self.assertEqual((result["isAbletonLinkEnabled"], result["isAbletonLinkStartStopSyncEnabled"]), (True, False))
+        validate_operation_payload("song.read", "result", result)
+
+    def test_transport_action_dispatches_and_fences(self):
+        song, mapper = self._mapper_with_song_state()
+        calls = []
+        song.start_playing = lambda: calls.append("start")
+        song.continue_playing = lambda: calls.append("continue")
+        song.stop_playing = lambda: calls.append("stop")
+        song.tap_tempo = lambda: calls.append("tap")
+        song.nudge_up = lambda: calls.append("up")
+        song.nudge_down = lambda: calls.append("down")
+        song.re_enable_automation = lambda: calls.append("reenable")
+        song.trigger_session_record = lambda: calls.append("record")
+        song.force_link_beat_time = lambda beat: calls.append(("link", beat))
+        set_ref = mapper.snapshot()["set"]["ref"]; identity = mapper.snapshot()["set"]["objectIdentity"]
+        self.assertTrue(mapper._operation_supported("transport.action"))
+        def fences(): return {"setRef": set_ref, "expectedObjectIdentity": identity, "expectedRevision": str(mapper._playback()["revision"])}
+        for action in ("start", "continue", "stop", "tap-tempo", "nudge-up", "nudge-down", "re-enable-automation", "trigger-session-record"):
+            result = mapper.invoke("transport.action", {**fences(), "action": action})
+            self.assertTrue(result["done"]); validate_operation_payload("transport.action", "result", result)
+        self.assertEqual(calls, ["start", "continue", "stop", "tap", "up", "down", "reenable", "record"])
+        result = mapper.invoke("transport.action", {**fences(), "action": "force-link-beat-time", "beatTime": 8.0})
+        self.assertTrue(result["done"]); self.assertEqual(calls[-1], ("link", 8.0))
+        with self.assertRaisesRegex(ValueError, "beatTime is required"): mapper.invoke("transport.action", {**fences(), "action": "force-link-beat-time"})
+        stale = fences(); stale["expectedRevision"] = "stale"
+        with self.assertRaisesRegex(ValueError, "changed since preview"): mapper.invoke("transport.action", {**stale, "action": "start"})
+        with self.assertRaisesRegex(ValueError, "invalid"): mapper.invoke("transport.action", {**fences(), "action": "detonate"})
+
+    def test_locator_jump_to_specific_cue(self):
+        song = FakeArrangementSong()
+        song.cue_points = [FakeLocator(4.0, "A"), FakeLocator(16.0, "B")]
+        for locator in song.cue_points:
+            locator.jump = lambda loc=locator: setattr(song, "current_song_time", loc.time)
+        mapper = LiveObjectMapper(song)
+        self.assertTrue(mapper._operation_supported("locator.jump-to"))
+        locators = mapper._locator_items()
+        result = mapper.invoke("locator.jump-to", {"ref": locators[1]["ref"], "expectedObjectIdentity": locators[1]["objectIdentity"], "expectedCollectionRevision": hashlib.sha256(mapper._bounded_canonical(mapper._locator_items()).encode()).hexdigest()})
+        self.assertEqual(result["position"], 16.0); validate_operation_payload("locator.jump-to", "result", result)
+        without = LiveObjectMapper(FakeSong())
+        self.assertFalse(without._operation_supported("locator.jump-to"))
+
+    def test_song_time_convert(self):
+        song, mapper = self._mapper_with_song_state()
+        song.get_beats_loop_time = lambda: 8.0
+        song.get_smpte_loop_time = lambda: 4.0
+        set_ref = mapper.snapshot()["set"]["ref"]
+        self.assertTrue(mapper._operation_supported("song.time-convert"))
+        result = mapper.invoke("song.time-convert", {"setRef": set_ref, "beatTime": 4.0, "smpteSeconds": 10.0})
+        self.assertTrue(result["available"])
+        self.assertEqual(result["smpteSeconds"], 4.0 * 60.0 / 120.0); self.assertEqual(result["beats"], 10.0 * 120.0 / 60.0)
+        self.assertEqual((result["loopBeats"], result["loopSmpteSeconds"]), (8.0, 4.0))
+        validate_operation_payload("song.time-convert", "result", result)

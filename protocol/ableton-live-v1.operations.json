@@ -4289,6 +4289,51 @@
       }
     },
     {
+      "id": "locator.jump-to",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedObjectIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedCollectionRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "ref",
+          "expectedObjectIdentity",
+          "expectedCollectionRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "position": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000000
+          }
+        },
+        "required": [
+          "position"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "id": "locator.rename",
       "method": "invoke",
       "request": {
@@ -8220,6 +8265,285 @@
       }
     },
     {
+      "id": "song.read",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "setRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "setRef"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "visibleTracks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "maxItems": 256
+          },
+          "appointedDevice": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 256
+          },
+          "songLength": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "startTime": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "signatureNumerator": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "signatureDenominator": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "swingAmount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "overdub": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "arrangementOverdub": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "backToArranger": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "canCaptureMidi": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "canUndo": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "canRedo": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "exclusiveArm": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "exclusiveSolo": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "isCountingIn": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "tempoFollowerEnabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "reEnableAutomationEnabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "sessionRecord": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "sessionAutomationRecord": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "clipTriggerQuantization": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 256
+          },
+          "isAbletonLinkEnabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "isAbletonLinkStartStopSyncEnabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "tempoFollower": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "visibleTracks",
+          "appointedDevice",
+          "songLength",
+          "startTime",
+          "signatureNumerator",
+          "signatureDenominator",
+          "swingAmount",
+          "overdub",
+          "arrangementOverdub",
+          "backToArranger",
+          "canCaptureMidi",
+          "canUndo",
+          "canRedo",
+          "exclusiveArm",
+          "exclusiveSolo",
+          "isCountingIn",
+          "tempoFollowerEnabled",
+          "reEnableAutomationEnabled",
+          "sessionRecord",
+          "sessionAutomationRecord",
+          "clipTriggerQuantization",
+          "isAbletonLinkEnabled",
+          "isAbletonLinkStartStopSyncEnabled",
+          "tempoFollower",
+          "revision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "song.time-convert",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "setRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "beatTime": {
+            "type": "number",
+            "minimum": -1000000,
+            "maximum": 1000000000
+          },
+          "smpteSeconds": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000000
+          },
+          "format": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 7
+          }
+        },
+        "required": [
+          "setRef"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "beats": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "smpteSeconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "loopBeats": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "loopSmpteSeconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "available",
+          "beats",
+          "smpteSeconds",
+          "loopBeats",
+          "loopSmpteSeconds"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "id": "status",
       "method": "status",
       "request": {
@@ -8920,6 +9244,78 @@
         "required": [
           "renamed",
           "name"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "transport.action",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "setRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "start",
+              "continue",
+              "stop",
+              "play-selection",
+              "scrub",
+              "tap-tempo",
+              "nudge-up",
+              "nudge-down",
+              "re-enable-automation",
+              "trigger-session-record",
+              "force-link-beat-time"
+            ]
+          },
+          "beatTime": {
+            "type": "number",
+            "minimum": -1000000,
+            "maximum": 1000000000
+          },
+          "expectedObjectIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expectedRevision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "setRef",
+          "action",
+          "expectedObjectIdentity",
+          "expectedRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "done": {
+            "type": "boolean",
+            "const": true
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "done",
+          "revision"
         ],
         "additionalProperties": false
       }

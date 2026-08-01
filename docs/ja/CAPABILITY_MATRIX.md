@@ -24,7 +24,7 @@
 | シーンを安全にオーディション | `live_session_audition_preview/apply/stop`、`live_session_emergency_stop` | 出力セーフティの確認と、停止済み・非アーム・非モニターのベースラインが必要。独立した緊急停止が常に利用可能 |
 | 再生の開始/停止、位置、ループ、メトロノーム、パンチ | `live_transport_preview/apply` | リビジョンフェンス付き。アンドゥ可能。カウントインは読み取り専用で報告 |
 | テンポを変更 | `live_tempo_preview/apply` | 有界 BPM、事後条件検証付き |
-| ロケーター操作と再生ヘッドのジャンプ | `live_arrangement_section_preview/apply`、`live_locator_jump_preview/apply` | ロケーターの作成/削除/名前変更。再生ヘッドフェンス付きで次/前のロケーターへジャンプ |
+| ロケーター操作と再生ヘッドのジャンプ | `live_arrangement_section_preview/apply`、`live_locator_jump_preview/apply` | ロケーターの作成/削除/名前変更。次/前のロケーター、または `CuePoint.jump` で正確なロケーターへ、再生ヘッドフェンス付きでジャンプ |
 | タイムライン上でクリップを編成 | `live_arrangement_clip_preview/apply`、`live_clip_duplicate_preview/apply`、`live_clip_move_preview/apply` | クリップの作成、複製、移動。トランザクション作成クリップのクリーンアップは正確。任意の Arrangement 削除は拒否 |
 | オーディオファイルを Arrangement にインポート | `live_arrangement_clip_preview/apply` に `kind: "audio"` | ファイルバックのオーディオクリップを選択したトラックの正確な位置に配置し、作成されたアイデンティティを検証 |
 | オーディオファイルを Session スロットにインポート | `live_audio_import_preview/apply` | 明示的なファイル権限: 許可ルート、正規パス、サイズ/タイプチェック、SHA-256 と適用時再検証(anti-TOCTOU)、インポートしたクリップのガード付きクリーンアップ |
@@ -35,6 +35,8 @@
 | チューニングとスケールを編集 | `live_tuning_preview/apply` | チューニングシステム名、ノート範囲、基準ピッチ、全 128 ノートチューニング、ルートノート、スケール名/モード/インターバル。長さ/範囲制約の検証と正確なロールバック。再生ピッチにグローバルに影響し、`live_undo` で正確に復元 |
 | グルーヴプールを操作 | `live_groove_preview/apply`、`live_clip_properties_preview/apply`(`grooveRef`) | グローバルグルーヴ量とグルーヴごとの名前/base/クオンタイズ/ランダム/タイミング/ベロシティ編集(正確なアンドゥ付き)。クリッププロパティ経由でクリップのグルーヴを割り当て/クリア(クリップ行に `hasGroove` を公開)。公開 API に完全なグルーヴインポート/抽出ワークフローはなく、グルーヴはプールに既存である必要がある |
 | シーンを編集して発火 | `live_scene_preview/apply`、`live_scene_fire_preview/apply` | シーンのカラー、テンポ(+有効化)、拍子の分子/分母/有効化を正確なアンドゥ付きで編集。シーン行は空/発火/発火ボタン状態を、クリップスロット行はカラー、停止ボタン、グループスロット、再生、レコードオンスタート状態を公開。直接発火(fire-as-selected)は独立した、フェンス付き、可聴、アンドゥ不可のアクション — ガード付きシーンオーディションが聴取チェックの安全な経路のまま |
+| 深い Song と Link 状態を読む | `live_song_state` | 可視トラック、任命デバイス、ソング長/開始、拍子、スウィング、オーバーダブ/アレンジメントオーバーダブ、バックトゥアレンジャー、キャプチャ/アンドゥ/リドゥ可否、排他アーム/ソロ、カウントイン中、テンポフォロワー、オートメーション再有効化、Session 録音/オートメーション、Ableton Link 有効/スタートストップ同期 — ビート↔SMPTE とループ時間変換付き |
+| トランスポートを駆動 | `live_transport_preview/apply`、`live_transport_action_preview/apply` | リビジョンフェンス付きの位置/ループ/メトロノーム/パンチ編集(アンドゥ可能)と瞬時アクション: 開始、続行、停止、選択再生、スクラブ、タップテンポ、ナッジ上下、オートメーション再有効化、Session 録音トリガー、Link ビートタイム強制(フェンス付き、可聴アクションはアンドゥ不可と表示。緊急停止は別のまま) |
 | ID または選択でノートを読む | `live_note_read` | 読み取り専用の対象ノート読み取り。Live が公開する場合は現在の選択も |
 | クリップの全エンベロープをクリア | `live_automation_preview/apply` に `clear-envelopes` | クリップ上の全エンベロープ(デバイス、ラック、ミキサーパラメータ)のカウント済み・プレゼンスフェンス付きクリア。正直にアンドゥ不可 |
 | クリップのミュート、カラー、ループ | `live_clip_properties_preview/apply` | 任意のクリップのミュートとカラー。MIDI クリップのループ境界(オーディオループは `live_audio_clip_*`) |

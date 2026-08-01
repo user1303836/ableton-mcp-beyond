@@ -22,7 +22,7 @@
 | 安全地试听场景 | `live_session_audition_preview/apply/stop`、`live_session_emergency_stop` | 需要输出安全确认以及已停止、未 armed、未监听的基线;独立紧急停止始终可用 |
 | 开始/停止播放、设置位置、循环、节拍器、穿入穿出 | `live_transport_preview/apply` | 修订栅栏;可撤销;预备拍为只读上报 |
 | 更改速度 | `live_tempo_preview/apply` | 有界 BPM,带后置条件验证 |
-| 使用定位点并跳转播放头 | `live_arrangement_section_preview/apply`、`live_locator_jump_preview/apply` | 创建/删除/重命名定位点;跳转到下一个或上一个定位点,带播放头栅栏 |
+| 使用定位点并跳转播放头 | `live_arrangement_section_preview/apply`、`live_locator_jump_preview/apply` | 创建/删除/重命名定位点;跳转到下一个或上一个定位点,或经 `CuePoint.jump` 跳转到某一确切定位点,带播放头栅栏 |
 | 在时间线上编排剪辑 | `live_arrangement_clip_preview/apply`、`live_clip_duplicate_preview/apply`、`live_clip_move_preview/apply` | 创建、复制和移动剪辑;事务创建剪辑的清理是精确的;拒绝任意 Arrangement 删除 |
 | 把音频文件导入 Arrangement | `live_arrangement_clip_preview/apply` 加 `kind: "audio"` | 把文件支持的音频剪辑放到选定轨道的确切位置,并验证创建身份 |
 | 把音频文件导入 Session 槽位 | `live_audio_import_preview/apply` | 显式文件权限:允许根、规范化路径、大小/类型检查、SHA-256 并在应用时重新验证(防 TOCTOU),以及对已导入剪辑的受护栏清理 |
@@ -33,6 +33,8 @@
 | 编辑律制与音阶 | `live_tuning_preview/apply` | 律制名称、音域、参考音高与全部 128 个音符偏差,以及根音、音阶名称/模式与音程。验证覆盖长度/范围约束并带精确回滚;更改全局影响播放音高,并经 `live_undo` 精确恢复 |
 | 使用律动池 | `live_groove_preview/apply`、`live_clip_properties_preview/apply`(`grooveRef`) | 全局律动感量与逐 groove 的名称/base/量化/随机/时值/力度编辑,带精确撤销;经剪辑属性分配或清除剪辑 groove(剪辑行暴露 `hasGroove`)。公共 API 没有完整的 groove 导入/提取工作流 —— groove 必须已存在于池中 |
 | 编辑并触发场景 | `live_scene_preview/apply`、`live_scene_fire_preview/apply` | 场景颜色、速度(+启用)与拍号分子/分母/启用,带精确撤销;场景行暴露空/触发/触发按钮状态,剪辑槽行暴露颜色、停止按钮、组槽、播放与启动即录状态。直接触发(fire-as-selected)是独立、带栅栏、可发声且不可撤销的动作 —— 受护栏场景试听仍是聆听检查的安全路径 |
+| 读取深层歌曲与 Link 状态 | `live_song_state` | 可见轨道、指定设备、歌曲长度/起点、拍号、摆动、overdub/arrangement overdub、回到编排水位、可捕获/撤销/重做、独占 arm/solo、预备拍中、速度跟随、自动化重启用、Session 录音/自动化,以及 Ableton Link 启用/起停同步 —— 另有节拍↔SMPTE 与循环时间换算 |
+| 驱动走带 | `live_transport_preview/apply`、`live_transport_action_preview/apply` | 修订栅栏的位置/循环/节拍器/穿入穿出编辑(可撤销),另有瞬时动作:开始、继续、停止、播放选区、刮擦、打点测速、上/下微调、重启用自动化、触发 Session 录音、强制 Link 节拍时间(带栅栏,可发声动作标记为不可撤销;紧急停止保持独立) |
 | 按 ID 或选择读取音符 | `live_note_read` | 只读定向音符读取,包括 Live 暴露时的当前选择 |
 | 清除剪辑全部包络 | `live_automation_preview/apply` 加 `clear-envelopes` | 对剪辑上全部包络(设备、rack 与混音器参数)的计数、存在性栅栏清除;诚实不可撤销 |
 | 静音、着色和循环剪辑 | `live_clip_properties_preview/apply` | 任意剪辑的静音和颜色;MIDI 剪辑的循环边界(音频循环在 `live_audio_clip_*` 中) |

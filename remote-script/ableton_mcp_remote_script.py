@@ -766,6 +766,16 @@ class LiveObjectMapper:
             return any(self._read_attr(scene, "color_index") is not None or self._read_attr(scene, "tempo") is not None for scene in self._items(getattr(self.song, "scenes", [])))
         if operation == "scene.fire-selected":
             return any(callable(getattr(scene, "fire_as_selected", None)) for scene in self._items(getattr(self.song, "scenes", [])))
+        if operation == "song.read":
+            return True
+        if operation == "transport.action":
+            song = self.song
+            return any(callable(getattr(song, name, None)) for name in ("start_playing", "continue_playing", "stop_playing", "play_selection", "tap_tempo", "nudge_up", "nudge_down", "re_enable_automation", "force_link_beat_time"))
+        if operation == "locator.jump-to":
+            return self._locator_supported() and any(callable(getattr(locator, "jump", None)) for locator in self._items(getattr(self.song, "cue_points", [])))
+        if operation == "song.time-convert":
+            song = self.song
+            return callable(getattr(song, "get_beats_loop_time", None)) or callable(getattr(song, "get_smpte_loop_time", None))
         return False
 
     def capabilities(self, operations: set[str] | None = None) -> list[str]:
@@ -2114,6 +2124,14 @@ class LiveObjectMapper:
             return self._scene_set(args)
         if operation == "scene.fire-selected":
             return self._scene_fire_selected(args)
+        if operation == "song.read":
+            return self._song_read(args)
+        if operation == "transport.action":
+            return self._transport_action(args)
+        if operation == "locator.jump-to":
+            return self._locator_jump_to(args)
+        if operation == "song.time-convert":
+            return self._song_time_convert(args)
         if operation == "take-lane.create":
             return self._take_lane_create(args)
         if operation == "take-lane.rename":
@@ -3942,6 +3960,135 @@ class LiveObjectMapper:
         observed = self._read_attr(scene, "is_triggered")
         if observed is not True: raise ValueError("scene fire was not confirmed")
         return {"fired": True}
+
+    def _song_state(self) -> dict[str, Any]:
+        song = self.song
+        def optional_bool(name: str) -> bool | None:
+            value = self._read_attr(song, name)
+            return value if isinstance(value, bool) else None
+        def optional_float(name: str) -> float | None:
+            value = self._read_attr(song, name)
+            return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) else None
+        def optional_int(name: str) -> int | None:
+            value = self._read_attr(song, name)
+            return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+        visible = []
+        for index, track in enumerate(self._items(getattr(song, "visible_tracks", []))):
+            if len(visible) >= 256: raise ValueError("visible track collection exceeds its bound")
+            visible.append(self.refs.put("track", track, str(index)))
+        appointed = self._read_attr(song, "appointed_device")
+        appointed_ref = self.refs.put("device", appointed, "appointed") if appointed is not None else None
+        quantization = self._read_attr(song, "clip_trigger_quantization")
+        return {
+            "visibleTracks": visible,
+            "appointedDevice": appointed_ref,
+            "songLength": optional_float("length"),
+            "startTime": optional_float("start_time"),
+            "signatureNumerator": optional_int("signature_numerator"),
+            "signatureDenominator": optional_int("signature_denominator"),
+            "swingAmount": optional_float("swing_amount"),
+            "overdub": optional_bool("overdub"),
+            "arrangementOverdub": optional_bool("arrangement_overdub"),
+            "backToArranger": optional_bool("back_to_arranger"),
+            "canCaptureMidi": optional_bool("can_capture_midi"),
+            "canUndo": optional_bool("can_undo"),
+            "canRedo": optional_bool("can_redo"),
+            "exclusiveArm": optional_bool("exclusive_arm"),
+            "exclusiveSolo": optional_bool("exclusive_solo"),
+            "isCountingIn": optional_bool("is_counting_in"),
+            "tempoFollowerEnabled": optional_bool("tempo_follower_enabled"),
+            "reEnableAutomationEnabled": optional_bool("re_enable_automation_enabled"),
+            "sessionRecord": optional_bool("session_record"),
+            "sessionAutomationRecord": optional_bool("session_automation_record"),
+            "clipTriggerQuantization": str(quantization) if isinstance(quantization, str) else None,
+            "isAbletonLinkEnabled": optional_bool("is_ableton_link_enabled"),
+            "isAbletonLinkStartStopSyncEnabled": optional_bool("is_ableton_link_start_stop_sync_enabled"),
+            "tempoFollower": optional_bool("tempo_follower"),
+        }
+
+    def _song_read(self, args: dict[str, Any]) -> dict[str, Any]:
+        set_ref = args.get("setRef")
+        if not isinstance(set_ref, str) or set_ref != self.refs.put("set", self.song, "song") or set(args) - {"setRef"}:
+            raise ValueError("song read arguments are invalid")
+        state = self._song_state()
+        return {**state, "revision": hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()}
+
+    _TRANSPORT_ACTIONS = {"start", "continue", "stop", "play-selection", "scrub", "tap-tempo", "nudge-up", "nudge-down", "re-enable-automation", "trigger-session-record", "force-link-beat-time"}
+
+    def _transport_action(self, args: dict[str, Any]) -> dict[str, Any]:
+        set_ref = args.get("setRef"); action = args.get("action")
+        if not isinstance(set_ref, str) or set_ref != self.refs.put("set", self.song, "song") or action not in self._TRANSPORT_ACTIONS or set(args) - {"setRef", "action", "beatTime", "expectedObjectIdentity", "expectedRevision"}:
+            raise ValueError("transport action is invalid")
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(self.song), args["expectedObjectIdentity"]): raise ValueError("Set identity changed since preview")
+        playback = self._playback()
+        if not isinstance(args.get("expectedRevision"), str) or not hmac.compare_digest(str(playback["revision"]), args["expectedRevision"]): raise ValueError("transport state changed since preview")
+        song = self.song
+        if action == "start": method, call_args = getattr(song, "start_playing", None), ()
+        elif action == "continue": method, call_args = getattr(song, "continue_playing", None), ()
+        elif action == "stop": method, call_args = getattr(song, "stop_playing", None), ()
+        elif action == "play-selection": method, call_args = getattr(song, "play_selection", None), ()
+        elif action == "scrub": method, call_args = getattr(song, "scrub", None), ()
+        elif action == "tap-tempo": method, call_args = getattr(song, "tap_tempo", None), ()
+        elif action == "nudge-up": method, call_args = getattr(song, "nudge_up", None), ()
+        elif action == "nudge-down": method, call_args = getattr(song, "nudge_down", None), ()
+        elif action == "re-enable-automation": method, call_args = getattr(song, "re_enable_automation", None), ()
+        elif action == "trigger-session-record": method, call_args = getattr(song, "trigger_session_record", None), ()
+        else:
+            method = getattr(song, "force_link_beat_time", None)
+            beat = args.get("beatTime")
+            if not isinstance(beat, (int, float)) or isinstance(beat, bool) or not math.isfinite(float(beat)): raise ValueError("beatTime is required for force-link-beat-time")
+            call_args = (float(beat),)
+        if not callable(method): raise ValueError(f"transport action {action} is unavailable on this Live shape")
+        method(*call_args)
+        return {"done": True, "revision": str(self._playback()["revision"])}
+
+    def _locator_jump_to(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:locator:") or set(args) - {"ref", "expectedObjectIdentity", "expectedCollectionRevision"}:
+            raise ValueError("locator jump authority is invalid")
+        locators = self._items(getattr(self.song, "cue_points", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+        if not 0 <= index < len(locators): raise ValueError("locator hierarchy changed")
+        locator = locators[index]
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(locator), args["expectedObjectIdentity"]): raise ValueError("locator identity changed since preview")
+        collection_revision = hashlib.sha256(self._bounded_canonical(self._locator_items()).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedCollectionRevision"), str) or not hmac.compare_digest(collection_revision, args["expectedCollectionRevision"]): raise ValueError("locator collection changed since preview")
+        jump = getattr(locator, "jump", None)
+        if not callable(jump): raise ValueError("locator jump is unavailable on this Live shape")
+        jump()
+        position = self._read_attr(self.song, "current_song_time")
+        locator_time = self._read_attr(locator, "time")
+        if not isinstance(position, (int, float)) or isinstance(position, bool) or not math.isfinite(float(position)) or float(position) < 0: raise ValueError("locator jump did not report a readable song position")
+        if isinstance(locator_time, (int, float)) and float(position) != float(locator_time): raise ValueError("locator jump was not confirmed")
+        return {"position": float(position)}
+
+    def _song_time_convert(self, args: dict[str, Any]) -> dict[str, Any]:
+        set_ref = args.get("setRef")
+        if not isinstance(set_ref, str) or set_ref != self.refs.put("set", self.song, "song") or set(args) - {"setRef", "beatTime", "smpteSeconds", "format"}:
+            raise ValueError("time-convert arguments are invalid")
+        song = self.song
+        beats_value = None; smpte_value = None; loop_beats = None; loop_smpte = None
+        if "smpteSeconds" in args:
+            seconds = args["smpteSeconds"]
+            if not isinstance(seconds, (int, float)) or isinstance(seconds, bool) or not math.isfinite(float(seconds)) or float(seconds) < 0: raise ValueError("smpteSeconds is invalid")
+            tempo = self._read_attr(song, "tempo")
+            if not isinstance(tempo, (int, float)) or isinstance(tempo, bool) or not 20 <= float(tempo) <= 999: raise ValueError("tempo is unavailable for time conversion")
+            beats_value = float(seconds) * float(tempo) / 60.0
+        if "beatTime" in args:
+            beat = args["beatTime"]
+            if not isinstance(beat, (int, float)) or isinstance(beat, bool) or not math.isfinite(float(beat)): raise ValueError("beatTime is invalid")
+            tempo = self._read_attr(song, "tempo")
+            if not isinstance(tempo, (int, float)) or isinstance(tempo, bool) or not 20 <= float(tempo) <= 999: raise ValueError("tempo is unavailable for time conversion")
+            smpte_value = float(beat) * 60.0 / float(tempo)
+        beats_loop = getattr(song, "get_beats_loop_time", None)
+        if callable(beats_loop):
+            try: loop_beats = float(beats_loop())
+            except BaseException: loop_beats = None
+        smpte_loop = getattr(song, "get_smpte_loop_time", None)
+        if callable(smpte_loop):
+            try: loop_smpte = float(smpte_loop())
+            except BaseException: loop_smpte = None
+        available = beats_value is not None or smpte_value is not None or loop_beats is not None or loop_smpte is not None
+        return {"available": available, "beats": beats_value, "smpteSeconds": smpte_value, "loopBeats": loop_beats, "loopSmpteSeconds": loop_smpte}
 
     def _slot_state_fields(self, slot: Any) -> dict[str, Any]:
         def optional_bool(name: str) -> bool | None:

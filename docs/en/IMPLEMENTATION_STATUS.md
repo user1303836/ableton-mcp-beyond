@@ -81,6 +81,21 @@ are. Source, schemas, and tests are the final authority.
   guarded scene audition workflow. Verified at the host, simulator, Python
   contract, and packaged fake-Live levels; exact-candidate real-Live proof is
   pending.
+- Comprehensive Song state reads: visible tracks, appointed device, song
+  length/start, time signature, swing, overdub/arrangement-overdub,
+  back-to-arranger, can-capture/undo/redo, exclusive arm/solo, counting-in,
+  tempo follower, automation re-enable, Session record/automation, and
+  Ableton Link enable/start-stop-sync, plus beat/SMPTE and loop-time
+  conversions. Momentary transport actions (start, continue, stop, play
+  selection, scrub, tap tempo, nudge, re-enable automation, trigger Session
+  record, force Link beat time) ship as fenced, non-undoable actions with
+  audible ones labeled; emergency stop remains a separate authority.
+  `CuePoint.jump` joins next/previous locator navigation. Raw Song
+  undo/redo is deliberately not exposed as a mutation: it would bypass
+  transaction-owned rollback and recovery, so only `can_undo`/`can_redo`
+  state is reported and the decision is documented. Verified at the host,
+  simulator, Python contract, and packaged fake-Live levels; exact-candidate
+  real-Live proof is pending.
 - Purpose-specific preview/apply/verify/undo or cleanup workflows with exact
   object and hierarchy identities, state/content revisions, creation-time
   fingerprints, epochs, expiry, idempotency, fresh postconditions, bounded

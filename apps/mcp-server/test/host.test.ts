@@ -23,7 +23,7 @@ test("requires initialization and exposes only read-only tools", () => {
   assert.equal(initializedResponse.serverInfo.version, packageMetadata.version);
   assert.equal(host.handle(initialized), null);
   const tools = (host.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
-  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply"]);
+  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply"]);
   const auditionPreview = tools.find((tool: { name: string }) => tool.name === "live_session_audition_preview");
   assert.deepEqual(auditionPreview.inputSchema.properties.outputSafety.required, ["safe", "provenance"]);
   const auditionStop = tools.find((tool: { name: string }) => tool.name === "live_session_audition_stop");
@@ -440,7 +440,7 @@ test("cancels an in-flight audio worker without a response", async () => {
 test("rejects duplicates, unsupported methods, and unknown fields", () => {
   const host = new McpHost();
   ready(host);
-  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 99);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 102);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).error.message, "Duplicate request identifier");
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set", arguments: {} } }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 4, method: "tools/list", debug: true }) as any).error.code, -32600);
@@ -1824,4 +1824,35 @@ test("scene property edits verify state and guardedly undo; direct scene fire is
   assert.equal(fired.state, "applied"); assert.equal(scene.isTriggered, true); assert.equal((simulator as any).state.playback.transport.playing, true);
   assert.equal(((await call(9, "live_undo", { transactionId: firePreview.transactionId, confirmation: "undo", idempotencyKey: "scene-fire-undo" })) as any).result.isError, true);
   (simulator as any).state.playback.transport.playing = false; scene.isTriggered = false;
+});
+
+test("song state reads, time conversion, transport actions, and exact cue jumps", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const state = JSON.parse(((await call(2, "live_song_state", {})) as any).result.content[0].text);
+  assert.equal(state.signatureNumerator, 4); assert.equal(state.canUndo, true); assert.equal(state.canRedo, false);
+  assert.equal(state.isAbletonLinkEnabled, true); assert.equal(state.exclusiveArm, true);
+  const converted = JSON.parse(((await call(3, "live_song_state", { beatTime: 4, smpteSeconds: 10 })) as any).result.content[0].text);
+  assert.equal(converted.conversions.smpteSeconds, 2); assert.equal(converted.conversions.beats, 20);
+  const startPreview = JSON.parse(((await call(4, "live_transport_action_preview", { action: "start" })) as any).result.content[0].text);
+  assert.equal(startPreview.impact, "audible-transport-action-no-undo");
+  const started = JSON.parse(((await call(5, "live_transport_action_apply", { transactionId: startPreview.transactionId, confirmation: "apply", idempotencyKey: "action-start-1" })) as any).result.content[0].text);
+  assert.equal(started.state, "applied"); assert.equal((simulator as any).state.playback.transport.playing, true);
+  const stopPreview = JSON.parse(((await call(6, "live_transport_action_preview", { action: "stop" })) as any).result.content[0].text);
+  await call(7, "live_transport_action_apply", { transactionId: stopPreview.transactionId, confirmation: "apply", idempotencyKey: "action-stop-1" });
+  assert.equal((simulator as any).state.playback.transport.playing, false);
+  const linkPreview = JSON.parse(((await call(8, "live_transport_action_preview", { action: "force-link-beat-time", beatTime: 8 })) as any).result.content[0].text);
+  await call(9, "live_transport_action_apply", { transactionId: linkPreview.transactionId, confirmation: "apply", idempotencyKey: "action-link-1" });
+  assert.equal((simulator as any).state.playback.transport.position, 8);
+  assert.equal(((await call(10, "live_transport_action_preview", { action: "force-link-beat-time" })) as any).error.code, -32602);
+  (simulator as any).state.playback.transport.position = 0; (simulator as any).state.set.position = 0;
+  (simulator as any).state.arrangement.locators.push({ ref: "locator:locator-2", objectIdentity: "simulator:locator:locator-2", name: "B", position: 16 });
+  const jumpPreview = JSON.parse(((await call(11, "live_locator_jump_preview", { ref: "locator:locator-2" })) as any).result.content[0].text);
+  assert.equal(jumpPreview.target, 16);
+  const jumped = JSON.parse(((await call(12, "live_locator_jump_apply", { transactionId: jumpPreview.transactionId, confirmation: "apply", idempotencyKey: "jump-to-1" })) as any).result.content[0].text);
+  assert.equal(jumped.state, "applied"); assert.equal((simulator as any).state.playback.transport.position, 16);
+  assert.equal(((await call(13, "live_locator_jump_preview", {})) as any).error.code, -32602);
+  (simulator as any).state.playback.transport.position = 0; (simulator as any).state.set.position = 0;
 });
