@@ -802,6 +802,8 @@ class LiveObjectMapper:
             except ValueError:
                 return False
             return callable(getattr(application, "get_dialog_state", None)) or callable(getattr(application, "press_dialog_button", None))
+        if operation == "performance.read":
+            return True
         return False
 
     def capabilities(self, operations: set[str] | None = None) -> list[str]:
@@ -1160,6 +1162,8 @@ class LiveObjectMapper:
             "enabled": bool(enabled) if isinstance(enabled, bool) else None,
             "canHaveChains": self._read_attr(device, "can_have_chains") if isinstance(self._read_attr(device, "can_have_chains"), bool) else None,
             "canHaveDrumPads": self._read_attr(device, "can_have_drum_pads") if isinstance(self._read_attr(device, "can_have_drum_pads"), bool) else None,
+            "latencySamples": int(self._read_attr(device, "latency_in_samples")) if isinstance(self._read_attr(device, "latency_in_samples"), int) and not isinstance(self._read_attr(device, "latency_in_samples"), bool) else None,
+            "latencyMs": float(self._read_attr(device, "latency_in_ms")) if isinstance(self._read_attr(device, "latency_in_ms"), (int, float)) and not isinstance(self._read_attr(device, "latency_in_ms"), bool) and math.isfinite(float(self._read_attr(device, "latency_in_ms"))) else None,
             "parameters": parameters,
         }
         if row["canHaveChains"] is True:
@@ -2180,6 +2184,8 @@ class LiveObjectMapper:
             return self._device_view_set(args)
         if operation == "application.dialog":
             return self._application_dialog(args)
+        if operation == "performance.read":
+            return self._performance_read(args)
         if operation == "take-lane.create":
             return self._take_lane_create(args)
         if operation == "take-lane.rename":
@@ -4474,6 +4480,39 @@ class LiveObjectMapper:
             try: raw = reader(); new_state = int(raw) if isinstance(raw, int) and not isinstance(raw, bool) else None
             except BaseException: new_state = None
         return {"state": new_state, "done": True}
+
+    def _performance_read(self, args: dict[str, Any]) -> dict[str, Any]:
+        set_ref = args.get("setRef")
+        if not isinstance(set_ref, str) or set_ref != self.refs.put("set", self.song, "song") or set(args) - {"setRef"}:
+            raise ValueError("performance read arguments are invalid")
+        try:
+            application = self._application()
+        except ValueError:
+            application = None
+        average = self._read_attr(application, "average_process_usage") if application is not None else None
+        peak = self._read_attr(application, "peak_process_usage") if application is not None else None
+        snapshot = self.snapshot()
+        tracks = []
+        for track in snapshot["tracks"]:
+            devices = []
+            def collect(rows: list[dict[str, Any]]) -> None:
+                for row in rows:
+                    devices.append({"ref": row["ref"], "latencySamples": row.get("latencySamples"), "latencyMs": row.get("latencyMs")})
+                    for chain in row.get("chains", []): collect(chain.get("devices", []))
+                    for pad in row.get("drumPads", []):
+                        for chain in pad.get("chains", []): collect(chain.get("devices", []))
+            collect(track.get("devices", []))
+            if len(devices) > 256: raise ValueError("device performance collection exceeds its bound")
+            tracks.append({
+                "ref": track["ref"],
+                "performanceImpact": track.get("performanceImpact"),
+                "inputMeterLeft": track.get("inputMeterLeft"), "inputMeterRight": track.get("inputMeterRight"), "inputMeterLevel": track.get("inputMeterLevel"),
+                "outputMeterLeft": track.get("outputMeterLeft"), "outputMeterRight": track.get("outputMeterRight"), "outputMeterLevel": track.get("outputMeterLevel"),
+                "devices": devices,
+            })
+        if len(tracks) > 256: raise ValueError("track performance collection exceeds its bound")
+        state = {"averageProcessUsage": average, "peakProcessUsage": peak, "tracks": tracks}
+        return {**state, "sampledAt": int(time.time() * 1000), "revision": hashlib.sha256(self._bounded_canonical(state).encode("utf-8")).hexdigest()}
 
     def _slot_state_fields(self, slot: Any) -> dict[str, Any]:
         def optional_bool(name: str) -> bool | None:

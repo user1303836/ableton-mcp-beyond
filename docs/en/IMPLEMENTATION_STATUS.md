@@ -96,6 +96,15 @@ are. Source, schemas, and tests are the final authority.
   state is reported and the decision is documented. Verified at the host,
   simulator, Python contract, and packaged fake-Live levels; exact-candidate
   real-Live proof is pending.
+- Performance and latency diagnostics: `Application.average_process_usage`
+  and `peak_process_usage`, per-track input/output meters and
+  `performance_impact`, and device latency in samples and milliseconds, in
+  one bounded on-demand sample. Telemetry is point-in-time evidence only —
+  meter values are Live UI meters, never decoded audio analysis, and the
+  sampling model (single bounded read, no streaming queue, no retained
+  history) is documented rather than implied. Verified at the host,
+  simulator, Python contract, and packaged fake-Live levels; exact-candidate
+  real-Live proof is pending.
 - Song.View selections (track, scene, highlighted slot, detail clip,
   device, parameter, chain) and draw mode with exact restore; clip view
   grid quantization, triplet grid, envelope visibility, and show-loop;

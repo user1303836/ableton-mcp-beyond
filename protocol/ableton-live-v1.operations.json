@@ -5578,6 +5578,160 @@
       }
     },
     {
+      "id": "performance.read",
+      "method": "invoke",
+      "request": {
+        "type": "object",
+        "properties": {
+          "setRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "setRef"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "averageProcessUsage": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "peakProcessUsage": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "performanceImpact": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "inputMeterLeft": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "inputMeterRight": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "inputMeterLevel": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "outputMeterLeft": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "outputMeterRight": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "outputMeterLevel": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "devices": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "ref": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                      },
+                      "latencySamples": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "latencyMs": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "ref",
+                      "latencySamples",
+                      "latencyMs"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 256
+                }
+              },
+              "required": [
+                "ref",
+                "performanceImpact",
+                "inputMeterLeft",
+                "inputMeterRight",
+                "inputMeterLevel",
+                "outputMeterLeft",
+                "outputMeterRight",
+                "outputMeterLevel",
+                "devices"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 256
+          },
+          "sampledAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "averageProcessUsage",
+          "peakProcessUsage",
+          "tracks",
+          "sampledAt",
+          "revision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
       "id": "project.bounce",
       "method": "invoke",
       "request": {

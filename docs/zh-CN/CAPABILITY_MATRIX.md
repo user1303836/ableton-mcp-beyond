@@ -15,6 +15,7 @@
 | 创建 MIDI 或音频轨道和场景 | `live_session_structure_preview/apply` | 插入位置只针对常规轨道;return/main 轨道绝不会被当作插入位置 |
 | 返回轨道与复制 | `live_track_structure_preview/apply` | 创建返回轨道、复制轨道或场景,带结构栅栏与受护栏清理;返回轨道删除是显式且诚实不可撤销的 |
 | 读取轨道健康与状态 | `live_snapshot`、`live_discover` | 每行轨道暴露编组关系、可见性、选中成员、冻结/折叠状态、隐式 arm、回到编排水位、独奏致 mute、全部输入/输出电平表与性能影响 |
+| 性能与延迟诊断 | `live_performance_read` | 一次有界、按需的采样:平均/峰值进程占用、逐轨道电平表与性能影响、以采样和毫秒计的设备延迟。时间点证据;电平表是 Live UI 表头,绝非解码音频分析 |
 | 删除现有设备 | `live_device_delete_preview/apply` | 带精确身份与兄弟栅栏显式删除现有设备;诚实不可撤销 |
 | 轨道视图与乐器聚焦 | `live_track_view_preview/apply` | 折叠状态与设备插入模式,带精确撤销,另有 Live 设备视图中的乐器选择(瞬时,不可撤销) |
 | 驱动 Live 的选择与视图 | `live_selection_preview/apply`、`live_clip_view_preview/apply`、`live_device_view_preview/apply`、`live_view_preview/apply` | Song.View 选择(轨道、场景、高亮槽、详情剪辑、设备、参数、链)、绘制模式、剪辑网格量化/三连音/包络可见与 show-loop、设备折叠(按形态协商)、主视图切换/隐藏/聚焦、缩放/滚动、跟随播放、轨道折叠与 Browser 模式切换 —— 状态可恢复处均带精确恢复 |

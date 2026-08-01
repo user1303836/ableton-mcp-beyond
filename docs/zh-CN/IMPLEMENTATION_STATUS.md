@@ -74,6 +74,13 @@
   自有回滚与恢复,因此只上报 `can_undo`/`can_redo` 状态并记录该决定。
   已在宿主、模拟器、Python 契约与打包 fake-Live 层面验证;精确候选的
   真实 Live 证明待完成。
+- 性能与延迟诊断:`Application.average_process_usage` 与
+  `peak_process_usage`、逐轨道输入/输出电平表与 `performance_impact`、
+  以采样和毫秒计的设备延迟,合并为一次有界按需采样。遥测仅为时间点
+  证据 —— 电平表是 Live UI 表头,绝非解码音频分析;采样模型(单次
+  有界读取、无流式队列、无保留历史)如实记录而非暗示。已在宿主、
+  模拟器、Python 契约与打包 fake-Live 层面验证;精确候选的真实 Live
+  证明待完成。
 - Song.View 选择(轨道、场景、高亮槽、详情剪辑、设备、参数、链)与
   绘制模式,带精确恢复;剪辑视图网格量化、三连音、包络可见与
   show-loop;设备折叠状态(仅在 Live 支持处暴露);Application.View

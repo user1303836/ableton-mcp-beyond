@@ -609,7 +609,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "25ea16d908460b40b571eec27c7f4d83dc35c3d9fd31e813f6177b4ea766305e")
+        self.assertEqual(digest, "4339296401564c6f7047964492445f10e2eb13764ecc0ad6c7424eeab8b41a48")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -3456,3 +3456,28 @@ class SelectionViewExpansionTests(unittest.TestCase):
         mapper.invoke("view.control", {"action": "focus-view", "view": "Arranger"})
         self.assertEqual(application.view.hidden, ["Browser"]); self.assertEqual(application.view.focused, ["Arranger"])
         with self.assertRaisesRegex(ValueError, "view name is required"): mapper.invoke("view.control", {"action": "hide-view"})
+
+
+class PerformanceDiagnosticsTests(unittest.TestCase):
+    def test_performance_read_exposes_usage_meters_and_latency(self):
+        class FakeApp:
+            average_process_usage = 0.42
+            peak_process_usage = 0.87
+        song = FakeSong()
+        song.tracks[0].devices[0].latency_in_samples = 256
+        song.tracks[0].devices[0].latency_in_ms = 5.8
+        track = song.tracks[0]
+        track.performance_impact = 1
+        track.input_meter_left = 0.5; track.input_meter_right = 0.4; track.input_meter_level = 0.45
+        track.output_meter_left = 0.6; track.output_meter_right = 0.55; track.output_meter_level = 0.58
+        mapper = LiveObjectMapper(song); mapper._application = lambda: FakeApp()
+        set_ref = mapper.snapshot()["set"]["ref"]
+        result = mapper.invoke("performance.read", {"setRef": set_ref})
+        self.assertEqual((result["averageProcessUsage"], result["peakProcessUsage"]), (0.42, 0.87))
+        self.assertIsInstance(result["sampledAt"], int); self.assertEqual(len(result["revision"]), 64)
+        row = result["tracks"][0]
+        self.assertEqual((row["performanceImpact"], row["outputMeterLevel"]), (1, 0.58))
+        self.assertEqual((row["devices"][0]["latencySamples"], row["devices"][0]["latencyMs"]), (256, 5.8))
+        validate_operation_payload("performance.read", "result", result)
+        device_row = mapper.snapshot()["tracks"][0]["devices"][0]
+        self.assertEqual((device_row["latencySamples"], device_row["latencyMs"]), (256, 5.8))
