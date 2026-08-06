@@ -6,7 +6,7 @@
 
 <p align="center">
   以安全为先的 Ableton Live 12 MCP 控制 ——<br/>
-  76 个工具、经认证的本地回环桥接,以及基于标准的音频分析。
+  143 个工具、经认证的本地回环桥接,以及基于标准的音频分析。
 </p>
 
 <p align="center">
@@ -59,6 +59,8 @@ node dist/src/install-remote-script.js --destination '/abs/.../Remote Scripts/Ab
 ## 安全模型
 
 每项变更都遵循 **发现 → 预览 → 确认 → 应用 → 验证 → 撤销** 的流程。幂等键、epoch 隔离与执行账本,使丢失的确认也能安全地对账;任意删除一律被拒绝。未经显式桥接配置,服务器处于故障关闭状态 —— 无法读取或改动 Live。参见 [docs/zh-CN/LIVE_SAFETY.md](docs/zh-CN/LIVE_SAFETY.md)。
+
+部署的信任边界是由所有者控制的本地 OS 账户和 MCP 客户端审批策略。服务器内的确认并不能证明人类通过独立于模型的渠道给予了同意。请勿自动批准发声、录音、路由、捕获或实时工具。
 
 ## 兼容性
 

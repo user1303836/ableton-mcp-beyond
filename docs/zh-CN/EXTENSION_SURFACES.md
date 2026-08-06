@@ -58,8 +58,8 @@ API 的地方,保留的协议操作故障关闭并报告实际限制。
 | 功能 | 处置 |
 |---|---|
 | Arrangement 自动化包络/点编写 | 目前不支持。`arrangement.automation.*` 保持保留并故障关闭;Session 剪辑包络已实现 |
-| 完整 comp 区域选择与 comp 编辑 | 公共 LOM 不支持;take lane 与 lane 剪辑已实现(P1.2),comp 区域编辑保持单独分类 |
-| take-lane 删除/试听/comp 语义 | 公共 LOM 不支持;lane 与 lane 剪辑创建诚实不可补偿并如实报告 |
+| 完整 comp 区域选择与 comp 编辑 | 公共 LOM 不支持;现有 take lane 发现/重命名与文件音频导入已公开,但仅映射器实现的 lane 创建/MIDI lane 剪辑路径未由公共 MCP 模式宣告 |
+| take-lane 删除/试听/comp 语义 | 公共 LOM 不支持;不声称这些是公共 MCP 能力 |
 | 冻结与压平 | 无公共 API;不做 UI 自动化 |
 | 离线 bounce、分轨、导出音频/视频、渲染状态 | 无公共 Remote Script API;`project.bounce/export/collect` 保持保留并故障关闭 |
 | 工程新建/打开/保存/另存/关闭与 Collect All and Save | 无公共 API;`live_project_save`/`live_project_open` 保持为显式限制报告器 |

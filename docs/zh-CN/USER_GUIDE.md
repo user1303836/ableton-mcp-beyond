@@ -93,8 +93,12 @@ SHA-256 安装。`private: true` 仅防止意外发布,不改变 MIT 权利;见
   剪辑会被拒绝,因为先前状态无法重建;只有通过 `live_undo` 的、绑定身份
   与指纹的事务自有清理才可用。
 - 音频剪辑预览只接受该精确剪辑所宣告的字段(`availableAudioFields`):
-  增益、音高、循环、warp 开关/模式与淡化(视支持情况)。Warp 标记仅为
-  有界回读;标记编辑、take 通道与 comping 仍不可用。
+  增益、音高、循环、warp 开关/模式与淡化(视支持情况)。Warp 标记编辑使用
+  `live_warp_marker_preview/apply`,按节拍时间寻址,并带集合栅栏和受护栏撤销。
+  现有 take lane 可发现和重命名,并可通过 `live_audio_import_preview/apply`
+  创建文件音频剪辑。Lane 创建与 MIDI lane 剪辑创建存在于映射器操作中,
+  但当前公共 MCP 工具模式未宣告这些路径。公共 LOM 不提供 take-lane
+  删除/试听或 comp 区域编辑;这些功能仍不可用。
 - 设备发现以规范父级引用递归遍历 rack/chain。Browser 加载需要新鲜的精确
   `browser.inspect` 结果,拒绝非设备条目,并以空的设备所有者为目标,使
   任何加载失败的清理都不会影响无关的同级设备。

@@ -37,12 +37,12 @@
   包络清除。破坏内容的操作(裁剪、包络清除)诚实不可撤销。已在宿主、
   模拟器、Python 契约与打包 fake-Live 层面验证;精确候选的真实 Live
   证明待完成。
-- `Track.take_lanes` 的 take lane 发现(有界行与快照内稳定引用)、
-  lane 创建与重命名、lane 内 MIDI 与文件音频剪辑创建,以及剪辑行的
-  `is_take_lane_clip` 暴露。公共 LOM 不提供 take-lane 删除与 comp 区域
-  编辑;lane 与 lane 剪辑创建因此诚实不可补偿,comp 编辑保持不可用。
-  已在宿主、模拟器、Python 契约与打包 fake-Live 层面验证;精确候选的
-  真实 Live 证明待完成。
+- `Track.take_lanes` 的 take lane 发现(有界行与快照内稳定引用)、lane
+  重命名、现有 lane 内文件音频剪辑创建,以及剪辑行的
+  `is_take_lane_clip` 暴露。映射器/注册表还实现 lane 创建与 MIDI lane
+  剪辑创建,但当前公共 MCP 工具模式未宣告这些路径。公共 LOM 不提供
+  take-lane 删除/试听或 comp 区域编辑。公共路径已在宿主、模拟器、Python
+  契约与打包 fake-Live 层面验证;精确候选的真实 Live 证明待完成。
 - `Song.tuning_system` 与音阶状态暴露(名称、音域、参考音高、伪八度
   音分与全部 128 个音符偏差,以及根音、音阶名称/模式与音程),带完整
   状态修订栅栏、长度/范围验证、精确回滚与经 `live_undo` 的完整状态
@@ -199,10 +199,12 @@ Windows Live 证明,也不证明签名/公证或发布。
 
 - 任意删除设备与 Arrangement 剪辑被拒绝,因为先前状态无法重建。只有
   通过受护栏撤销的、精确事务创建身份 + 层级 + 创建指纹的清理可用。
-- Live 的保存/打开/新建/导出/收集/ bounce、Arrangement 自动化、warp
-  标记编辑、take/comp 编辑与 Browser 音频预览,在观察到的 API 没有权威
-  操作时保持不可用。严格的保留规范契约经过测试,但在适配器能执行并验证
-  之前保持不宣告。
+- Live 的保存/打开/新建/导出/收集/bounce、Arrangement 自动化、take lane
+  删除/试听、comp 区域编辑与 Browser 音频预览,在观察到的 API 没有权威
+  操作时保持不可用。Warp 标记编辑和有界的 take lane 发现/重命名/文件
+  音频导入仅在精确操作已协商时公开。仅映射器实现的 lane 创建与 MIDI lane
+  剪辑路径不是公共 MCP 能力。未支持的规范契约经过测试,但在适配器能执行
+  并验证之前保持不宣告。
 - 不声明 Max for Live `.amxd`、插件 UI 控制、流式 PCM 分接、任意路径/URL
   分析、沉浸式/对象响度布局、自动母带判定或取证级安全擦除。
 - 真峰值目前在 44.1 与 48 kHz 验证;其他采样率报告不可用。

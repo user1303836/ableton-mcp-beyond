@@ -42,7 +42,7 @@
 | タイムライン上でクリップを編成 | `live_arrangement_clip_preview/apply`、`live_clip_duplicate_preview/apply`、`live_clip_move_preview/apply` | クリップの作成、複製、移動。トランザクション作成クリップのクリーンアップは正確。任意の Arrangement 削除は拒否 |
 | オーディオファイルを Arrangement にインポート | `live_arrangement_clip_preview/apply` に `kind: "audio"` | ファイルバックのオーディオクリップを選択したトラックの正確な位置に配置し、作成されたアイデンティティを検証 |
 | オーディオファイルを Session スロットにインポート | `live_audio_import_preview/apply` | 明示的なファイル権限: 許可ルート、正規パス、サイズ/タイプチェック、SHA-256 と適用時再検証(anti-TOCTOU)、インポートしたクリップのガード付きクリーンアップ |
-| テイクレーンを操作 | ディスカバリ、`live_object_rename`(kind `takeLane`)、`live_arrangement_clip_preview/apply`(`takeLaneRef`)、`live_audio_import_preview/apply`(`takeLaneRef`) | レーンとそのクリップの読み取り、レーン作成、レーン名変更、レーン内での MIDI またはファイルオーディオクリップ作成。公開 LOM にテイクレーン削除がないため、レーンとレーンクリップの作成は正直にアンドゥ不可。コンプ領域編集は公開 API がなく利用不可 |
+| テイクレーンを操作 | ディスカバリ、`live_object_rename`(kind `takeLane`)、`live_audio_import_preview/apply`(`takeLaneRef`) | 既存レーンとそのクリップの読み取り、レーン名変更、レーン内でのファイルオーディオクリップ作成。レーン作成と MIDI レーンクリップ作成は現在の公開 MCP ツールスキーマでは通知されない。公開 LOM にテイクレーンの削除/試聴やコンプ領域編集 API はない |
 | ワープマーカーを編集 | `live_warp_marker_preview/apply` | ビートタイムでマーカーを追加/移動/削除(サンプルタイムマッピングは Live が所有)。マーカーコレクションフェンス、正確なロールバック、ガード付きアンドゥ |
 | クリップのクロップ、複製、スクラブ | `live_clip_action_preview/apply` | ループへのクロップ、ループ/リージョンの複製、スクラブ、再生位置の移動。コンテンツアクションは正直にアンドゥ不可と表示 |
 | ノートのクオンタイズと複製 | `live_note_edit_preview/apply` | タイミングまたはピッチのクオンタイズ、安定ノート ID による対象複製。正確な事前コンテンツアンドゥ付き |
@@ -99,10 +99,10 @@
 | Session MIDI クリップとノート | `clip.create/delete`、単一ノート `note.add`、不可分 `note.add-batch`、`note.update/delete`、Session MIDI preview/apply/undo | `session-midi.ts`、ホスト、マッパー。G。安定ノートアイデンティティ、クリップ作成ごとに 1 つの有界ネイティブバッチと補償 | `session-midi.test.ts`、ホスト/Python/パッケージジャーニー | 過去の実 Live フェーズは当時の基本ライフサイクルをカバー。現在の契約と表現ライフサイクルは正確な候補での実 Live 証明保留中のパッケージ fake-Live | `USER_GUIDE.md`。pitch、velocity、channel、duration、probability、deviation、release velocity、mute はネゴシエートされる |
 | 高度な MIDI / MPE | 公開されている場合の probability、velocity deviation、release velocity、mute | ノートスキーマとマッパー。G | レジストリ/ホスト/Python ジャーニーテスト | 表現フィールドはパッケージ fake-Live のみで証明。現在の候補での実 Live 証明は保留中。ノートごとの MPE プレッシャー/スライド/チューニングは利用不可 | `USER_GUIDE.md`。拡張ポイントは正規ノートスキーマ + ネゴシエートされたマッパー操作。捏造フィールドはなし |
 | Session キャプチャ | `session.capture-midi`、`scene.capture` | ホスト preview/apply/冪等/ガード付きアンドゥトランザクションとマッパープリフライト、不変オブジェクトアイデンティティ削除フェンス、新鮮なリビジョン/読み戻し。G/A | ホスト/Python/パッケージジャーニー | 実 Live フェーズ 5 エビデンス | `LIVE_SAFETY.md`。キャプチャ結果は新規にディスカバー可能であること。MIDI キャプチャはすべての Session スロットが空の場合のみアドバタイズされ、ネイティブの失敗クリーンアップが既存クリップ内容を変更しないようにする |
-| Arrangement ナビゲーションとクリップ | arrangement ディスカバリ。クリップ作成/複製/移動。トランザクション所有クリーンアップ。ロケーター追加/削除/名前変更 | ホストトランザクションマネージャー + マッパー。G | ホスト/Python/パッケージジャーニー | `phase-5cd-clip-arrangement-live.txt` と現在のテスト | `USER_GUIDE.md`。任意の Arrangement 削除は拒否。正確な作成アイデンティティ+フィンガープリントクリーンアップは作成/複製のみに適用。移動はソース/デスティネーションコンテンツをフェンスし、正確な逆移動回復を使用。削除権限を生成せず、トランザクション作成ソースの事前クリーンアップトークンを消費 |
+| Arrangement ナビゲーションとクリップ | arrangement ディスカバリ。クリップ作成/複製/移動。トランザクション所有クリーンアップ。ロケーター追加/削除/名前変更。テイクレーン読み取り/名前変更とファイルオーディオインポート | ホストトランザクションマネージャー + マッパー。G | ホスト/Python/パッケージジャーニー | `phase-5cd-clip-arrangement-live.txt` と現在のテスト | `USER_GUIDE.md`。任意の Arrangement 削除は拒否。正確な作成アイデンティティ+フィンガープリントクリーンアップは作成/複製のみに適用。移動はソース/デスティネーションコンテンツをフェンスし、正確な逆移動回復を使用。削除権限を生成せず、トランザクション作成ソースの事前クリーンアップトークンを消費。マッパー専用のレーン作成/MIDI レーンクリップ経路は公開 MCP スキーマでは通知されず、公開 LOM にテイクレーンの削除/試聴やコンプ領域編集 API はない |
 | Arrangement オーディオインポート | `arrangement.audio-clip.create`(ファイルパスから正確な位置へ) | トラック/コレクションフェンス付きホスト preview/apply + マッパー作成アイデンティティ。G。`live_undo` によるトランザクション所有クリーンアップ | ホストと Python テスト | パッケージ fake-Live とシミュレーター。現在の候補での実 Live 証明は保留中 | `USER_GUIDE.md`。パスはそのマシンで Live が読み取れる必要がある。配置はファイルパス、位置、作成アイデンティティで検証 |
 | クリッププロパティ | ミュート、カラーインデックス、MIDI ループ有効/境界の `clip.set` | 権限/状態リビジョン、順序付きループ書き込み、正確なロールバックを持つホスト preview/apply + マッパー。G | ホストと Python テスト | パッケージ fake-Live とシミュレーター。現在の候補での実 Live 証明は保留中 | `USER_GUIDE.md`。オーディオクリップループは `audio.clip.set`。クリップが公開しないフィールドは捏造せず拒否 |
-| オーディオクリッププロパティ | `audio.clip.set` のフィールドネゴシエートされたゲイン、ピッチ、ループ、ワープ有効/モード、フェード。有界ワープマーカー読み戻し | ホスト/レジストリ/マッパー。G。要求された各フィールドは正確なクリップの `availableAudioFields` に現れる必要がある | ホスト、レジストリ、Python fake-Live テスト | 実 Live フェーズ 5cd は MIDI ターゲットでの安全な拒否を証明。成功したオーディオ編集ではない | `USER_GUIDE.md`。現在の候補での実 Live オーディオ編集とワープマーカー編集/テイクレーン/コンプ API は未証明または利用不可。マーカー読み戻しは編集権限を意味しない。予約済み正規 `audio.warp-marker.*`、`audio.take-lane.read`、`audio.comp.read` 契約は実行可能になるまで非公開のまま |
+| オーディオクリッププロパティ | `audio.clip.set` のフィールドネゴシエートされたゲイン、ピッチ、ループ、ワープ有効/モード、フェード。有界ワープマーカー読み戻しと、ビートタイムによるネイティブの追加/移動/削除 | ホスト/レジストリ/マッパー。G。要求された各フィールドは正確なクリップの `availableAudioFields` に現れる必要があり、ワープ編集はマーカーコレクションをフェンスして正確にロールバックする | ホスト、レジストリ、Python fake-Live テスト | 実 Live フェーズ 5cd は MIDI ターゲットでの安全な拒否を証明。成功したオーディオ編集ではない | 現在候補での実 Live オーディオプロパティ/ワープマーカー編集と、公開テイクレーンのディスカバリ/名前変更/オーディオインポートの証明は保留中。各公開サーフェスは正確な操作がネゴシエートされた場合のみ通知される。公開 LOM にコンプ領域 API がないため `audio.comp.read` は予約済みのまま |
 | オートメーション | クリップエンベロープとポイントの作成/読み取り/挿入/削除/復元 | ホスト + マッパー。G、親/リビジョンバインド | ホスト/Python/パッケージジャーニー | `phase-5e-mixer-automation-live.txt` | `USER_GUIDE.md`。Arrangement オートメーション/モジュレーションは観測された API では利用不可。厳密な `arrangement.automation.*` 契約はレジストリテスト済みで、実行可能になるまで非公開のまま |
 | ミキサー、センド、リターン、グループ、キュー | 正確な行リビジョンを持つミキサーディスカバリ/設定 | ホスト + マッパー。G/A | ホスト/Python/パッケージジャーニー | `phase-5e-mixer-automation-live.txt` | `LIVE_SAFETY.md`。ディスカバーされた書き込み可能フィールドのみ変更。クリッピングは推測で回避されない |
 | ルーティング、モニタリング、アーム | ルーティング選択ディスカバリ、`routing.set` | ホスト + マッパー。G/A。フィードバック拒否、正確なルート、アーム/モニターフェンス | ホスト/Python/パッケージジャーニー | `phase-6cd-routing-recording-live.txt` | `LIVE_SAFETY.md`。オペレーターが準備したキャプチャルーティングが必要 |
@@ -172,11 +172,11 @@ Live/Windows 11 のセルを埋めることはありません。
 できるまでフェイルクローズします。予約済み ID は動作するケイパビリティ
 のエビデンスではありません。
 
-| 予約済み操作 ID | ディスポジション |
+| 操作 ID | ディスポジション |
 |---|---|
-| `audio.warp-marker.read/add/move/delete` | 実装済み(ワープマーカーファミリーはこのブランチで出荷)。スキーマはビートタイムでマーカーをアドレス — 整数 ID は捏造しない |
-| `audio.take-lane.read`、`audio.comp.read` | テイクレーンのディスカバリ/作成/名前変更とレーンクリップ作成は実装済み。コンプ領域編集は制限されたまま(公開 API なし)のため、`audio.comp.read` は予約済みのまま |
+| `audio.warp-marker.read/add/move/delete` | 接続先の Live 形状が正確な操作を通知する場合に実装・実行可能。スキーマはビートタイムでマーカーをアドレスし、整数 ID は捏造しない |
+| `audio.take-lane.read`、`audio.comp.read` | `audio.take-lane.read` はネゴシエート時に実装済み。公開 MCP サーフェスは既存レーンのディスカバリ/名前変更/ファイルオーディオインポートを公開し、マッパー専用のレーン作成/MIDI レーンクリップ経路は通知しない。公開 LOM にコンプ領域 API がないため `audio.comp.read` は予約済みのまま |
 | `arrangement.automation.*` | Arrangement オートメーション作成には安定した公開 API がない。予約済み・フェイルクローズのまま |
-| `browser.preview.start/stop` | Browser プレビューは非公式 Python バインディングを使用。ディスポジションは Browser ファミリー作業で決定 |
+| `browser.preview.start/stop` | 現在の Remote Script では明示的に不採用。非公式バインディングには権威ある観測可能なプレビュー状態がないため、これらの契約は予約済み・フェイルクローズのまま |
 | `project.new/open/save/save-as/collect/export/bounce` | 公開 Remote Script API なし。`live_project_save` / `live_project_open` は明示的な制限レポーターのまま |
 | `session.discover` | 予約済みエイリアス。ディスカバリは `discover`/`snapshot`/`get` が提供 |

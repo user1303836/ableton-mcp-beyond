@@ -11,6 +11,16 @@ mere presence of Live on disk. A production bridge requires an explicit
 loopback configuration, an owner-only secret, matching protocol/registry, and
 reported operation capability.
 
+## Deployment trust boundary
+
+This project supports an owner-controlled, local, loopback-only deployment. It
+trusts the local OS account and the MCP client's approval policy. The server
+cannot independently prove that a human, rather than the same model making the
+request, supplied a confirmation or output-safety statement; no out-of-band
+arming UI is provided. Do not auto-approve audible, recording, routing,
+capture, or realtime tools. For unattended clients, use client-side deny rules
+or run without a production bridge, and work only in a disposable Set.
+
 ## Universal mutation boundary
 
 Every mutation requires:
