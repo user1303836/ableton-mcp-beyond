@@ -123,8 +123,14 @@ function boundedString(value: unknown, fallback = "unavailable"): string {
   return value.normalize("NFC").slice(0, 512);
 }
 
+function looksLikeNetworkOrDevicePath(value: string): boolean {
+  const normalized = value.replaceAll("/", "\\");
+  const windowsDrive = /^[A-Za-z]:[\\/]/.test(value);
+  return normalized.startsWith("\\\\") || /^\\\\[?.]\\/.test(normalized) || (!windowsDrive && /^[A-Za-z][A-Za-z0-9+.-]*:[\\/]{1,2}/i.test(value));
+}
+
 function looksLikeAbsolutePath(value: string): boolean {
-  return /(?:^|[\s"'(=])(?:\/(?!\/)|[A-Za-z]:[\\/]|\\\\|file:\/\/)/i.test(value);
+  return /(?:^|[\s"'(=])(?:\/|[A-Za-z]:[\\/]|\\\\)/i.test(value) || /[A-Za-z][A-Za-z0-9+.-]*:[\\/]{1,2}/i.test(value);
 }
 
 function looksLikeAuthority(value: string): boolean {
@@ -336,7 +342,10 @@ export function createSemanticProjectSnapshot(snapshot: LiveSnapshot, options: C
     const length = normalizeNumber(clip.length); const audioMetadataHash = digest(audioMetadata);
     const data: Record<string, SemanticJson> = { clipKind: clip.kind, parentSnapshotId, location, start: normalizeNumber(clip.start), length, loopStart: clip.loopStart ?? null, loopEnd: clip.loopEnd ?? null, looping: clip.looping ?? null, muted: clip.muted ?? null, notes, automation, audioMetadataHash, rawAudioContent: "unavailable-not-read" };
     push(createRecord("clip", order, name, data, { clipKind: clip.kind, noteHash: notes.hash, length, audioMetadataHash }));
-    if (typeof clip.filePath === "string" && clip.filePath.length > 0 && clip.filePath.length <= MAX_STRING_LENGTH) clipDependencyRows.push({ raw: clip.filePath, resolvedPath: isAbsolute(clip.filePath) ? resolve(clip.filePath) : undefined, resolution: isAbsolute(clip.filePath) ? "absolute" : "unresolved", evidence: "live-clip" });
+    if (typeof clip.filePath === "string" && clip.filePath.length > 0 && clip.filePath.length <= MAX_STRING_LENGTH) {
+      const network = looksLikeNetworkOrDevicePath(clip.filePath); const absolute = !network && isAbsolute(clip.filePath);
+      clipDependencyRows.push({ raw: clip.filePath, resolvedPath: absolute ? resolve(clip.filePath) : undefined, resolution: network ? "network" : absolute ? "absolute" : "unresolved", evidence: "live-clip" });
+    }
   };
   let clipOrder = 0;
   for (const track of snapshot.tracks) {
@@ -385,7 +394,7 @@ export function createSemanticProjectSnapshot(snapshot: LiveSnapshot, options: C
     const key = digest([reference.raw.replaceAll("\\", "/"), reference.resolvedPath ?? null]); if (dependencySeen.has(key)) continue; dependencySeen.add(key);
     const origin = dependencyOrigin(reference.raw, reference);
     const availability = reference.exists === false ? "missing" : reference.exists === true ? "discovered" : "unknown";
-    const locator = pathLocator(profile, reference.raw, reference.resolvedPath, options.projectPath);
+    const locator = reference.resolution === "network" ? `network-${shortDigest(["network-reference", reference.raw])}` : pathLocator(profile, reference.raw, reference.resolvedPath, options.projectPath);
     const classificationEvidence = origin === "project-local" ? reference.exists === true ? "verified-realpath" : "missing-lexical-project-path" : origin === "pack" || origin === "user-library" ? "path-segment-heuristic" : reference.resolution === "network" ? "network-reference-blocked" : reference.resolution === "oversized" ? "oversized-reference-blocked" : "path-evidence";
     const locatorDigest = digest(reference.raw);
     const data: Record<string, SemanticJson> = { category: "media", origin, availability, stateVisibility: reference.resolution === "unresolved" || reference.resolution === "network" || reference.resolution === "oversized" ? "opaque" : "semantic", locator, locatorDigest, evidence: reference.evidence, classificationEvidence, portability: "unknown" };
@@ -397,7 +406,7 @@ export function createSemanticProjectSnapshot(snapshot: LiveSnapshot, options: C
   }
 
   if (!source) addUnavailable("set-file-provenance", "the Live Set is unsaved or host file evidence is unavailable", "live-snapshot");
-  if (!options.live.version && !source?.ableton.minorVersion && !source?.ableton.creator) addUnavailable("live-version", "Live version was not exposed by the adapter or saved Set", "provenance");
+  if (!options.live.version) addUnavailable("live-version", "active Live version was not exposed by the adapter; saved Set creator/version remains source provenance only", "live-adapter");
   if (!source) addUnavailable("dependency-manifest", "saved Set FileRef evidence is unavailable; only observed Live clip/device dependencies are included", "live-snapshot");
   addUnavailable("audio-content-hash", "referenced media bytes are never read by semantic export", "policy");
   if (source && source.manifest.tracks > snapshot.tracks.length) addUnavailable("tracks", `saved Set reports ${source.manifest.tracks} tracks while the bounded adapter snapshot supplied ${snapshot.tracks.length}`, "adapter-bound");
@@ -428,7 +437,7 @@ export function createSemanticProjectSnapshot(snapshot: LiveSnapshot, options: C
     ...(provenanceValue("minor-version", source.ableton.minorVersion) ? { minorVersion: provenanceValue("minor-version", source.ableton.minorVersion) } : {}),
     ...(provenanceValue("schema-change", source.ableton.schemaChangeCount) ? { schemaChangeCount: provenanceValue("schema-change", source.ableton.schemaChangeCount) } : {}),
   } : undefined;
-  const liveVersion = provenanceValue("live-version", options.live.version ?? ableton?.minorVersion ?? ableton?.creator);
+  const liveVersion = provenanceValue("live-version", options.live.version);
   const provenance: SemanticProjectArtifact["provenance"] = {
     source: source ? "live+als" : "live-only",
     live: { protocol: dynamicString(profile, "protocol", options.live.protocol), adapter: dynamicString(profile, "adapter", options.live.adapter), provenance: dynamicString(profile, "provenance", options.live.provenance ?? "unknown"), ...(options.live.registryHash ? { registryHash: dynamicString(profile, "registry-hash", options.live.registryHash) } : {}), ...(liveVersion ? { version: liveVersion } : {}) },

@@ -131,7 +131,8 @@ function abletonRootAttributes(xml: string): ProjectSourceEvidence["ableton"] {
 
 function isNetworkOrDevicePath(value: string): boolean {
   const normalized = value.replaceAll("/", "\\");
-  return normalized.startsWith("\\\\") || /^\\\\[?.]\\/.test(normalized) || /^file:\/\//i.test(value);
+  const windowsDrive = /^[A-Za-z]:[\\/]/.test(value);
+  return normalized.startsWith("\\\\") || /^\\\\[?.]\\/.test(normalized) || (!windowsDrive && /^[A-Za-z][A-Za-z0-9+.-]*:[\\/]{1,2}/i.test(value));
 }
 
 export function projectSourceEvidence(path: string): ProjectSourceEvidence {

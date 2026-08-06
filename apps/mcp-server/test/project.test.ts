@@ -71,10 +71,11 @@ test("bounds FileRef probes, blocks network/device references, and identifies pr
   try {
     const project = join(root, "Project"); mkdirSync(project); const outside = join(root, "outside.wav"); writeFileSync(outside, "not read");
     const linked = join(project, "linked.wav"); if (process.platform !== "win32") symlinkSync(outside, linked); else context.diagnostic("symlink classification fixture skipped on Windows");
-    const refs = Array.from({ length: 4_100 }, (_, index) => `/definitely-missing/ref-${index}.wav`); refs.unshift("\\\\attacker\\share\\sample.wav", "\\\\?\\C:\\device\\sample.wav"); if (process.platform !== "win32") refs.unshift(linked);
+    const refs = Array.from({ length: 4_100 }, (_, index) => `/definitely-missing/ref-${index}.wav`); refs.unshift("\\\\attacker\\share\\sample.wav", "\\\\?\\C:\\device\\sample.wav", "https://private.example/sample.wav", "smb://attacker/share/sample.wav", "nfs://studio/export/sample.wav"); if (process.platform !== "win32") refs.unshift(linked);
     const set = join(project, "bounded.als"); liveSet(set, refs); const evidence = projectSourceEvidence(set);
     assert.equal(evidence.referenceBounds.observed, 4097); assert.equal(evidence.referenceBounds.observedKind, "lower-bound"); assert.equal(evidence.referenceBounds.included, 4096); assert.equal(evidence.referenceBounds.complete, false); assert.equal(evidence.referenceBounds.omitted, 1);
-    assert.ok(evidence.references.some((reference) => reference.resolution === "network" && reference.value.startsWith("network-")));
+    const network = evidence.references.filter((reference) => reference.resolution === "network");
+    assert.ok(network.length >= 5); assert.ok(network.every((reference) => reference.value.startsWith("network-") && !reference.value.includes("://")));
     if (process.platform !== "win32") assert.equal(evidence.references.find((reference) => reference.resolvedPath === linked)?.projectLocal, false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

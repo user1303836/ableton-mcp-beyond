@@ -92,11 +92,25 @@ test("privacy profiles never export absolute paths and strict aliases names", ()
       const artifact = createSemanticProjectSnapshot(snapshot, { ...options(profile), projectPath: set, sourceEvidence: source }); const output = canonicalSemanticJson(artifact);
       assert.equal(output.includes(root), false, profile);
       assert.equal(artifact.policy.profile, profile);
+      assert.equal(artifact.provenance.ableton?.minorVersion, "12.1");
+      assert.equal(artifact.provenance.live.version, undefined, "saved Set version is not active Live provenance");
+      assert.ok(artifact.records.some((record) => record.kind === "unavailable" && record.data.field === "live-version"));
       if (profile === "strict") assert.equal(output.includes("Secret Set"), false);
       if (profile === "collaboration") assert.equal(output.includes("Secret Set"), true);
     }
     assert.deepEqual(readFileSync(set), gzipSync(Buffer.from(`<Ableton Creator="Ableton Live 12" MajorVersion="5" MinorVersion="12.1"><AudioTrack/><FileRef><Path Value="${media}"/></FileRef></Ableton>`)));
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("network URI media locators are typed digests under every privacy profile", () => {
+  for (const profile of ["strict", "collaboration", "local"] as const) for (const uri of ["https://private.example", "smb://corp", "nfs://studio/export/"]) {
+    const snapshot = new DeterministicLiveSimulator().snapshot(); snapshot.tracks[0]!.clips[0]!.filePath = uri;
+    const artifact = createSemanticProjectSnapshot(snapshot, options(profile)); const output = canonicalSemanticJson(artifact);
+    assert.equal(output.includes(uri), false, `${profile}: ${uri}`);
+    for (const authority of ["private.example", "corp", "studio"]) assert.equal(output.includes(authority), false, `${profile}: ${authority}`);
+    const dependency = artifact.records.find((record) => record.kind === "dependency" && record.data.evidence === "live-clip");
+    assert.match(String(dependency?.data.locator), /^network-[a-f0-9]{20}$/); assert.equal(dependency?.data.classificationEvidence, "network-reference-blocked"); assert.equal(dependency?.data.stateVisibility, "opaque");
+  }
 });
 
 test("dependency manifest distinguishes missing, external, Pack, User Library, plug-in, Max, and opaque state", () => {
@@ -116,9 +130,12 @@ test("dependency manifest distinguishes missing, external, Pack, User Library, p
 
 test("unsaved snapshots expose live-only provenance and explicit unavailable evidence", () => {
   const artifact = createSemanticProjectSnapshot(new DeterministicLiveSimulator().snapshot(), options("strict"));
-  assert.equal(artifact.provenance.source, "live-only");
+  assert.equal(artifact.provenance.source, "live-only"); assert.equal(artifact.provenance.live.version, undefined);
   const unavailable = artifact.records.filter((record) => record.section === "unavailable").map((record) => record.data.field);
-  assert.ok(unavailable.includes("set-file-provenance")); assert.ok(unavailable.includes("dependency-manifest")); assert.ok(unavailable.includes("audio-content-hash"));
+  assert.ok(unavailable.includes("set-file-provenance")); assert.ok(unavailable.includes("live-version")); assert.ok(unavailable.includes("dependency-manifest")); assert.ok(unavailable.includes("audio-content-hash"));
+
+  const reported = createSemanticProjectSnapshot(new DeterministicLiveSimulator().snapshot(), { ...options(), live: { ...options().live, version: "12.2" } });
+  assert.equal(reported.provenance.live.version, "12.2"); assert.equal(reported.records.some((record) => record.kind === "unavailable" && record.data.field === "live-version"), false);
 });
 
 test("canonical serializer uses fixed Unicode ordering and enforces pre-allocation container bounds", () => {
@@ -178,10 +195,10 @@ test("privacy sanitizes every dynamic string and rejects a publicly rehashed mal
   const root = mkdtempSync(join(tmpdir(), "semantic-adversarial-"));
   try {
     const set = join(root, "Set.als"); writeFileSync(set, gzipSync(Buffer.from('<Ableton Creator="/Users/alice C:\\\\Secret \\\\\\\\corp\\\\share file:///private/x" MajorVersion="REUSABLE-MUTATION-TOKEN"><AudioTrack/></Ableton>')));
-    const snapshot = new DeterministicLiveSimulator().snapshot(); snapshot.set.name = "/Users/alice/Secret.als"; snapshot.tracks[0]!.name = "C:\\Users\\alice\\Track"; snapshot.tracks[0]!.routing = { inputType: "42:clip_slot:0:0", inputSubRouting: "REUSABLE-MUTATION-TOKEN", outputType: "\\\\corp\\share", outputSubRouting: "file:///private/out", availableInputTypes: 0, availableInputChannels: 0, availableOutputTypes: 0, availableOutputChannels: 0 };
+    const snapshot = new DeterministicLiveSimulator().snapshot(); snapshot.set.name = "/Users/alice/Secret.als"; snapshot.tracks[0]!.name = "https://private.example/track"; snapshot.scenes[0]!.name = "C:\\Users\\alice\\Scene"; snapshot.tracks[0]!.clips[0]!.name = "smb://corp/share/clip"; snapshot.tracks[0]!.devices[0]!.name = "nfs://studio/device"; snapshot.tracks[0]!.routing = { inputType: "42:clip_slot:0:0", inputSubRouting: "REUSABLE-MUTATION-TOKEN", outputType: "\\\\corp\\share", outputSubRouting: "file:///private/out", availableInputTypes: 0, availableInputChannels: 0, availableOutputTypes: 0, availableOutputChannels: 0 };
     for (const profile of ["strict", "collaboration", "local"] as const) {
       const exported = createSemanticProjectSnapshot(snapshot, { ...options(profile), projectPath: set, sourceEvidence: projectSourceEvidence(set) }); const output = canonicalSemanticJson(exported);
-      for (const sentinel of ["/Users/alice", "C:\\\\Users", "\\\\corp", "file:///", "REUSABLE-MUTATION-TOKEN", "42:clip_slot:0:0"]) assert.equal(output.includes(sentinel), false, `${profile}: ${sentinel}`);
+      for (const sentinel of ["/Users/alice", "C:\\\\Users", "\\\\corp", "file:///", "https://private.example", "smb://corp", "nfs://studio", "REUSABLE-MUTATION-TOKEN", "42:clip_slot:0:0"]) assert.equal(output.includes(sentinel), false, `${profile}: ${sentinel}`);
       validateSemanticProjectArtifact(exported);
     }
     const malicious = createSemanticProjectSnapshot(new DeterministicLiveSimulator().snapshot(), options()) as any; const track = malicious.records.find((record: any) => record.kind === "track");
@@ -195,5 +212,11 @@ test("privacy sanitizes every dynamic string and rejects a publicly rehashed mal
     const compositeRef = createSemanticProjectSnapshot(new DeterministicLiveSimulator().snapshot(), options()) as any; const compositeTrack = compositeRef.records.find((record: any) => record.kind === "track");
     compositeTrack.data.routing.inputType = "42:clip_slot:0:0"; rehashArtifact(compositeRef);
     assert.throws(() => validateSemanticProjectArtifact(compositeRef), /session reference-like/);
+
+    for (const uri of ["https://private.example/media.wav", "smb://corp/share/media.wav", "nfs://studio/export/media.wav"]) {
+      const networkUri = createSemanticProjectSnapshot(new DeterministicLiveSimulator().snapshot(), options()) as any; const networkTrack = networkUri.records.find((record: any) => record.kind === "track");
+      networkTrack.data.routing.inputType = uri; rehashArtifact(networkUri);
+      assert.throws(() => validateSemanticProjectArtifact(networkUri), /absolute, network, device, or file-URI path/, uri);
+    }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
