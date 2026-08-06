@@ -64,8 +64,8 @@ and reports the actual limitation.
 | Feature | Disposition |
 |---|---|
 | Arrangement automation envelope/point authoring | Unsupported today. `arrangement.automation.*` stays reserved and fail-closed; Session clip envelopes are implemented |
-| Full comp-region selection and comp editing | Unsupported by the public LOM; take lanes and lane clips are implemented (P1.2), comp-region editing stays classified separately |
-| Take-lane deletion/audition/comp semantics | Unsupported by the public LOM; lane and lane-clip creation is honestly non-compensatable and reported as such |
+| Full comp-region selection and comp editing | Unsupported by the public LOM; existing take-lane discovery/rename and file-backed audio import are exposed, while mapper-only lane creation/MIDI lane-clip paths are not advertised by the public MCP schemas |
+| Take-lane deletion/audition/comp semantics | Unsupported by the public LOM; no public MCP capability is claimed for them |
 | Freeze and flatten | No public API; no UI automation |
 | Offline bounce, stems, export audio/video, render status | No public Remote Script API; `project.bounce/export/collect` stay reserved and fail-closed |
 | Project new/open/save/save-as/close and Collect All and Save | No public API; `live_project_save`/`live_project_open` remain explicit limitation reporters |

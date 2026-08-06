@@ -48,13 +48,13 @@ are. Source, schemas, and tests are the final authority.
   non-undoable. Verified at the host, simulator, Python contract, and packaged
   fake-Live levels; exact-candidate real-Live proof is pending.
 - Take-lane discovery under `Track.take_lanes` with bounded rows and
-  stable-in-snapshot references, lane creation and rename, MIDI and
-  file-backed audio clip creation inside lanes, and `is_take_lane_clip`
-  exposure on clip rows. The public LOM exposes no take-lane deletion and no
-  comp-region editing; lane and lane-clip creation is therefore honestly
-  non-compensatable, and comp editing stays unavailable. Verified at the host,
-  simulator, Python contract, and packaged fake-Live levels; exact-candidate
-  real-Live proof is pending.
+  stable-in-snapshot references, lane rename, file-backed audio clip creation
+  inside existing lanes, and `is_take_lane_clip` exposure on clip rows. The
+  mapper/registry also implement lane creation and MIDI lane-clip creation,
+  but the current public MCP tool schemas do not advertise those paths. The
+  public LOM exposes no take-lane deletion, audition, or comp-region editing.
+  Publicly exposed paths are verified at the host, simulator, Python contract,
+  and packaged fake-Live levels; exact-candidate real-Live proof is pending.
 - `Song.tuning_system` and scale state exposure (name, note range, reference
   pitch, pseudo-octave cents, and all 128 note tunings, plus root note, scale
   name/mode, and intervals) with full-state revision fencing, length/range
@@ -270,11 +270,14 @@ be opened, copied, staged, packaged, or cited as implementation evidence.
 - Arbitrary device and Arrangement clip deletion is refused because prior state
   cannot be reconstructed. Only exact transaction-created identity, hierarchy,
   and creation-fingerprint cleanup is available through guarded undo.
-- Live save/open/new/export/collect/bounce, Arrangement automation, warp-marker
-  editing, take/comp editing, and Browser audio preview remain unavailable
-  where the observed API has no authoritative operation. Strict reserved
-  canonical contracts are tested but remain unadvertised until an adapter can
-  execute and verify them.
+- Live save/open/new/export/collect/bounce, Arrangement automation, take-lane
+  deletion/audition, comp-region editing, and Browser audio preview remain
+  unavailable where the observed API has no authoritative operation.
+  Warp-marker editing and bounded take-lane discovery/rename/file-backed audio
+  import are exposed only when their exact operations are negotiated.
+  Mapper-only lane creation and MIDI lane-clip paths are not public MCP
+  capabilities. Unsupported canonical contracts are tested but remain
+  unadvertised until an adapter can execute and verify them.
 - No Max for Live `.amxd`, plug-in UI control, streaming PCM tap, arbitrary
   path/URL analysis, immersive/object loudness layout, automatic mastering
   verdict, or forensic secure erase is claimed.

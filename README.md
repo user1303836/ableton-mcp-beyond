@@ -6,7 +6,7 @@
 
 <p align="center">
   Safety-first MCP control of Ableton Live 12 —<br/>
-  76 tools, an authenticated loopback bridge, and standards-based audio analysis.
+  143 tools, an authenticated loopback bridge, and standards-based audio analysis.
 </p>
 
 <p align="center">
@@ -59,6 +59,8 @@ Full walkthrough: [docs/en/USER_GUIDE.md](docs/en/USER_GUIDE.md).
 ## Safety model
 
 Every mutation follows **discover → preview → confirm → apply → verify → undo**. Idempotency keys, epoch fencing, and an execution ledger make lost acknowledgements safe to reconcile; arbitrary deletes are refused. Without an explicit bridge config the server is fail-closed — it cannot read or touch Live. See [docs/en/LIVE_SAFETY.md](docs/en/LIVE_SAFETY.md).
+
+The deployment trusts an owner-controlled local OS account and the MCP client's approval policy. Server confirmations are not proof of human consent through a channel independent of the model. Do not auto-approve audible, recording, routing, capture, or realtime tools.
 
 ## Compatibility
 
