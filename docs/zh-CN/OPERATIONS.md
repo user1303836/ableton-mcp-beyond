@@ -78,7 +78,18 @@ PCM 或媒体路径。队列压力会丢弃记录;链接/路径漂移、写满/�
 `ableton://max-extension` 如实报告未捆绑 Max 设备。规范的
 `project.new/open/save/save-as/collect/export/bounce` 标识符为未来的
 适配器契约保留,但当前适配器不宣告也不执行它们。本地 `project.info` 与
-绑定回执的 `.als` 备份仍是仅有的工程操作。
+绑定回执的 `.als` 备份仍是仅有的工程文件操作。只读
+`live_project_snapshot_export` 按 `strict`、`collaboration` 或 `local` 路径
+策略返回绑定工件的分页;持久化前应收集到 `complete=true`。
+`live_project_snapshot_diff` 在 Live 未连接时也可校验并比较两个完整分页束。
+分页游标只是无授权的工件坐标,绝非跨运行身份。截断会限制缺失断言,重复项歧义
+保持显式。这些宿主语义工具不实现规范 `project.export`,不编辑 `.als`、收集媒体、
+解码插件/Max blob、提出合并,也不绕过桥接 snapshot 的遍历/帧限制。每个持久化分页束
+上限为 24 MiB,为双分页束 diff 请求保留足够帧空间。已保存 Set 的 FileRef 证据在保留
+4,096 个唯一条目并观测到第一个超额条目后停止;超额计数明确为下限,依赖关系会标记为
+不完整。UNC/设备/网络引用不会执行存在性探测,Pack/User Library 分类只是路径片段
+启发式,并非已安装所有权断言。若 page limit 会产生超过 512 个可组装分页,导出会在
+开始时拒绝。
 
 ## 录音操作
 

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { gzipSync } from "node:zlib";
-import { projectBackup, projectInfo, projectLimitation } from "../src/project.js";
+import { projectBackup, projectInfo, projectLimitation, projectSourceEvidence } from "../src/project.js";
 
 function liveSet(path: string, media: string[]): void {
   const escaped = (value: string) => value.replaceAll("&", "&amp;").replaceAll("\"", "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -51,6 +51,41 @@ test("rejects unsafe, linked, wrong-extension, and malformed Live Set paths", (c
       const linked = join(root, "linked.als"); symlinkSync(malformed, linked);
       assert.throws(() => projectInfo(linked), /symbolic link/);
     } else context.diagnostic("symbolic-link fixture requires optional Windows privilege");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("reads bounded semantic source evidence without guessing relative FileRefs", () => {
+  const root = mkdtempSync(join(tmpdir(), "ableton-project-evidence-"));
+  try {
+    const set = join(root, "evidence.als"); const absolute = join(root, "missing.wav");
+    writeFileSync(set, gzipSync(Buffer.from(`<Ableton Creator="Ableton Live 12" MajorVersion="5" MinorVersion="12.1" SchemaChangeCount="3"><FileRef><Path Value="relative.wav"/></FileRef><FileRef><Path Value="${absolute}"/></FileRef></Ableton>`)));
+    const before = readFileSync(set); const evidence = projectSourceEvidence(set);
+    assert.deepEqual(evidence.ableton, { creator: "Ableton Live 12", majorVersion: "5", minorVersion: "12.1", schemaChangeCount: "3" });
+    assert.deepEqual(evidence.references.find((row) => row.value === "relative.wav"), { value: "relative.wav", resolution: "unresolved" });
+    assert.equal(evidence.references.find((row) => row.value === absolute)?.exists, false); assert.deepEqual(readFileSync(set), before);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("bounds FileRef probes, blocks network/device references, and identifies project symlinks conservatively", (context) => {
+  const root = mkdtempSync(join(tmpdir(), "ableton-project-ref-bounds-"));
+  try {
+    const project = join(root, "Project"); mkdirSync(project); const outside = join(root, "outside.wav"); writeFileSync(outside, "not read");
+    const linked = join(project, "linked.wav"); if (process.platform !== "win32") symlinkSync(outside, linked); else context.diagnostic("symlink classification fixture skipped on Windows");
+    const refs = Array.from({ length: 4_100 }, (_, index) => `/definitely-missing/ref-${index}.wav`); refs.unshift("\\\\attacker\\share\\sample.wav", "\\\\?\\C:\\device\\sample.wav"); if (process.platform !== "win32") refs.unshift(linked);
+    const set = join(project, "bounded.als"); liveSet(set, refs); const evidence = projectSourceEvidence(set);
+    assert.equal(evidence.referenceBounds.observed, 4097); assert.equal(evidence.referenceBounds.observedKind, "lower-bound"); assert.equal(evidence.referenceBounds.included, 4096); assert.equal(evidence.referenceBounds.complete, false); assert.equal(evidence.referenceBounds.omitted, 1);
+    assert.ok(evidence.references.some((reference) => reference.resolution === "network" && reference.value.startsWith("network-")));
+    if (process.platform !== "win32") assert.equal(evidence.references.find((reference) => reference.resolvedPath === linked)?.projectLocal, false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("stops FileRef observation after the first overflow without retaining the remaining unique paths", () => {
+  const root = mkdtempSync(join(tmpdir(), "ableton-project-many-refs-"));
+  try {
+    const set = join(root, "many.als"); const refs = Array.from({ length: 20_000 }, (_, index) => `<FileRef><Path Value="/missing/${index}.wav" /></FileRef>`).join("");
+    writeFileSync(set, gzipSync(Buffer.from(`<Ableton>${refs}</Ableton>`)));
+    const started = Date.now(); const evidence = projectSourceEvidence(set);
+    assert.equal(evidence.references.length, 4096); assert.deepEqual(evidence.referenceBounds, { observed: 4097, observedKind: "lower-bound", included: 4096, omitted: 1, complete: false }); assert.equal(evidence.manifest.mediaRefs, 4097); assert.ok(Date.now() - started < 5_000);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

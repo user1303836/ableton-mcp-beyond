@@ -31,3 +31,17 @@ export { SessionMidiTransactionManager, discoverSession } from "./transactions/s
 export type { SessionMidiPreview, SessionMidiRecord, SessionMidiRequest } from "./transactions/session-midi.js";
 export { assertNoLinkedAncestors, LIFECYCLE_ACTIONS, LIFECYCLE_RECEIPT_VERSION, runLifecycle } from "./lifecycle.js";
 export type { LifecycleAction, LifecycleOptions, LifecycleReceipt, LifecycleResult } from "./lifecycle.js";
+export {
+  SEMANTIC_PROJECT_MAX_PAGE_BYTES,
+  SEMANTIC_PROJECT_MAX_PAGE_RECORDS,
+  SEMANTIC_PROJECT_MAX_RECORDS,
+  SEMANTIC_PROJECT_SNAPSHOT_SCHEMA,
+  assembleSemanticProjectPages,
+  canonicalSemanticJson,
+  createSemanticProjectSnapshot,
+  pageSemanticProjectSnapshot,
+  validateSemanticProjectArtifact,
+} from "./project-semantic.js";
+export type { CreateSemanticProjectOptions, SemanticPrivacyProfile, SemanticProjectArtifact, SemanticProjectPage, SemanticProjectRecord, SemanticProjectSection } from "./project-semantic.js";
+export { SEMANTIC_PROJECT_DIFF_SCHEMA, diffSemanticProjectSnapshots, pageSemanticProjectDiff } from "./project-semantic-diff.js";
+export type { SemanticProjectAmbiguity, SemanticProjectChange, SemanticProjectDiff, SemanticProjectDiffItem, SemanticProjectDiffPage } from "./project-semantic-diff.js";

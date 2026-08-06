@@ -37,6 +37,15 @@ SHA-256 安装。`private: true` 仅防止意外发布,不改变 MIT 权利;见
 - `live_status` 报告协议、适配器、epoch、注册表哈希、操作与连接状态。
 - `live_snapshot` 在协商了 `session.read` 时返回有界的 Set 快照。伪造或
   不完整 Live 形态中的回退值应视为不可用证据,而不是 Live 状态的证明。
+- `live_project_snapshot_export` 以确定性分页返回有版本的语义 Set 工件。选择
+  `strict`(名称/路径使用带类型别名)、`collaboration`(名称与文件基名)或
+  `local`(名称与工程相对路径;外部路径仍为基名/摘要),并保存至
+  `complete=true`。每页记录 Live/来源证明、分区完整性、依赖、不可用字段,
+  并声明不含会话引用或变更授权。
+- `live_project_snapshot_diff` 可在未连接 Live 时比较两个完整的已保存分页束。
+  它按唯一内容/结构/名称证据匹配,分别报告重命名与重排,显式保留重复项歧义,
+  并对截断分区抑制缺失断言。它绝不提出 `.als` 编辑、重放、Collect All and
+  Save 或自动合并;插件/Max blob 与可移植性保持不透明。
 - `live_discover` 校验所有已协商的种类,子级种类需要父级。当适配器暴露
   映射器发现能力时,它接受 `set`、`track`、`return-track`、`main-track`、
   `scene`、`clip-slot`、`session-clip`、`arrangement-clip`、`note`、
