@@ -97,7 +97,22 @@ or sequence gap requires a fresh snapshot.
 Canonical `project.new/open/save/save-as/collect/export/bounce` identifiers
 reserve a future adapter contract, but current adapters do not advertise or
 execute them. Local `project.info` and receipt-bound `.als` backup remain the
-only project operations.
+only project file operations. The read-only `live_project_snapshot_export`
+returns artifact-bound pages under `strict`, `collaboration`, or `local` path
+policy; collect every page through `complete=true` before persisting it.
+`live_project_snapshot_diff` validates and compares two complete bundles even
+while Live is disconnected. Page cursors are non-authoritative artifact
+coordinates, never cross-run object identity. Truncation limits absence claims,
+and ambiguous duplicates stay explicit. These host-side semantic tools do not
+implement canonical `project.export`, edit `.als`, collect media, decode plug-in
+or Max blobs, propose a merge, or bypass the bridge snapshot traversal/frame
+bounds. Each persisted page bundle is capped at 24 MiB, leaving transport
+headroom for the two-bundle diff request. Saved-Set FileRef evidence stops after
+4,096 unique entries plus the first overflow observation; overflow counts are
+explicit lower bounds and make dependencies incomplete. UNC/device/network
+references are not probed, and Pack/User Library labels are path-segment
+heuristics rather than installed-ownership claims. Export rejects a page limit
+that would require more than 512 assemblable pages.
 
 ## Recording operations
 

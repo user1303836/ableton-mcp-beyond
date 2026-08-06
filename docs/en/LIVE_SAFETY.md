@@ -89,6 +89,15 @@ discovery, previews, project inspection, subscription reads, realtime stats,
 caller PCM analysis/reference comparison, and caller-declared Live-context
 diagnosis. A read-only tool never starts playback or recording.
 
+Semantic Set pages are constructed from explicit allowlists. They exclude Live
+refs/object identities, epochs/revisions, confirmations, tokens, transactions,
+idempotency, secrets, MACs, and recovery authority; no privacy profile emits an
+absolute path. Snapshot IDs and pagination cursors are descriptive coordinates,
+not cross-run identity or mutation authority. Offline diff uses only unique
+semantic evidence, retains ambiguity and truncation limits, and always reports
+`mergeProposed=false`. It never edits `.als` or treats opaque plug-in/Max state
+as portable.
+
 ## Audible Session actions
 
 Scene/clip launch requires explicit output-safety evidence, exact eligible

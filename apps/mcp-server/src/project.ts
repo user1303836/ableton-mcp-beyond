@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, lstatSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
 
@@ -32,7 +32,19 @@ export interface ProjectInfo {
   recovered?: boolean;
 }
 
+/** Internal read-only evidence used by semantic Set exports. Paths remain
+ * host-local here and must be policy-redacted before they cross the MCP
+ * boundary. Referenced files are never opened. */
+export interface ProjectSourceEvidence {
+  manifest: ProjectManifest;
+  ableton: { creator?: string; majorVersion?: string; minorVersion?: string; schemaChangeCount?: string };
+  references: Array<{ value: string; resolvedPath?: string; exists?: boolean; projectLocal?: boolean; resolution: "absolute" | "set-relative" | "unresolved" | "network" | "oversized" }>;
+  referenceBounds: { observed: number; observedKind: "exact" | "lower-bound"; included: number; omitted: number; complete: boolean };
+}
+
 const MAX_SET_BYTES = 64 * 1024 * 1024;
+const MAX_FILE_REFERENCES = 4096;
+const MAX_FILE_REFERENCE_LENGTH = 4096;
 
 function assertSafeSetPath(path: string): string {
   if (!isAbsolute(path) || path.includes("\0")) throw new Error("set path must be absolute and safe");
@@ -49,15 +61,23 @@ function sha256File(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-function readSetXml(path: string): string {
-  const raw = readFileSync(path);
-  let xml: Buffer;
-  try { xml = gunzipSync(raw, { maxOutputLength: MAX_SET_BYTES }); }
+interface SetSourceRead { path: string; raw: Buffer; xml: string; size: number; mtimeMs: number; sha256: string }
+
+/** Read once, then verify that the regular-file identity did not change while
+ * it was open. XML, size, and hash therefore describe the same bounded bytes. */
+function readSetSource(path: string): SetSourceRead {
+  const resolved = assertSafeSetPath(path);
+  const before = lstatSync(resolved);
+  const raw = readFileSync(resolved);
+  const after = lstatSync(resolved);
+  if (after.isSymbolicLink() || !after.isFile() || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs || raw.length !== after.size) throw new Error("set file identity changed during the bounded read");
+  let xmlBytes: Buffer;
+  try { xmlBytes = gunzipSync(raw, { maxOutputLength: MAX_SET_BYTES }); }
   catch (cause) {
     if (cause instanceof Error && /output length|buffer too large|larger than/i.test(cause.message)) throw new Error("decompressed set exceeds the bounded size");
     throw new Error("set file is not a valid gzip-compressed Live set");
   }
-  return xml.toString("utf8");
+  return { path: resolved, raw, xml: xmlBytes.toString("utf8"), size: after.size, mtimeMs: after.mtimeMs, sha256: createHash("sha256").update(raw).digest("hex") };
 }
 
 function decodeXmlAttribute(value: string): string {
@@ -71,40 +91,85 @@ function decodeXmlAttribute(value: string): string {
   });
 }
 
-function referencedMediaValues(xml: string): string[] {
+interface ReferencedMediaCollection { values: string[]; observed: number; omitted: number; complete: boolean }
+
+function referencedMediaValues(xml: string): ReferencedMediaCollection {
   const values: string[] = [];
+  const seen = new Set<string>();
   for (const fileRef of xml.matchAll(/<FileRef\b[^>]*>([\s\S]*?)<\/FileRef\s*>/g)) {
     const path = /<Path\b[^>]*\bValue="([^"]*)"/.exec(fileRef[1]!);
-    if (path?.[1]) values.push(decodeXmlAttribute(path[1]));
+    if (!path?.[1]) continue;
+    const value = decodeXmlAttribute(path[1]);
+    const identity = createHash("sha256").update(value).digest("hex");
+    if (seen.has(identity)) continue;
+    // Stop after the first distinct overflow reference. This keeps both the
+    // retained strings and the deduplication set bounded; observed/omitted are
+    // then explicit lower bounds rather than pretending to be exact counts.
+    if (values.length >= MAX_FILE_REFERENCES) return { values, observed: values.length + 1, omitted: 1, complete: false };
+    seen.add(identity); values.push(value);
   }
-  return values;
+  return { values, observed: values.length, omitted: 0, complete: true };
 }
 
-function parseManifest(path: string): ProjectManifest {
-  const stats = statSync(path);
-  const xml = readSetXml(path);
-  const tracks = (xml.match(/<(?:AudioTrack|MidiTrack|GroupTrack|ReturnTrack|MasterTrack|MainTrack)\b/g) ?? []).length;
-  const scenes = (xml.match(/<Scene\b/g) ?? []).length;
-  const mediaRefs = new Set(referencedMediaValues(xml));
-  return { path, size: stats.size, mtimeMs: stats.mtimeMs, sha256: sha256File(path), tracks, scenes, mediaRefs: mediaRefs.size };
+function parseManifest(source: SetSourceRead, references = referencedMediaValues(source.xml)): ProjectManifest {
+  const tracks = (source.xml.match(/<(?:AudioTrack|MidiTrack|GroupTrack|ReturnTrack|MasterTrack|MainTrack)\b/g) ?? []).length;
+  const scenes = (source.xml.match(/<Scene\b/g) ?? []).length;
+  return { path: source.path, size: source.size, mtimeMs: source.mtimeMs, sha256: source.sha256, tracks, scenes, mediaRefs: references.observed };
 }
 
-function referencedMediaPaths(path: string): string[] {
-  const paths = new Set<string>();
-  for (const value of referencedMediaValues(readSetXml(path))) {
-    if (isAbsolute(value) && !value.includes("\0")) paths.add(resolve(value));
-  }
-  return [...paths].sort().slice(0, 4096);
+function abletonRootAttributes(xml: string): ProjectSourceEvidence["ableton"] {
+  const root = /<Ableton\b([^>]*)>/.exec(xml)?.[1] ?? "";
+  const attributes = new Map<string, string>();
+  for (const match of root.matchAll(/\b([A-Za-z][A-Za-z0-9]*)="([^"]*)"/g)) attributes.set(match[1]!, decodeXmlAttribute(match[2]!));
+  return {
+    ...(attributes.has("Creator") ? { creator: attributes.get("Creator") } : {}),
+    ...(attributes.has("MajorVersion") ? { majorVersion: attributes.get("MajorVersion") } : {}),
+    ...(attributes.has("MinorVersion") ? { minorVersion: attributes.get("MinorVersion") } : {}),
+    ...(attributes.has("SchemaChangeCount") ? { schemaChangeCount: attributes.get("SchemaChangeCount") } : {}),
+  };
 }
 
-function missingMedia(path: string): string[] {
-  return referencedMediaPaths(path).filter((candidate) => !existsSync(candidate));
+function isNetworkOrDevicePath(value: string): boolean {
+  const normalized = value.replaceAll("/", "\\");
+  const windowsDrive = /^[A-Za-z]:[\\/]/.test(value);
+  return normalized.startsWith("\\\\") || /^\\\\[?.]\\/.test(normalized) || (!windowsDrive && /^[A-Za-z][A-Za-z0-9+.-]*:[\\/]{1,2}/i.test(value));
+}
+
+export function projectSourceEvidence(path: string): ProjectSourceEvidence {
+  const source = readSetSource(path);
+  const collected = referencedMediaValues(source.xml);
+  const references = collected.values.sort().map((rawValue) => {
+    if (rawValue.length > MAX_FILE_REFERENCE_LENGTH) return { value: `oversized-${createHash("sha256").update(rawValue).digest("hex")}`, resolution: "oversized" as const };
+    const value = rawValue;
+    if (value.includes("\0")) return { value: `unsafe-${createHash("sha256").update(value).digest("hex")}`, resolution: "unresolved" as const };
+    if (isNetworkOrDevicePath(value)) return { value: `network-${createHash("sha256").update(value).digest("hex")}`, resolution: "network" as const };
+    const windowsAbsolute = /^[A-Za-z]:[\\/]/.test(value);
+    if (isAbsolute(value) || windowsAbsolute) {
+      const resolvedPath = windowsAbsolute && !isAbsolute(value) ? value : resolve(value);
+      const exists = existsSync(resolvedPath);
+      let projectLocal = false;
+      if (!windowsAbsolute) {
+        if (exists) {
+          try {
+            const realProject = realpathSync(dirname(source.path)); const realReference = realpathSync(resolvedPath);
+            projectLocal = realReference === realProject || realReference.startsWith(`${realProject}${sep}`);
+          } catch { projectLocal = false; }
+        } else {
+          const lexical = resolve(resolvedPath); const projectDirectory = dirname(source.path);
+          projectLocal = lexical !== projectDirectory && lexical.startsWith(`${projectDirectory}${sep}`);
+        }
+      }
+      return { value, resolvedPath, exists, projectLocal, resolution: "absolute" as const };
+    }
+    return { value, resolution: "unresolved" as const };
+  });
+  return { manifest: parseManifest(source, collected), ableton: abletonRootAttributes(source.xml), references, referenceBounds: { observed: collected.observed, observedKind: collected.complete ? "exact" : "lower-bound", included: references.length, omitted: collected.omitted, complete: collected.complete } };
 }
 
 export function projectInfo(path: string): ProjectInfo {
-  const resolved = assertSafeSetPath(path);
-  const manifest = parseManifest(resolved);
-  return { ...manifest, missingMedia: missingMedia(resolved), exists: true };
+  const evidence = projectSourceEvidence(path);
+  const missing = evidence.references.filter((reference) => reference.resolution === "absolute" && reference.exists === false && reference.resolvedPath).map((reference) => reference.resolvedPath!);
+  return { ...evidence.manifest, missingMedia: missing, exists: true };
 }
 
 export function projectBackup(path: string, options: { allowedRoot?: string; expectedSha256?: string; expectedSize?: number; expectedMtimeMs?: number } = {}): { backup: string; manifest: ProjectManifest; verified: boolean } {
@@ -116,7 +181,7 @@ export function projectBackup(path: string, options: { allowedRoot?: string; exp
     const realRoot = realpathSync(root); const realSet = realpathSync(resolved);
     if (realSet !== realRoot && !realSet.startsWith(`${realRoot}${sep}`)) throw new Error("set path is outside the explicit backup allowlist root");
   }
-  const sourceManifest = parseManifest(resolved);
+  const sourceManifest = parseManifest(readSetSource(resolved));
   if (options.expectedSha256 !== undefined && (sourceManifest.sha256 !== options.expectedSha256 || sourceManifest.size !== options.expectedSize || sourceManifest.mtimeMs !== options.expectedMtimeMs)) throw new Error("set content changed since backup preview");
   const directory = dirname(resolved);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -130,7 +195,7 @@ export function projectBackup(path: string, options: { allowedRoot?: string; exp
     if (sourceSha !== sourceManifest.sha256 || sourceSha !== copySha) throw new Error("set changed during backup or copy verification failed");
     renameSync(temporary, target);
     const verified = sha256File(target) === sourceSha;
-    const manifest = parseManifest(target);
+    const manifest = parseManifest(readSetSource(target));
     return { backup: target, manifest, verified };
   } finally {
     if (existsSync(temporary)) unlinkSync(temporary);
