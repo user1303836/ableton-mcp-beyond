@@ -68,7 +68,7 @@ and reports the actual limitation.
 | Take-lane deletion/audition/comp semantics | Unsupported by the public LOM; no public MCP capability is claimed for them |
 | Freeze and flatten | No public API; no UI automation |
 | Offline bounce, stems, export audio/video, render status | No public Remote Script API; `project.bounce/export/collect` stay reserved and fail-closed |
-| Project new/open/save/save-as/close and Collect All and Save | No public API; `live_project_save`/`live_project_open` remain explicit limitation reporters |
+| Project new/open/save/save-as/close and Collect All and Save | No public API; the capability resource reports these limitations and no callable placeholder tools exist |
 | Stem separation | No public API |
 | Full Arrangement split/consolidate/cut/copy/paste-time | No public API |
 | Follow Action authoring | Not exposed by the Live API |

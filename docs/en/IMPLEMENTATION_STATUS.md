@@ -253,6 +253,31 @@ are. Source, schemas, and tests are the final authority.
   threads, capped at 256 KiB, and disabled on drift/write failure. Legacy/v1-to-v2
   migration is explicit and secret-preserving.
 
+- Capability-aware tool discovery with deployment policy profiles
+  (`read-only`, `edit-no-audio`, `performance`, `full`) and allow/deny
+  overrides: `tools/list` advertises only currently executable, policy-allowed
+  tools from one declarative catalog, `notifications/tools/list_changed` fires
+  on connect/disconnect/epoch/operation-set/policy change, and policy is
+  enforced by name at dispatch and again at undo dispatch. Negotiated
+  limitations (project save/open) moved from callable discovery into the
+  capability resource. Verified at the host, simulator, and fake-Live levels.
+- Deterministic seeded MIDI transforms (`live_midi_transform_preview/apply`):
+  transpose, scale-constrain, quantize, swing, velocity curves, seeded
+  humanize/variation, legato, staccato, rotate, repeat, ratchet, chord voicing,
+  and arpeggiate with exact diff previews, revision fencing, duplicate-first
+  generative scope, and an MPE-preservation probe. Verified at the host,
+  simulator, and property-test levels; no real-Live claim is added.
+- Secure Browser inspection (`live_browser_inspect`) and hardened one-file
+  Session audio import with container magic-byte validation on top of the
+  existing owner-allowlisted, hash-verified, transaction-owned import.
+- Read-only probes: `live_arrangement_automation_read` (paged Arrangement
+  envelope discovery; writes stay reserved), `live_take_lane_read` and
+  `live_comp_read` (bounded lane/comp inventory with explicit non-support
+  reporting), and `live_warp_marker_read` (bounded marker diagnostics with
+  revisions, monotonicity checks, and read-only mutation feasibility). The
+  mapper status carries a best-effort environment probe (Live version/edition,
+  OS, API surface) for artifact-bound evidence.
+
 ## Evidence boundary
 
 Tracked evidence under [`../evidence/`](../evidence/) distinguishes

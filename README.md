@@ -6,7 +6,7 @@
 
 <p align="center">
   Safety-first MCP control of Ableton Live 12 —<br/>
-  143 tools, an authenticated loopback bridge, and standards-based audio analysis.
+  a capability-aware surface of 150 negotiated tools, an authenticated loopback bridge, and standards-based audio analysis.
 </p>
 
 <p align="center">
