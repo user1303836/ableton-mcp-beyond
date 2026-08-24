@@ -1147,6 +1147,12 @@ const toolDescriptors = [
     inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   },
+  {
+    name: "live_browser_inspect",
+    description: "Inspect one authoritative Browser result by exact item id: stable identity, type, metadata/provenance, and explicit loadability. Browser-internal paths only; raw filesystem paths are never returned.",
+    inputSchema: { type: "object", properties: { itemId: { type: "string", minLength: 1, maxLength: 256 } }, required: ["itemId"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
 ] as const;
 
 export interface ToolCatalogEntry {

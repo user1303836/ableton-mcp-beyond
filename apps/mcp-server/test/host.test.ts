@@ -1645,7 +1645,7 @@ test("session audio import enforces file authority, TOCTOU re-verification, and 
   ready(host);
   const dir = mkdtempSync(join(tmpdir(), "audio-import-"));
   const audioPath = join(dir, "demo.wav");
-  writeFileSync(audioPath, Buffer.from("RIFF-fake-audio-bytes"));
+  writeFileSync(audioPath, Buffer.concat([Buffer.from("RIFF"), Buffer.from([16, 0, 0, 0]), Buffer.from("WAVE"), Buffer.from("fake-audio-bytes")]));
   (simulator as any).state.scenes.push({ ref: "scene:scene-2", objectIdentity: "simulator:scene:scene-2", name: "Scene 2", index: 1 });
   (simulator as any).state.tracks[0].clipSlots.push({ ref: "clip-slot:track-1:1", parentRef: "track:track-1", objectIdentity: "simulator:clip-slot:track-1:1", sceneIndex: 1, clipRef: null, empty: true });
   const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
@@ -1656,12 +1656,12 @@ test("session audio import enforces file authority, TOCTOU re-verification, and 
   // Mutating the source after preview cannot substitute unauthorized bytes:
   // Live opens the transaction-owned staged copy, so the apply still succeeds
   // with exactly the verified content.
-  writeFileSync(audioPath, Buffer.from("RIFF-fake-audio-bytes-CHANGED"));
+  writeFileSync(audioPath, Buffer.concat([Buffer.from("RIFF"), Buffer.from([17, 0, 0, 0]), Buffer.from("WAVE"), Buffer.from("fake-audio-CHANGED")]));
   const stagedApply = JSON.parse(((await call(5, "live_audio_import_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "import-toctou" })) as any).result.content[0].text);
   assert.equal(stagedApply.state, "applied");
   const stagedUndone = JSON.parse(((await call(50, "live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "import-staged-undo" })) as any).result.content[0].text);
   assert.equal(stagedUndone.state, "undone");
-  writeFileSync(audioPath, Buffer.from("RIFF-fake-audio-bytes"));
+  writeFileSync(audioPath, Buffer.concat([Buffer.from("RIFF"), Buffer.from([16, 0, 0, 0]), Buffer.from("WAVE"), Buffer.from("fake-audio-bytes")]));
   const preview2 = JSON.parse(((await call(6, "live_audio_import_preview", { filePath: audioPath, allowedRoot: dir, trackRef: "track:track-1", sceneIndex: 1, name: "Imported" })) as any).result.content[0].text);
   const applied = JSON.parse(((await call(7, "live_audio_import_apply", { transactionId: preview2.transactionId, confirmation: "apply", idempotencyKey: "import-key-1" })) as any).result.content[0].text);
   assert.equal(applied.state, "applied"); assert.match(applied.result.filePath, /ableton-mcp-import-/);
@@ -1789,7 +1789,7 @@ test("take lanes are discoverable, renamable, and accept MIDI and audio clips wi
   assert.equal(((await call(7, "live_undo", { transactionId: midiPreview.transactionId, confirmation: "undo", idempotencyKey: "lane-midi-undo" })) as any).result.isError, true);
   const dir = mkdtempSync(join(tmpdir(), "lane-import-"));
   const audioPath = join(dir, "take.wav");
-  writeFileSync(audioPath, Buffer.from("RIFF-take-bytes"));
+  writeFileSync(audioPath, Buffer.concat([Buffer.from("RIFF"), Buffer.from([10, 0, 0, 0]), Buffer.from("WAVE"), Buffer.from("take-bytes")]));
   const audioPreview = JSON.parse(((await call(8, "live_audio_import_preview", { filePath: audioPath, allowedRoot: dir, takeLaneRef: laneRef, position: 16, name: "Audio Take" })) as any).result.content[0].text);
   assert.equal(audioPreview.impact, "creates-take-lane-audio-clip-no-undo");
   const audioApplied = JSON.parse(((await call(9, "live_audio_import_apply", { transactionId: audioPreview.transactionId, confirmation: "apply", idempotencyKey: "lane-audio-1" })) as any).result.content[0].text);
@@ -2182,7 +2182,7 @@ test("specialized device families, looper, and simpler sample replacement", asyn
   assert.equal(((await call(10, "live_undo", { transactionId: recordPreview.transactionId, confirmation: "undo", idempotencyKey: "looper-rec-undo" })) as any).result.isError, true);
   const dir = mkdtempSync(join(tmpdir(), "simpler-import-"));
   const audioPath = join(dir, "sample.wav");
-  writeFileSync(audioPath, Buffer.from("RIFF-simpler-bytes"));
+  writeFileSync(audioPath, Buffer.concat([Buffer.from("RIFF"), Buffer.from([12, 0, 0, 0]), Buffer.from("WAVE"), Buffer.from("simpler-bytes")]));
   const simplerPreview = JSON.parse(((await call(11, "live_simpler_preview", { deviceRef: "device:simpler-1", filePath: audioPath, allowedRoot: dir })) as any).result.content[0].text);
   assert.equal(simplerPreview.currentSample, "/old/a.wav");
   const simplerApplied = JSON.parse(((await call(12, "live_simpler_apply", { transactionId: simplerPreview.transactionId, confirmation: "apply", idempotencyKey: "simpler-key-1" })) as any).result.content[0].text);

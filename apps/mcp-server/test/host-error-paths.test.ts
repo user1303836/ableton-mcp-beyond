@@ -150,7 +150,7 @@ test("simpler sample replacement reports uncertainty when the import dispatch fa
   specializedFixture(simulator);
   const dir = mkdtempSync(join(tmpdir(), "simpler-fail-"));
   const audioPath = join(dir, "sample.wav");
-  writeFileSync(audioPath, Buffer.from("RIFF-failure-bytes"));
+  writeFileSync(audioPath, Buffer.concat([Buffer.from("RIFF"), Buffer.from([13, 0, 0, 0]), Buffer.from("WAVE"), Buffer.from("failure-bytes")]));
   const call = hostCall(host);
   const preview = JSON.parse(((await call(2, "live_simpler_preview", { deviceRef: "device:simpler-1", filePath: audioPath, allowedRoot: dir })) as any).result.content[0].text);
   (simulator as any).invokeAsync = async () => { throw new Error("remote adapter request state uncertain after dispatch timeout"); };
