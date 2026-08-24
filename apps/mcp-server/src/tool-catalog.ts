@@ -1124,6 +1124,29 @@ const toolDescriptors = [
     inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   },
+  {
+    name: "live_midi_transform_preview",
+    description: "Read-only preflight for one deterministic seeded MIDI transform (transpose, scale-constrain, quantize, swing, velocity-curve, humanize, legato, staccato, rotate, repeat, ratchet, chord-voicing, arpeggiate, seeded-variation); returns the exact add/update/delete note diff, source revision, constraints, assumptions, MPE probe, and undo path.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        clipRef: { type: "string", minLength: 1, maxLength: 256 },
+        transform: { type: "string", enum: ["transpose", "scale-constrain", "quantize", "swing", "velocity-curve", "humanize-velocity", "humanize-timing", "legato", "staccato", "rotate", "repeat", "ratchet", "chord-voicing", "arpeggiate", "seeded-variation"] },
+        params: { type: "object", maxProperties: 12, additionalProperties: { type: ["string", "number"] } },
+        scope: { type: "string", enum: ["in-place", "duplicate"] },
+        target: { type: "object", properties: { trackRef: { type: "string", minLength: 1, maxLength: 256 }, sceneIndex: { type: "integer", minimum: 0, maximum: 10000 } }, required: ["trackRef", "sceneIndex"], additionalProperties: false },
+      },
+      required: ["clipRef", "transform", "params"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_midi_transform_apply",
+    description: "Apply an exact, unexpired MIDI transform preview with confirmation and idempotency; the deterministic diff is re-verified against a fresh fence before any note write.",
+    inputSchema: { type: "object", properties: { transactionId: { type: "string", minLength: 1, maxLength: 128 }, confirmation: { type: "string", enum: ["apply"] }, idempotencyKey: { type: "string", minLength: 8, maxLength: 128 } }, required: ["transactionId", "confirmation", "idempotencyKey"], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  },
 ] as const;
 
 export interface ToolCatalogEntry {
