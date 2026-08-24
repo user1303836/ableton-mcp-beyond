@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { platform, versions } from "node:process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { LiveStatus } from "./live.js";
+import { toolPolicyFromEnv } from "./tool-catalog.js";
 
 export const CONFIG_VERSION = 1;
 export const BRIDGE_CONFIG_VERSION = 2;
@@ -72,6 +73,7 @@ export interface DiagnosticReport {
     signing: "unavailable";
     notarization: "unavailable";
   };
+  toolPolicy: { profile: string; allowOverrides: readonly string[]; denyOverrides: readonly string[] };
   readiness: { package: boolean; configured: boolean; authenticatedBridge: boolean; realLiveOperational: boolean; releaseCertified: false };
   diagnosticErrors: string[];
   /** Compatibility summary: true only for authenticated real-Live operation. */
@@ -523,6 +525,7 @@ export function diagnostics(packageRoot = resolve(dirname(fileURLToPath(import.m
     simulator: false,
     evidence: hostReady ? "local-contract" : "unavailable",
     external: { abletonLive: "unavailable", signing: "unavailable", notarization: "unavailable" },
+    toolPolicy: (() => { try { const policy = toolPolicyFromEnv(); return { profile: policy.profile, allowOverrides: policy.allow, denyOverrides: policy.deny }; } catch { return { profile: "invalid", allowOverrides: [], denyOverrides: [] }; } })(),
     readiness: { package: hostReady && packageAssetsValid, configured: bridgeConfigured, authenticatedBridge: false, realLiveOperational: false, releaseCertified: false },
     diagnosticErrors: unsupportedNodeMessage() ? [unsupportedNodeMessage()!] : [],
     ready: false,

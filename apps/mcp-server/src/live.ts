@@ -37,6 +37,34 @@ export const SIMULATOR_CAPABILITIES = [
   "session.read", "tracks", "scenes", "clips", "notes", "session.discovery", "session.structure", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write", "arrangement.read", "arrangement.write", "transport", "devices", "parameters", "device.parameter.write", "subscriptions", "reconnect", "view", "warp", "takes", "tuning", "groove",
 ] as const satisfies readonly LiveCapability[];
 
+/** Capability derivation shared by the remote adapter's status validation and
+ * the simulator's advertisement: a capability is advertised only when its
+ * exact negotiated operations are present. */
+export function liveCapabilitiesForOperations(operations: readonly string[]): LiveCapability[] {
+  const all = (...required: string[]): boolean => required.every((operation) => operations.includes(operation));
+  const any = (...required: string[]): boolean => required.some((operation) => operations.includes(operation));
+  const readableHierarchy = all("snapshot", "discover", "get");
+  const requirements: Record<LiveCapability, boolean> = {
+    "session.read": readableHierarchy && all("session.playback"), "tracks": readableHierarchy, "scenes": readableHierarchy, "clips": readableHierarchy,
+    "notes": readableHierarchy, "session.discovery": all("discover"),
+    "session.structure": any("track.create", "track.delete", "scene.create", "scene.delete"),
+    "session.midi_clip.create": all("clip.create"), "session.midi_clip.delete": all("clip.delete"),
+    "session.midi_note.read": readableHierarchy, "session.midi_note.write": all("note.add", "note.add-batch"),
+    "arrangement.read": any("locator.add", "arrangement.clip.delete", "arrangement.automation.read"),
+    "arrangement.write": any("locator.add", "locator.delete", "arrangement.clip.create", "arrangement.audio-clip.create", "arrangement.clip.delete"),
+    "audio": all("audio.clip.set"), "audio.capture.resampling": all("audio.capture.inspect", "audio.capture.start", "audio.capture.stop", "audio.capture.cleanup"),
+    "warp": all("audio.warp-marker.read"), "takes": all("audio.take-lane.read"), "automation": all("automation.envelope.read"),
+    "devices": readableHierarchy, "racks": readableHierarchy, "chains": readableHierarchy, "parameters": readableHierarchy,
+    "browser": all("browser.search"), "device.parameter.write": all("device.parameter.set"), "routing": all("routing.set"),
+    "recording": any("recording.session", "recording.arrangement"), "projects": all("snapshot"), "mixing": all("mixer.set"),
+    "transport": all("transport.set", "tempo.set"), "tuning": any("tuning.read", "tuning.set"), "groove": all("groove.read"), "max": false,
+    "view": any("view.set", "view.control"),
+    "osc": all("realtime.arm", "realtime.disarm", "realtime.stats"), "realtime.events": all("realtime.arm", "realtime.disarm", "realtime.stats"),
+    "plugins": readableHierarchy, "subscriptions": all("subscribe"), "reconnect": all("reconnect"),
+  };
+  return LIVE_CAPABILITIES.filter((capability) => requirements[capability]);
+}
+
 export type LiveCapability = typeof LIVE_CAPABILITIES[number];
 export type LiveObjectKind = "set" | "track" | "scene" | "clip" | "clip-slot" | "session-playback" | "arrangement-clip" | "take-lane" | "take-lane-clip" | "groove" | "device" | "parameter" | "note" | "automation" | "locator" | "chain" | "drum_pad";
 export type LiveWireObjectKind = LiveObjectKind | "clip_slot" | "arrangement_clip" | "take_lane" | "take_lane_clip" | "groove" | "routing_choice" | "return_track" | "main_track" | "browser_item";
@@ -198,7 +226,7 @@ export class DeterministicLiveSimulator implements LiveAdapter {
     return simulatorRevision({ scene: sceneIdentity, contents });
   }
 
-  status(): LiveStatus { return { connected: true, adapter: "simulator", epoch: this.epoch, protocol: LIVE_PROTOCOL_VERSION, capabilities: SIMULATOR_CAPABILITIES, operations: [...SIMULATOR_OPERATIONS] }; }
+  status(): LiveStatus { return { connected: true, adapter: "simulator", epoch: this.epoch, protocol: LIVE_PROTOCOL_VERSION, capabilities: liveCapabilitiesForOperations(SIMULATOR_OPERATIONS), operations: [...SIMULATOR_OPERATIONS] }; }
   snapshot(): LiveSnapshot { const value = structuredClone(this.state) as LiveSnapshot; value.arrangement.clips = (this.state.arrangementClips ?? []).map((item) => ({ ref: item.clip.ref, objectIdentity: item.clip.objectIdentity, parentRef: item.trackRef, trackRef: item.trackRef, name: item.clip.name, kind: item.clip.kind, start: item.clip.start, length: item.clip.length, muted: item.clip.muted ?? null, colorIndex: item.clip.colorIndex ?? null, looping: item.clip.looping ?? null, loopStart: item.clip.loopStart ?? null, loopEnd: item.clip.loopEnd ?? null, filePath: item.clip.filePath ?? null, isAudio: item.clip.isAudio ?? (item.clip.kind === "audio") })); return value; }
   get(objectRef: LiveRef): unknown {
     if (objectRef === this.state.set.ref) return structuredClone(this.state.set);

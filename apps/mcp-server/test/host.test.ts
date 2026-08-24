@@ -14,32 +14,52 @@ const initialize = { jsonrpc: "2.0", id: 1, method: "initialize", params: { prot
 const initialized = { jsonrpc: "2.0", method: "notifications/initialized" };
 function ready(host: McpHost): void { host.handle(initialize); host.handle(initialized); }
 
-test("requires initialization and exposes only read-only tools", () => {
+test("requires initialization and exposes only executable, policy-allowed tools", () => {
   const host = new McpHost();
   assert.equal((host.handle({ jsonrpc: "2.0", id: 1, method: "tools/list" }) as any).error.code, -32002);
   const initializedResponse = (host.handle({ ...initialize, id: 2 }) as any).result;
   assert.equal(initializedResponse.protocolVersion, PROTOCOL_VERSION);
+  assert.equal(initializedResponse.capabilities.tools.listChanged, true);
   const packageMetadata = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
   assert.equal(initializedResponse.serverInfo.version, packageMetadata.version);
   assert.equal(host.handle(initialized), null);
+  // Disconnected (fail-closed default): only local and always-on read tools are listed.
   const tools = (host.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
-  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_status", "live_snapshot", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_snapshot_export", "live_project_snapshot_diff", "live_project_backup_preview", "live_project_backup_apply", "live_project_save", "live_project_open", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_application_dialog_preview", "live_application_dialog_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_chain_preview", "live_chain_apply", "live_drum_pad_preview", "live_drum_pad_apply", "live_rack_preview", "live_rack_apply", "live_rack_view_preview", "live_rack_view_apply", "live_device_specialized_preview", "live_device_specialized_apply", "live_looper_preview", "live_looper_apply", "live_simpler_preview", "live_simpler_apply", "live_observe_subscribe", "live_observe_poll", "live_observe_unsubscribe", "live_browser_roots"]);
-  const auditionPreview = tools.find((tool: { name: string }) => tool.name === "live_session_audition_preview");
+  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "plan_user_journey", "audio_analyze", "audio_compare_reference", "live_status", "live_project_snapshot_diff"]);
+  // Negotiation placeholders are never callable discovery.
+  for (const placeholder of ["live_project_save", "live_project_open"]) {
+    assert.equal(tools.some((tool: { name: string }) => tool.name === placeholder), false);
+    const call = host.handle({ jsonrpc: "2.0", id: `placeholder-${placeholder}`, method: "tools/call", params: { name: placeholder, arguments: {} } });
+    assert.equal((call as any).error.code, -32601);
+  }
+  const capabilitiesResource = (host.handle({ jsonrpc: "2.0", id: 4, method: "resources/read", params: { uri: "ableton://capabilities" } }) as any).result.contents[0].text;
+  const catalog = JSON.parse(capabilitiesResource);
+  assert.deepEqual(catalog.limitations.map((limitation: { operation: string }) => limitation.operation).sort(), ["open/new/export/collect/bounce", "save"]);
+  assert.equal(catalog.policy.profile, "full");
+
+  const simulatorHost = new McpHost(new DeterministicLiveSimulator());
+  simulatorHost.handle(initialize); simulatorHost.handle(initialized);
+  const simulatorTools = (simulatorHost.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
+  const simulatorToolNames = simulatorTools.map((tool: { name: string }) => tool.name);
+  assert.ok(simulatorToolNames.includes("live_tempo_preview") && simulatorToolNames.includes("live_browser_search") && simulatorToolNames.includes("live_undo"));
+  assert.equal(simulatorToolNames.includes("live_realtime_arm_preview"), false);
+  assert.equal(simulatorToolNames.includes("live_audio_capture_preview"), false);
+  const auditionPreview = simulatorTools.find((tool: { name: string }) => tool.name === "live_session_audition_preview");
   assert.deepEqual(auditionPreview.inputSchema.properties.outputSafety.required, ["safe", "provenance"]);
-  const auditionStop = tools.find((tool: { name: string }) => tool.name === "live_session_audition_stop");
+  const auditionStop = simulatorTools.find((tool: { name: string }) => tool.name === "live_session_audition_stop");
   assert.equal(auditionStop.inputSchema.properties.confirmation.minLength, 32);
   assert.equal(auditionStop.inputSchema.properties.confirmation.enum, undefined);
-  const discovery = tools.find((tool: { name: string }) => tool.name === "live_discover");
+  const discovery = simulatorTools.find((tool: { name: string }) => tool.name === "live_discover");
   assert.deepEqual(discovery.inputSchema.properties.filter.additionalProperties.type, ["string", "number", "boolean", "null"]);
   assert.equal(discovery.inputSchema.properties.filter.additionalProperties.maxLength, 256);
-  const structure = tools.find((tool: { name: string }) => tool.name === "live_session_structure_preview");
+  const structure = simulatorTools.find((tool: { name: string }) => tool.name === "live_session_structure_preview");
   assert.deepEqual(structure.inputSchema.properties.tracks.items.required, ["name", "kind"]);
   assert.deepEqual(structure.inputSchema.properties.scenes.items.required, ["name"]);
-  const midi = tools.find((tool: { name: string }) => tool.name === "live_midi_clip_preview");
+  const midi = simulatorTools.find((tool: { name: string }) => tool.name === "live_midi_clip_preview");
   assert.deepEqual(midi.inputSchema.properties.notes.items.required, ["pitch", "start", "duration", "velocity", "channel"]);
-  const semanticExport = tools.find((tool: { name: string }) => tool.name === "live_project_snapshot_export");
+  const semanticExport = simulatorTools.find((tool: { name: string }) => tool.name === "live_project_snapshot_export");
   assert.deepEqual(Object.keys(semanticExport.inputSchema.properties), ["profile", "limit", "cursor"]);
-  const semanticDiff = tools.find((tool: { name: string }) => tool.name === "live_project_snapshot_diff");
+  const semanticDiff = simulatorTools.find((tool: { name: string }) => tool.name === "live_project_snapshot_diff");
   assert.deepEqual(semanticDiff.inputSchema.required, ["beforePages", "afterPages"]);
   assert.equal(/confirmation|token|authority|transaction|idempotency/i.test(JSON.stringify([semanticExport.inputSchema, semanticDiff.inputSchema])), false);
 });
@@ -53,7 +73,7 @@ function auditionFixture() {
   const counts = { launches: 0, stops: 0, emergencies: 0 };
   const target = () => ({ trackRef: state.tracks[0].ref, clipSlotRef: state.tracks[0].clipSlots[0].ref, sceneRef: "scene:scene-1", sceneIndex: 0, clipRef: state.tracks[0].clips[0].ref });
   const adapter = {
-    status: () => ({ ...base.status(), operations: ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "session.audition-launch", "session.audition-stop", "session.emergency-stop"] }),
+    status: () => ({ ...base.status(), operations: ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "transport.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop"] }),
     snapshot: () => structuredClone(state), get: (ref) => base.get(ref),
     invoke: () => { throw new Error("synchronous invoke is unavailable"); },
     subscribe: () => () => undefined, reconnect: () => base.status(),
@@ -445,14 +465,16 @@ test("cancels an in-flight audio worker without a response", async () => {
 test("rejects duplicates, unsupported methods, and unknown fields", () => {
   const host = new McpHost();
   ready(host);
-  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 145);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 7);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).error.message, "Duplicate request identifier");
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set", arguments: {} } }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 4, method: "tools/list", debug: true }) as any).error.code, -32600);
 });
 
 test("subscription validation rejects event types without a producer", async () => {
-  const host = new McpHost(); ready(host);
+  const simulator = new DeterministicLiveSimulator();
+  const adapter = { status: () => ({ ...simulator.status(), capabilities: [...simulator.status().capabilities, "subscriptions"], operations: [...simulator.status().operations ?? [], "subscribe"] }) } as unknown as LiveAdapter;
+  const host = new McpHost(adapter); ready(host);
   for (const type of ["state", "meter", "max", "osc"]) {
     const result = await host.handleAsync({ jsonrpc: "2.0", id: `unsupported-${type}`, method: "tools/call", params: { name: "live_subscribe", arguments: { types: [type] } } });
     assert.equal((result as any).error.code, -32602);
@@ -668,7 +690,12 @@ test("derives a truthful exhaustive tool catalog from fully negotiated Live capa
   const catalog = JSON.parse((host.handle({ jsonrpc: "2.0", id: 71, method: "tools/call", params: { name: "capabilities", arguments: {} } }) as any).result.content[0].text);
   assert.deepEqual([...catalog.tools.available, ...catalog.tools.unavailable].sort(), [...listed].sort());
   assert.equal(new Set([...catalog.tools.available, ...catalog.tools.unavailable]).size, listed.length);
-  assert.deepEqual(catalog.tools.unavailable.sort(), ["live_project_open", "live_project_save"]);
+  assert.deepEqual(catalog.tools.unavailable.sort(), []);
+  assert.deepEqual(catalog.tools.policyDenied, []);
+  assert.deepEqual([...catalog.tools.visible].sort(), [...listed, "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "capabilities", "plan_user_journey", "server_status"].sort());
+  assert.equal(catalog.policy.profile, "full");
+  assert.equal(catalog.tools.classes.live_tempo_apply, "edit");
+  assert.equal(catalog.tools.classes.live_browser_search, "read");
   for (const contradiction of ["live.mutations", "live.transport", "live.recording", "live.routing", "live.audio", "live.midi", "realtime"]) assert.equal(catalog.unavailable.includes(contradiction), false, contradiction);
   for (const available of ["live_transport_apply", "live_recording_apply", "live_realtime_arm_apply", "live_browser_load_apply"]) assert.equal(catalog.tools.available.includes(available), true, available);
 });
@@ -1463,7 +1490,7 @@ test("realtime control requires real provenance and arms exact bounded channels 
   let lastArmArgs: any;
   const operations = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "realtime.arm", "realtime.disarm", "realtime.stats"];
   const adapter = {
-    status: () => ({ ...simulator.status(), adapter: "remote-script", epoch: 7, provenance, registryHash: "a".repeat(64), operations }),
+    status: () => ({ ...simulator.status(), adapter: "remote-script", epoch: 7, provenance, registryHash: "a".repeat(64), capabilities: [...simulator.status().capabilities, "realtime.events"], operations }),
     snapshot: () => simulator.snapshot(), get: (ref: LiveRef) => simulator.get(ref), invoke: () => { throw new Error("synchronous invoke is unavailable"); }, subscribe: () => () => undefined, reconnect: () => simulator.status(),
     snapshotAsync: async () => simulator.snapshot(), discoverAsync: async () => ({ epoch: 7, items: [], truncated: false, revision: "7:empty", kind: "track" }), getAsync: async (ref: LiveRef) => simulator.get(ref), reconnectAsync: async () => simulator.status(), close: async () => undefined,
     invokeAsync: async (invocation: any) => {

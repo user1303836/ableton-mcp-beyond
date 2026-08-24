@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
 import {
-  LIVE_CAPABILITIES, LIVE_REGISTRY_HASH, LIVE_REGISTRY_OPERATIONS,
+  LIVE_CAPABILITIES, LIVE_REGISTRY_HASH, LIVE_REGISTRY_OPERATIONS, liveCapabilitiesForOperations,
   type AsyncLiveAdapter, type LiveDiscoveryKind, type LiveDiscoveryRequest, type LiveDiscoveryResult,
   type LiveCapability, type LiveEvent, type LiveInvocation, type LiveOperationContext, type LiveRef, type LiveSnapshot, type LiveStatus,
 } from "../live.js";
@@ -69,28 +69,8 @@ function validStatus(value: unknown): value is LiveStatus {
       new Set(operations).size !== operations.length ||
       !operations.every((operation) => (LIVE_REGISTRY_OPERATIONS as readonly string[]).includes(operation)) ||
       !["status", "snapshot", "discover", "get", "reconnect", "session.playback"].every((operation) => operations.includes(operation))) return false;
-  const all = (...required: string[]): boolean => required.every((operation) => operations.includes(operation));
-  const any = (...required: string[]): boolean => required.some((operation) => operations.includes(operation));
-  const readableHierarchy = all("snapshot", "discover", "get");
-  const requirements: Record<(typeof LIVE_CAPABILITIES)[number], boolean> = {
-    "session.read": readableHierarchy && all("session.playback"), "tracks": readableHierarchy, "scenes": readableHierarchy, "clips": readableHierarchy,
-    "notes": readableHierarchy, "session.discovery": all("discover"),
-    "session.structure": any("track.create", "track.delete", "scene.create", "scene.delete"),
-    "session.midi_clip.create": all("clip.create"), "session.midi_clip.delete": all("clip.delete"),
-    "session.midi_note.read": readableHierarchy, "session.midi_note.write": all("note.add", "note.add-batch"),
-    "arrangement.read": any("locator.add", "arrangement.clip.delete"),
-    "arrangement.write": any("locator.add", "locator.delete", "arrangement.clip.create", "arrangement.audio-clip.create", "arrangement.clip.delete"),
-    "audio": all("audio.clip.set"), "audio.capture.resampling": all("audio.capture.inspect", "audio.capture.start", "audio.capture.stop", "audio.capture.cleanup"),
-    "warp": all("audio.warp-marker.read"), "takes": all("audio.take-lane.read"), "automation": all("automation.envelope.read"),
-    "devices": readableHierarchy, "racks": readableHierarchy, "chains": readableHierarchy, "parameters": readableHierarchy,
-    "browser": all("browser.search"), "device.parameter.write": all("device.parameter.set"), "routing": all("routing.set"),
-    "recording": any("recording.session", "recording.arrangement"), "projects": all("snapshot"), "mixing": all("mixer.set"),
-    "transport": all("transport.set", "tempo.set"), "tuning": any("tuning.read", "tuning.set"), "groove": all("groove.read"), "max": false,
-    "view": any("view.set", "view.control"),
-    "osc": all("realtime.arm", "realtime.disarm", "realtime.stats"), "realtime.events": all("realtime.arm", "realtime.disarm", "realtime.stats"),
-    "plugins": readableHierarchy, "subscriptions": all("subscribe"), "reconnect": all("reconnect"),
-  };
-  return capabilities.every((capability) => requirements[capability as LiveCapability] === true);
+  const derivable = new Set<string>(liveCapabilitiesForOperations(operations));
+  return capabilities.every((capability) => derivable.has(capability));
 }
 function verifySigned(secret: string, response: LoopbackResponse): void {
   const unsigned = { ...response } as Partial<LoopbackResponse>;
