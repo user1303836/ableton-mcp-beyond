@@ -18,7 +18,7 @@ export type ToolPolicyProfile = "read-only" | "edit-no-audio" | "performance" | 
 export const TOOL_POLICY_PROFILES: Record<ToolPolicyProfile, { readonly classes: readonly ToolPolicyClass[]; readonly include?: readonly string[]; readonly description: string }> = {
   "read-only": { classes: ["local", "read"], description: "Local tools and read-only Live discovery; no mutation of any kind." },
   "edit-no-audio": { classes: ["local", "read", "edit"], description: "Read plus structural, MIDI, device, mixer, automation, and routing edits; no audible, audio-file, recording, realtime, capture, or filesystem-mutating tools." },
-  "performance": { classes: ["local", "read", "performance"], include: ["live_mixer_*", "live_mixer_extended_*", "live_chain_mixer_*", "live_tempo_*"], description: "Read plus live-set control: transport, tempo, clip/scene launch, guarded audition, emergency stop, mixer, views, selection, and locator navigation." },
+  "performance": { classes: ["local", "read", "performance"], include: ["live_mixer_*", "live_mixer_extended_*", "live_chain_mixer_*", "live_tempo_*", "live_undo", "live_recovery_finalize"], description: "Read plus live-set control: transport, tempo, clip/scene launch, guarded audition, emergency stop, mixer, views, selection, and locator navigation. Guarded undo and recovery finalization remain available so applied transactions are never stranded; the owner-domain re-check still refuses undo for disallowed domains." },
   "full": { classes: [...TOOL_POLICY_CLASSES], description: "Every currently executable tool, subject to negotiated Live capabilities." },
 };
 

@@ -167,3 +167,83 @@ test("visibleToolDescriptors returns schema-bearing descriptors only for visible
     assert.equal(descriptor.inputSchema.type, "object");
   }
 });
+
+test("performance profile keeps guarded undo and recovery available for its own transactions", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator, { toolPolicy: { profile: "performance" } });
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(2, "live_tempo_preview", { tempo: 128 })) as any).result.content[0].text);
+  const applied = JSON.parse(((await call(3, "live_tempo_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "perf-tempo-apply" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied");
+  const undone = JSON.parse(((await call(4, "live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "perf-tempo-undo" })) as any).result.content[0].text);
+  assert.equal(undone.state, "undone");
+  // Domains outside the profile stay refused at undo time through the owner re-check.
+  const structural = await call(5, "live_session_structure_preview", { tracks: [{ name: "X", kind: "midi" }] });
+  assert.equal((structural as any).result.isError, true);
+});
+
+test("undo re-checks the owner domain for audio-clip transactions revoked after apply", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const state = (simulator as any).state;
+  state.tracks[0].clips.push({
+    ref: "clip:audio-1", objectIdentity: "simulator:clip:audio-1", name: "Audio", kind: "audio", start: 0, length: 8,
+    notes: [], notesRevision: "a".repeat(64), warp: true, takes: [], automation: [], isAudio: true,
+    filePath: "/tmp/audio.wav", muted: false, warpMarkers: [{ beatTime: 1, sampleTime: 44100 }], availableAudioFields: ["gain"],
+  });
+  state.scenes.push({ ref: "scene:scene-audio", objectIdentity: "simulator:scene:scene-audio", name: "Audio Scene", index: 1 });
+  state.tracks[0].clipSlots.push({ ref: "clip-slot:track-1:1", parentRef: "track:track-1", objectIdentity: "simulator:clip-slot:track-1:1", sceneIndex: 1, clipRef: "clip:audio-1", empty: false });
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(2, "live_audio_clip_preview", { clipRef: "clip:audio-1", gain: 0.5 })) as any).result.content[0].text);
+  assert.equal(typeof preview.transactionId, "string");
+  const applied = JSON.parse(((await call(3, "live_audio_clip_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "audioclip-apply-1" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied");
+  host.setToolPolicy({ profile: "edit-no-audio" });
+  const refused = await call(4, "live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "audioclip-undo-1" });
+  assert.equal((refused as any).result.isError, true);
+  assert.match(JSON.parse((refused as any).result.content[0].text).reason, /deployment policy/);
+});
+
+test("a refreshed status change notifies list-changed immediately, not on the next request", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  let operations: readonly string[] = [...simulator.status().operations ?? []];
+  const adapter = {
+    status: () => ({ ...simulator.status(), operations }),
+    refreshStatusAsync: async () => ({ ...simulator.status(), operations }),
+    snapshot: () => simulator.snapshot(),
+    get: (ref: never) => simulator.get(ref),
+    invoke: (invocation: never) => simulator.invoke(invocation),
+    subscribe: (listener: never) => simulator.subscribe(listener),
+    reconnect: () => simulator.reconnect(),
+    snapshotAsync: async () => simulator.snapshot(),
+    discoverAsync: simulator.discoverAsync.bind(simulator),
+    getAsync: async (ref: never) => simulator.get(ref),
+    invokeAsync: async (invocation: never) => simulator.invoke(invocation),
+    reconnectAsync: async () => simulator.reconnect(),
+  } as unknown as LiveAdapter;
+  const host = new McpHost(adapter);
+  const emitted: string[] = [];
+  host.setEventEmitter(async (value: string) => { emitted.push(value); });
+  ready(host);
+  // Establish the client's discovery baseline (realistic client flow).
+  const baseline = (host.handle({ jsonrpc: "2.0", id: 41, method: "tools/list" }) as any).result.tools.map((tool: { name: string }) => tool.name);
+  assert.equal(baseline.includes("live_browser_search"), true);
+  await new Promise((resolve) => setImmediate(resolve));
+  emitted.length = 0;
+  // The negotiated shape changes underneath (Browser support disappears);
+  // nothing has refreshed the cache yet.
+  operations = (simulator.status().operations ?? []).filter((operation) => operation !== "browser.search" && operation !== "browser.inspect" && operation !== "browser.load" && operation !== "browser.roots");
+  // A still-visible tool whose handler refreshes status triggers the refresh;
+  // the notification fires on completion of that refresh, not on a later call.
+  // (The exact clip is absent here; the refresh runs before content validation.)
+  const probe = await host.handleAsync({ jsonrpc: "2.0", id: 42, method: "tools/call", params: { name: "live_warp_marker_read", arguments: { clipRef: "clip:absent" } } });
+  assert.equal((probe as any).result.isError, true);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(emitted.filter((line) => line.includes("notifications/tools/list_changed")).length, 1, "refreshStatusAsync completion emits the change notification");
+  const names = (host.handle({ jsonrpc: "2.0", id: 43, method: "tools/list" }) as any).result.tools.map((tool: { name: string }) => tool.name);
+  assert.equal(names.includes("live_browser_search"), false);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(emitted.filter((line) => line.includes("notifications/tools/list_changed")).length, 1, "no duplicate notification for the same shape");
+});

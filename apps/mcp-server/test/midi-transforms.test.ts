@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Note } from "../src/live.js";
-import { GENERATIVE_TRANSFORMS, MIDI_TRANSFORM_TYPES, UPDATE_ONLY_TRANSFORMS, applyMidiTransform, diffNotes, midiExpressionProbe, seededRandom, stableNoteOrder } from "../src/midi-transforms.js";
+import { GENERATIVE_TRANSFORMS, MIDI_TRANSFORM_TYPES, UPDATE_ONLY_TRANSFORMS, applyMidiTransform, diffNotes, midiExpressionProbe, noteContentDigest, seededRandom, stableNoteOrder } from "../src/midi-transforms.js";
 
 function note(pitch: number, start: number, duration: number, velocity = 100, id?: number): Note {
   return { pitch, start, duration, velocity, channel: 1, ...(id !== undefined ? { id } : {}) };
@@ -233,4 +233,31 @@ test("invalid inputs and unbounded note sets fail closed", () => {
   assert.throws(() => applyMidiTransform(Array.from({ length: 2049 }, (_, index) => note(60, index, 1)), { type: "transpose", params: { semitones: 1 } }), /2048/);
   assert.throws(() => applyMidiTransform([note(60, 0, 1)], { type: "bogus" as never, params: {} }), /unknown MIDI transform/);
   assert.equal(stableNoteOrder([note(64, 1, 1, 100, 2), note(60, 0, 1, 100, 1)])[0]!.id, 1);
+});
+
+test("swing never pushes a note past the clip end", () => {
+  const source = [note(60, 3.75, 0.25, 100, 1)];
+  const result = applyMidiTransform(source, { type: "swing", params: { grid: 0.25, amount: 1 } }, 4);
+  assert.ok(result.notes[0]!.start + result.notes[0]!.duration <= 4);
+  assert.equal(result.notes[0]!.start, 3.75);
+  assert.match(result.assumptions.join(" "), /clamped to the clip end/);
+});
+
+test("quantize target=both moves the original start and end independently", () => {
+  const source = [note(60, 0.1, 0.3, 100, 1)];
+  const result = applyMidiTransform(source, { type: "quantize", params: { grid: 0.25, amount: 1, target: "both" } }, 4);
+  assert.equal(result.notes[0]!.start, 0);
+  assert.ok(Math.abs(result.notes[0]!.duration - 0.5) < 1e-9, "end quantizes from the original end, not the moved start");
+});
+
+test("note content digests stay valid at the full 2048-note transform bound", () => {
+  const next = random(0x2048);
+  const source = randomNotes(next, 2048, 16);
+  const result = applyMidiTransform(source, { type: "transpose", params: { semitones: 1 } }, 16);
+  assert.equal(result.notes.length, 2048);
+  const digest = noteContentDigest(result.notes as unknown as Record<string, unknown>[]);
+  assert.equal(digest.length, 64);
+  assert.equal(noteContentDigest(structuredClone(result.notes) as unknown as Record<string, unknown>[]), digest);
+  const over = randomNotes(next, 2049, 16);
+  assert.throws(() => noteContentDigest(over as unknown as Record<string, unknown>[]), /2048/);
 });

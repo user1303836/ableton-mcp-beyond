@@ -158,17 +158,16 @@ function quantize(notes: readonly Note[], params: Readonly<Record<string, unknow
   const target = stringParam(params, "target", ["start", "end", "both"], "start");
   const result = cloneNotes(notes);
   for (const note of result) {
-    if (target !== "end") {
-      const quantized = Math.round(note.start / grid) * grid;
-      const shifted = note.start + (quantized - note.start) * amount;
-      note.start = Math.max(0, shifted);
-    }
-    if (target !== "start") {
-      const end = note.start + note.duration;
-      const quantizedEnd = Math.round(end / grid) * grid;
-      const shiftedEnd = end + (quantizedEnd - end) * amount;
-      note.duration = Math.max(1 / 1024, shiftedEnd - note.start);
-    }
+    // Start and end are quantized from the ORIGINAL boundaries independently;
+    // "both" never derives the end from an already-quantized start.
+    const originalStart = note.start;
+    const originalEnd = note.start + note.duration;
+    let nextStart = originalStart;
+    let nextEnd = originalEnd;
+    if (target !== "end") nextStart = Math.max(0, originalStart + (Math.round(originalStart / grid) * grid - originalStart) * amount);
+    if (target !== "start") nextEnd = originalEnd + (Math.round(originalEnd / grid) * grid - originalEnd) * amount;
+    note.start = nextStart;
+    note.duration = Math.max(1 / 1024, nextEnd - nextStart);
     if (clipLength !== undefined) {
       if (note.start > clipLength - 1 / 1024) note.start = Math.max(0, clipLength - Math.max(note.duration, 1 / 1024));
       if (note.start + note.duration > clipLength) note.duration = Math.max(1 / 1024, clipLength - note.start);
@@ -177,20 +176,28 @@ function quantize(notes: readonly Note[], params: Readonly<Record<string, unknow
   return { notes: result, generative: false, assumptions: [`grid ${grid} beats at ${Math.round(amount * 100)}% strength toward ${target}`] };
 }
 
-function swing(notes: readonly Note[], params: Readonly<Record<string, unknown>>): MidiTransformOutcome {
+function swing(notes: readonly Note[], params: Readonly<Record<string, unknown>>, clipLength?: number): MidiTransformOutcome {
   const grid = finiteParam(params, "grid", 1 / 1024, 8);
   const amount = finiteParam(params, "amount", 0, 1);
   const epsilon = 1e-6;
   let shifted = 0;
   let skippedOffGrid = 0;
+  let clamped = 0;
   const result = cloneNotes(notes);
   for (const note of result) {
     const index = Math.round(note.start / grid);
     if (Math.abs(note.start - index * grid) > epsilon) { skippedOffGrid += 1; continue; }
     if (index % 2 === 1) { note.start = note.start + amount * (grid / 2); shifted += 1; }
+    // Swing never pushes a note past the clip end: the real mapper rejects
+    // patches beyond the exact clip length.
+    if (clipLength !== undefined && note.start + note.duration > clipLength) {
+      note.start = Math.max(0, clipLength - note.duration);
+      clamped += 1;
+    }
   }
   const assumptions = [`swing shifts notes exactly on odd ${grid}-beat divisions by ${Math.round(amount * 100)}% of a half division`];
   if (skippedOffGrid > 0) assumptions.push(`${skippedOffGrid} off-grid note(s) left untouched`);
+  if (clamped > 0) assumptions.push(`${clamped} note(s) clamped to the clip end`);
   return { notes: result, generative: false, assumptions };
 }
 
@@ -404,7 +411,7 @@ export function applyMidiTransform(notes: readonly Note[], spec: MidiTransformSp
     case "transpose": return transpose(notes, spec.params);
     case "scale-constrain": return scaleConstrain(notes, spec.params);
     case "quantize": return quantize(notes, spec.params, clipLength);
-    case "swing": return swing(notes, spec.params);
+    case "swing": return swing(notes, spec.params, clipLength);
     case "velocity-curve": return velocityCurve(notes, spec.params);
     case "humanize-velocity": return humanizeVelocity(notes, spec.params);
     case "humanize-timing": return humanizeTiming(notes, spec.params, clipLength);
@@ -456,4 +463,30 @@ export function midiExpressionProbe(): { noteSchemaFields: string[]; exposesPerN
     exposesPerNoteExpression: false,
     deleteRecreatePreservesExpression: false,
   };
+}
+
+/** Content digest for note sets, with the transform bounds (2048 notes) rather
+ * than the mutation-authority canonicalizer's tighter wire bounds. Ignores
+ * server-assigned note ids so content comparisons survive re-creation. */
+export function noteContentDigest(notes: readonly Record<string, unknown>[]): string {
+  const canonical = (value: unknown, depth: number): string => {
+    if (depth > 8) throw new Error("note content is too deeply nested");
+    if (value === null || typeof value === "boolean") return JSON.stringify(value);
+    if (typeof value === "number") { if (!Number.isFinite(value)) throw new Error("note content contains a non-finite number"); return JSON.stringify(Object.is(value, -0) ? 0 : value); }
+    if (typeof value === "string") { if (value.length > 16384) throw new Error("note content string is too large"); return JSON.stringify(value); }
+    if (Array.isArray(value)) { if (value.length > MIDI_TRANSFORM_MAX_NOTES) throw new Error(`note content array exceeds the ${MIDI_TRANSFORM_MAX_NOTES}-note transform bound`); return `[${value.map((item) => canonical(item, depth + 1)).join(",")}]`; }
+    if (typeof value === "object" && value !== null) {
+      const record = value as Record<string, unknown>;
+      const keys = Object.keys(record);
+      if (keys.length > 64) throw new Error("note content object is too large");
+      return `{${keys.sort().map((key) => `${JSON.stringify(key)}:${canonical(record[key], depth + 1)}`).join(",")}}`;
+    }
+    throw new Error("note content contains an unsupported value");
+  };
+  const rows = notes.map((note) => {
+    const { id: _id, ...content } = note;
+    return content;
+  });
+  rows.sort((a, b) => canonical(a, 0).localeCompare(canonical(b, 0)));
+  return createHash("sha256").update(canonical(rows, 0)).digest("hex");
 }

@@ -15,7 +15,7 @@ import { projectBackup, projectInfo, projectLimitation } from "./project.js";
 import { SEMANTIC_PROJECT_MAX_DIFF_INPUT_BYTES, assembleSemanticProjectPages, createSemanticProjectSnapshot, pageSemanticProjectSnapshot, type SemanticPrivacyProfile, type SemanticProjectPage } from "./project-semantic.js";
 import { diffSemanticProjectSnapshots, pageSemanticProjectDiff } from "./project-semantic-diff.js";
 import { SessionMidiTransactionManager, discoverSession } from "./transactions/session-midi.js";
-import { GENERATIVE_TRANSFORMS, MIDI_TRANSFORM_LARGE_UPDATE_THRESHOLD, MIDI_TRANSFORM_TYPES, applyMidiTransform, diffNotes, midiExpressionProbe, type MidiTransformType } from "./midi-transforms.js";
+import { GENERATIVE_TRANSFORMS, MIDI_TRANSFORM_LARGE_UPDATE_THRESHOLD, MIDI_TRANSFORM_TYPES, applyMidiTransform, diffNotes, midiExpressionProbe, noteContentDigest, type MidiTransformType } from "./midi-transforms.js";
 import { JOURNEY_IDS, JOURNEY_PROMPTS, journeyResource, planUserJourney, renderJourneyPrompt, type ExperienceLevel, type JourneyId } from "./journeys.js";
 import type { AsyncLiveAdapter } from "./live.js";
 import { PACKAGE_VERSION } from "./delivery.js";
@@ -1077,8 +1077,12 @@ export class McpHost {
    * connect-time advertisement after the Live shape may have changed. */
   private async freshStatus(context?: { deadlineMs?: number }): Promise<LiveStatus> {
     const adapter = this.adapter as Partial<AsyncLiveAdapter & { refreshStatusAsync?: (context?: { deadlineMs?: number }) => Promise<LiveStatus> }>;
-    if (typeof adapter.refreshStatusAsync === "function") return adapter.refreshStatusAsync(context);
-    return this.adapter.status();
+    if (typeof adapter.refreshStatusAsync !== "function") return this.adapter.status();
+    const refreshed = await adapter.refreshStatusAsync(context);
+    // A refresh can change the negotiated operation/capability set; announce
+    // the effective discovery change immediately rather than on a later call.
+    this.noteToolListChanged();
+    return refreshed;
   }
 
   private validateStructureItems(params: unknown): { tracks: SessionStructureItem[]; scenes: SessionStructureItem[] } | undefined {
@@ -1957,7 +1961,7 @@ export class McpHost {
 
   /** Map a transaction to the tool that owns its apply path for policy re-checks at undo/emergency dispatch. */
   private transactionOwnerTool(transactionId: string, kind?: string): string | undefined {
-    const byPrefix: Record<string, string> = { tempo_: "live_tempo_apply", arrangement_: "live_arrangement_section_apply", structure_: "live_session_structure_apply", parameter_: "live_device_parameter_apply", audition_: "live_session_audition_apply", transport_: "live_transport_apply", transportaction_: "live_transport_action_apply", cliplaunch_: "live_clip_launch_apply", noteupdate_: "live_note_update_apply", notedelete_: "live_note_delete_apply", midi_: "live_midi_clip_apply", miditransform_: "live_midi_transform_apply", capture_: "live_audio_capture_apply", audio_capture_: "live_audio_capture_apply", capturemidi_: "live_capture_midi_apply", scenecapture_: "live_scene_capture_apply", clipdup_: "live_clip_duplicate_apply", arrclip_: "live_arrangement_clip_apply", clipmove_: "live_clip_move_apply", audioimport_: "live_audio_import_apply", warp_: "live_warp_marker_apply", noteedit_: "live_note_edit_apply", rename_: "live_object_rename_apply", routing_: "live_routing_apply", backup_: "live_project_backup_apply", recording_: "live_recording_apply", realtime_: "live_realtime_arm_apply", browserload_: "live_browser_load_apply", device_: "live_device_apply", mixer_: "live_mixer_apply", mixerext_: "live_mixer_extended_apply", view_: "live_view_apply", locjump_: "live_locator_jump_apply", clipset_: "live_clip_properties_apply", clipaction_: "live_clip_action_apply", tuning_: "live_tuning_apply", groove_: "live_groove_apply", sceneset_: "live_scene_apply", scenefire_: "live_scene_fire_apply", trackstruct_: "live_track_structure_apply", devdel_: "live_device_delete_apply", trackview_: "live_track_view_apply", selection_: "live_selection_apply", clipview_: "live_clip_view_apply", devview_: "live_device_view_apply", dialog_: "live_application_dialog_apply", chainmix_: "live_chain_mixer_apply", devio_: "live_device_io_apply", devadv_: "live_device_advanced_apply", chainset_: "live_chain_apply", drumpad_: "live_drum_pad_apply", rack_: "live_rack_apply", rackview_: "live_rack_view_apply", devspec_: "live_device_specialized_apply", looper_: "live_looper_apply", simpler_: "live_simpler_apply", automation_: "live_automation_apply" };
+    const byPrefix: Record<string, string> = { tempo_: "live_tempo_apply", arrangement_: "live_arrangement_section_apply", structure_: "live_session_structure_apply", parameter_: "live_device_parameter_apply", audition_: "live_session_audition_apply", transport_: "live_transport_apply", transportaction_: "live_transport_action_apply", cliplaunch_: "live_clip_launch_apply", noteupdate_: "live_note_update_apply", notedelete_: "live_note_delete_apply", midi_: "live_midi_clip_apply", miditransform_: "live_midi_transform_apply", capture_: "live_audio_capture_apply", audio_capture_: "live_audio_capture_apply", capturemidi_: "live_capture_midi_apply", scenecapture_: "live_scene_capture_apply", clipdup_: "live_clip_duplicate_apply", arrclip_: "live_arrangement_clip_apply", clipmove_: "live_clip_move_apply", audioimport_: "live_audio_import_apply", audioclip_: "live_audio_clip_apply", warp_: "live_warp_marker_apply", noteedit_: "live_note_edit_apply", rename_: "live_object_rename_apply", routing_: "live_routing_apply", backup_: "live_project_backup_apply", recording_: "live_recording_apply", realtime_: "live_realtime_arm_apply", browserload_: "live_browser_load_apply", device_: "live_device_apply", mixer_: "live_mixer_apply", mixerext_: "live_mixer_extended_apply", view_: "live_view_apply", locjump_: "live_locator_jump_apply", clipset_: "live_clip_properties_apply", clipaction_: "live_clip_action_apply", tuning_: "live_tuning_apply", groove_: "live_groove_apply", sceneset_: "live_scene_apply", scenefire_: "live_scene_fire_apply", trackstruct_: "live_track_structure_apply", devdel_: "live_device_delete_apply", trackview_: "live_track_view_apply", selection_: "live_selection_apply", clipview_: "live_clip_view_apply", devview_: "live_device_view_apply", dialog_: "live_application_dialog_apply", chainmix_: "live_chain_mixer_apply", devio_: "live_device_io_apply", devadv_: "live_device_advanced_apply", chainset_: "live_chain_apply", drumpad_: "live_drum_pad_apply", rack_: "live_rack_apply", rackview_: "live_rack_view_apply", devspec_: "live_device_specialized_apply", looper_: "live_looper_apply", simpler_: "live_simpler_apply", automation_: "live_automation_apply" };
     const prefixes = Object.keys(byPrefix).sort((a, b) => b.length - a.length);
     for (const prefix of prefixes) if (transactionId.startsWith(prefix)) return byPrefix[prefix];
     const byKind: Record<string, string> = { "audio-set": "live_audio_clip_apply", "mixer-set": "live_mixer_apply", automation: "live_automation_apply", "browser-load": "live_browser_load_apply", device: "live_device_apply", "routing-set": "live_routing_apply", recording: "live_recording_apply", backup: "live_project_backup_apply", "realtime-arm": "live_realtime_arm_apply", view: "live_view_apply", "locator-jump": "live_locator_jump_apply", "clip-set": "live_clip_properties_apply", "clip-action": "live_clip_action_apply", tuning: "live_tuning_apply", groove: "live_groove_apply", "scene-set": "live_scene_apply", "scene-fire": "live_scene_fire_apply", "transport-action": "live_transport_action_apply", "track-structure": "live_track_structure_apply", "device-delete": "live_device_delete_apply", "track-view": "live_track_view_apply", selection: "live_selection_apply", "clip-view": "live_clip_view_apply", "device-view": "live_device_view_apply", dialog: "live_application_dialog_apply", "mixer-extended": "live_mixer_extended_apply", "chain-mixer": "live_chain_mixer_apply", "device-io": "live_device_io_apply", "device-advanced": "live_device_advanced_apply", "chain-set": "live_chain_apply", "drum-pad": "live_drum_pad_apply", rack: "live_rack_apply", "rack-view": "live_rack_view_apply", "device-specialized": "live_device_specialized_apply", looper: "live_looper_apply", simpler: "live_simpler_apply", rename: "live_object_rename_apply", "warp-marker": "live_warp_marker_apply", "note-target": "live_note_edit_apply", duplicate: "live_clip_duplicate_apply", move: "live_clip_move_apply", "session-audio-create": "live_audio_import_apply", "capture-midi": "live_capture_midi_apply", "scene-capture": "live_scene_capture_apply", "arrangement-create": "live_arrangement_clip_apply", "arrangement-audio-create": "live_arrangement_clip_apply", "arrangement-take-lane-create": "live_arrangement_clip_apply" };
@@ -2483,7 +2487,7 @@ export class McpHost {
       const laneRows = ((track.takeLanes as unknown[]) ?? []).filter(isObject);
       const lanes = advertised.map((advertisedLane) => {
         const row = laneRows.find((candidate) => candidate.ref === advertisedLane.ref);
-        const clips = ((row?.clips as unknown[]) ?? []).filter(isObject).map((clip) => ({ ref: clip.ref, objectIdentity: clip.objectIdentity ?? null, start: clip.start, length: clip.length, fingerprint: this.captureObjectFingerprint({ ref: clip.ref, objectIdentity: clip.objectIdentity ?? null, name: clip.name ?? null, start: clip.start ?? null, length: clip.length ?? null }) }));
+        const clips = ((row?.clips as unknown[]) ?? []).filter(isObject).map((clip) => ({ ref: clip.ref, objectIdentity: clip.objectIdentity ?? null, start: clip.start, length: clip.length, fingerprint: this.captureObjectFingerprint({ ref: clip.ref, objectIdentity: clip.objectIdentity ?? null, name: clip.name ?? null, start: clip.start ?? null, length: clip.length ?? null, notesRevision: clip.notesRevision ?? null, muted: clip.muted ?? null, looping: clip.looping ?? null, isAudio: clip.isAudio ?? null, warpMode: clip.warpMode ?? null, filePath: clip.filePath ?? null, colorIndex: clip.colorIndex ?? null }) }));
         return { ref: advertisedLane.ref, name: advertisedLane.name, index: typeof row?.index === "number" ? row.index : null, objectIdentity: typeof row?.objectIdentity === "string" ? row.objectIdentity : null, clips, clipCount: clips.length };
       });
       const laneRevision = createHash("sha256").update(canonicalMutationIdentity({ trackRef: params.trackRef, trackIdentity: track.objectIdentity, lanes })).digest("hex");
@@ -3056,6 +3060,13 @@ export class McpHost {
     try {
       const before = await source.stat();
       if (!before.isFile() || before.size !== expected.size || before.size <= 0 || before.size > McpHost.AUDIO_IMPORT_MAX_BYTES) throw new Error("audio file changed since preview");
+      // Re-validate the container signature through the same no-follow
+      // descriptor used for hashing and copying, so a rename-swap after the
+      // preview-time probe cannot substitute non-audio bytes.
+      const extension = extname(canonicalPath).toLowerCase();
+      const header = Buffer.alloc(12);
+      const { bytesRead } = await source.read(header, 0, 12, 0);
+      if (!McpHost.audioImportHeaderMatches(extension, header.subarray(0, bytesRead))) throw new Error("audio file content no longer matches the declared format");
       const hash = createHash("sha256");
       let read = 0;
       for await (const chunk of source.createReadStream({ autoClose: false })) {
@@ -3468,8 +3479,28 @@ export class McpHost {
   }
 
   private canonicalNoteContent(notes: Array<Record<string, unknown>>): string {
-    const rows = notes.map((note) => { const { id: _id, ...rest } = note; return rest; }).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-    return createHash("sha256").update(canonicalMutationIdentity(rows)).digest("hex");
+    return noteContentDigest(notes);
+  }
+
+  /** Apply one note mutation family in registry-bounded chunks (each note op
+   * accepts at most 512 items), re-reading the exact clip fence between chunks
+   * so a concurrent external edit fails the next chunk instead of mixing. */
+  private async invokeNoteOpChunked(adapter: AsyncLiveAdapter, context: LiveOperationContext, clipRef: LiveRef, operation: "note.update" | "note.add-batch" | "note.delete", items: Array<Record<string, unknown>> | number[], authority: Record<string, unknown>, notesRevision: string): Promise<void> {
+    const chunkSize = 512;
+    let fence = { authority, notesRevision };
+    for (let offset = 0; offset < items.length; offset += chunkSize) {
+      const chunk = items.slice(offset, offset + chunkSize);
+      const args: Record<string, unknown> = operation === "note.delete"
+        ? { ref: clipRef, noteIds: chunk, expectedClipAuthority: fence.authority, expectedNotesRevision: fence.notesRevision }
+        : { ref: clipRef, notes: chunk, expectedClipAuthority: fence.authority, expectedNotesRevision: fence.notesRevision };
+      const result = await adapter.invokeAsync({ operation, args }, context) as { updated?: unknown; added?: unknown; deleted?: unknown };
+      const confirmed = operation === "note.delete" ? result.deleted : operation === "note.add-batch" ? result.added : result.updated;
+      if (confirmed !== chunk.length) throw new Error(`${operation} did not confirm the exact chunk`);
+      if (offset + chunkSize < items.length) {
+        const fresh = this.noteClip(await adapter.snapshotAsync(context), clipRef);
+        fence = { authority: fresh.authority, notesRevision: fresh.notesRevision };
+      }
+    }
   }
 
   private async liveMidiTransformPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
@@ -3552,8 +3583,7 @@ export class McpHost {
           if (JSON.stringify({ ref: transaction.clipRef, notes: current.notes, notesRevision: current.notesRevision, authority: current.authority }) !== JSON.stringify({ ref: transaction.clipRef, notes: (transaction.prior as { notes: unknown[] }).notes, notesRevision: transaction.payload.sourceRevision, authority: transaction.payload.authority })) return this.transactionError(id, "clip identity or notes changed since preview; preview again"); }
         transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
         if (diff.update.length > 0) {
-          const result = await adapter.invokeAsync({ operation: "note.update", args: { ref: transaction.clipRef, notes: diff.update.map((note) => this.midiTransformPatch(note)), expectedClipAuthority: transaction.payload.authority, expectedNotesRevision: transaction.payload.sourceRevision } }, context) as { updated?: unknown };
-          if (result.updated !== diff.update.length) throw new Error("MIDI transform update was not confirmed");
+          await this.invokeNoteOpChunked(adapter, context, transaction.clipRef!, "note.update", diff.update.map((note) => this.midiTransformPatch(note)), transaction.payload.authority as Record<string, unknown>, transaction.payload.sourceRevision as string);
         }
         const verified = this.noteClip(await adapter.snapshotAsync(context), transaction.clipRef!);
         if (this.canonicalNoteContent(verified.notes) !== transaction.payload.expectedResultContent) throw new Error("MIDI transform postcondition was not confirmed");
@@ -3579,18 +3609,15 @@ export class McpHost {
         const duplicateDiff = diffNotes(duplicateClip.notes as never, transformed.notes as never);
         let working = duplicateClip;
         if (duplicateDiff.delete.length > 0) {
-          const deleted = await adapter.invokeAsync({ operation: "note.delete", args: { ref: duplicate.ref, noteIds: duplicateDiff.delete, expectedClipAuthority: working.authority, expectedNotesRevision: working.notesRevision } }, context) as { deleted?: unknown };
-          if (deleted.deleted !== duplicateDiff.delete.length) throw new Error("transform delete of replaced source notes was not confirmed");
+          await this.invokeNoteOpChunked(adapter, context, duplicate.ref as LiveRef, "note.delete", duplicateDiff.delete, working.authority, working.notesRevision);
           working = this.noteClip(await adapter.snapshotAsync(context), duplicate.ref as LiveRef);
         }
         if (duplicateDiff.update.length > 0) {
-          const updated = await adapter.invokeAsync({ operation: "note.update", args: { ref: duplicate.ref, notes: duplicateDiff.update.map((note) => this.midiTransformPatch(note as unknown as Record<string, unknown>)), expectedClipAuthority: working.authority, expectedNotesRevision: working.notesRevision } }, context) as { updated?: unknown };
-          if (updated.updated !== duplicateDiff.update.length) throw new Error("transform update on the duplicate was not confirmed");
+          await this.invokeNoteOpChunked(adapter, context, duplicate.ref as LiveRef, "note.update", duplicateDiff.update.map((note) => this.midiTransformPatch(note as unknown as Record<string, unknown>)), working.authority, working.notesRevision);
           working = this.noteClip(await adapter.snapshotAsync(context), duplicate.ref as LiveRef);
         }
         if (duplicateDiff.add.length > 0) {
-          const added = await adapter.invokeAsync({ operation: "note.add-batch", args: { ref: duplicate.ref, notes: duplicateDiff.add.map((note) => ({ pitch: note.pitch, start: note.start, duration: note.duration, velocity: note.velocity, channel: note.channel ?? 1, mute: note.mute ?? false, probability: note.probability ?? 1, velocityDeviation: note.velocityDeviation ?? 0, releaseVelocity: note.releaseVelocity ?? 64 })), expectedClipAuthority: working.authority, expectedNotesRevision: working.notesRevision } }, context) as { added?: unknown };
-          if (added.added !== duplicateDiff.add.length) throw new Error("transform note batch on the duplicate was not confirmed");
+          await this.invokeNoteOpChunked(adapter, context, duplicate.ref as LiveRef, "note.add-batch", duplicateDiff.add.map((note) => ({ pitch: note.pitch, start: note.start, duration: note.duration, velocity: note.velocity, channel: note.channel ?? 1, mute: note.mute ?? false, probability: note.probability ?? 1, velocityDeviation: note.velocityDeviation ?? 0, releaseVelocity: note.releaseVelocity ?? 64 })), working.authority, working.notesRevision);
         }
         const verifiedSnapshot = await adapter.snapshotAsync(context);
         const verified = this.noteClip(verifiedSnapshot, duplicate.ref as LiveRef);
@@ -6357,8 +6384,18 @@ export class McpHost {
           const prior = (transform.prior as { notes: Array<Record<string, unknown>> }).notes;
           const currentIds = new Set(current.notes.map((note) => note.id));
           if (currentIds.size !== prior.length || prior.some((note) => !currentIds.has(note.id))) return this.transactionError(id, "notes changed after apply; undo refused");
-          const restore = prior.map((note) => ({ id: note.id, pitch: note.pitch, start: note.start, duration: note.duration, velocity: note.velocity, mute: note.mute ?? false, probability: note.probability ?? 1, velocityDeviation: note.velocityDeviation ?? 0, releaseVelocity: note.releaseVelocity ?? 64 }));
-          await this.invokeUndoRecovery(transform, adapter, "note.update", { ref: transform.clipRef, notes: restore, expectedClipAuthority: current.authority, expectedNotesRevision: current.notesRevision }, context);
+          // The exact verified post-transform content must still hold: an
+          // external edit that kept the identity set must never be overwritten
+          // by preview-time values.
+          if (this.canonicalNoteContent(current.notes) !== transform.payload.expectedResultContent) return this.transactionError(id, "notes changed after apply; undo refused");
+          const priorById = new Map((transform.prior as { notes: Array<Record<string, unknown>> }).notes.map((note) => [note.id, note]));
+          const updatedIds = ((transform.payload.diff as { update?: Array<Record<string, unknown>> }).update ?? []).map((note) => note.id);
+          const restore = updatedIds.map((noteId) => priorById.get(noteId)).filter((note): note is Record<string, unknown> => note !== undefined).map((note) => ({ id: note.id, pitch: note.pitch, start: note.start, duration: note.duration, velocity: note.velocity, mute: note.mute ?? false, probability: note.probability ?? 1, velocityDeviation: note.velocityDeviation ?? 0, releaseVelocity: note.releaseVelocity ?? 64 }));
+          for (let offset = 0; offset < restore.length; offset += 256) {
+            const chunk = restore.slice(offset, offset + 256);
+            const fresh = this.noteClip(await adapter.snapshotAsync(context), transform.clipRef);
+            await this.invokeUndoRecovery(transform, adapter, "note.update", { ref: transform.clipRef, notes: chunk, expectedClipAuthority: fresh.authority, expectedNotesRevision: fresh.notesRevision }, context);
+          }
           const verified = this.noteClip(await adapter.snapshotAsync(context), transform.clipRef);
           if (this.noteFence(verified.notes) !== this.noteFence(prior)) throw new Error("MIDI-transform undo did not restore exact prior notes");
         }

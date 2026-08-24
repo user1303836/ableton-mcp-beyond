@@ -148,3 +148,47 @@ test("transform tools are policy-gated like every edit tool", async () => {
   assert.equal((result as any).result.isError, true);
   assert.match(JSON.parse((result as any).result.content[0].text).reason, /deployment-policy/);
 });
+
+test("transform undo refuses to overwrite an external edit that kept the note identity set", async () => {
+  const { simulator, call, parse } = await hostWithMidiClip();
+  const preview = await parse(call("live_midi_transform_preview", { clipRef: "clip:clip-1", transform: "transpose", params: { semitones: 2 } }));
+  const applied = await parse(call("live_midi_transform_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "guard-apply" }));
+  assert.equal(applied.state, "applied");
+  // External edit: velocity change on an existing id (identity set unchanged).
+  const clip = (simulator as any).state.tracks[0].clips[0];
+  clip.notes[0]!.velocity = 42;
+  clip.notesRevision = createHash("sha256").update(JSON.stringify(clip.notes)).digest("hex");
+  const refused = await call("live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "guard-undo" });
+  assert.equal((refused as any).result.isError, true);
+  assert.match(JSON.parse((refused as any).result.content[0].text).reason, /changed after apply/);
+  assert.equal((simulator as any).state.tracks[0].clips[0].notes[0].velocity, 42);
+});
+
+test("chunked note mutations execute a 600-note in-place transform exactly", async () => {
+  const { simulator, call, parse } = await hostWithMidiClip();
+  const clip = (simulator as any).state.tracks[0].clips[0];
+  for (let index = 0; index < 600; index += 1) clip.notes.push({ pitch: 30 + (index % 60), start: (index % 400) / 100, duration: 0.25, velocity: 90, channel: 1, id: 1000 + index, mute: false, probability: 1, velocityDeviation: 0, releaseVelocity: 64 });
+  clip.notesRevision = createHash("sha256").update(JSON.stringify(clip.notes)).digest("hex");
+  const preview = await parse(call("live_midi_transform_preview", { clipRef: "clip:clip-1", transform: "transpose", params: { semitones: 3 }, scope: "in-place" }));
+  assert.equal(preview.diff.update, 604);
+  assert.equal(preview.constraints.largeEdit, true);
+  const applied = await parse(call("live_midi_transform_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "chunked-apply" }));
+  assert.equal(applied.state, "applied");
+  const after = simulator.snapshot().tracks[0]!.clips[0]!;
+  assert.equal(after.notes.length, 604);
+  assert.ok(after.notes.every((note) => note.pitch >= 33));
+  const undone = await parse(call("live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "chunked-undo" }));
+  assert.equal(undone.state, "undone");
+  const restored = simulator.snapshot().tracks[0]!.clips[0]!;
+  assert.ok(restored.notes.every((note) => note.pitch <= 92));
+});
+
+test("previews beyond the 2048-note transform bound fail with the public bound message", async () => {
+  const { simulator, call } = await hostWithMidiClip();
+  const clip = (simulator as any).state.tracks[0].clips[0];
+  for (let index = 0; index < 2050; index += 1) clip.notes.push({ pitch: 60, start: (index % 512) / 128, duration: 0.25, velocity: 90, channel: 1, id: 2000 + index, mute: false, probability: 1, velocityDeviation: 0, releaseVelocity: 64 });
+  clip.notesRevision = createHash("sha256").update(JSON.stringify(clip.notes)).digest("hex");
+  const refused = await call("live_midi_transform_preview", { clipRef: "clip:clip-1", transform: "transpose", params: { semitones: 1 } });
+  assert.equal((refused as any).error.code, -32602);
+  assert.match((refused as any).error.message, /2048/);
+});

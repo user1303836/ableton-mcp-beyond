@@ -204,3 +204,15 @@ test("comp read is hidden when the adapter does not negotiate audio.comp.read", 
   assert.equal((refused as any).result.isError, true);
   assert.match(JSON.parse((refused as any).result.content[0].text).reason, /tool-unavailable/);
 });
+
+test("take-lane clip content edits change the fingerprint and invalidate cursors", async () => {
+  const { simulator, parse, call } = connectedHost();
+  const state = (simulator as any).state;
+  state.tracks[0].takeLanes[0].clips.push({ ref: "take-lane-clip:1", objectIdentity: "simulator:take-lane-clip:1", name: "Take 1a", kind: "midi", start: 0, length: 4, notes: [{ pitch: 60, start: 0, duration: 1, velocity: 100, channel: 1, id: 1 }], notesRevision: createHash("sha256").update("v1").digest("hex"), warp: false, takes: [], automation: [], isTakeLaneClip: true });
+  const before = await parse(call("live_take_lane_read", { trackRef: "track:track-1" }));
+  // External content edit: same identity, new note content revision.
+  state.tracks[0].takeLanes[0].clips[0].notesRevision = createHash("sha256").update("v2").digest("hex");
+  const after = await parse(call("live_take_lane_read", { trackRef: "track:track-1" }));
+  assert.notEqual(after.lanes[0].clips[0].fingerprint, before.lanes[0].clips[0].fingerprint);
+  assert.notEqual(after.revision, before.revision);
+});
