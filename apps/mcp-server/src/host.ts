@@ -3492,9 +3492,20 @@ export class McpHost {
 
   /** Digest of the full clip content the snapshot exposes as mutable: name,
    * timing, note content revision, audio fields, fades, loop bounds, warp
-   * markers, groove, and visual state. Used for content-bound probe cursors. */
+   * markers, groove, signature, legato, and visual state. Uses a
+   * clip-bounded canonicalizer so large bounded marker collections never fail
+   * the read (the mutation-authority canonicalizer caps arrays lower). */
   private boundedClipContentDigest(clip: Record<string, unknown>): string {
-    return createHash("sha256").update(canonicalMutationIdentity({
+    const canonical = (value: unknown, depth: number): string => {
+      if (depth > 8) throw new Error("clip content is too deeply nested");
+      if (value === null || typeof value === "boolean") return JSON.stringify(value);
+      if (typeof value === "number") { if (!Number.isFinite(value)) throw new Error("clip content contains a non-finite number"); return JSON.stringify(Object.is(value, -0) ? 0 : value); }
+      if (typeof value === "string") { if (value.length > 16384) throw new Error("clip content string is too large"); return JSON.stringify(value); }
+      if (Array.isArray(value)) { if (value.length > 4096) throw new Error("clip content array exceeds its authoritative bound"); return `[${value.map((item) => canonical(item, depth + 1)).join(",")}]`; }
+      if (typeof value === "object" && value !== null) { const record = value as Record<string, unknown>; const keys = Object.keys(record); if (keys.length > 64) throw new Error("clip content object is too large"); return `{${keys.sort().map((key) => `${JSON.stringify(key)}:${canonical(record[key], depth + 1)}`).join(",")}}`; }
+      throw new Error("clip content contains an unsupported value");
+    };
+    return createHash("sha256").update(canonical({
       name: clip.name ?? null, start: clip.start ?? null, length: clip.length ?? null,
       muted: clip.muted ?? null, looping: clip.looping ?? null, colorIndex: clip.colorIndex ?? null,
       isAudio: clip.isAudio ?? null, notesRevision: clip.notesRevision ?? null,
@@ -3504,7 +3515,10 @@ export class McpHost {
       loopStart: clip.loopStart ?? null, loopEnd: clip.loopEnd ?? null,
       filePath: clip.filePath ?? null, groove: clip.groove ?? null,
       warpMarkers: clip.warpMarkers ?? null, launchMode: clip.launchMode ?? null,
-    })).digest("hex");
+      legato: clip.legato ?? null, velocityAmount: clip.velocityAmount ?? null,
+      signatureNumerator: clip.signatureNumerator ?? null, signatureDenominator: clip.signatureDenominator ?? null,
+      ramMode: clip.ramMode ?? null, clipView: clip.clipView ?? null,
+    }, 0)).digest("hex");
   }
 
   /** Expected full-note-set digest after the first `completedCount` plan steps

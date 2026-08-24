@@ -142,17 +142,42 @@ test("take-lane cursor rejects a page continuation after an audio-clip content e
   const simulator = new DeterministicLiveSimulator();
   const state = (simulator as any).state;
   state.tracks[0].takeLanes.push({ ref: "take-lane:track-1:1", objectIdentity: "simulator:take-lane:1", parentRef: "track:track-1", trackRef: "track:track-1", name: "Take 2", index: 1, clips: [
-    { ref: "take-lane-clip:audio", objectIdentity: "simulator:take-lane-clip:audio", name: "Audio Take", kind: "audio", start: 0, length: 8, notes: [], warp: true, takes: [], automation: [], isTakeLaneClip: true, gain: 1, pitchCoarse: 0, pitchFine: 0, warping: true, fadeInLength: 0.01, fadeOutLength: 0.01, loopStart: 0, loopEnd: 8, warpMarkers: [{ beatTime: 1, sampleTime: 44100 }] },
+    { ref: "take-lane-clip:audio", objectIdentity: "simulator:take-lane-clip:audio", name: "Audio Take", kind: "audio", start: 0, length: 8, notes: [], warp: true, takes: [], automation: [], isTakeLaneClip: true, gain: 1, pitchCoarse: 0, pitchFine: 0, warping: true, fadeInLength: 0.01, fadeOutLength: 0.01, loopStart: 0, loopEnd: 8, warpMarkers: [{ beatTime: 1, sampleTime: 44100 }], legato: false, velocityAmount: 1, signatureNumerator: 4, signatureDenominator: 4, ramMode: false, clipView: { gridQuantization: 4, gridIsTriplet: false } },
   ] });
   const host = new McpHost(simulator);
   ready(host);
   const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
-  const firstPage = JSON.parse(((await call(2, "live_take_lane_read", { trackRef: "track:track-1", limit: 1 })) as any).result.content[0].text);
-  assert.equal(firstPage.paging.complete, false);
-  state.tracks[0].takeLanes[1].clips[0].gain = 0.5;
-  const continued = await call(3, "live_take_lane_read", { trackRef: "track:track-1", limit: 1, cursor: firstPage.paging.nextCursor });
-  assert.equal((continued as any).result.isError, true);
-  assert.match(JSON.parse((continued as any).result.content[0].text).reason, /stale/);
+  for (const mutate of [
+    () => { state.tracks[0].takeLanes[1].clips[0].gain = 0.5; },
+    () => { state.tracks[0].takeLanes[1].clips[0].legato = true; },
+    () => { state.tracks[0].takeLanes[1].clips[0].velocityAmount = 0.5; },
+    () => { state.tracks[0].takeLanes[1].clips[0].signatureDenominator = 8; },
+    () => { state.tracks[0].takeLanes[1].clips[0].ramMode = true; },
+    () => { state.tracks[0].takeLanes[1].clips[0].clipView.gridIsTriplet = true; },
+  ]) {
+    const firstPage = JSON.parse(((await call(Math.floor(Math.random() * 1e6) + 100, "live_take_lane_read", { trackRef: "track:track-1", limit: 1 })) as any).result.content[0].text);
+    assert.equal(firstPage.paging.complete, false);
+    mutate();
+    const continued = await call(Math.floor(Math.random() * 1e6) + 100, "live_take_lane_read", { trackRef: "track:track-1", limit: 1, cursor: firstPage.paging.nextCursor });
+    assert.equal((continued as any).result.isError, true);
+    assert.match(JSON.parse((continued as any).result.content[0].text).reason, /stale/);
+  }
+});
+
+test("take-lane fingerprints digest large bounded marker collections without failing the read", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const state = (simulator as any).state;
+  state.tracks[0].takeLanes[0].clips.push({
+    ref: "take-lane-clip:markers", objectIdentity: "simulator:take-lane-clip:markers", name: "Dense", kind: "audio", start: 0, length: 8,
+    notes: [], warp: true, takes: [], automation: [], isTakeLaneClip: true,
+    warpMarkers: Array.from({ length: 512 }, (_, index) => ({ beatTime: index + 1, sampleTime: (index + 1) * 44100 })),
+  });
+  const host = new McpHost(simulator);
+  ready(host);
+  const result = await host.handleAsync({ jsonrpc: "2.0", id: 77, method: "tools/call", params: { name: "live_take_lane_read", arguments: { trackRef: "track:track-1" } } });
+  const value = JSON.parse((result as any).result.content[0].text);
+  assert.equal((result as any).result.isError, false);
+  assert.equal(value.lanes[0].clips[0].fingerprint.length, 64);
 });
 
 test("live_status reconnects a dropped same-epoch bridge and restores the visible tool list", async () => {
