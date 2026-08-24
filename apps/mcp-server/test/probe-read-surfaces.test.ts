@@ -65,6 +65,9 @@ test("arrangement automation read returns owner identity, range, complete paged 
   assert.equal(first.mutation.advertised, false);
   assert.equal(first.probe.adapter, "simulator");
   assert.equal(typeof first.revision, "string");
+  assert.equal(typeof first.sessionState, "object");
+  assert.equal(first.sessionState.arrangementOverdub, false);
+  assert.match(first.sessionState.note, /authoritative/);
   const second = await parse(call("live_arrangement_automation_read", { clipRef: "arrangement-clip:track-1:0", parameterRef: "parameter:gain-1", limit: 3, cursor: first.paging.nextCursor }));
   assert.equal(second.points.length, 1);
   assert.equal(second.paging.complete, true);

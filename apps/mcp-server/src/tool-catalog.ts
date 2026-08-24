@@ -1362,4 +1362,3 @@ export function resolveToolVisibility(status: LiveStatus, policy: ToolPolicySpec
 export function visibleToolDescriptors(status: LiveStatus, policy: ToolPolicySpec): readonly ToolDescriptor[] {
   return resolveToolVisibility(status, policy).filter((row) => row.visible).map((row) => ({ name: row.entry.name, description: row.entry.description, inputSchema: row.entry.inputSchema, annotations: row.entry.annotations }));
 }
-

@@ -2453,6 +2453,12 @@ export class McpHost {
         paging: { limit: page.returned, total: page.total, complete: page.complete, ...(page.nextCursor !== undefined ? { nextCursor: page.nextCursor } : {}), pointBound: 512 },
         curve: { available: false, reason: "curve shapes are not exposed by the negotiated arrangement.automation.read contract" },
         revision,
+        sessionState: {
+          arrangementOverdub: snapshot.song?.arrangementOverdub ?? null,
+          sessionAutomationRecord: snapshot.song?.sessionAutomationRecord ?? null,
+          reEnableAutomationEnabled: snapshot.song?.reEnableAutomationEnabled ?? null,
+          note: snapshot.song ? "authoritative song automation-record state at read time" : "the adapter did not expose song automation-record state; external controller state is not authoritatively enumerable",
+        },
         mutation: { advertised: false, note: "no arrangement automation create/delete/insert operation is advertised; mutation requires a separate reviewed issue with exact prior-state restoration evidence" },
         probe: this.probeEnvelope(status),
       });
