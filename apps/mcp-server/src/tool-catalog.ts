@@ -1153,6 +1153,67 @@ const toolDescriptors = [
     inputSchema: { type: "object", properties: { itemId: { type: "string", minLength: 1, maxLength: 256 } }, required: ["itemId"], additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   },
+  {
+    name: "live_arrangement_automation_read",
+    description: "Read-only Arrangement automation discovery probe: one exact arrangement clip + parameter envelope with owner identity, time range, complete paged points, explicit curve unavailability, and a content revision. No arrangement automation mutation is advertised.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        clipRef: { type: "string", minLength: 1, maxLength: 256 },
+        parameterRef: { type: "string", minLength: 1, maxLength: 256 },
+        limit: { type: "integer", minimum: 1, maximum: 512 },
+        cursor: { type: "string", maxLength: 1024 },
+      },
+      required: ["clipRef", "parameterRef"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_take_lane_read",
+    description: "Read-only bounded take-lane discovery for one exact track: ordered lane identity/name/index, per-lane clip ranges and content fingerprints, a main-lane summary, complete/unavailable flags, and a revision-bound cursor. Never starts audition, creates/deletes lanes, promotes takes, or edits the main lane.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        trackRef: { type: "string", minLength: 1, maxLength: 256 },
+        limit: { type: "integer", minimum: 1, maximum: 128 },
+        cursor: { type: "string", maxLength: 1024 },
+      },
+      required: ["trackRef"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_comp_read",
+    description: "Read-only comp discovery for one exact clip: adapter-reported take-lane source segments with lane identity, paged and revision-bound; relationships the adapter cannot enumerate are reported explicitly. No comp mutation or audition.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        clipRef: { type: "string", minLength: 1, maxLength: 256 },
+        limit: { type: "integer", minimum: 1, maximum: 512 },
+        cursor: { type: "string", maxLength: 1024 },
+      },
+      required: ["clipRef"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_warp_marker_read",
+    description: "Read-only warp-marker probe for one exact audio clip: the complete bounded marker set with (beatTime, sampleTime), paged without silent truncation, monotonicity checks, clip and collection revisions, explicit identity limits, and read-only mutation-feasibility evidence. Never adds, moves, or deletes a marker.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        clipRef: { type: "string", minLength: 1, maxLength: 256 },
+        limit: { type: "integer", minimum: 1, maximum: 256 },
+        cursor: { type: "string", maxLength: 1024 },
+      },
+      required: ["clipRef"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
 ] as const;
 
 export interface ToolCatalogEntry {

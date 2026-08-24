@@ -231,7 +231,7 @@ def _debug_trace(context: str) -> None:
         sink.record(context)
 
 METHODS = {"status", "snapshot", "discover", "get", "preflight", "prepare", "invoke", "subscribe", "reconnect", "retire"}
-_READ_ONLY_INVOKES = {"session.playback", "automation.envelope.read", "browser.search", "browser.inspect", "audio.capture.inspect", "audio.capture.status", "realtime.stats", "session.reconnect"}
+_READ_ONLY_INVOKES = {"session.playback", "automation.envelope.read", "arrangement.automation.read", "audio.take-lane.read", "audio.warp-marker.read", "browser.search", "browser.inspect", "audio.capture.inspect", "audio.capture.status", "realtime.stats", "session.reconnect"}
 _TRANSACTION_CREATIONS = {"track.create", "track.create-return", "track.duplicate", "scene.create", "scene.duplicate", "clip.create", "clip.duplicate", "arrangement.clip.create", "arrangement.audio-clip.create", "session.audio-clip.create", "browser.load", "device.insert", "session.capture-midi", "scene.capture", "locator.add"}
 _TRANSACTION_DELETIONS = {"track.delete", "track.delete-return", "scene.delete", "clip.delete", "arrangement.clip.delete", "device.delete", "locator.delete"}
 _OWNED_CONTENT_MUTATIONS = {"note.add", "note.add-batch", "note.update", "note.delete"}
@@ -595,7 +595,29 @@ class LiveObjectMapper:
             "registryHash": registry_hash,
             "operations": operations,
             "provenance": self.provenance,
+            "environment": self._environment_probe(),
         }
+
+    def _environment_probe(self) -> dict[str, Any]:
+        """Best-effort read-only evidence of the exact runtime shape for
+        artifact-bound capability probes; every field is None when unprobed."""
+        probe: dict[str, Any] = {"liveVersion": None, "liveEdition": None, "os": sys.platform or None, "api": "Live Object Model via Remote Script"}
+        try:
+            import Live  # type: ignore
+            application = getattr(getattr(Live, "Application", None), "get_application", lambda: None)()
+            if application is not None:
+                for attribute, key in (("get_version", "liveVersion"), ("get_edition", "liveEdition")):
+                    reader = getattr(application, attribute, None)
+                    if callable(reader):
+                        try:
+                            value = reader()
+                            if isinstance(value, (str, int, float)) and not isinstance(value, bool):
+                                probe[key] = str(value)
+                        except BaseException:
+                            pass
+        except BaseException:
+            pass
+        return probe
 
     def _operation_supported(self, operation: str) -> bool:
         """Advertise only operations executable against this observed Live shape."""
@@ -746,6 +768,10 @@ class LiveObjectMapper:
             if operation == "audio.warp-marker.read": return any(self._read_attr(clip, "warp_markers") is not None for clip in audio_clips)
             method = {"audio.warp-marker.add": "add_warp_marker", "audio.warp-marker.move": "move_warp_marker", "audio.warp-marker.delete": "remove_warp_marker"}[operation]
             return any(callable(getattr(clip, method, None)) for clip in audio_clips)
+        if operation == "arrangement.automation.read":
+            arrangement_clips = [clip for track in tracks for clip in self._items(self._read_attr(track, "arrangement_clips") or [])]
+            arrangement_clips += self._items(getattr(self.song, "arrangement_clips", []))
+            return any(callable(getattr(clip, "automation_envelope", None)) for clip in arrangement_clips)
         if operation == "audio.take-lane.read":
             return any(self._read_attr(track, "take_lanes") is not None for track in tracks)
         if operation == "take-lane.create":
@@ -2371,6 +2397,8 @@ class LiveObjectMapper:
             return self._mixer_set(args)
         if operation == "automation.envelope.read":
             return self._envelope_read(args)
+        if operation == "arrangement.automation.read":
+            return self._arrangement_envelope_read(args)
         if operation == "automation.envelope.create":
             return self._envelope_create(args)
         if operation == "automation.envelope.delete":
@@ -3849,6 +3877,22 @@ class LiveObjectMapper:
             if float(amount) < 1 and not before_aligned and self._bounded_canonical(after_rows) != self._bounded_canonical(before_rows):
                 return {"changed": True, "notesRevision": hashlib.sha256(self._bounded_canonical(after_rows).encode("utf-8")).hexdigest()}
         raise ValueError("quantization was not confirmed") from quantize_error
+
+    def _arrangement_envelope_read(self, args: dict[str, Any]) -> dict[str, Any]:
+        clip_ref, parameter_ref = args.get("clipRef"), args.get("parameterRef")
+        if not isinstance(clip_ref, str) or not isinstance(parameter_ref, str) or set(args) - {"clipRef", "parameterRef"}:
+            raise ValueError("arrangement automation read arguments are invalid")
+        if not clip_ref.startswith(f"{self.refs.epoch}:arrangement_clip:"):
+            raise ValueError("arrangement automation requires an exact Arrangement clip reference")
+        self.snapshot()
+        clip = self.refs.get(clip_ref)
+        reader = getattr(clip, "automation_envelope", None)
+        if not callable(reader):
+            raise ValueError("Arrangement automation envelopes are unavailable on this Live shape")
+        parameter = self._resolve_parameter(parameter_ref)
+        envelope = reader(parameter)
+        points = self._envelope_points(envelope) if envelope is not None else []
+        return {"available": True, "exists": envelope is not None, "points": points}
 
     def _take_lane_read(self, args: dict[str, Any]) -> dict[str, Any]:
         track_ref = args.get("trackRef")

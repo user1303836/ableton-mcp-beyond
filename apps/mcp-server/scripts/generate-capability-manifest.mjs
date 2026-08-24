@@ -28,7 +28,7 @@ const registry = JSON.parse(readFileSync(new URL("../../../protocol/ableton-live
 const allIds = registry.operations.map((operation) => operation.id).sort();
 
 const RESERVED = new Set([
-  "arrangement.automation.create", "arrangement.automation.delete", "arrangement.automation.point.delete", "arrangement.automation.point.insert", "arrangement.automation.read",
+  "arrangement.automation.create", "arrangement.automation.delete", "arrangement.automation.point.delete", "arrangement.automation.point.insert",
   "audio.comp.read",
   "browser.preview.start", "browser.preview.stop",
   "project.bounce", "project.collect", "project.export", "project.new", "project.open", "project.save", "project.save-as",
@@ -59,7 +59,7 @@ const FAMILIES = [
   { family: "authority", surface: "Transaction authority preflight/prepare/retire", operations: ["authority.preflight", "authority.prepare", "authority.retire"], firstTested: "internal transaction machinery (not a user-facing Live surface)" },
   { family: "realtime-subscriptions", surface: "Signed event subscriptions and realtime plane", operations: ["subscribe", "realtime.arm", "realtime.disarm", "realtime.stats"], firstTested: "12.4.5b8 phases 7b/7c" },
   { family: "projects", surface: "Project info and verified backup", operations: ["project.bounce", "project.collect", "project.export", "project.new", "project.open", "project.save", "project.save-as"], firstTested: "12.4.5b8 phase 7a info/backup (save/open/export stay reserved limitation reporters)" },
-  { family: "arrangement-automation", surface: "Arrangement automation lanes (reserved)", operations: ["arrangement.automation.create", "arrangement.automation.delete", "arrangement.automation.point.delete", "arrangement.automation.point.insert", "arrangement.automation.read"], firstTested: "unsupported by the stable public LOM; stays reserved and fail-closed" },
+  { family: "arrangement-automation", surface: "Arrangement automation lanes (read-only discovery probe; writes reserved)", operations: ["arrangement.automation.read", "arrangement.automation.create", "arrangement.automation.delete", "arrangement.automation.point.delete", "arrangement.automation.point.insert"], firstTested: "read: shape-probed fake-Live contract and bounded registry schemas; exact real-Live candidate pending. Writes stay reserved and fail-closed" },
 ];
 
 const operations = {};
