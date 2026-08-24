@@ -469,6 +469,18 @@ export function midiExpressionProbe(): { noteSchemaFields: string[]; exposesPerN
  * than the mutation-authority canonicalizer's tighter wire bounds. Ignores
  * server-assigned note ids so content comparisons survive re-creation. */
 export function noteContentDigest(notes: readonly Record<string, unknown>[]): string {
+  return noteSetDigest(notes, false);
+}
+
+/** Exact identity-bound digest for note sets with stable server ids: two
+ * same-onset notes swapping canonical content changes this digest even though
+ * the ID-agnostic content digest stays unchanged. Used for in-place
+ * apply/undo fences where identity is authoritative. */
+export function noteIdentityDigest(notes: readonly Record<string, unknown>[]): string {
+  return noteSetDigest(notes, true);
+}
+
+function noteSetDigest(notes: readonly Record<string, unknown>[], includeIds: boolean): string {
   const canonical = (value: unknown, depth: number): string => {
     if (depth > 8) throw new Error("note content is too deeply nested");
     if (value === null || typeof value === "boolean") return JSON.stringify(value);
@@ -484,6 +496,7 @@ export function noteContentDigest(notes: readonly Record<string, unknown>[]): st
     throw new Error("note content contains an unsupported value");
   };
   const rows = notes.map((note) => {
+    if (includeIds) return note;
     const { id: _id, ...content } = note;
     return content;
   });

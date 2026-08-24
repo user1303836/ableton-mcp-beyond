@@ -194,21 +194,20 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
     return wireResult;
   }
   async retireTransactionAsync(transactionId: string, context?: LiveOperationContext, terminal = false): Promise<{ retired: number }> { if (transactionId.length < 8 || transactionId.length > 128) throw new Error("remote retirement transaction id is invalid"); await this.ensureConnectedAsync(context); const result = await this.requestAsync({ method: "retire", transactionId, ...(terminal ? { terminal: true } : {}) }, "authority.retire", context) as { retired: number }; if (terminal) this.cleanupOwnership.delete(transactionId); return result; }
-  /** Emit a synthetic local reset event when the adapter itself observes a
-   * connect/disconnect/epoch/negotiated-shape change, so subscribers (the host's
-   * tool-list notification path) learn about it proactively instead of on the
-   * next request. */
-  private emitLocalReset(reason: string): void {
-    const event: LiveEvent = { epoch: this.epoch ?? 0, sequence: 0, type: "reset", payload: { reason } };
-    for (const listener of this.listeners) listener(event);
-  }
+  /** Internal adapter-status change channel (never the public LiveEvent stream:
+   * those events carry remote wire sequence semantics that synthetic events
+   * must not contaminate). Subscribers are notified after connect/disconnect,
+   * reconnect, and negotiated operation/capability shape changes. */
+  private readonly statusListeners = new Set<(status: LiveStatus) => void>();
+  subscribeStatus(listener: (status: LiveStatus) => void): () => void { this.statusListeners.add(listener); return () => this.statusListeners.delete(listener); }
+  private emitStatusChange(): void { for (const listener of this.statusListeners) listener(this.cached); }
   private shapeChanged(prior: LiveStatus, next: LiveStatus): boolean {
     return prior.connected !== next.connected || prior.epoch !== next.epoch || JSON.stringify(prior.operations ?? []) !== JSON.stringify(next.operations ?? []) || JSON.stringify([...prior.capabilities].sort()) !== JSON.stringify([...next.capabilities].sort());
   }
-  reconnectAsync(context?: LiveOperationContext): Promise<LiveStatus> { return this.ensureConnectedAsync(context).then(() => this.requestAsync({ method: "reconnect" }, "reconnect", context)).then((value) => { const status = value as LiveStatus; if (!validStatus(status)) throw new Error("invalid reconnect status"); const changed = this.shapeChanged(this.cached, status); this.epoch = status.epoch; this.cached = status; this.lastEventEpoch = this.epoch; this.lastEventSequence = 0; this.cleanupOwnership.clear(); if (changed) this.emitLocalReset("reconnect"); return status; }); }
+  reconnectAsync(context?: LiveOperationContext): Promise<LiveStatus> { return this.ensureConnectedAsync(context).then(() => this.requestAsync({ method: "reconnect" }, "reconnect", context)).then((value) => { const status = value as LiveStatus; if (!validStatus(status)) throw new Error("invalid reconnect status"); const changed = this.shapeChanged(this.cached, status); this.epoch = status.epoch; this.cached = status; this.lastEventEpoch = this.epoch; this.lastEventSequence = 0; this.cleanupOwnership.clear(); if (changed) this.emitStatusChange(); return status; }); }
   /** Re-request the mapper's current status without a reconnect; operations and
    * capabilities reflect the shape at call time (no epoch change). */
-  refreshStatusAsync(context?: LiveOperationContext): Promise<LiveStatus> { return this.ensureConnectedAsync(context).then(() => this.requestAsync({ method: "status" }, "status", context)).then((value) => { const status = value as LiveStatus; if (!validStatus(status)) throw new Error("invalid refreshed status"); const changed = this.shapeChanged(this.cached, status); this.cached = status; if (changed) this.emitLocalReset("negotiated-shape-changed"); return status; }); }
+  refreshStatusAsync(context?: LiveOperationContext): Promise<LiveStatus> { return this.ensureConnectedAsync(context).then(() => this.requestAsync({ method: "status" }, "status", context)).then((value) => { const status = value as LiveStatus; if (!validStatus(status)) throw new Error("invalid refreshed status"); const changed = this.shapeChanged(this.cached, status); this.cached = status; if (changed) this.emitStatusChange(); return status; }); }
   async close(): Promise<void> { this.explicitlyClosed = true; this.failPending(new Error("remote adapter disconnected")); this.helloReject?.(new Error("remote adapter disconnected")); this.helloResolve = undefined; this.helloReject = undefined; this.socket?.destroy(); this.socket = undefined; this.cached = { ...this.cached, connected: false, reason: "closed" }; }
 
   private contextualReconnectWait(promise: Promise<void>, context?: LiveOperationContext): Promise<void> {
@@ -237,7 +236,9 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
       const value = await this.requestAsync({ method: "status" }, "status") as LiveStatus;
       if (!validStatus(value) || !value.connected || value.adapter !== "remote-script" || value.epoch === null) throw new Error("remote adapter recovery negotiation failed");
       if ((priorBridgeEpoch && this.bridgeEpoch !== priorBridgeEpoch) || (priorLiveEpoch !== null && value.epoch !== priorLiveEpoch)) { this.cached = { ...this.cached, connected: false, reason: "remote-bridge-or-live-epoch-changed" }; this.reconciliationPoisoned = true; this.bridgeEpoch = undefined; this.connectionChallenge = undefined; this.socket?.destroy(); this.socket = undefined; throw new Error("remote bridge or Live epoch changed; mutation reconciliation is unavailable"); }
+      const changed = this.shapeChanged(this.cached, value);
       this.epoch = value.epoch; this.cached = value; this.lastEventEpoch = this.epoch; this.lastEventSequence = 0;
+      if (changed) this.emitStatusChange();
       if (this.activeSubscriptionArgs) {
         const subscribed = await this.requestAsync({ method: "subscribe", args: this.activeSubscriptionArgs }, "subscribe") as { subscribed?: unknown };
         if (subscribed.subscribed !== true) throw new Error("remote adapter subscription restoration failed");
@@ -259,7 +260,7 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
       this.helloResolve = resolve; this.helloReject = reject;
       const handshakeTimeout = context?.deadlineMs === undefined ? configuredTimeout : deadlineRemaining;
       const timer = setTimeout(() => { socket.destroy(); reject(new Error("remote adapter connection timed out")); }, Math.max(1, handshakeTimeout));
-      const disconnected = (error: Error) => { cleanupHandshake(); if (this.socket !== socket) return; const wasConnected = this.cached.connected; this.socket = undefined; this.cached = { ...this.cached, connected: false, reason: "remote-adapter-disconnected" }; if (this.bridgeEpoch && wasConnected) this.emitLocalReset("disconnect"); if (!this.bridgeEpoch) reject(error); this.failPending(error); };
+      const disconnected = (error: Error) => { cleanupHandshake(); if (this.socket !== socket) return; const wasConnected = this.cached.connected; this.socket = undefined; this.cached = { ...this.cached, connected: false, reason: "remote-adapter-disconnected" }; if (this.bridgeEpoch && wasConnected) this.emitStatusChange(); if (!this.bridgeEpoch) reject(error); this.failPending(error); };
       socket.on("data", (chunk) => { if (this.socket === socket) this.onData(chunk); });
       socket.on("error", (error) => disconnected(error));
       socket.on("close", () => disconnected(new Error("remote adapter disconnected")));
