@@ -21,3 +21,4 @@ apps/mcp-server/*.tgz
 # Python bytecode
 __pycache__/
 *.pyc
+/.pi/
