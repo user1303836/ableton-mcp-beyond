@@ -57,16 +57,21 @@ prevents accidental publication but does not change MIT rights; see
 effective deployment policy — never unavailable placeholders or tools the
 negotiated Live shape cannot run. The server advertises
 `notifications/tools/list_changed` and emits it on connect/disconnect, epoch or
-operation-set change, and effective runtime policy change. Save/open and other
-negotiated limitations are reported through the `ableton://capabilities`
-resource's `limitations` section instead of callable discovery.
+operation-set change, and effective runtime policy change; adapter status
+refreshes, same-epoch reconnects, and mid-session disconnects announce the
+change as it happens rather than on the next request. The always-visible
+`live_status` read first attempts a bounded refresh/reconnect, so a dropped
+same-epoch bridge can never deadlock discovery behind a stale disconnected
+cache. Save/open and other negotiated limitations are reported through the
+`ableton://capabilities` resource's `limitations` section instead of callable
+discovery.
 
 The deployment policy intersects a named profile with explicit overrides;
 deny always wins:
 
 - `read-only` — local tools and read-only Live discovery; no mutation.
 - `edit-no-audio` — read plus structural, MIDI, device, mixer, automation, and routing edits; no audible, audio-file, recording, realtime, capture, or filesystem-mutating tools.
-- `performance` — read plus live-set control: transport, tempo, clip/scene launch, guarded audition, emergency stop, mixer, views, selection, and locator navigation.
+- `performance` — read plus live-set control: transport, tempo, clip/scene launch, guarded audition, emergency stop, mixer, views, selection, and locator navigation. Guarded undo and recovery finalization remain available so applied transactions are never stranded; the owner-domain re-check still refuses undo for disallowed domains.
 - `full` (default) — every currently executable tool.
 
 Configure with `ABLETON_MCP_TOOL_POLICY` (profile name) and the optional
@@ -90,7 +95,7 @@ Implemented workflows:
 - `live_midi_clip_preview/apply` — a bounded MIDI clip in an empty Session slot, including normalized notes. Apply creates the clip, submits the complete validated note set through one canonical `note.add-batch` mutation, then verifies authoritative note content.
 - `live_arrangement_section_preview/apply` — two named locators in a bounded non-colliding range.
 - `live_tempo_preview/apply` — a bounded tempo change.
-- `live_midi_transform_preview/apply` — one deterministic seeded MIDI transform on an exact clip: transpose, scale-constrain, quantize, swing, velocity-curve, seeded humanize, legato, staccato, rotate, repeat, ratchet, chord voicing, arpeggiate, or seeded variation. The preview returns the exact add/update/delete note diff, source revision, constraints, assumptions, the MPE probe, and the undo path. Stochastic transforms require an explicit seed and are byte-for-byte repeatable. Generative or large transforms default to duplicate-first into an exact empty slot (the source is preserved); in-place generative edits are refused because delete/recreate cannot preserve per-note expression the canonical note schema does not expose, while update-only transforms patch exposed fields through `note.update`, which preserves unexposed per-note data.
+- `live_midi_transform_preview/apply` — one deterministic seeded MIDI transform on an exact clip: transpose, scale-constrain, quantize, swing, velocity-curve, seeded humanize, legato, staccato, rotate, repeat, ratchet, chord voicing, arpeggiate, or seeded variation. The preview returns the exact add/update/delete note diff, source revision, constraints, assumptions, the MPE probe, and the undo path. Stochastic transforms require an explicit seed and are byte-for-byte repeatable. Generative or large transforms default to duplicate-first into an exact empty slot (the source is preserved); in-place generative edits are refused because delete/recreate cannot preserve per-note expression the canonical note schema does not expose, while update-only transforms patch exposed fields through `note.update`, which preserves unexposed per-note data. Note mutations execute in registry-bounded chunks, and every chunk is fenced against the expected intermediate note set, so an external edit between chunks fails closed rather than being overwritten; an exact-key retry resumes the recorded plan after a mid-plan failure. In-place undo requires the exact verified post-transform state (identity-bound, so a content swap between notes also refuses) and restores prior fields in resume-aware chunks; duplicate-scope undo deletes only the transaction-created clip, and a failed duplicate apply leaves the transaction-owned duplicate for the exact-key resume rather than blind-deleting it.
 - `live_undo` — undo an applied transaction whose epoch and verified postcondition still match, or exact-key reconciliation of an acknowledgement-lost undo in the unchanged epoch.
 - `live_recovery_finalize` — retire a recovery-protected record only after explicit authoritative manual recovery evidence. It never mutates Live, refuses active audible work, and retires Remote Script replay authority before forgetting the record.
 - Purpose-specific clip launch/stop, transport, note update/delete/read/edit, clip duplicate/move/rename/properties/actions, track/scene/device/locator rename, Arrangement clip creation/move and file-backed audio import, Session audio import with explicit file authority, audio-clip, warp-marker, mixer, Session automation (including clear-all-envelopes), Browser/device insertion, routing, recording, project-backup, subscription, locator-jump, view, and realtime workflows when their exact operations are negotiated. Capture MIDI is negotiated only while every Session slot is empty. Arbitrary device or Arrangement clip deletion is refused because prior state cannot be reconstructed; only identity-and-fingerprint-bound transaction-owned cleanup is available through `live_undo`.

@@ -30,7 +30,12 @@ git diff --cached --check
 
 Node tests compile into `dist/` and cover MCP lifecycle, schema validation,
 bounded concurrent stdio framing, async adapter behavior, authenticated
-loopback responses, Session audition preflight/apply/stop, transactions, standards loudness/true peak, bounded reference alignment,
+loopback responses, Session audition preflight/apply/stop, transactions,
+capability-aware tool discovery and deployment policy profiles with
+list-changed notifications, deterministic seeded MIDI transforms with
+interim-fenced chunked execution and replay-aware resume, Browser inspection
+and hardened one-file import, read-only Arrangement-automation, take-lane/comp,
+and warp-marker probes with revision-bound paging, standards loudness/true peak, bounded reference alignment,
 secret-stripped worker cancellation/queue limits, secure WAV/ASD lifecycle,
 signal-chain diagnosis, consent-bound capture normal/cancel paths, properties,
 delivery, receipt-driven install/activation/upgrade/repair/rollback/uninstall,

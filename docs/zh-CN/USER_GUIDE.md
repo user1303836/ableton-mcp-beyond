@@ -103,7 +103,12 @@ SHA-256 安装。`private: true` 仅防止意外发布,不改变 MIT 权利;见
   与指纹的事务自有清理才可用。
 - 音频剪辑预览只接受该精确剪辑所宣告的字段(`availableAudioFields`):
   增益、音高、循环、warp 开关/模式与淡化(视支持情况)。Warp 标记编辑使用
-  `live_warp_marker_preview/apply`,按节拍时间寻址,并带集合栅栏和受护栏撤销。
+  `live_warp_marker_preview/apply`,按节拍时间寻址,并带集合栅栏和受护栏撤销;
+  `live_warp_marker_read` 提供只读探测。Session 音频导入
+  (`live_audio_import_preview/apply`)要求所有者白名单根目录、容器魔数与
+  声明格式一致的常规文件、大小与 SHA-256 预览、精确的空目标槽、应用时
+  重新校验(防 TOCTOU),以及只对未变更的已建剪辑做事务清理;源媒体绝不
+  删除或改写,MIDI 文件在具备规范的 Session MIDI 文件操作之前会被明确拒绝。
   现有 take lane 可发现和重命名,并可通过 `live_audio_import_preview/apply`
   创建文件音频剪辑。Lane 创建与 MIDI lane 剪辑创建存在于映射器操作中,
   但当前公共 MCP 工具模式未宣告这些路径。公共 LOM 不提供 take-lane

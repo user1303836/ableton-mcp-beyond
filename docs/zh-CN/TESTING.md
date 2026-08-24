@@ -30,7 +30,10 @@ git diff --cached --check
 
 Node 测试编译到 `dist/`,覆盖:MCP 生命周期、模式验证、有界并发 stdio
 组帧、异步适配器行为、已认证回环响应、Session 试听 preflight/apply/
-stop、事务、标准响度/真峰值、有界参考对齐、密钥剥离 worker 取消/队列
+stop、事务、能力感知的工具发现与部署策略配置档(含 list-changed
+通知)、带中间态栅栏分块执行与重放感知恢复的确定性带种子 MIDI 变换、
+Browser 检查与加固的单文件导入、只读 Arrangement 自动化、take-lane/comp
+与 warp 标记探测(修订绑定分页)、标准响度/真峰值、有界参考对齐、密钥剥离 worker 取消/队列
 限制、安全的 WAV/ASD 生命周期、信号链诊断、知情同意捕获的正常/取消
 路径、属性、交付、回执驱动的安装/激活/升级/修复/回滚/卸载、旅程规划/
 回退/权利/无障碍契约,以及软件包安装。`journey:verify` 安装打包产物,

@@ -9,6 +9,11 @@
 
 - `apps/mcp-server/src/host.ts`:MCP 生命周期、严格的工具模式、异步分发、
   事务状态与恢复错误。
+- `apps/mcp-server/src/tool-catalog.ts`:单一声明式工具目录 —— schema、注解、
+  精确能力/操作/来源前置条件与部署策略类别 —— 驱动能力感知的
+  `tools/list`、能力资源、list-changed 通知与服务端派发栅栏。
+- `apps/mcp-server/src/midi-transforms.ts`:变换预览/应用工具共享的纯确定性
+  带种子 MIDI 变换原语。
 - `apps/mcp-server/src/live.ts`:Live 类型、注册表派生的标识符/哈希、
   不可用适配器、模拟器,以及测试与进程支持的调用方当前使用的同步加
   Promise 适配器契约。
