@@ -212,6 +212,58 @@ test("exact-key replay after a failed uncertain-audition stop reconciles without
   assert.equal(reconciled.state, "stopped"); assert.equal(counts.stops, 1);
 });
 
+test("audition apply records pre-dispatch failures as previewed and re-appliable", async () => {
+  const { state, counts, adapter } = auditionFixture();
+  const host = new McpHost(adapter); ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(2, "live_session_audition_preview", { sceneRef: "scene:scene-1", setName: "Disposable Set", outputSafety: { safe: true, provenance: "operator-confirmed-headphones", scope: "master" } })) as any).result.content[0].text);
+  state.set = { ...state.set, name: "Renamed Before Apply" };
+  const failed = await call(3, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-1" });
+  assert.equal((failed as any).result.isError, true); assert.equal(counts.launches, 0);
+  assert.match(JSON.parse((failed as any).result.content[0].text).remediation, /before dispatch/);
+  state.set = { ...state.set, name: "Disposable Set" };
+  const applied = JSON.parse(((await call(4, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-2" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied"); assert.equal(counts.launches, 1);
+});
+
+test("audition reconciliation revalidates the fence and safety host-side before dispatch", async () => {
+  const { state, counts, adapter } = auditionFixture();
+  const original = adapter.invokeAsync.bind(adapter); let outcomeUnknown = false;
+  adapter.invokeAsync = async (invocation: any) => {
+    if (invocation.operation === "session.audition-launch" && !outcomeUnknown) { outcomeUnknown = true; throw new Error("remote adapter request state uncertain after dispatch timeout"); }
+    return original(invocation);
+  };
+  const host = new McpHost(adapter); ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(2, "live_session_audition_preview", { sceneRef: "scene:scene-1", setName: "Disposable Set", outputSafety: { safe: true, provenance: "operator-confirmed-headphones", scope: "master" } })) as any).result.content[0].text);
+  const apply = await call(3, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-1" });
+  assert.equal((apply as any).result.isError, true); assert.equal(counts.launches, 0); assert.equal(state.playback.transport.playing, false);
+  state.set = { ...state.set, name: "Renamed Externally" };
+  const refused = await call(4, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-1" });
+  assert.equal((refused as any).result.isError, true); assert.equal(counts.launches, 0);
+  state.set = { ...state.set, name: "Disposable Set" };
+  const retried = JSON.parse(((await call(5, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-1" })) as any).result.content[0].text);
+  assert.equal(retried.state, "applied"); assert.equal(counts.launches, 1);
+});
+
+test("uncertain-after-dispatch audition reconciliation refuses host-side without a second dispatch", async () => {
+  const { state, counts, adapter } = auditionFixture();
+  const original = adapter.invokeAsync.bind(adapter); let ackLost = false;
+  adapter.invokeAsync = async (invocation: any) => {
+    if (invocation.operation === "session.audition-launch" && !ackLost) { ackLost = true; await original(invocation); throw new Error("remote adapter request state uncertain after dispatch timeout"); }
+    return original(invocation);
+  };
+  const host = new McpHost(adapter); ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(2, "live_session_audition_preview", { sceneRef: "scene:scene-1", setName: "Disposable Set", outputSafety: { safe: true, provenance: "operator-confirmed-headphones", scope: "master" } })) as any).result.content[0].text);
+  const apply = await call(3, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-1" });
+  assert.equal((apply as any).result.isError, true); assert.equal(counts.launches, 1); assert.equal(state.playback.transport.playing, true);
+  const retry = await call(4, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-1" });
+  assert.equal((retry as any).result.isError, true); assert.equal(counts.launches, 1); assert.equal(state.playback.transport.playing, true);
+  const stopped = JSON.parse(((await call(5, "live_session_audition_stop", { transactionId: preview.transactionId, confirmation: preview.stopConfirmation, idempotencyKey: "audition-stop-1" })) as any).result.content[0].text);
+  assert.equal(stopped.state, "stopped"); assert.equal(state.playback.transport.playing, false);
+});
+
 test("concurrent duplicate audition applies dispatch exactly one launch and one replay result", async () => {
   const { counts, adapter } = auditionFixture();
   const host = new McpHost(adapter);

@@ -1345,7 +1345,7 @@ export class McpHost {
         const outcome = await transaction.inflight;
         return this.successText(id, { ...outcome, idempotent: true });
       } catch (cause) {
-        return this.adapterToolError(id, cause, "Audition state is uncertain; do not retry. Perform fresh playback discovery before stopping or recovering.");
+        return this.auditionApplyError(id, cause, transaction);
       }
     }
     const reconciliation = transaction.state === "uncertain" && transaction.applyKey === params.idempotencyKey && transaction.confirmation === params.confirmation;
@@ -1362,23 +1362,34 @@ export class McpHost {
       const outcome = await inflight;
       return this.successText(id, { ...outcome, idempotent: false });
     } catch (cause) {
-      return this.adapterToolError(id, cause, "Audition state is uncertain; do not retry. Perform fresh playback discovery before stopping or recovering.");
+      return this.auditionApplyError(id, cause, transaction);
     }
   }
 
+  private auditionApplyError(id: RequestId, cause: unknown, transaction: SessionAuditionTransaction): JsonObject {
+    return this.adapterToolError(id, cause, transaction.state === "previewed" ? "Audition apply failed before dispatch; the preview remains available until expiry." : "Audition state is uncertain; do not retry. Perform fresh playback discovery before stopping or recovering.");
+  }
+
   private async dispatchAuditionApply(transaction: SessionAuditionTransaction, signal?: AbortSignal, reconciliation = false): Promise<JsonObject> {
+    // A reconciled transaction may have dispatched previously, so its
+    // pre-dispatch failures must preserve uncertain rather than restore the
+    // preview (mirroring the capture apply path).
+    let dispatched = reconciliation;
     try {
       if (reconciliation) await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
       const status = this.requireConnected("session.read");
       if (status.epoch !== transaction.epoch) throw new Error("Live connection epoch changed; preview again");
       const adapter = this.asyncAdapter();
       const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: transaction.applyKey, transactionId: transaction.id };
-      let scene = JSON.parse(transaction.sceneRevision) as { name?: unknown; index?: unknown }; let playbackRevision = transaction.playbackRevision;
-      if (!reconciliation) { const before = await adapter.snapshotAsync(context); const state = this.auditionSnapshot(before, transaction.sceneRef);
-        if (JSON.stringify(state.scene) !== transaction.sceneRevision || state.playbackRevision !== transaction.playbackRevision || state.set.objectIdentity !== transaction.setIdentity || this.auditionAuthorityRevision(before, transaction.sceneRef, transaction.eligibleTargetKeys) !== transaction.authorityRevision) throw new Error("audition state or identity hierarchy changed since preview");
-        // Safety evidence and all dynamic preconditions are rechecked immediately before the single potentially audible dispatch.
-        this.validateAuditionSafety(status, state.set, state.tracks, state.playback, transaction.outputSafety, transaction.setName); scene = state.scene; playbackRevision = state.playback.revision; }
+      // The authority fence, safety evidence, and all dynamic preconditions are
+      // rechecked host-side immediately before the single potentially audible
+      // dispatch on both the initial and the reconciliation path.
+      const before = await adapter.snapshotAsync(context); const state = this.auditionSnapshot(before, transaction.sceneRef);
+      if (JSON.stringify(state.scene) !== transaction.sceneRevision || state.playbackRevision !== transaction.playbackRevision || state.set.objectIdentity !== transaction.setIdentity || this.auditionAuthorityRevision(before, transaction.sceneRef, transaction.eligibleTargetKeys) !== transaction.authorityRevision) throw new Error("audition state or identity hierarchy changed since preview");
+      this.validateAuditionSafety(status, state.set, state.tracks, state.playback, transaction.outputSafety, transaction.setName);
+      const scene = state.scene; const playbackRevision = state.playback.revision;
       if (signal?.aborted) throw new Error("audition apply cancelled before dispatch");
+      dispatched = true;
       const result = await adapter.invokeAsync({ operation: "session.audition-launch", args: { ref: transaction.sceneRef, setName: transaction.setName, sceneName: scene.name, sceneIndex: scene.index, playbackRevision, eligibleTargets: transaction.eligibleTargetKeys, expectedSetIdentity: transaction.setIdentity, expectedAuthorityRevision: transaction.authorityRevision, outputSafety: transaction.outputSafety } }, context) as { launched?: unknown; targets?: unknown };
       const targets = Array.isArray(result?.targets) ? result.targets : [];
       if (result?.launched !== transaction.sceneRef || targets.some((target) => !isObject(target) || target.sceneRef !== transaction.sceneRef || !transaction.eligibleTargetKeys.includes(`${target.trackRef}|${target.clipSlotRef}|${target.sceneRef}`))) throw new Error("guarded launch result does not match the audition target");
@@ -1398,10 +1409,10 @@ export class McpHost {
       transaction.state = "applied";
       return { transactionId: transaction.id, state: "applied", launched: transaction.launched, verified: { sceneRef: transaction.sceneRef, firedOrPlaying: true }, stopConfirmation: transaction.stopConfirmation };
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      // A failure proven to be pre-dispatch restores the preview; anything else
-      // is an explicitly uncertain audible state.
-      transaction.state = /cancelled before dispatch/.test(message) ? "previewed" : "uncertain";
+      // A failure proven to be pre-dispatch restores the preview and clears the
+      // reserved key; anything else is an explicitly uncertain audible state.
+      transaction.state = dispatched ? "uncertain" : "previewed";
+      if (!dispatched) delete transaction.applyKey;
       throw cause;
     }
   }
