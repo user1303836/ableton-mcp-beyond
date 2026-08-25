@@ -39,6 +39,47 @@ function expectedPackagedCounts() {
   return { packaged, payload: packaged - 1 };
 }
 
+// Tool names are locale-invariant: every user guide names tools in backticks,
+// either exactly (`live_undo`) or as combined pairs (`live_tempo_preview/apply`
+// expands to `live_tempo_preview` + `live_tempo_apply`). Anchoring to the
+// catalog keeps prose snake_case words out of the comparison. The guides
+// summarize many tools without naming them; this check enforces cross-locale
+// parity of the named inventory so a tool addition cannot silently skip one
+// locale (the zh-CN guide missed five entries plus the policy section once).
+const catalogSource = readFileSync(resolve(packageRoot, "src/tool-catalog.ts"), "utf8");
+const catalogNames = new Set();
+for (const match of catalogSource.matchAll(/(?:name|prefix): "([a-z][a-z0-9_]*(?:_\*)?)"/g)) {
+  catalogNames.add(match[1].endsWith("_*") ? match[1].slice(0, -2) : match[1]);
+}
+
+function documentedTools(path) {
+  const found = new Set();
+  for (const match of readFileSync(path, "utf8").matchAll(/`([^`\s]+)`/g)) {
+    const token = match[1];
+    if (/^[a-z][a-z0-9_]*$/.test(token)) {
+      if (catalogNames.has(token)) found.add(token);
+      continue;
+    }
+    const pair = token.match(/^([a-z][a-z0-9_]*?)_([a-z]+(?:\/[a-z]+)+)$/);
+    if (pair) {
+      for (const suffix of pair[2].split("/")) {
+        const candidate = `${pair[1]}_${suffix}`;
+        if (catalogNames.has(candidate)) found.add(candidate);
+      }
+    }
+  }
+  return found;
+}
+
+test("en, zh-CN, and ja user guides document the same tool-name inventory", () => {
+  const inventories = ["en", "zh-CN", "ja"].map((locale) => [locale, documentedTools(resolve(repositoryRoot, "docs", locale, "USER_GUIDE.md"))]);
+  const [[baselineLocale, baseline], ...rest] = inventories;
+  assert.ok(baseline.size > 0, "en USER_GUIDE.md names no catalog tools; update this drift test to match the new doc shape");
+  for (const [locale, tools] of rest) {
+    assert.deepEqual([...tools].sort(), [...baseline].sort(), `${locale} USER_GUIDE.md tool inventory differs from ${baselineLocale}`);
+  }
+});
+
 // Numeric payload/path-count claims next to allowlist/manifest/tarball wording
 // are exactly the claims that went stale before (the "77-file allowlist").
 // Documentation should name release-manifest.json as the source of truth; any
