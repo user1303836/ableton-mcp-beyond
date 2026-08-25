@@ -2190,6 +2190,30 @@ test("track structure (return tracks, duplication), device deletion, and track v
   assert.equal(((await call(20, "live_undo", { transactionId: deletePreview.transactionId, confirmation: "undo", idempotencyKey: "devdel-undo" })) as any).result.isError, true);
 });
 
+test("selection+drawMode apply failure compensates with allowlisted selection.set args and restores the exact prior selection", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const original = simulator.invokeAsync.bind(simulator);
+  const selectionCalls: Array<Record<string, unknown>> = [];
+  simulator.invokeAsync = async (invocation) => {
+    if (invocation.operation === "song.view.set") throw new Error("song view state changed since preview");
+    if (invocation.operation === "selection.set") selectionCalls.push(structuredClone(invocation.args) as Record<string, unknown>);
+    return original(invocation);
+  };
+  const host = new McpHost(simulator); ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(2, "live_selection_preview", { detailClipRef: null, drawMode: true })) as any).result.content[0].text);
+  assert.equal(preview.prior.detailClipRef, "clip:clip-1"); assert.equal(preview.prior.drawMode, false);
+  const applied = await call(3, "live_selection_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "select-draw-fail" });
+  assert.equal((applied as any).result.isError, true);
+  // The proposal and the compensation both dispatched; the compensation carries only selection.set-allowlisted keys.
+  assert.equal(selectionCalls.length, 2);
+  const allowlist = new Set(["trackRef", "sceneRef", "detailClipRef", "slotRef", "deviceRef", "parameterRef", "chainRef", "expectedStateRevision"]);
+  for (const args of selectionCalls) for (const key of Object.keys(args)) assert.ok(allowlist.has(key), `selection.set received non-allowlisted key ${key}`);
+  assert.equal(selectionCalls[1]!.detailClipRef, "clip:clip-1");
+  assert.equal((simulator as any).state.selection.detailClipRef, "clip:clip-1");
+  assert.equal((simulator as any).state.view.drawMode, false);
+});
+
 test("selection, draw mode, clip view, device view, and guarded dialog surface", async () => {
   const simulator = new DeterministicLiveSimulator();
   const host = new McpHost(simulator);

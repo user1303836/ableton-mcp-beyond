@@ -3452,6 +3452,17 @@ class SelectionViewExpansionTests(unittest.TestCase):
         stale = dict(args, expectedStateRevision="0" * 64)
         with self.assertRaisesRegex(ValueError, "changed since preview"): mapper.invoke("selection.set", stale)
 
+    def test_selection_set_rejects_draw_mode_and_other_non_selection_fields(self):
+        song = FakeSong()
+        song.view = type("SongView", (), {"selected_track": None, "selected_scene": None, "highlighted_clip_slot": None, "detail_clip": None, "selected_device": None, "selected_parameter": None, "selected_chain": None})()
+        mapper = LiveObjectMapper(song)
+        track_ref = mapper.snapshot()["tracks"][0]["ref"]
+        with self.assertRaisesRegex(ValueError, "selection fields are invalid"):
+            mapper.invoke("selection.set", {"trackRef": track_ref, "drawMode": False, "expectedStateRevision": mapper._selection_revision()})
+        with self.assertRaisesRegex(ValueError, "selection fields are invalid"):
+            mapper.invoke("selection.set", {"trackRef": track_ref, "unexpected": 1, "expectedStateRevision": mapper._selection_revision()})
+        self.assertIsNone(song.view.selected_track)
+
     def test_song_view_draw_mode_clip_view_and_device_view(self):
         song = FakeSong()
         song.view = type("SongView", (), {"draw_mode": False})()

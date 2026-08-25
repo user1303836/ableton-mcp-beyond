@@ -4448,7 +4448,9 @@ export class McpHost {
           if (drawResult.changed !== true) throw new Error("draw-mode change was not confirmed");
         } catch (cause) {
           if (selectionApplied && transaction.prior) {
-            try { await adapter.invokeAsync({ operation: "selection.set", args: { ...(transaction.prior as Record<string, unknown>), expectedStateRevision: this.selectionRevision(await adapter.snapshotAsync(context)) } }, context); } catch { throw new Error("draw-mode change failed and selection compensation failed"); }
+            // The mapper's selection.set rejects drawMode; compensation must carry only exact prior selection fields.
+            const compensation = Object.fromEntries(Object.entries(transaction.prior as Record<string, unknown>).filter(([key]) => key !== "drawMode"));
+            try { await adapter.invokeAsync({ operation: "selection.set", args: { ...compensation, expectedStateRevision: this.selectionRevision(await adapter.snapshotAsync(context)) } }, context); } catch { throw new Error("draw-mode change failed and selection compensation failed"); }
           }
           throw cause;
         }
