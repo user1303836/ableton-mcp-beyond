@@ -2323,6 +2323,12 @@ test("device banks, automation re-enable, comparison save, chain insert, and cro
   const reenabled = JSON.parse(((await call(7, "live_device_advanced_apply", { transactionId: reenablePreview.transactionId, confirmation: "apply", idempotencyKey: "reenable-1" })) as any).result.content[0].text);
   assert.equal(reenabled.state, "applied");
   assert.equal(((await call(8, "live_undo", { transactionId: reenablePreview.transactionId, confirmation: "undo", idempotencyKey: "reenable-undo" })) as any).result.isError, true);
+  // Rack macros are first-class parameter refs: re-enable-automation resolves and applies on them.
+  (simulator as any).state.tracks[0].devices.push({ ref: "device:rack-1", parentRef: "track:track-1", name: "Rack", kind: "instrument", className: "RackDevice", parameters: [], macros: [{ ref: "parameter:rack-1:macro:0", objectIdentity: "simulator:parameter:rack-1:macro:0", name: "Macro 1", value: 0.5 }], chains: [], drumPads: [], objectIdentity: "simulator:device:rack-1", enabled: true });
+  const macroPreview = JSON.parse(((await call(80, "live_device_advanced_preview", { action: "re-enable-automation", ref: "parameter:rack-1:macro:0" })) as any).result.content[0].text);
+  const macroReenabled = JSON.parse(((await call(81, "live_device_advanced_apply", { transactionId: macroPreview.transactionId, confirmation: "apply", idempotencyKey: "reenable-macro-1" })) as any).result.content[0].text);
+  assert.equal(macroReenabled.state, "applied");
+  (simulator as any).state.tracks[0].devices.pop();
   const comparePreview = JSON.parse(((await call(9, "live_device_advanced_preview", { action: "save-comparison", ref: "device:utility-1" })) as any).result.content[0].text);
   const compared = JSON.parse(((await call(10, "live_device_advanced_apply", { transactionId: comparePreview.transactionId, confirmation: "apply", idempotencyKey: "compare-1" })) as any).result.content[0].text);
   assert.equal(compared.state, "applied");

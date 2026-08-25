@@ -5470,8 +5470,9 @@ export class McpHost {
   private parameterRow(snapshot: LiveSnapshot, parameterRef: LiveRef): JsonObject {
     const walk = (devices: JsonObject[]): JsonObject | undefined => {
       for (const device of devices) {
-        const parameters = ((device.parameters as unknown[]) ?? []).filter(isObject);
-        const found = parameters.find((parameter) => parameter.ref === parameterRef);
+        // Rack macros are first-class addressable parameters (kind "rack-macro"), mirroring the realtime target resolver.
+        const rows = [...((device.parameters as unknown[]) ?? []), ...((device.macros as unknown[]) ?? [])].filter(isObject);
+        const found = rows.find((parameter) => parameter.ref === parameterRef);
         if (found) return found;
         for (const chain of ((device.chains as unknown[]) ?? []).filter(isObject)) { const nested = walk(((chain.devices as unknown[]) ?? []).filter(isObject)); if (nested) return nested; }
         for (const pad of ((device.drumPads as unknown[]) ?? []).filter(isObject)) { for (const chain of ((pad.chains as unknown[]) ?? []).filter(isObject)) { const nested = walk(((chain.devices as unknown[]) ?? []).filter(isObject)); if (nested) return nested; } }

@@ -3725,6 +3725,19 @@ class DeviceParameterExpansionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unavailable"):
             mapper.invoke("device.comparison.save-to-slot", {"ref": device_row["ref"], "expectedObjectIdentity": device_row["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({"canCompareAb": False, "isUsingComparePresetB": False}).encode()).hexdigest()})
 
+    def test_parameter_re_enable_automation_accepts_rack_macro_refs(self):
+        song = FakeSong()
+        rack = FakeRackDevice()
+        macro = rack.macros[0]
+        called = []
+        macro.re_enable_automation = lambda: called.append(True)
+        song.tracks[0].devices = [rack]
+        mapper = LiveObjectMapper(song)
+        macro_row = mapper.snapshot()["tracks"][0]["devices"][0]["macros"][0]
+        self.assertTrue(macro_row["ref"].endswith(":macro:0"))
+        result = mapper.invoke("parameter.re-enable-automation", {"ref": macro_row["ref"], "expectedObjectIdentity": macro_row["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({"automationState": "none"}).encode()).hexdigest()})
+        self.assertEqual(result, {"done": True}); validate_operation_payload("parameter.re-enable-automation", "result", result); self.assertEqual(called, [True])
+
     def test_cross_track_and_chain_device_move(self):
         song = FakeSong()
         source = FakeDevice(); source.name = "Mover"
