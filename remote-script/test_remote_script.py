@@ -3023,6 +3023,16 @@ class TakeLaneExpansionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "postcondition was not confirmed"): mapper2.invoke("take-lane.rename", bad_args)
         self.assertEqual(failing.name, "Old")
 
+    def test_take_lane_rename_undo_round_trip(self):
+        _, track, lane, existing, mapper = self._mapper_with_lanes()
+        lane_row = mapper.snapshot()["tracks"][0]["takeLanes"][0]
+        apply_args = {"ref": lane_row["ref"], "name": "Verse Take", "expectedName": "Take 1", "expectedObjectIdentity": lane_row["objectIdentity"], "expectedAuthorityRevision": mapper._take_lane_collection_revision(track, 0)}
+        applied = mapper.invoke("take-lane.rename", apply_args)
+        self.assertEqual(applied, {"renamed": lane_row["ref"], "name": "Verse Take"}); validate_operation_payload("take-lane.rename", "result", applied)
+        undo_args = {"ref": lane_row["ref"], "name": "Take 1", "expectedName": "Verse Take", "expectedObjectIdentity": lane_row["objectIdentity"], "expectedAuthorityRevision": mapper._take_lane_collection_revision(track, 0)}
+        undone = mapper.invoke("take-lane.rename", undo_args)
+        self.assertEqual(undone, {"renamed": lane_row["ref"], "name": "Take 1"}); validate_operation_payload("take-lane.rename", "result", undone); self.assertEqual(lane.name, "Take 1")
+
     def test_take_lane_clip_create_midi_and_audio(self):
         _, track, lane, existing, mapper = self._mapper_with_lanes()
         lane_row = mapper.snapshot()["tracks"][0]["takeLanes"][0]

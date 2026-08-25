@@ -311,6 +311,25 @@ test("previews, applies, verifies, and undoes a purpose-specific rename", async 
   assert.equal(undone.state, "undone"); assert.equal((simulator.get("track:track-1") as any).name, "Drums");
 });
 
+test("take-lane rename apply and undo round-trip through the canonical operation id", async () => {
+  const simulator = new DeterministicLiveSimulator(); const host = new McpHost(simulator); ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const laneRef = "take-lane:track-1:0";
+  const preview = JSON.parse(((await call(2, "live_object_rename_preview", { kind: "takeLane", ref: laneRef, name: "Verse Take" })) as any).result.content[0].text);
+  const applied = JSON.parse(((await call(3, "live_object_rename_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "lane-rename-apply" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied"); assert.equal((simulator as any).state.tracks[0].takeLanes[0].name, "Verse Take");
+  const undone = JSON.parse(((await call(4, "live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "lane-rename-undo" })) as any).result.content[0].text);
+  assert.equal(undone.state, "undone"); assert.equal(undone.name, "Take 1"); assert.equal((simulator as any).state.tracks[0].takeLanes[0].name, "Take 1");
+});
+
+test("every rename kind maps to an operation id that exists in the canonical registry", () => {
+  const kinds = ["track", "scene", "clip", "device", "locator", "takeLane"] as const;
+  for (const kind of kinds) {
+    const operation = kind === "takeLane" ? "take-lane.rename" : `${kind}.rename`;
+    assert.ok((LIVE_REGISTRY_OPERATIONS as readonly string[]).includes(operation), `${operation} is missing from the canonical registry`);
+  }
+});
+
 test("rename apply reconciles a lost acknowledgement only with the exact key", async () => {
   const simulator = new DeterministicLiveSimulator(); const original = simulator.invokeAsync.bind(simulator); let dispatches = 0; let cached: unknown;
   simulator.invokeAsync = async (invocation) => { if (invocation.operation !== "track.rename") return original(invocation); if (cached !== undefined) return cached; dispatches += 1; cached = await original(invocation); throw new Error("remote adapter request state uncertain after dispatch timeout"); };
