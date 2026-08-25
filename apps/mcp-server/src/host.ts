@@ -1422,11 +1422,12 @@ export class McpHost {
       }
     }
     if (!(transaction.state === "applied" || transaction.state === "uncertain")) return this.transactionError(id, "Only mapper-owned applied or uncertain audition playback can be stopped");
-    if (transaction.state === "uncertain" && transaction.stopKey !== params.idempotencyKey) return this.transactionError(id, "Uncertain audition stop requires the exact original idempotency key");
+    if (transaction.state === "uncertain" && transaction.stopKey !== undefined && transaction.stopKey !== params.idempotencyKey) return this.transactionError(id, "Uncertain audition stop requires the exact original idempotency key");
     if (signal?.aborted) return null;
+    const stoppingUncertain = transaction.state === "uncertain";
     transaction.state = "stopping";
     transaction.stopKey = params.idempotencyKey as string;
-    const inflight = this.dispatchAuditionStop(transaction, signal);
+    const inflight = this.dispatchAuditionStop(transaction, signal, stoppingUncertain);
     transaction.inflight = inflight;
     inflight.catch(() => undefined);
     try {
@@ -1437,7 +1438,7 @@ export class McpHost {
     }
   }
 
-  private async dispatchAuditionStop(transaction: SessionAuditionTransaction, signal?: AbortSignal): Promise<JsonObject> {
+  private async dispatchAuditionStop(transaction: SessionAuditionTransaction, signal?: AbortSignal, stoppingUncertain = false): Promise<JsonObject> {
     let dispatched = false;
     try {
       const status = this.requireConnected("session.read");
@@ -1465,7 +1466,9 @@ export class McpHost {
       transaction.state = "stopped";
       return { transactionId: transaction.id, state: "stopped", restoredBaseline: true };
     } catch (cause) {
-      transaction.state = dispatched ? "uncertain" : "applied";
+      // A stop that never dispatched proves nothing about Live changed: keep an
+      // uncertain record uncertain; only an applied record returns to applied.
+      transaction.state = dispatched || stoppingUncertain ? "uncertain" : "applied";
       throw cause;
     }
   }

@@ -155,6 +155,63 @@ test("guards Session audition with exact confirmation, one dispatch, replay, and
   assert.equal(state.set.playing, false);
 });
 
+test("stops an audition whose apply ended uncertain and verifies mapper-owned playback", async () => {
+  const { state, counts, adapter } = auditionFixture();
+  const original = adapter.invokeAsync.bind(adapter); let ackLost = false;
+  adapter.invokeAsync = async (invocation: any) => {
+    if (invocation.operation === "session.audition-launch" && !ackLost) { ackLost = true; await original(invocation); throw new Error("remote adapter request state uncertain after dispatch timeout"); }
+    return original(invocation);
+  };
+  const host = new McpHost(adapter); ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(2, "live_session_audition_preview", { sceneRef: "scene:scene-1", setName: "Disposable Set", outputSafety: { safe: true, provenance: "operator-confirmed-headphones", scope: "master" } })) as any).result.content[0].text);
+  const apply = await call(3, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-lost" });
+  assert.equal((apply as any).result.isError, true); assert.equal(counts.launches, 1); assert.equal(state.playback.transport.playing, true);
+  const stopped = JSON.parse(((await call(4, "live_session_audition_stop", { transactionId: preview.transactionId, confirmation: preview.stopConfirmation, idempotencyKey: "audition-stop-fresh" })) as any).result.content[0].text);
+  assert.equal(stopped.state, "stopped"); assert.equal(counts.stops, 1); assert.equal(state.playback.transport.playing, false); assert.equal(state.playback.firedTargets.length + state.playback.playingTargets.length, 0);
+});
+
+test("a pre-dispatch stop failure from an uncertain audition record leaves it uncertain", async () => {
+  const { state, counts, adapter } = auditionFixture();
+  const original = adapter.invokeAsync.bind(adapter); let ackLost = false;
+  adapter.invokeAsync = async (invocation: any) => {
+    if (invocation.operation === "session.audition-launch" && !ackLost) { ackLost = true; await original(invocation); throw new Error("remote adapter request state uncertain after dispatch timeout"); }
+    return original(invocation);
+  };
+  const host = new McpHost(adapter); ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(2, "live_session_audition_preview", { sceneRef: "scene:scene-1", setName: "Disposable Set", outputSafety: { safe: true, provenance: "operator-confirmed-headphones", scope: "master" } })) as any).result.content[0].text);
+  await call(3, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-lost" });
+  state.set = { ...state.set, name: "Renamed Externally" };
+  const failedStop = await call(4, "live_session_audition_stop", { transactionId: preview.transactionId, confirmation: preview.stopConfirmation, idempotencyKey: "audition-stop-1" });
+  assert.equal((failedStop as any).result.isError, true); assert.equal(counts.stops, 0);
+  // Still uncertain (not downgraded to applied): a different stop key is refused and an apply replay never claims a fake idempotent success.
+  const wrongKey = await call(5, "live_session_audition_stop", { transactionId: preview.transactionId, confirmation: preview.stopConfirmation, idempotencyKey: "audition-stop-other" });
+  assert.equal((wrongKey as any).result.isError, true); assert.match(JSON.stringify((wrongKey as any).result), /exact original idempotency key/);
+  const replay = await call(6, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-lost" });
+  assert.equal((replay as any).result.isError, true);
+});
+
+test("exact-key replay after a failed uncertain-audition stop reconciles without double dispatch", async () => {
+  const { state, counts, adapter } = auditionFixture();
+  const original = adapter.invokeAsync.bind(adapter); let launchAckLost = false; let stopAckLost = false;
+  adapter.invokeAsync = async (invocation: any) => {
+    if (invocation.operation === "session.audition-launch" && !launchAckLost) { launchAckLost = true; await original(invocation); throw new Error("remote adapter request state uncertain after dispatch timeout"); }
+    if (invocation.operation === "session.audition-stop" && !stopAckLost) { stopAckLost = true; await original(invocation); throw new Error("remote adapter request state uncertain after dispatch timeout"); }
+    return original(invocation);
+  };
+  const host = new McpHost(adapter); ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(2, "live_session_audition_preview", { sceneRef: "scene:scene-1", setName: "Disposable Set", outputSafety: { safe: true, provenance: "operator-confirmed-headphones", scope: "master" } })) as any).result.content[0].text);
+  await call(3, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-lost" });
+  const failedStop = await call(4, "live_session_audition_stop", { transactionId: preview.transactionId, confirmation: preview.stopConfirmation, idempotencyKey: "audition-stop-1" });
+  assert.equal((failedStop as any).result.isError, true); assert.equal(counts.stops, 1); assert.equal(state.playback.transport.playing, false);
+  const wrongKey = await call(5, "live_session_audition_stop", { transactionId: preview.transactionId, confirmation: preview.stopConfirmation, idempotencyKey: "audition-stop-other" });
+  assert.equal((wrongKey as any).result.isError, true); assert.equal(counts.stops, 1);
+  const reconciled = JSON.parse(((await call(6, "live_session_audition_stop", { transactionId: preview.transactionId, confirmation: preview.stopConfirmation, idempotencyKey: "audition-stop-1" })) as any).result.content[0].text);
+  assert.equal(reconciled.state, "stopped"); assert.equal(counts.stops, 1);
+});
+
 test("concurrent duplicate audition applies dispatch exactly one launch and one replay result", async () => {
   const { counts, adapter } = auditionFixture();
   const host = new McpHost(adapter);
