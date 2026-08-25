@@ -67,11 +67,11 @@ Live を再起動し、検証します: `npm run diagnostics -- --config /abs/pa
 | 環境 | ステータス |
 |---|---|
 | Node.js 22 / 24 / 25 | サポート対象。現在の正確な SHA のマトリクス成功が必要 |
-| macOS + Live 12 | 12.4.5b8 beta で検証済み([エビデンス](docs/evidence/)) |
+| macOS + Live 12 | 12.4.5b8 beta での過去の実 Live エビデンス([エビデンス](docs/evidence/))。リリース前に最終候補での再実行が必要 |
 | Windows ホスト | CI 契約を設定済み。現在の正確な SHA の結果が必要。Windows 11 + Live は未認証 |
 | Linux / Live 11 以前 | 非対応 |
 
-ケイパビリティは接続時にネゴシエートされるため、エージェントは常にその Live 環境で何ができるかを正確に把握できます。完全なマトリクス: [docs/SUPPORT_MATRIX.md](docs/ja/SUPPORT_MATRIX.md) · [docs/EXTENSION_SURFACES.md](docs/ja/EXTENSION_SURFACES.md)。
+ケイパビリティは接続時にネゴシエートされるため、エージェントは常にその Live 環境で何ができるかを正確に把握できます。完全なマトリクス: [docs/ja/SUPPORT_MATRIX.md](docs/ja/SUPPORT_MATRIX.md) · [docs/ja/EXTENSION_SURFACES.md](docs/ja/EXTENSION_SURFACES.md)。
 
 ## ドキュメント
 

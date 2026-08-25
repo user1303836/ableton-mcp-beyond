@@ -67,11 +67,11 @@ The deployment trusts an owner-controlled local OS account and the MCP client's 
 | Surface | Status |
 |---|---|
 | Node.js 22 / 24 / 25 | Supported contract; a green exact-current-SHA matrix is required |
-| macOS + Live 12 | Verified against 12.4.5b8 beta ([evidence](docs/evidence/)) |
+| macOS + Live 12 | Historical real-Live evidence on 12.4.5b8 beta ([evidence](docs/evidence/)); exact-candidate rerun required before release |
 | Windows host | CI contract configured; current exact-SHA result required; Windows 11 + Live not certified |
 | Linux / Live 11 or earlier | Unsupported |
 
-Capabilities are negotiated at connect time, so your agent always knows exactly what a given Live install can do. Full matrix: [docs/SUPPORT_MATRIX.md](docs/en/SUPPORT_MATRIX.md) · [docs/EXTENSION_SURFACES.md](docs/en/EXTENSION_SURFACES.md).
+Capabilities are negotiated at connect time, so your agent always knows exactly what a given Live install can do. Full matrix: [docs/en/SUPPORT_MATRIX.md](docs/en/SUPPORT_MATRIX.md) · [docs/en/EXTENSION_SURFACES.md](docs/en/EXTENSION_SURFACES.md).
 
 ## Docs
 

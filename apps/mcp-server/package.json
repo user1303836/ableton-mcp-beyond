@@ -40,7 +40,7 @@
   "scripts": {
     "build": "node scripts/clean-build.mjs && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node scripts/run-tests.mjs && node --test scripts/release-documentation.test.mjs scripts/capability-manifest.test.mjs",
+    "test": "npm run build && node scripts/run-tests.mjs && node --test scripts/release-documentation.test.mjs scripts/capability-manifest.test.mjs scripts/docs-drift.test.mjs",
     "property-test": "npm run build && node --test dist/test/property.test.js",
     "coverage": "npm run build && node scripts/run-coverage.mjs",
     "benchmark": "npm run build && node dist/src/benchmark.js && node --test dist/test/benchmark.test.js",
