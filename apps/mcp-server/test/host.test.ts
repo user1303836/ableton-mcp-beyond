@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmdirSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1797,6 +1797,106 @@ test("session audio import enforces file authority, TOCTOU re-verification, and 
   assert.equal(slot.clipRef.startsWith("clip:"), true);
   const undone = JSON.parse(((await call(8, "live_undo", { transactionId: preview2.transactionId, confirmation: "undo", idempotencyKey: "import-undo-1" })) as any).result.content[0].text);
   assert.equal(undone.state, "undone"); assert.equal(slot.clipRef, null);
+});
+
+test("staged import copies are released on preview failure, expiry, apply outcomes, undo, and shutdown", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const dir = mkdtempSync(join(tmpdir(), "staging-release-"));
+  const audioPath = join(dir, "demo.wav");
+  writeFileSync(audioPath, Buffer.concat([Buffer.from("RIFF"), Buffer.from([16, 0, 0, 0]), Buffer.from("WAVE"), Buffer.from("fake-audio-bytes")]));
+  (simulator as any).state.scenes.push({ ref: "scene:scene-2", objectIdentity: "simulator:scene:scene-2", name: "Scene 2", index: 1 });
+  (simulator as any).state.tracks[0].clipSlots.push({ ref: "clip-slot:track-1:1", parentRef: "track:track-1", objectIdentity: "simulator:clip-slot:track-1:1", sceneIndex: 1, clipRef: null, empty: true });
+  (simulator as any).state.tracks[0].devices.push({ ref: "device:simpler-1", parentRef: "track:track-1", name: "Simpler", kind: "instrument", className: "SimplerDevice", parameters: [], objectIdentity: "simulator:device:simpler-1", enabled: true, samplePath: "/old/a.wav" });
+  const stagingDir = () => (host as any).importStagingDir as string;
+  const stagedOf = (id: string) => (host as any).clipLifecycleTransactions.get(id)?.payload.filePath as string;
+
+  // Preview failure after staging (occupied Session slot): no staged bytes survive.
+  const occupied = await call(2, "live_audio_import_preview", { filePath: audioPath, allowedRoot: dir, trackRef: "track:track-1", sceneIndex: 0 });
+  assert.equal((occupied as any).result.isError, true);
+  assert.equal(readdirSync(stagingDir()).length, 0);
+
+  // Preview expiry: the bounded-transaction sweep releases audio-import and simpler staged copies.
+  const expiringAudio = JSON.parse(((await call(3, "live_audio_import_preview", { filePath: audioPath, allowedRoot: dir, trackRef: "track:track-1", sceneIndex: 1 })) as any).result.content[0].text);
+  const expiringSimpler = JSON.parse(((await call(4, "live_simpler_preview", { deviceRef: "device:simpler-1", filePath: audioPath, allowedRoot: dir })) as any).result.content[0].text);
+  const expiredAudioPath = stagedOf(expiringAudio.transactionId); const expiredSimplerPath = stagedOf(expiringSimpler.transactionId);
+  assert.equal(existsSync(expiredAudioPath), true); assert.equal(existsSync(expiredSimplerPath), true);
+  (host as any).clipLifecycleTransactions.get(expiringAudio.transactionId).expiresAt = 0;
+  (host as any).clipLifecycleTransactions.get(expiringSimpler.transactionId).expiresAt = 0;
+  JSON.parse(((await call(5, "live_object_rename_preview", { kind: "track", ref: "track:track-1", name: "Sweep Trigger" })) as any).result.content[0].text);
+  assert.equal(existsSync(expiredAudioPath), false); assert.equal(existsSync(expiredSimplerPath), false);
+
+  // Apply failure before dispatch (identity fence mismatch): released immediately; a retry fails cleanly without becoming uncertain.
+  const originalIdentity = (simulator as any).state.tracks[0].objectIdentity;
+  const fenced = JSON.parse(((await call(6, "live_audio_import_preview", { filePath: audioPath, allowedRoot: dir, trackRef: "track:track-1", sceneIndex: 1 })) as any).result.content[0].text);
+  const fencedPath = stagedOf(fenced.transactionId);
+  (simulator as any).state.tracks[0].objectIdentity = "simulator:track:external-identity";
+  const refused = await call(7, "live_audio_import_apply", { transactionId: fenced.transactionId, confirmation: "apply", idempotencyKey: "import-fenced" });
+  assert.equal((refused as any).result.isError, true); assert.equal(existsSync(fencedPath), false);
+  const retried = await call(8, "live_audio_import_apply", { transactionId: fenced.transactionId, confirmation: "apply", idempotencyKey: "import-fenced-2" });
+  assert.equal((retried as any).result.isError, true); assert.match((retried as any).result.content[0].text, /no longer available/);
+  (simulator as any).state.tracks[0].objectIdentity = originalIdentity;
+
+  // Apply success: the confirmed creation releases the staged copy; undo stays a no-op release.
+  const success = JSON.parse(((await call(9, "live_audio_import_preview", { filePath: audioPath, allowedRoot: dir, trackRef: "track:track-1", sceneIndex: 1, name: "Imported" })) as any).result.content[0].text);
+  const successPath = stagedOf(success.transactionId);
+  const applied = JSON.parse(((await call(10, "live_audio_import_apply", { transactionId: success.transactionId, confirmation: "apply", idempotencyKey: "import-ok" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied"); assert.equal(existsSync(successPath), false);
+  const undone = JSON.parse(((await call(11, "live_undo", { transactionId: success.transactionId, confirmation: "undo", idempotencyKey: "import-ok-undo" })) as any).result.content[0].text);
+  assert.equal(undone.state, "undone");
+
+  // Post-dispatch apply failure keeps the staged copy for exact-key reconciliation; recovery finalization releases it.
+  const uncertain = JSON.parse(((await call(12, "live_audio_import_preview", { filePath: audioPath, allowedRoot: dir, trackRef: "track:track-1", sceneIndex: 1 })) as any).result.content[0].text);
+  const uncertainPath = stagedOf(uncertain.transactionId);
+  const original = simulator.invokeAsync.bind(simulator); let ackLost = false;
+  simulator.invokeAsync = async (invocation) => { if (invocation.operation === "session.audio-clip.create" && !ackLost) { ackLost = true; await original(invocation); throw new Error("remote adapter request state uncertain after dispatch timeout"); } return original(invocation); };
+  const lost = await call(13, "live_audio_import_apply", { transactionId: uncertain.transactionId, confirmation: "apply", idempotencyKey: "import-lost" });
+  assert.equal((lost as any).result.isError, true); assert.equal(existsSync(uncertainPath), true);
+  const finalized = JSON.parse(((await call(14, "live_recovery_finalize", { transactionId: uncertain.transactionId, resolution: "accepted-current-state", confirmation: "finalize-recovery-record", evidence: { provenance: "test-operator", scope: "exact created clip and stopped transport" } })) as any).result.content[0].text);
+  assert.equal(finalized.finalized, true); assert.equal(existsSync(uncertainPath), false);
+  simulator.invokeAsync = original;
+
+  // Simpler terminal paths: apply success and undo leave no staged bytes.
+  const simplerPreview = JSON.parse(((await call(15, "live_simpler_preview", { deviceRef: "device:simpler-1", filePath: audioPath, allowedRoot: dir })) as any).result.content[0].text);
+  const simplerPath = stagedOf(simplerPreview.transactionId);
+  const simplerApplied = JSON.parse(((await call(16, "live_simpler_apply", { transactionId: simplerPreview.transactionId, confirmation: "apply", idempotencyKey: "simpler-ok" })) as any).result.content[0].text);
+  assert.equal(simplerApplied.state, "applied"); assert.equal(existsSync(simplerPath), false);
+  const simplerUndone = JSON.parse(((await call(17, "live_undo", { transactionId: simplerPreview.transactionId, confirmation: "undo", idempotencyKey: "simpler-ok-undo" })) as any).result.content[0].text);
+  assert.equal(simplerUndone.state, "undone"); assert.equal(existsSync(simplerPath), false);
+
+  // Host shutdown: remaining staged bytes are released with the per-process staging directory.
+  const shutdownPreview = JSON.parse(((await call(18, "live_simpler_preview", { deviceRef: "device:simpler-1", filePath: audioPath, allowedRoot: dir })) as any).result.content[0].text);
+  assert.equal(existsSync(stagedOf(shutdownPreview.transactionId)), true);
+  const activeDir = stagingDir();
+  host.releaseStagedImports();
+  assert.equal(existsSync(activeDir), false);
+});
+
+test("startup reaps only same-owner orphaned import staging directories older than the age gate", () => {
+  const stale = mkdtempSync(join(tmpdir(), "ableton-mcp-import-"));
+  const staleFile = join(stale, "orphaned.wav");
+  writeFileSync(staleFile, Buffer.from("orphaned")); chmodSync(staleFile, 0o444);
+  const aged = new Date(Date.now() - 48 * 60 * 60 * 1000);
+  utimesSync(staleFile, aged, aged); utimesSync(stale, aged, aged);
+  const fresh = mkdtempSync(join(tmpdir(), "ableton-mcp-import-"));
+  const unmatched = mkdtempSync(join(tmpdir(), "ableton-mcp-other-"));
+  const prefixedFile = join(tmpdir(), `ableton-mcp-import-${randomBytes(6).toString("hex")}.wav`);
+  writeFileSync(prefixedFile, Buffer.from("not a directory"));
+  const linkPath = join(tmpdir(), `ableton-mcp-import-${randomBytes(6).toString("hex")}`);
+  symlinkSync(unmatched, linkPath, "dir");
+  try {
+    new McpHost();
+    assert.equal(existsSync(stale), false);
+    assert.equal(existsSync(fresh), true);
+    assert.equal(existsSync(unmatched), true);
+    assert.equal(existsSync(prefixedFile), true);
+    assert.equal(lstatSync(linkPath).isSymbolicLink(), true);
+  } finally {
+    rmdirSync(fresh); rmdirSync(unmatched); unlinkSync(prefixedFile); unlinkSync(linkPath);
+    if (existsSync(stale)) { unlinkSync(staleFile); rmdirSync(stale); }
+  }
 });
 
 test("warp marker add, move, delete round-trip with collection fencing and guarded undo", async () => {
