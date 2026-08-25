@@ -25,7 +25,7 @@ function canonical(value, depth = 0) {
 }
 
 const EXPECTED_RESERVED = new Set([
-  "arrangement.automation.create", "arrangement.automation.delete", "arrangement.automation.point.delete", "arrangement.automation.point.insert", "arrangement.automation.read",
+  "arrangement.automation.create", "arrangement.automation.delete", "arrangement.automation.point.delete", "arrangement.automation.point.insert",
   "audio.comp.read",
   "browser.preview.start", "browser.preview.stop",
   "project.bounce", "project.collect", "project.export", "project.new", "project.open", "project.save", "project.save-as",

@@ -185,6 +185,31 @@
   选项配置一个描述符隔离的 owner 文件;固定脱敏记录在回调线程外排队,
   上限 256 KiB,并在漂移/写入失败时禁用。旧版/v1 到 v2 迁移显式且保留密钥。
 
+- 能力感知的工具发现与部署策略配置档(`read-only`、`edit-no-audio`、
+  `performance`、`full`)及 allow/deny 覆盖:`tools/list` 从单一声明式
+  目录只宣告当前可执行且被策略允许的工具;连接/断开/epoch/操作集/策略
+  变化时发出 `notifications/tools/list_changed`,并通过专用内部状态通道
+  在适配器刷新/重连/断线时即时宣告;策略在派发与撤销派发时按名称强制。
+  `performance` 配置档保留受护栏撤销/恢复,事务绝不搁浅。已协商限制
+  (工程 save/open)从可调用发现移入能力资源。经宿主、模拟器与 fake-Live
+  层级验证。
+- 确定性带种子 MIDI 变换(`live_midi_transform_preview/apply`):transpose、
+  scale-constrain、quantize、swing、velocity 曲线、带种子 humanize/variation、
+  legato、staccato、rotate、repeat、ratchet、chord voicing 与 arpeggiate,
+  带精确 diff 预览、修订栅栏、生成型 duplicate-first 范围与 MPE 保留探针。
+  音符变更按注册表上限分块执行,每块对照期望中间音符集设栅栏;精确键
+  重试在中途失败后按内容身份恢复已记录计划。原位撤销要求身份绑定的
+  已验证变换后状态。经宿主、模拟器与属性测试层级验证;不新增真实 Live
+  声明。
+- 安全的 Browser 检查(`live_browser_inspect`)与加固的单文件 Session
+  音频导入:在既有的所有者白名单、哈希校验、事务清理之上,新增容器魔数
+  与声明格式一致性校验;MIDI 文件被明确拒绝。
+- 只读探测:`live_arrangement_automation_read`(分页 Arrangement 包络
+  发现;写入保持保留)、`live_take_lane_read` 与 `live_comp_read`(有界
+  lane/comp 清单,显式报告不支持的关系)、`live_warp_marker_read`(有界
+  标记诊断:修订、单调性检查与只读变更可行性)。映射器状态携带尽力而为
+  的环境探针(Live 版本/版本类型、OS、API 表面)用于工件绑定证据。
+
 ## 证据边界
 
 [`../evidence/`](../evidence/) 下受跟踪的证据区分确定性 fake-Live、

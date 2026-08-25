@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
 import {
-  LIVE_CAPABILITIES, LIVE_REGISTRY_HASH, LIVE_REGISTRY_OPERATIONS,
+  LIVE_CAPABILITIES, LIVE_REGISTRY_HASH, LIVE_REGISTRY_OPERATIONS, liveCapabilitiesForOperations,
   type AsyncLiveAdapter, type LiveDiscoveryKind, type LiveDiscoveryRequest, type LiveDiscoveryResult,
   type LiveCapability, type LiveEvent, type LiveInvocation, type LiveOperationContext, type LiveRef, type LiveSnapshot, type LiveStatus,
 } from "../live.js";
@@ -15,7 +15,7 @@ const MAX_SEQUENCE = Number.MAX_SAFE_INTEGER;
 const LIVE_PROTOCOL = "ableton-live/v1";
 const ADAPTERS = new Set(["remote-script", "simulator", "extension", "unavailable"]);
 const EVENT_TYPES = new Set(["transport", "object", "reset"]);
-const READ_ONLY_INVOKES = new Set(["session.playback", "automation.envelope.read", "browser.search", "browser.inspect", "audio.capture.inspect", "audio.capture.status", "realtime.stats", "session.reconnect"]);
+export const READ_ONLY_INVOKES = new Set(["session.playback", "automation.envelope.read", "arrangement.automation.read", "audio.take-lane.read", "audio.warp-marker.read", "browser.search", "browser.inspect", "audio.capture.inspect", "audio.capture.status", "realtime.stats", "session.reconnect"]);
 // Creation classification has one shared source: the mapper's
 // _TRANSACTION_CREATIONS in remote-script/ableton_mcp_remote_script.py. Keep
 // this set identical so ownership tokens are retained (never leaked into
@@ -69,28 +69,8 @@ function validStatus(value: unknown): value is LiveStatus {
       new Set(operations).size !== operations.length ||
       !operations.every((operation) => (LIVE_REGISTRY_OPERATIONS as readonly string[]).includes(operation)) ||
       !["status", "snapshot", "discover", "get", "reconnect", "session.playback"].every((operation) => operations.includes(operation))) return false;
-  const all = (...required: string[]): boolean => required.every((operation) => operations.includes(operation));
-  const any = (...required: string[]): boolean => required.some((operation) => operations.includes(operation));
-  const readableHierarchy = all("snapshot", "discover", "get");
-  const requirements: Record<(typeof LIVE_CAPABILITIES)[number], boolean> = {
-    "session.read": readableHierarchy && all("session.playback"), "tracks": readableHierarchy, "scenes": readableHierarchy, "clips": readableHierarchy,
-    "notes": readableHierarchy, "session.discovery": all("discover"),
-    "session.structure": any("track.create", "track.delete", "scene.create", "scene.delete"),
-    "session.midi_clip.create": all("clip.create"), "session.midi_clip.delete": all("clip.delete"),
-    "session.midi_note.read": readableHierarchy, "session.midi_note.write": all("note.add", "note.add-batch"),
-    "arrangement.read": any("locator.add", "arrangement.clip.delete"),
-    "arrangement.write": any("locator.add", "locator.delete", "arrangement.clip.create", "arrangement.audio-clip.create", "arrangement.clip.delete"),
-    "audio": all("audio.clip.set"), "audio.capture.resampling": all("audio.capture.inspect", "audio.capture.start", "audio.capture.stop", "audio.capture.cleanup"),
-    "warp": all("audio.warp-marker.read"), "takes": all("audio.take-lane.read"), "automation": all("automation.envelope.read"),
-    "devices": readableHierarchy, "racks": readableHierarchy, "chains": readableHierarchy, "parameters": readableHierarchy,
-    "browser": all("browser.search"), "device.parameter.write": all("device.parameter.set"), "routing": all("routing.set"),
-    "recording": any("recording.session", "recording.arrangement"), "projects": all("snapshot"), "mixing": all("mixer.set"),
-    "transport": all("transport.set", "tempo.set"), "tuning": any("tuning.read", "tuning.set"), "groove": all("groove.read"), "max": false,
-    "view": any("view.set", "view.control"),
-    "osc": all("realtime.arm", "realtime.disarm", "realtime.stats"), "realtime.events": all("realtime.arm", "realtime.disarm", "realtime.stats"),
-    "plugins": readableHierarchy, "subscriptions": all("subscribe"), "reconnect": all("reconnect"),
-  };
-  return capabilities.every((capability) => requirements[capability as LiveCapability] === true);
+  const derivable = new Set<string>(liveCapabilitiesForOperations(operations));
+  return capabilities.every((capability) => derivable.has(capability));
 }
 function verifySigned(secret: string, response: LoopbackResponse): void {
   const unsigned = { ...response } as Partial<LoopbackResponse>;
@@ -214,10 +194,20 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
     return wireResult;
   }
   async retireTransactionAsync(transactionId: string, context?: LiveOperationContext, terminal = false): Promise<{ retired: number }> { if (transactionId.length < 8 || transactionId.length > 128) throw new Error("remote retirement transaction id is invalid"); await this.ensureConnectedAsync(context); const result = await this.requestAsync({ method: "retire", transactionId, ...(terminal ? { terminal: true } : {}) }, "authority.retire", context) as { retired: number }; if (terminal) this.cleanupOwnership.delete(transactionId); return result; }
-  reconnectAsync(context?: LiveOperationContext): Promise<LiveStatus> { return this.ensureConnectedAsync(context).then(() => this.requestAsync({ method: "reconnect" }, "reconnect", context)).then((value) => { const status = value as LiveStatus; if (!validStatus(status)) throw new Error("invalid reconnect status"); this.epoch = status.epoch; this.cached = status; this.lastEventEpoch = this.epoch; this.lastEventSequence = 0; this.cleanupOwnership.clear(); return status; }); }
+  /** Internal adapter-status change channel (never the public LiveEvent stream:
+   * those events carry remote wire sequence semantics that synthetic events
+   * must not contaminate). Subscribers are notified after connect/disconnect,
+   * reconnect, and negotiated operation/capability shape changes. */
+  private readonly statusListeners = new Set<(status: LiveStatus) => void>();
+  subscribeStatus(listener: (status: LiveStatus) => void): () => void { this.statusListeners.add(listener); return () => this.statusListeners.delete(listener); }
+  private emitStatusChange(): void { for (const listener of this.statusListeners) listener(this.cached); }
+  private shapeChanged(prior: LiveStatus, next: LiveStatus): boolean {
+    return prior.connected !== next.connected || prior.epoch !== next.epoch || JSON.stringify(prior.operations ?? []) !== JSON.stringify(next.operations ?? []) || JSON.stringify([...prior.capabilities].sort()) !== JSON.stringify([...next.capabilities].sort());
+  }
+  reconnectAsync(context?: LiveOperationContext): Promise<LiveStatus> { return this.ensureConnectedAsync(context).then(() => this.requestAsync({ method: "reconnect" }, "reconnect", context)).then((value) => { const status = value as LiveStatus; if (!validStatus(status)) throw new Error("invalid reconnect status"); const changed = this.shapeChanged(this.cached, status); this.epoch = status.epoch; this.cached = status; this.lastEventEpoch = this.epoch; this.lastEventSequence = 0; this.cleanupOwnership.clear(); if (changed) this.emitStatusChange(); return status; }); }
   /** Re-request the mapper's current status without a reconnect; operations and
    * capabilities reflect the shape at call time (no epoch change). */
-  refreshStatusAsync(context?: LiveOperationContext): Promise<LiveStatus> { return this.ensureConnectedAsync(context).then(() => this.requestAsync({ method: "status" }, "status", context)).then((value) => { const status = value as LiveStatus; if (!validStatus(status)) throw new Error("invalid refreshed status"); this.cached = status; return status; }); }
+  refreshStatusAsync(context?: LiveOperationContext): Promise<LiveStatus> { return this.ensureConnectedAsync(context).then(() => this.requestAsync({ method: "status" }, "status", context)).then((value) => { const status = value as LiveStatus; if (!validStatus(status)) throw new Error("invalid refreshed status"); const changed = this.shapeChanged(this.cached, status); this.cached = status; if (changed) this.emitStatusChange(); return status; }); }
   async close(): Promise<void> { this.explicitlyClosed = true; this.failPending(new Error("remote adapter disconnected")); this.helloReject?.(new Error("remote adapter disconnected")); this.helloResolve = undefined; this.helloReject = undefined; this.socket?.destroy(); this.socket = undefined; this.cached = { ...this.cached, connected: false, reason: "closed" }; }
 
   private contextualReconnectWait(promise: Promise<void>, context?: LiveOperationContext): Promise<void> {
@@ -246,7 +236,9 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
       const value = await this.requestAsync({ method: "status" }, "status") as LiveStatus;
       if (!validStatus(value) || !value.connected || value.adapter !== "remote-script" || value.epoch === null) throw new Error("remote adapter recovery negotiation failed");
       if ((priorBridgeEpoch && this.bridgeEpoch !== priorBridgeEpoch) || (priorLiveEpoch !== null && value.epoch !== priorLiveEpoch)) { this.cached = { ...this.cached, connected: false, reason: "remote-bridge-or-live-epoch-changed" }; this.reconciliationPoisoned = true; this.bridgeEpoch = undefined; this.connectionChallenge = undefined; this.socket?.destroy(); this.socket = undefined; throw new Error("remote bridge or Live epoch changed; mutation reconciliation is unavailable"); }
+      const changed = this.shapeChanged(this.cached, value);
       this.epoch = value.epoch; this.cached = value; this.lastEventEpoch = this.epoch; this.lastEventSequence = 0;
+      if (changed) this.emitStatusChange();
       if (this.activeSubscriptionArgs) {
         const subscribed = await this.requestAsync({ method: "subscribe", args: this.activeSubscriptionArgs }, "subscribe") as { subscribed?: unknown };
         if (subscribed.subscribed !== true) throw new Error("remote adapter subscription restoration failed");
@@ -268,7 +260,7 @@ export class RemoteScriptLiveAdapter implements AsyncLiveAdapter {
       this.helloResolve = resolve; this.helloReject = reject;
       const handshakeTimeout = context?.deadlineMs === undefined ? configuredTimeout : deadlineRemaining;
       const timer = setTimeout(() => { socket.destroy(); reject(new Error("remote adapter connection timed out")); }, Math.max(1, handshakeTimeout));
-      const disconnected = (error: Error) => { cleanupHandshake(); if (this.socket !== socket) return; this.socket = undefined; this.cached = { ...this.cached, connected: false, reason: "remote-adapter-disconnected" }; if (!this.bridgeEpoch) reject(error); this.failPending(error); };
+      const disconnected = (error: Error) => { cleanupHandshake(); if (this.socket !== socket) return; const wasConnected = this.cached.connected; this.socket = undefined; this.cached = { ...this.cached, connected: false, reason: "remote-adapter-disconnected" }; if (this.bridgeEpoch && wasConnected) this.emitStatusChange(); if (!this.bridgeEpoch) reject(error); this.failPending(error); };
       socket.on("data", (chunk) => { if (this.socket === socket) this.onData(chunk); });
       socket.on("error", (error) => disconnected(error));
       socket.on("close", () => disconnected(new Error("remote adapter disconnected")));

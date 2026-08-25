@@ -40,8 +40,8 @@
 | 在时间线上编排剪辑 | `live_arrangement_clip_preview/apply`、`live_clip_duplicate_preview/apply`、`live_clip_move_preview/apply` | 创建、复制和移动剪辑;事务创建剪辑的清理是精确的;拒绝任意 Arrangement 删除 |
 | 把音频文件导入 Arrangement | `live_arrangement_clip_preview/apply` 加 `kind: "audio"` | 把文件支持的音频剪辑放到选定轨道的确切位置,并验证创建身份 |
 | 把音频文件导入 Session 槽位 | `live_audio_import_preview/apply` | 显式文件权限:允许根、规范化路径、大小/类型检查、SHA-256 并在应用时重新验证(防 TOCTOU),以及对已导入剪辑的受护栏清理 |
-| 使用 take lane | 发现、`live_object_rename`(kind `takeLane`)、`live_audio_import_preview/apply`(`takeLaneRef`) | 读取现有 lane 及其剪辑、重命名 lane,并在 lane 内创建文件音频剪辑。Lane 创建与 MIDI lane 剪辑创建未由当前公共 MCP 工具模式宣告。公共 LOM 不提供 take-lane 删除/试听或 comp 区域编辑 API |
-| 编辑 warp 标记 | `live_warp_marker_preview/apply` | 按节拍时间添加、移动或删除标记(采样时间映射由 Live 负责);标记集合栅栏、精确回滚与受护栏撤销 |
+| 使用 take lane | 发现、`live_take_lane_read`、`live_comp_read`、`live_object_rename`(kind `takeLane`)、`live_audio_import_preview/apply`(`takeLaneRef`) | 读取现有 lane 及其剪辑、重命名 lane,并在 lane 内创建文件音频剪辑。`live_take_lane_read` 增加有序、分页、修订绑定的 lane/剪辑清单(含内容指纹与主 lane 摘要);`live_comp_read` 报告适配器协商的来源分段,不排名也不推断保真度。Lane 创建与 MIDI lane 剪辑创建未由当前公共 MCP 工具模式宣告。公共 LOM 不提供 take-lane 删除/试听或 comp 区域编辑 API |
+| 编辑 warp 标记 | `live_warp_marker_read`、`live_warp_marker_preview/apply` | 按节拍时间添加、移动或删除标记(采样时间映射由 Live 负责);标记集合栅栏、精确回滚与受护栏撤销。只读探测返回完整有界标记集(`(beatTime, sampleTime)`)、单调性检查、适配器/集合/剪辑权威修订、显式身份限制,以及仅从已协商操作报告的变更可行性 |
 | 裁剪、复制与刮擦剪辑 | `live_clip_action_preview/apply` | 按循环裁剪、复制循环或区域、刮擦以及移动播放位置;内容操作被诚实标记为不可撤销 |
 | 量化与复制音符 | `live_note_edit_preview/apply` | 时间或音高量化,以及按稳定音符 ID 定向复制,带精确先前内容撤销 |
 | 编辑律制与音阶 | `live_tuning_preview/apply` | 律制名称、音域、参考音高与全部 128 个音符偏差,以及根音、音阶名称/模式与音程。验证覆盖长度/范围约束并带精确回滚;更改全局影响播放音高,并经 `live_undo` 精确恢复 |
@@ -61,7 +61,7 @@
 | 撤销更改 | `live_undo` | 在先前状态仍匹配时精确恢复;被其他改动破坏时拒绝 |
 | 分析音频(响度、真峰值、频谱) | `audio_analyze`、`audio_compare_reference`、`audio_diagnose_live_context` | ITU-R BS.1770/EBU R128 标准,隐私保护,结果不含原始 PCM |
 | 切换视图并控制 Arrangement 视图 | `live_view_preview/apply` | Session/Arranger 切换、缩放/滚动、跟随播放、轨道折叠;仅 UI,不触碰音乐状态 |
-| 搜索 Browser 并检查项目 | `live_browser_search`、`live_browser_roots` | 有界 DFS 名称匹配(非标签/过滤/相似度搜索 —— 无公共 API);按形态协商的根(sounds、samples、User Library、用户文件夹、当前工程),各绑定的层级由 `live_browser_roots` 报告。内部绑定绝非稳定公共 LOM API |
+| 搜索 Browser 并检查项目 | `live_browser_search`、`live_browser_roots`、`live_browser_inspect` | 有界 DFS 名称匹配(非标签/过滤/相似度搜索 —— 无公共 API);按形态协商的根(sounds、samples、User Library、用户文件夹、当前工程),各绑定的层级由 `live_browser_roots` 报告;单项 `live_browser_inspect` 返回稳定身份、类型、来源与显式可加载性,不含原始文件系统路径。内部绑定绝非稳定公共 LOM API |
 | Browser 预览与热交换 | —— | 明确拒绝:`preview_item`/`stop_preview` 是非官方绑定,且不存在可用于验证后置条件的权威可观察预览状态,同时它是可发声的。热交换/邻近预置加载因同样可验证性原因推迟。保留的 `browser.preview.*` 契约保持故障关闭,直至存在权威预览状态 |
 | 读取 Set:轨道、剪辑、设备、路由、播放 | `live_snapshot`、`live_discover`、`live_status` | 只读;过时引用被拒绝,绝不猜测 |
 | 观察状态变化 | `live_observe_subscribe`、`live_observe_poll`、`live_observe_unsubscribe` | 对文档可观察状态的受限协商主题 —— 走带、选择、轨道、剪辑、设备、参数、律动、律制、场景、电平与机架状态。配额(8 订阅、各 64 主题)、按修订去重、变更字段列表、显式溢出、协商最小轮询间隔,以及每个事件携带修订/身份 —— 均非变更权限 |
@@ -84,6 +84,7 @@
 | 域 | 公共 API / 规范操作 | 实现与安全 | 主要测试 | 平台/生产证据 | 文档与协商限制 |
 |---|---|---|---|---|---|
 | MCP 传输与宿主 | initialize、tools/resources/prompts、stdio JSON-RPC | `host.ts`、`stdio.ts`、`framing.ts`;R/G;有界帧、工作、速率、取消、排序 | `host.test.ts`、`stdio.test.ts`、`framing.test.ts`、属性/基准 | 已配置 Node 22/24/25 宿主矩阵;打包 fake-Live 旅程;需要精确 SHA 结果 | `DEVELOPER_GUIDE.md`、`OPERATIONS.md`;无通用变更工具 |
+| 工具发现与部署策略 | 能力感知的 `tools/list`、`notifications/tools/list_changed`、策略配置档 | `tool-catalog.ts` 声明式目录(每个工具的 schema、注解、精确能力/操作/来源前置条件与策略类别);R;tools/list 只显示当前可执行且被策略允许的工具;`read-only`、`edit-no-audio`、`performance`、`full` 配置档加 allow/deny 覆盖;策略在派发时及撤销派发时按名称强制;连接/断开/epoch/操作/策略变化时发出 list-changed 通知,并通过专用内部状态通道(绝非公共事件流)在适配器刷新/重连/会话中断线时发出;`live_status` 执行有界刷新/重连,使同 epoch 断线不会死锁发现;`performance` 配置档保留受护栏撤销/恢复,事务绝不搁浅 | `tool-catalog.test.ts`、宿主测试 | 宿主级契约(无需 Live);测量工件 `scripts/report-tool-surface.mjs` 报告各配置档的工具数与 schema token 成本,不作改进断言 | `USER_GUIDE.md`;已协商限制(save/open)位于能力资源中,绝不进入可调用发现 |
 | 规范 Live 契约 | `ableton-live/v1`、操作注册表、清单/哈希 | `registry.ts`、`live.ts`、Python 映射器;R/G/A/RT;严格模式与单一规范摘要 | `registry.test.ts`、Python 契约测试、包/候选验证器 | 历史 macOS 真实 Live 协商使用旧注册表摘要;需要当前摘要精确候选证明 | `DEVELOPER_GUIDE.md`、`LIVE_SAFETY.md`;不支持的形态保持不可用 |
 | 认证桥接 | status/snapshot/discover/get 及用途专用操作 | `remote-adapter.ts`、Python 监听器;回环质询、HMAC、epoch/序列/截止时间栅栏 | `registry.test.ts`、`live.test.ts`、打包旅程 | 打包 fake-Live 与 macOS 真实 Live | `OPERATIONS.md`、`RECOVERY.md`;无远程网络模式 |
 | 引用、发现、选择 | set、track/return/main、scene、slot、clip、note、locator、device、parameter、routing、playback、selection | 注册表 + 映射器遍历;R;父级作用域引用/游标/修订;选择复用规范可解引用的 track/scene/slot 引用 | 注册表、宿主、Python 测试 | `phase-3-readonly-live-discovery.json` 及后续真实 Live 阶段证据 | `USER_GUIDE.md`;过时引用/epoch 被拒绝 |
@@ -93,12 +94,13 @@
 | Session 结构 | track/scene 创建/删除/重命名及 clip/device/locator 重命名;槽位与 Session 剪辑发现 | preview/apply/undo 管理器 + 映射器;G;插入索引在变更前对照常规轨道和场景有界检查 | 宿主/Python/打包旅程 | 真实 Live 阶段 5 证据;打包 fake-Live | `USER_GUIDE.md`;创建绝不把 return/main 轨道当作常规轨道插入位置,group/return/main 编辑只在存在规范操作时暴露 |
 | Session MIDI 剪辑与音符 | `clip.create/delete`、单音符 `note.add`、原子 `note.add-batch`、`note.update/delete`、Session MIDI preview/apply/undo | `session-midi.ts`、宿主、映射器;G;稳定音符身份、每次剪辑创建一个有界原生批量及补偿 | `session-midi.test.ts`、宿主/Python/打包旅程 | 历史真实 Live 阶段覆盖当时的基本生命周期;当前契约与表情生命周期为打包 fake-Live,精确候选真实 Live 证明待完成 | `USER_GUIDE.md`;pitch、velocity、channel、duration、probability、deviation、release velocity、mute 均为协商 |
 | 高级 MIDI / MPE | 暴露处的 probability、velocity deviation、release velocity、mute | 音符模式与映射器;G | 注册表/宿主/Python 旅程测试 | 表情字段仅在打包 fake-Live 中证明;成功的当前候选真实 Live 证明待完成;逐音符 MPE 压力/滑音/调音不可用 | `USER_GUIDE.md`;扩展点是规范音符模式加协商映射器操作,绝不捏造字段 |
+| 带种子 MIDI 变换 | `live_midi_transform_preview/apply`,基于 `note.update`/`note.add-batch`/`note.delete`/`clip.duplicate` | 纯确定性变换模块 + 宿主事务;G;精确 add/update/delete diff 预览、显式种子、逐字节可复现、生成型/大型变换默认 duplicate-first、MPE 保留探针;按注册表上限分块执行,每块对照期望中间状态设栅栏,按内容身份做重放感知恢复,原位撤销身份绑定栅栏,duplicate 范围按持久化的原始计划恢复 | `midi-transforms.test.ts`、`midi-transform-host.test.ts`、`review-round2.test.ts`、属性覆盖 | 宿主/模拟器契约;适配器级音符操作不变 | `USER_GUIDE.md`;原位生成型编辑被拒绝,因为删除重建无法保留未暴露的单音符表情;确定性变更代码中不存在艺术家模仿或品味判断 |
 | Session 捕获 | `session.capture-midi`、`scene.capture` | 宿主 preview/apply/幂等/受护栏撤销事务加映射器预检、不可变对象身份删除栅栏及新鲜修订/回读;G/A | 宿主/Python/打包旅程 | 真实 Live 阶段 5 证据 | `LIVE_SAFETY.md`;捕获结果必须可重新发现;MIDI 捕获仅在所有 Session 槽位为空时宣告,使原生失败清理无法改变既有剪辑内容 |
 | Arrangement 导航与剪辑 | arrangement 发现;剪辑创建/复制/移动;事务拥有清理;locator 添加/删除/重命名;take lane 读取/重命名与文件音频导入 | 宿主事务管理器 + 映射器;G | 宿主/Python/打包旅程 | `phase-5cd-clip-arrangement-live.txt` 及当前测试 | `USER_GUIDE.md`;拒绝任意 Arrangement 删除;精确创建身份+指纹清理仅适用于创建/复制;移动栅栏源/目标内容并使用精确反向移动恢复,绝不铸造删除权限,并消费事务创建源的任何先前清理令牌。仅映射器实现的 lane 创建/MIDI lane 剪辑路径未由公共 MCP 模式宣告;公共 LOM 不提供 take-lane 删除/试听或 comp 区域编辑 API |
 | Arrangement 音频导入 | `arrangement.audio-clip.create`(文件路径到精确位置) | 宿主 preview/apply,带轨道/集合栅栏 + 映射器创建身份;G;通过 `live_undo` 的事务拥有清理 | 宿主与 Python 测试 | 打包 fake-Live 与模拟器;当前候选真实 Live 证明待完成 | `USER_GUIDE.md`;路径必须在该机器上可被 Live 读取;按文件路径、位置和创建身份验证放置 |
 | 剪辑属性 | `clip.set` 静音、颜色索引、MIDI 循环启用/边界 | 宿主 preview/apply + 映射器,带权限/状态修订、有序循环写入和精确回滚;G | 宿主与 Python 测试 | 打包 fake-Live 与模拟器;当前候选真实 Live 证明待完成 | `USER_GUIDE.md`;音频剪辑循环留在 `audio.clip.set`;剪辑未暴露的字段被拒绝,绝不捏造 |
 | 音频剪辑属性 | `audio.clip.set` 中按字段协商的增益、音高、循环、warp 启用/模式与淡变;有界 warp 标记回读及按节拍时间进行的原生添加/移动/删除 | 宿主/注册表/映射器;G;每个请求字段必须出现在确切剪辑的 `availableAudioFields` 中,warp 编辑对标记集合设栅栏并精确回滚 | 宿主、注册表与 Python fake-Live 测试 | 真实 Live 阶段 5cd 证明对 MIDI 目标的安全拒绝,而非成功的音频编辑 | 当前候选的真实 Live 音频属性/warp 标记编辑,以及公共 take lane 发现/重命名/音频导入证明仍待完成。每个公共表面仅在精确操作已协商时宣告。公共 LOM 不提供 comp 区域 API,因此 `audio.comp.read` 保持保留 |
-| 自动化 | 剪辑包络与点的创建/读取/插入/删除/恢复 | 宿主 + 映射器;G,父级/修订绑定 | 宿主/Python/打包旅程 | `phase-5e-mixer-automation-live.txt` | `USER_GUIDE.md`;Arrangement 自动化/调制在观察到的 API 中不可用;严格的 `arrangement.automation.*` 契约经注册表测试,在可执行前保持不宣告 |
+| 自动化 | 剪辑包络与点的创建/读取/插入/删除/恢复;只读 Arrangement 自动化探测 | 宿主 + 映射器;G,父级/修订绑定;arrangement 读取为 R 级,修订绑定分页 | 宿主/Python/打包旅程 | `phase-5e-mixer-automation-live.txt` | `USER_GUIDE.md`;`live_arrangement_automation_read` 在适配器按形态探测到 `Clip.automation_envelope` 时只读发现精确的 Arrangement 包络(曲线形状明确不可用);arrangement 自动化创建/删除/插入保持保留且不宣告 |
 | 混音器、发送、返回、分组、cue | 混音器发现/设置,带精确行修订 | 宿主 + 映射器;G/A | 宿主/Python/打包旅程 | `phase-5e-mixer-automation-live.txt` | `LIVE_SAFETY.md`;只更改发现的可写字段;削波不被推断忽略 |
 | 路由、监听、arm | 路由选择发现、`routing.set` | 宿主 + 映射器;G/A;反馈拒绝、精确路由、arm/监听栅栏 | 宿主/Python/打包旅程 | `phase-6cd-routing-recording-live.txt` | `LIVE_SAFETY.md`;需要操作者准备的捕获路由 |
 | Session/Arrangement 录音 | `recording.session`、`recording.arrangement` preview/apply/stop | 宿主 + 映射器;A;精确先前录音状态、armed 目标与输出安全权限在映射器中原子复核;验证停止 | 宿主/Python/打包旅程 | `phase-6cd-routing-recording-live.txt` | `LIVE_SAFETY.md`、`RECOVERY.md`;无无界录音命令 |
@@ -168,5 +170,5 @@ Server 宿主证据绝不填补 Windows Live/Windows 11 单元格。
 | `audio.take-lane.read`、`audio.comp.read` | `audio.take-lane.read` 在协商后已实现。公共 MCP 表面暴露现有 lane 的发现/重命名/文件音频导入,但不宣告仅映射器实现的 lane 创建/MIDI lane 剪辑路径。公共 LOM 不提供 comp 区域 API,因此 `audio.comp.read` 保持保留 |
 | `arrangement.automation.*` | Arrangement 自动化编写无稳定公共 API;保持保留并故障关闭 |
 | `browser.preview.start/stop` | 当前 Remote Script 明确不采用。非官方绑定没有权威、可观察的预览状态,因此这些契约保持保留并故障关闭 |
-| `project.new/open/save/save-as/collect/export/bounce` | 无公共 Remote Script API;`live_project_save` / `live_project_open` 保持为显式限制报告器 |
+| `project.new/open/save/save-as/collect/export/bounce` | 无公共 Remote Script API;这些限制通过能力资源的 `limitations` 段报告,绝不通过可调用工具发现 |
 | `session.discover` | 保留别名;发现由 `discover`/`snapshot`/`get` 提供 |

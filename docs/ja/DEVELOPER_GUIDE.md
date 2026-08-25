@@ -10,6 +10,12 @@
 
 - `apps/mcp-server/src/host.ts`: MCP ライフサイクル、厳密なツールスキーマ、
   非同期ディスパッチ、トランザクション状態、回復エラー。
+- `apps/mcp-server/src/tool-catalog.ts`: 単一の宣言的ツールカタログ —— スキーマ、
+  アノテーション、正確なケーパビリティ/オペレーション/来歴の前提条件、
+  デプロイメントポリシークラス —— ケーパビリティ対応の `tools/list`、
+  capability リソース、list-changed 通知、サーバー側ディスパッチゲートを駆動。
+- `apps/mcp-server/src/midi-transforms.ts`: 変換プレビュー/適用ツールが共有する
+  純粋な決定論的シード付き MIDI 変換プリミティブ。
 - `apps/mcp-server/src/live.ts`: Live タイプ、レジストリ派生識別子/ハッシュ、
   利用不可アダプター、シミュレーター、テストとプロセスバックの呼び出し側で
   現在使用されている同期および Promise ベースのアダプター契約。

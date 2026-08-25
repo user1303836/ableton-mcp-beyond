@@ -62,7 +62,7 @@ API 的地方,保留的协议操作故障关闭并报告实际限制。
 | take-lane 删除/试听/comp 语义 | 公共 LOM 不支持;不声称这些是公共 MCP 能力 |
 | 冻结与压平 | 无公共 API;不做 UI 自动化 |
 | 离线 bounce、分轨、导出音频/视频、渲染状态 | 无公共 Remote Script API;`project.bounce/export/collect` 保持保留并故障关闭 |
-| 工程新建/打开/保存/另存/关闭与 Collect All and Save | 无公共 API;`live_project_save`/`live_project_open` 保持为显式限制报告器 |
+| 工程新建/打开/保存/另存/关闭与 Collect All and Save | 无公共 API;能力资源报告这些限制,不存在可调用的占位工具 |
 | 分轨分离 | 无公共 API |
 | 完整 Arrangement 分割/合并/剪切/复制/时间粘贴 | 无公共 API |
 | Follow Action 编写 | Live API 未暴露 |

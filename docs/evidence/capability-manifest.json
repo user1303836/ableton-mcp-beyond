@@ -1226,8 +1226,15 @@
     },
     {
       "family": "arrangement-automation",
-      "surface": "Arrangement automation lanes (reserved)",
+      "surface": "Arrangement automation lanes (read-only discovery probe; writes reserved)",
       "operations": [
+        {
+          "id": "arrangement.automation.read",
+          "status": "executable-negotiated",
+          "access": [
+            "read"
+          ]
+        },
         {
           "id": "arrangement.automation.create",
           "status": "reserved-fail-closed",
@@ -1255,16 +1262,9 @@
           "access": [
             "write"
           ]
-        },
-        {
-          "id": "arrangement.automation.read",
-          "status": "reserved-fail-closed",
-          "access": [
-            "read"
-          ]
         }
       ],
-      "firstTested": "unsupported by the stable public LOM; stays reserved and fail-closed"
+      "firstTested": "read: shape-probed fake-Live contract and bounded registry schemas; exact real-Live candidate pending. Writes stay reserved and fail-closed"
     }
   ]
 }

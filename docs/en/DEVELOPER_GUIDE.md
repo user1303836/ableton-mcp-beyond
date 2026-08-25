@@ -9,6 +9,8 @@ Source, schemas, and tests are authoritative. Documentation must not promote a c
 - `apps/mcp-server/src/host.ts`: MCP lifecycle, strict tool schemas, async dispatch, transaction state, and recovery errors.
 - `apps/mcp-server/src/live.ts`: Live types, registry-derived identifiers/hash, unavailable adapter, simulator, and the synchronous plus Promise-based adapter contracts currently used by tests and process-backed callers.
 - `apps/mcp-server/src/registry.ts`: canonical registry loading, bounded schema validation, and derived operation identifiers/hash.
+- `apps/mcp-server/src/tool-catalog.ts`: the single declarative tool catalog — schemas, annotations, exact capability/operation/provenance prerequisites, and deployment policy classes — behind capability-aware `tools/list`, the capability resource, list-changed notifications, and the server-side dispatch gate.
+- `apps/mcp-server/src/midi-transforms.ts`: pure deterministic seeded MIDI transform primitives shared by the transform preview/apply tools.
 - `apps/mcp-server/src/bridge/remote-adapter.ts`: authenticated asynchronous loopback client, registry negotiation, deadlines, correlation, and cleanup.
 - `apps/mcp-server/src/transactions/`: bounded MIDI transaction and async discovery helpers.
 - `apps/mcp-server/src/analysis.ts`: bounded PCM decoding and privacy-preserving analysis.

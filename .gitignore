@@ -17,3 +17,8 @@ apps/mcp-server/release-docs/
 apps/mcp-server/release-manifest.json
 apps/mcp-server/LICENSE.md
 apps/mcp-server/*.tgz
+
+# Python bytecode
+__pycache__/
+*.pyc
+/.pi/

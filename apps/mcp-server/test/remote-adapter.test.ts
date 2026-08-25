@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { createHash, createHmac } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { RemoteScriptLiveAdapter } from "../src/bridge/remote-adapter.js";
+import { READ_ONLY_INVOKES, RemoteScriptLiveAdapter } from "../src/bridge/remote-adapter.js";
 import { LIVE_REGISTRY_HASH } from "../src/live.js";
 
 const secret = "0123456789abcdef0123456789abcdef";
@@ -224,8 +226,9 @@ test("remote adapter restores subscriptions with a reset after same-epoch reconn
   });
   const port = await listen(server); let adapter: RemoteScriptLiveAdapter | undefined;
   try {
-    adapter = await RemoteScriptLiveAdapter.connect({ host: "127.0.0.1", port, secret, timeoutMs: 500 }); const events: unknown[] = []; adapter.subscribe((event) => events.push(event)); await adapter.invokeAsync({ operation: "subscribe", args: { types: ["transport"] } }, { deadlineMs: Date.now() + 1000 }); await new Promise((resolve) => setTimeout(resolve, 30)); assert.equal(adapter.status().connected, false);
-    const refreshed = await adapter.refreshStatusAsync({ deadlineMs: Date.now() + 1000 }); assert.equal(refreshed.connected, true); await new Promise((resolve) => setTimeout(resolve, 10)); assert.equal(subscriptions, 2); assert.equal(events.length, 2); assert.deepEqual(events.map((event) => (event as { type: string }).type), ["reset", "reset"]);
+    adapter = await RemoteScriptLiveAdapter.connect({ host: "127.0.0.1", port, secret, timeoutMs: 500 }); const events: unknown[] = []; adapter.subscribe((event) => events.push(event)); const statusChanges: string[] = []; const adapterWithStatus = adapter as unknown as { subscribeStatus?: (listener: (status: { connected: boolean }) => void) => void }; adapterWithStatus.subscribeStatus?.((status) => statusChanges.push(String(status.connected))); await adapter.invokeAsync({ operation: "subscribe", args: { types: ["transport"] } }, { deadlineMs: Date.now() + 1000 }); await new Promise((resolve) => setTimeout(resolve, 30)); assert.equal(adapter.status().connected, false);
+    assert.deepEqual(statusChanges, ["false"], "the internal status channel reports the disconnect without manufacturing a LiveEvent");
+    const refreshed = await adapter.refreshStatusAsync({ deadlineMs: Date.now() + 1000 }); assert.equal(refreshed.connected, true); await new Promise((resolve) => setTimeout(resolve, 10)); assert.equal(subscriptions, 2); assert.equal(events.length, 2); assert.deepEqual(events.map((event) => (event as { type: string }).type), ["reset", "reset"]); assert.deepEqual(statusChanges, ["false", "true"]);
   } finally { await adapter?.close(); for (const socket of sockets) socket.destroy(); await close(server); }
 });
 
@@ -324,4 +327,16 @@ test("remote adapter tears down on an authenticated unknown response", async () 
     await assert.rejects(adapter.snapshotAsync(), /unknown or duplicate remote response|disconnected/);
     await adapter.close();
   } finally { await close(server); }
+});
+
+test("read-only invoke classification is identical across the TS adapter and the Python mapper", () => {
+  // The two classifiers decide whether an invoke needs mutation authority
+  // preflight/prepare; drift strands prepared authorities in the bridge ledger
+  // and eventually exhausts it.
+  const pythonPath = ["../../../remote-script/ableton_mcp_remote_script.py", "../../../../remote-script/ableton_mcp_remote_script.py"].map((candidate) => fileURLToPath(new URL(candidate, import.meta.url))).find((candidate) => { try { readFileSync(candidate); return true; } catch { return false; } });
+  const python = readFileSync(pythonPath!, "utf8");
+  const match = python.match(/_READ_ONLY_INVOKES = \{([^}]*)\}/);
+  assert.ok(match, "python read-only invoke set not found");
+  const pythonSet = new Set([...match[1]!.matchAll(/"([^"]+)"/g)].map((item) => item[1]));
+  assert.deepEqual([...pythonSet].sort(), [...READ_ONLY_INVOKES].sort());
 });

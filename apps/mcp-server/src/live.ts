@@ -37,6 +37,34 @@ export const SIMULATOR_CAPABILITIES = [
   "session.read", "tracks", "scenes", "clips", "notes", "session.discovery", "session.structure", "session.midi_clip.create", "session.midi_clip.delete", "session.midi_note.read", "session.midi_note.write", "arrangement.read", "arrangement.write", "transport", "devices", "parameters", "device.parameter.write", "subscriptions", "reconnect", "view", "warp", "takes", "tuning", "groove",
 ] as const satisfies readonly LiveCapability[];
 
+/** Capability derivation shared by the remote adapter's status validation and
+ * the simulator's advertisement: a capability is advertised only when its
+ * exact negotiated operations are present. */
+export function liveCapabilitiesForOperations(operations: readonly string[]): LiveCapability[] {
+  const all = (...required: string[]): boolean => required.every((operation) => operations.includes(operation));
+  const any = (...required: string[]): boolean => required.some((operation) => operations.includes(operation));
+  const readableHierarchy = all("snapshot", "discover", "get");
+  const requirements: Record<LiveCapability, boolean> = {
+    "session.read": readableHierarchy && all("session.playback"), "tracks": readableHierarchy, "scenes": readableHierarchy, "clips": readableHierarchy,
+    "notes": readableHierarchy, "session.discovery": all("discover"),
+    "session.structure": any("track.create", "track.delete", "scene.create", "scene.delete"),
+    "session.midi_clip.create": all("clip.create"), "session.midi_clip.delete": all("clip.delete"),
+    "session.midi_note.read": readableHierarchy, "session.midi_note.write": all("note.add", "note.add-batch"),
+    "arrangement.read": any("locator.add", "arrangement.clip.delete", "arrangement.automation.read"),
+    "arrangement.write": any("locator.add", "locator.delete", "arrangement.clip.create", "arrangement.audio-clip.create", "arrangement.clip.delete"),
+    "audio": all("audio.clip.set"), "audio.capture.resampling": all("audio.capture.inspect", "audio.capture.start", "audio.capture.stop", "audio.capture.cleanup"),
+    "warp": all("audio.warp-marker.read"), "takes": all("audio.take-lane.read"), "automation": all("automation.envelope.read"),
+    "devices": readableHierarchy, "racks": readableHierarchy, "chains": readableHierarchy, "parameters": readableHierarchy,
+    "browser": all("browser.search"), "device.parameter.write": all("device.parameter.set"), "routing": all("routing.set"),
+    "recording": any("recording.session", "recording.arrangement"), "projects": all("snapshot"), "mixing": all("mixer.set"),
+    "transport": all("transport.set", "tempo.set"), "tuning": any("tuning.read", "tuning.set"), "groove": all("groove.read"), "max": false,
+    "view": any("view.set", "view.control"),
+    "osc": all("realtime.arm", "realtime.disarm", "realtime.stats"), "realtime.events": all("realtime.arm", "realtime.disarm", "realtime.stats"),
+    "plugins": readableHierarchy, "subscriptions": all("subscribe"), "reconnect": all("reconnect"),
+  };
+  return LIVE_CAPABILITIES.filter((capability) => requirements[capability]);
+}
+
 export type LiveCapability = typeof LIVE_CAPABILITIES[number];
 export type LiveObjectKind = "set" | "track" | "scene" | "clip" | "clip-slot" | "session-playback" | "arrangement-clip" | "take-lane" | "take-lane-clip" | "groove" | "device" | "parameter" | "note" | "automation" | "locator" | "chain" | "drum_pad";
 export type LiveWireObjectKind = LiveObjectKind | "clip_slot" | "arrangement_clip" | "take_lane" | "take_lane_clip" | "groove" | "routing_choice" | "return_track" | "main_track" | "browser_item";
@@ -81,6 +109,8 @@ export interface LiveStatus {
   registryHash?: string;
   operations?: readonly string[];
   provenance?: "real-live" | "fake-live" | "simulator" | "unknown";
+  /** Best-effort read-only runtime evidence reported by the adapter; every field may be unprobed (null). */
+  environment?: { liveVersion?: string | null; liveEdition?: string | null; os?: string | null; api?: string | null };
 }
 
 export interface Note { pitch: number; start: number; duration: number; velocity: number; channel: number; id?: number | null; mute?: boolean | null; probability?: number | null; velocityDeviation?: number | null; releaseVelocity?: number | null; }
@@ -182,7 +212,7 @@ function createSimulatorState(): LiveSnapshot {
   };
 }
 
-export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "transport.set", "tempo.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "session.clip-launch", "session.clip-stop", "clip.create", "clip.delete", "track.create", "track.delete", "track.rename", "track.create-return", "track.delete-return", "track.duplicate", "scene.duplicate", "track.view.set", "track.select-instrument", "scene.create", "scene.delete", "scene.rename", "scene.set", "scene.fire-selected", "clip.rename", "device.rename", "locator.rename", "scene.capture", "note.add", "note.add-batch", "note.update", "note.delete", "note.duplicate", "note.quantize", "note.read-by-id", "note.read-selected", "locator.add", "locator.delete", "locator.jump", "locator.jump-to", "song.read", "song.time-convert", "transport.action", "session.capture-midi", "device.parameter.set", "clip.duplicate", "clip.move", "clip.set", "clip.action", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "arrangement.audio-clip.create", "session.audio-clip.create", "take-lane.create", "take-lane.rename", "take-lane.clip.create", "take-lane.audio-clip.create", "audio.take-lane.read", "tuning.read", "tuning.set", "groove.read", "groove.set", "groove.edit", "chain.set", "drum-pad.set", "drum-pad.delete-all-chains", "rack.set", "rack.action", "rack.view.set", "audio.clip.set", "audio.warp-marker.read", "audio.warp-marker.add", "audio.warp-marker.move", "audio.warp-marker.delete", "mixer.set", "mixer.extended.set", "chain-mixer.set", "device-io.set", "compressor.sidechain.set", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.envelope.clear", "automation.point.insert", "automation.point.delete", "device.insert", "device.delete", "device.enable", "device.move", "device.bank.set", "parameter.re-enable-automation", "device.comparison.save-to-slot", "drift.set", "drum-cell.set", "eq8.set", "hybrid-reverb.set", "looper.action", "looper.set", "meld.set", "plugin.set", "simpler.replace-sample", "observe.subscribe", "observe.poll", "observe.unsubscribe", "selection.set", "song.view.set", "clip.view.set", "device.view.set", "application.dialog", "browser.search", "browser.inspect", "browser.load", "browser.roots", "routing.set", "recording.session", "recording.arrangement", "performance.read", "view.set", "view.control"] as const;
+export const SIMULATOR_OPERATIONS = ["status", "snapshot", "discover", "get", "reconnect", "session.playback", "transport.set", "tempo.set", "session.audition-launch", "session.audition-stop", "session.emergency-stop", "session.clip-launch", "session.clip-stop", "clip.create", "clip.delete", "track.create", "track.delete", "track.rename", "track.create-return", "track.delete-return", "track.duplicate", "scene.duplicate", "track.view.set", "track.select-instrument", "scene.create", "scene.delete", "scene.rename", "scene.set", "scene.fire-selected", "clip.rename", "device.rename", "locator.rename", "scene.capture", "note.add", "note.add-batch", "note.update", "note.delete", "note.duplicate", "note.quantize", "note.read-by-id", "note.read-selected", "locator.add", "locator.delete", "locator.jump", "locator.jump-to", "song.read", "song.time-convert", "transport.action", "session.capture-midi", "device.parameter.set", "clip.duplicate", "clip.move", "clip.set", "clip.action", "arrangement.clip.create", "arrangement.clip.delete", "arrangement.clip.move", "arrangement.audio-clip.create", "session.audio-clip.create", "take-lane.create", "take-lane.rename", "take-lane.clip.create", "take-lane.audio-clip.create", "audio.take-lane.read", "audio.comp.read", "arrangement.automation.read", "tuning.read", "tuning.set", "groove.read", "groove.set", "groove.edit", "chain.set", "drum-pad.set", "drum-pad.delete-all-chains", "rack.set", "rack.action", "rack.view.set", "audio.clip.set", "audio.warp-marker.read", "audio.warp-marker.add", "audio.warp-marker.move", "audio.warp-marker.delete", "mixer.set", "mixer.extended.set", "chain-mixer.set", "device-io.set", "compressor.sidechain.set", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.envelope.clear", "automation.point.insert", "automation.point.delete", "device.insert", "device.delete", "device.enable", "device.move", "device.bank.set", "parameter.re-enable-automation", "device.comparison.save-to-slot", "drift.set", "drum-cell.set", "eq8.set", "hybrid-reverb.set", "looper.action", "looper.set", "meld.set", "plugin.set", "simpler.replace-sample", "observe.subscribe", "observe.poll", "observe.unsubscribe", "selection.set", "song.view.set", "clip.view.set", "device.view.set", "application.dialog", "browser.search", "browser.inspect", "browser.load", "browser.roots", "routing.set", "recording.session", "recording.arrangement", "performance.read", "view.set", "view.control"] as const;
 
 export class DeterministicLiveSimulator implements LiveAdapter {
   private state = createSimulatorState();
@@ -198,7 +228,7 @@ export class DeterministicLiveSimulator implements LiveAdapter {
     return simulatorRevision({ scene: sceneIdentity, contents });
   }
 
-  status(): LiveStatus { return { connected: true, adapter: "simulator", epoch: this.epoch, protocol: LIVE_PROTOCOL_VERSION, capabilities: SIMULATOR_CAPABILITIES, operations: [...SIMULATOR_OPERATIONS] }; }
+  status(): LiveStatus { return { connected: true, adapter: "simulator", epoch: this.epoch, protocol: LIVE_PROTOCOL_VERSION, capabilities: liveCapabilitiesForOperations(SIMULATOR_OPERATIONS), operations: [...SIMULATOR_OPERATIONS] }; }
   snapshot(): LiveSnapshot { const value = structuredClone(this.state) as LiveSnapshot; value.arrangement.clips = (this.state.arrangementClips ?? []).map((item) => ({ ref: item.clip.ref, objectIdentity: item.clip.objectIdentity, parentRef: item.trackRef, trackRef: item.trackRef, name: item.clip.name, kind: item.clip.kind, start: item.clip.start, length: item.clip.length, muted: item.clip.muted ?? null, colorIndex: item.clip.colorIndex ?? null, looping: item.clip.looping ?? null, loopStart: item.clip.loopStart ?? null, loopEnd: item.clip.loopEnd ?? null, filePath: item.clip.filePath ?? null, isAudio: item.clip.isAudio ?? (item.clip.kind === "audio") })); return value; }
   get(objectRef: LiveRef): unknown {
     if (objectRef === this.state.set.ref) return structuredClone(this.state.set);
@@ -661,6 +691,33 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         const parameterRef = objectRef("parameterRef");
         const points = clip.envelopes?.[parameterRef];
         return { available: true, exists: points !== undefined, points: structuredClone(points ?? []), revision: this.envelopeRevision(clip, parameterRef) };
+      }
+      case "arrangement.automation.read": {
+        const clipRef = objectRef("clipRef");
+        const row = (this.state.arrangementClips ?? []).find((item) => item.clip.ref === clipRef);
+        if (!row) throw new Error("arrangement clip reference is stale or invalid");
+        const parameterRef = objectRef("parameterRef");
+        const points = row.clip.envelopes?.[parameterRef];
+        if (points !== undefined && points.length > 512) throw new Error("complete arrangement envelope exceeds its authoritative point bound");
+        return { available: true, exists: points !== undefined, points: structuredClone(points ?? []) };
+      }
+      case "audio.comp.read": {
+        const clipRef = objectRef("clipRef");
+        const found = this.findClipWithTrack(clipRef);
+        if (!found) throw new Error("comp read requires an exact clip reference");
+        const lanes = found.track.takeLanes ?? [];
+        const from = found.clip.start;
+        const to = found.clip.start + found.clip.length;
+        const segments: Array<{ laneRef: string; from: number; to: number }> = [];
+        for (const lane of lanes) {
+          for (const laneClip of lane.clips) {
+            const start = Math.max(laneClip.start, from);
+            const end = Math.min(laneClip.start + laneClip.length, to);
+            if (end > start) segments.push({ laneRef: lane.ref, from: start, to: end });
+            if (segments.length > 512) throw new Error("comp segment collection exceeds its authoritative bound");
+          }
+        }
+        return { segments };
       }
       case "automation.envelope.create": {
         const clip = this.findClip(objectRef("clipRef"));

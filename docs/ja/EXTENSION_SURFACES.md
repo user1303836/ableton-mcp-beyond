@@ -67,7 +67,7 @@ Live Object Model の全領域をカバーしました。残る Max 専用サー
 | テイクレーン削除/オーディション/コンプセマンティクス | 公開 LOM でサポート外。これらについて公開 MCP ケイパビリティは主張しない |
 | フリーズとフラット化 | 公開 API なし。UI オートメーションなし |
 | オフラインバウンス、ステム、オーディオ/ビデオ書き出し、レンダーステータス | 公開 Remote Script API なし。`project.bounce/export/collect` は予約済み・フェイルクローズのまま |
-| プロジェクト新規/開く/保存/別名保存/閉じる、Collect All and Save | 公開 API なし。`live_project_save`/`live_project_open` は明示的な制限レポーターのまま |
+| プロジェクト新規/開く/保存/別名保存/閉じる、Collect All and Save | 公開 API なし。これらの制限は capability リソースで報告され、呼び出し可能なプレースホルダーツールは存在しない |
 | ステム分離 | 公開 API なし |
 | 完全な Arrangement 分割/統合/カット/コピー/タイムペースト | 公開 API なし |
 | Follow Action 作成 | Live API で公開されていない |
