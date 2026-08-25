@@ -3490,6 +3490,24 @@ export class McpHost {
     return noteContentDigest(notes);
   }
 
+  /** Content fingerprint over any snapshot row, using a clip-content bound
+   * (4096-item arrays) instead of the tighter mutation-authority bound, so
+   * note-dense clips remain fingerprintable up to the transform bound. The
+   * adapter's own read bounds still govern whether such rows exist.
+   * Byte-identical to captureObjectFingerprint within its limits. */
+  private captureBoundedFingerprint(value: unknown): string {
+    const canonical = (item: unknown, depth: number): string => {
+      if (depth > 16) throw new Error("clip content is too deeply nested");
+      if (item === null || typeof item === "boolean") return JSON.stringify(item);
+      if (typeof item === "number") { if (!Number.isFinite(item)) throw new Error("clip content contains a non-finite number"); return JSON.stringify(Object.is(item, -0) ? 0 : item); }
+      if (typeof item === "string") { if (item.length > 16384) throw new Error("clip content string is too large"); return JSON.stringify(item); }
+      if (Array.isArray(item)) { if (item.length > 4096) throw new Error("clip content array exceeds its authoritative bound"); return `[${item.map((entry) => canonical(entry, depth + 1)).join(",")}]`; }
+      if (isObject(item)) { const keys = Object.keys(item); if (keys.length > 256) throw new Error("clip content object is too large"); return `{${keys.sort().map((key) => `${JSON.stringify(key)}:${canonical((item as Record<string, unknown>)[key], depth + 1)}`).join(",")}}`; }
+      throw new Error("clip content contains an unsupported value");
+    };
+    return createHash("sha256").update(canonical(value, 0)).digest("hex");
+  }
+
   /** Digest of the full clip content the snapshot exposes as mutable: name,
    * timing, note content revision, audio fields, fades, loop bounds, warp
    * markers, groove, signature, legato, and visual state. Uses a
@@ -3555,24 +3573,29 @@ export class McpHost {
   /** Execute a note plan with exact interim fencing: before every chunk the
    * current clip content must equal the expected intermediate state derived
    * from the stored plan, so a concurrent external edit fails closed instead
-   * of being overwritten. When a recovery record is supplied, completed steps
-   * are skipped by content identity and remaining steps resume with fresh
-   * authority, so an exact-key retry after a partial failure converges. */
+   * of being overwritten. Steps are matched by stable plan index (identical
+   * chunks stay distinct), and a step whose effect is already present — a lost
+   * acknowledgement that did dispatch — is adopted without re-dispatching, so
+   * an exact-key retry after a post-dispatch failure converges. */
   private async executeNotePlan(record: object | null, adapter: AsyncLiveAdapter, context: LiveOperationContext, clipRef: LiveRef, steps: Array<{ operation: "note.update" | "note.add-batch" | "note.delete"; items: Array<Record<string, unknown>> | number[] }>, initialNotes: Array<Record<string, unknown>>, idBound: boolean): Promise<void> {
     let plan: Array<{ operation: string; args: Record<string, unknown>; completed: boolean; result?: unknown }> | undefined;
     if (record !== null) {
       const begun = this.beginUndoRecovery(record, context.idempotencyKey ?? "");
       plan = begun.steps;
-      if (begun.reconciliation) await this.replayUndoRecovery(record, adapter, context);
     }
     const digestOf = (notes: Array<Record<string, unknown>>): string => idBound ? noteIdentityDigest(notes) : noteContentDigest(notes);
     for (let index = 0; index < steps.length; index += 1) {
       const step = steps[index]!;
       const field = step.operation === "note.delete" ? "noteIds" : "notes";
-      const recorded = plan?.find((candidate) => candidate.operation === step.operation && JSON.stringify(candidate.args[field]) === JSON.stringify(step.items));
+      const recorded = plan !== undefined && plan.length > index && plan[index]!.operation === step.operation && JSON.stringify(plan[index]!.args[field]) === JSON.stringify(step.items) ? plan[index] : undefined;
       if (recorded?.completed) continue;
       const fresh = this.noteClip(await adapter.snapshotAsync(context), clipRef);
-      if (digestOf(fresh.notes) !== this.notePlanInterimDigest(initialNotes, steps, index, idBound)) throw new Error("notes changed during the note plan; refusing to overwrite external edits");
+      const currentDigest = digestOf(fresh.notes);
+      if (currentDigest === this.notePlanInterimDigest(initialNotes, steps, index + 1, idBound)) {
+        if (recorded) recorded.completed = true;
+        continue;
+      }
+      if (currentDigest !== this.notePlanInterimDigest(initialNotes, steps, index, idBound)) throw new Error("notes changed during the note plan; refusing to overwrite external edits");
       const args: Record<string, unknown> = { ref: clipRef, [field]: step.items, expectedClipAuthority: fresh.authority, expectedNotesRevision: fresh.notesRevision };
       const result = await (async (): Promise<{ updated?: unknown; added?: unknown; deleted?: unknown }> => {
         if (recorded) { recorded.args = args; recorded.result = await adapter.invokeAsync({ operation: step.operation, args }, context); recorded.completed = true; return recorded.result as never; }
@@ -3685,7 +3708,7 @@ export class McpHost {
       let duplicateRef = transaction.created?.ref as string | undefined;
       let duplicateIdentity = transaction.created?.objectIdentity as string | undefined;
       if (duplicateRef === undefined || duplicateIdentity === undefined) {
-        const duplicate = await adapter.invokeAsync({ operation: "clip.duplicate", args: { ref: transaction.clipRef, targetTrackRef: target.trackRef, targetSceneIndex: target.sceneIndex, arrangementPosition: null, ...(transaction.payload.authority as Record<string, unknown>), expectedContentFingerprint: this.captureObjectFingerprint(this.clipRow(snapshot, transaction.clipRef!).clip), expectedTargetTrackIdentity: target.trackIdentity, expectedTargetSlotRef: target.slotRef, expectedTargetSlotIdentity: target.slotIdentity, expectedTargetSceneRef: target.sceneRef, expectedTargetSceneIdentity: target.sceneIdentity, expectedTargetCollectionRevision: null } }, context) as { ref?: unknown; objectIdentity?: unknown; createdFingerprint?: unknown };
+        const duplicate = await adapter.invokeAsync({ operation: "clip.duplicate", args: { ref: transaction.clipRef, targetTrackRef: target.trackRef, targetSceneIndex: target.sceneIndex, arrangementPosition: null, ...(transaction.payload.authority as Record<string, unknown>), expectedContentFingerprint: this.captureBoundedFingerprint(this.clipRow(snapshot, transaction.clipRef!).clip), expectedTargetTrackIdentity: target.trackIdentity, expectedTargetSlotRef: target.slotRef, expectedTargetSlotIdentity: target.slotIdentity, expectedTargetSceneRef: target.sceneRef, expectedTargetSceneIdentity: target.sceneIdentity, expectedTargetCollectionRevision: null } }, context) as { ref?: unknown; objectIdentity?: unknown; createdFingerprint?: unknown };
         if (!isNonEmptyString(duplicate.ref, 256) || !isNonEmptyString(duplicate.objectIdentity, 256)) throw new Error("clip duplication did not return exact identity");
         duplicateRef = duplicate.ref; duplicateIdentity = duplicate.objectIdentity;
         transaction.created = { ref: duplicateRef, objectIdentity: duplicateIdentity, fingerprint: typeof duplicate.createdFingerprint === "string" ? duplicate.createdFingerprint : undefined };
@@ -3707,7 +3730,7 @@ export class McpHost {
         if (this.canonicalNoteContent(verified.notes) !== transaction.payload.expectedResultContent) throw new Error("duplicate transform postcondition was not confirmed");
         // Cleanup authority fingerprints the verified post-transform content: the
         // transform intentionally rewrote the duplicate after creation.
-        transaction.created = { ref: duplicateRef, objectIdentity: duplicateIdentity, fingerprint: this.captureObjectFingerprint(this.clipRow(verifiedSnapshot, duplicateRef as LiveRef).clip) };
+        transaction.created = { ref: duplicateRef, objectIdentity: duplicateIdentity, fingerprint: this.captureBoundedFingerprint(this.clipRow(verifiedSnapshot, duplicateRef as LiveRef).clip) };
         this.undoRecoveryPlans.delete(transaction);
       } catch (cause) {
         // No cleanup on failure: the transaction-owned duplicate remains for the
@@ -5521,7 +5544,7 @@ export class McpHost {
     const snapshot = await adapter.snapshotAsync(context); let located: ReturnType<McpHost["clipRow"]>;
     try { located = this.clipRow(snapshot, reference); } catch (cause) { if (allowAbsent) return; throw cause; }
     if (located.clip.objectIdentity !== objectIdentity) throw new Error("owned clip identity changed before cleanup");
-    if (expectedFingerprint && this.captureObjectFingerprint(located.clip) !== expectedFingerprint) throw new Error("transaction-owned clip was modified after creation; cleanup refused");
+    if (expectedFingerprint && this.captureBoundedFingerprint(located.clip) !== expectedFingerprint) throw new Error("transaction-owned clip was modified after creation; cleanup refused");
     const operation = located.arrangement ? "arrangement.clip.delete" : "clip.delete"; const args = located.arrangement ? { ref: reference, ...this.arrangementClipAuthority(snapshot, reference) } : { ref: reference, ...this.clipAuthority(snapshot, reference) };
     if (recoveryRecord) await this.invokeUndoRecovery(recoveryRecord, adapter, operation, args, context); else await adapter.invokeAsync({ operation, args }, context);
     try { this.clipRow(await adapter.snapshotAsync(context), reference); } catch { return; }
@@ -6482,7 +6505,7 @@ export class McpHost {
             // preview-time values, including a content swap between notes.
             if (noteIdentityDigest(current.notes) !== transform.payload.expectedResultIdentity) return this.transactionError(id, "notes changed after apply; undo refused");
           }
-          this.beginUndoRecovery(transform, params.idempotencyKey as string); transform.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(transform, adapter, context);
+          this.beginUndoRecovery(transform, params.idempotencyKey as string); transform.undoKey = params.idempotencyKey as string;
           transform.state = "undoing";
           const priorById = new Map(prior.map((note) => [note.id, note]));
           const updatedRows = ((transform.payload.diff as { update?: Array<Record<string, unknown>> }).update ?? []);

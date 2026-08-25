@@ -213,3 +213,69 @@ test("live_status reconnects a dropped same-epoch bridge and restores the visibl
   await new Promise((resolve) => setImmediate(resolve));
   assert.ok(emitted.filter((line) => line.includes("notifications/tools/list_changed")).length >= 1);
 });
+
+test("exact-key apply recovery adopts a dispatched step after a lost acknowledgement", async () => {
+  const { simulator, call, parse } = midiRig(600);
+  const inner = (simulator as any).invokeAsync;
+  let updateCalls = 0;
+  (simulator as any).invokeAsync = async (invocation: LiveInvocation, _context?: unknown) => {
+    const result = await inner(invocation);
+    if (invocation.operation === "note.update") {
+      updateCalls += 1;
+      if (updateCalls === 1) throw new Error("simulated post-dispatch timeout");
+    }
+    return result;
+  };
+  const preview = await parse(call("live_midi_transform_preview", { clipRef: "clip:clip-1", transform: "transpose", params: { semitones: 1 }, scope: "in-place" }));
+  const first = await call("live_midi_transform_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "lost-ack-apply" });
+  assert.equal((first as any).result.isError, true, "the first apply becomes uncertain after the simulated timeout");
+  const clip = (simulator as any).state.tracks[0].clips[0];
+  assert.equal(clip.notes[0].pitch, 41, "chunk 1 reached Live before the response was lost");
+  const retried = await parse(call("live_midi_transform_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "lost-ack-apply" }));
+  assert.equal(retried.state, "applied", "the exact-key retry adopts the dispatched chunk and finishes");
+  assert.ok(clip.notes.every((note: { pitch: number }, index: number) => note.pitch === 41 + (index % 40)));
+});
+
+test("identical chunks stay distinct: a 1024-note repeat applies exactly twice", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const state = (simulator as any).state;
+  const clip = state.tracks[0].clips[0];
+  clip.notes = Array.from({ length: 256 }, (_, index) => ({ pitch: 60, start: 0, duration: 1, velocity: 90, channel: 1, id: 1000 + index, mute: false, probability: 1, velocityDeviation: 0, releaseVelocity: 64 }));
+  clip.notesRevision = createHash("sha256").update(JSON.stringify(clip.notes)).digest("hex");
+  state.scenes.push({ ref: "scene:scene-2", objectIdentity: "simulator:scene:scene-2", name: "Target", index: 1 });
+  state.tracks[0].clipSlots.push({ ref: "clip-slot:track-1:1", parentRef: "track:track-1", objectIdentity: "simulator:clip-slot:track-1:1", sceneIndex: 1, clipRef: null, empty: true });
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(2, "live_midi_transform_preview", { clipRef: "clip:clip-1", transform: "repeat", params: { times: 4 }, scope: "duplicate", target: { trackRef: "track:track-1", sceneIndex: 1 } })) as any).result.content[0].text);
+  assert.equal(preview.diff.add, 1024);
+  const applied = JSON.parse(((await call(3, "live_midi_transform_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "identical-chunks" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied");
+  const duplicate = simulator.snapshot().tracks[0]!.clips.find((candidate) => candidate.ref === applied.created.ref)!;
+  assert.equal(duplicate.notes.length, 1024, "both identical 512-note chunks dispatched");
+});
+
+test("duplicate transforms between 257 and 512 notes finalize and clean up exactly", async () => {
+  for (const [sourceCount, times] of [[200, 2], [300, 1]] as const) {
+    const simulator = new DeterministicLiveSimulator();
+    const state = (simulator as any).state;
+    const clip = state.tracks[0].clips[0];
+    clip.notes = Array.from({ length: sourceCount }, (_, index) => ({ pitch: 40 + (index % 40), start: (index % 128) / 32, duration: 0.25, velocity: 90, channel: 1, id: 1000 + index, mute: false, probability: 1, velocityDeviation: 0, releaseVelocity: 64 }));
+    clip.notesRevision = createHash("sha256").update(JSON.stringify(clip.notes)).digest("hex");
+    state.scenes.push({ ref: "scene:scene-2", objectIdentity: "simulator:scene:scene-2", name: "Target", index: 1 });
+    state.tracks[0].clipSlots.push({ ref: "clip-slot:track-1:1", parentRef: "track:track-1", objectIdentity: "simulator:clip-slot:track-1:1", sceneIndex: 1, clipRef: null, empty: true });
+    const host = new McpHost(simulator);
+    ready(host);
+    const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+    const transform = times === 1 ? "transpose" : "repeat";
+    const params = times === 1 ? { semitones: 2 } : { times };
+    const preview = JSON.parse(((await call(2, "live_midi_transform_preview", { clipRef: "clip:clip-1", transform, params, scope: "duplicate", target: { trackRef: "track:track-1", sceneIndex: 1 } })) as any).result.content[0].text);
+    const applied = JSON.parse(((await call(3, "live_midi_transform_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: `dense-${sourceCount}` })) as any).result.content[0].text);
+    assert.equal(applied.state, "applied", `${sourceCount} source notes, ${times}x`);
+    const duplicate = simulator.snapshot().tracks[0]!.clips.find((candidate) => candidate.ref === applied.created.ref)!;
+    assert.equal(duplicate.notes.length, sourceCount * times);
+    const undone = JSON.parse(((await call(4, "live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: `dense-undo-${sourceCount}` })) as any).result.content[0].text);
+    assert.equal(undone.state, "undone", "cleanup verification works above 256 notes");
+    assert.equal(simulator.snapshot().tracks[0]!.clips.some((candidate) => candidate.ref === applied.created.ref), false);
+  }
+});
