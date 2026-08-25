@@ -173,8 +173,8 @@
   [USER_JOURNEYS.md](USER_JOURNEYS.md)。
 - 打包产物生产旅程、Python 映射器测试、属性测试、隔离资源基准、兼容性/
   软件包验证与 Windows 权限加固。
-- MIT 许可、本地/未发布的 release-v2 暂存:独立且精确的 77 文件允许列表、
-  完整负载哈希、打包许可证字节相等,以及干净 SHA/工具链/锁/工作流来源。
+- MIT 许可、本地/未发布的 release-v2 暂存:经独立验证的精确载荷允许列表
+  (载荷由 `release-manifest.json` 枚举,以其为准)、完整负载哈希、打包许可证字节相等,以及干净 SHA/工具链/锁/工作流来源。
   `private: true` 仅防止意外发布,不改变 MIT 权利。发布工作流要求全新克隆
   字节级可复现,并在 Ubuntu 24.04、macOS 15 与 Windows Server 2025 上的
   Node 22/24/25 之间共享同一精确候选。

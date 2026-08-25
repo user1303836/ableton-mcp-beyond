@@ -148,7 +148,7 @@ they grant no mutation authority.
 
 | Domain | Implementation / safety | Tests and evidence | Supported status | Limitations / docs |
 |---|---|---|---|---|
-| Release artifact | strict 77-path MIT npm tarball, release manifest, payload roles/hashes, license-byte equality | `package:verify`, candidate and Python binders, fresh-clone byte comparison | Exact-SHA local unpublished tarball only | `DELIVERY.md`; npm `private: true`, unsigned, unnotarized, unpublished |
+| Release artifact | strict allowlist-exact MIT npm tarball, release manifest, payload roles/hashes, license-byte equality | `package:verify`, candidate and Python binders, fresh-clone byte comparison | Exact-SHA local unpublished tarball only | `DELIVERY.md`; npm `private: true`, unsigned, unnotarized, unpublished |
 | Install/activation | `ableton-mcp-lifecycle` receipt/journal/lock; D/FS | lifecycle unit + installed-candidate matrix; activation requires real-Live and intact receipt-bound package | macOS 15 and Windows Server 2025 host contracts conditional on exact-SHA CI | Windows Live/Windows 11 activation not certified; `DELIVERY.md` |
 | Upgrade/repair/rollback/uninstall | exact newer artifact, quarantine/retained cleanup, exact prior generation, owner-only purge | lifecycle unit, candidate OS matrix including Windows ACL/junction/held-file cases | Host contract only until hosted exact-SHA result | No native installer; operator must stop/restart Live |
 | Node/OS compatibility | Node 22/24/25; Ubuntu 24.04, macOS 15, Windows Server 2025 workflow | full Node tests plus exact installed candidate; Python 3.11 mapper | Conditional; see current check results | Linux has no Live claim; Windows 11 is not inherited from Server |
