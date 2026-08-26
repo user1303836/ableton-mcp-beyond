@@ -3248,7 +3248,7 @@ class LiveObjectMapper:
         revision = self.refs.touch(reference)
         return {"changed": True, "revision": revision}
 
-    _CLIP_SET_FIELDS = ("muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove")
+    _CLIP_SET_FIELDS = ("muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove", "launchMode", "launchQuantization", "legato", "ramMode", "velocityAmount")
 
     def _clip_state_fields(self, clip: Any) -> dict[str, Any]:
         """Muted/color/loop clip state, honestly null when unavailable."""
@@ -3272,6 +3272,7 @@ class LiveObjectMapper:
             value = self._read_attr(clip, name)
             return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
         fields["launchMode"] = optional_int("launch_mode")
+        fields["launchQuantization"] = optional_int("launch_quantization")
         fields["legato"] = optional_bool("legato")
         fields["playingPosition"] = optional_float("playing_position")
         fields["isPlaying"] = optional_bool("is_playing")
@@ -3311,7 +3312,7 @@ class LiveObjectMapper:
         if not isinstance(expected_authority, str) or not hmac.compare_digest(authority_revision, expected_authority) or not isinstance(expected_state, str) or not hmac.compare_digest(state_revision, expected_state): raise ValueError("clip hierarchy or state changed since preview")
         clip = self.refs.get(reference)
         is_audio = self._read_attr(clip, "is_audio_clip") is True
-        allowed = {"ref", "muted", "colorIndex", "looping", "loopStart", "loopEnd", "grooveRef", "expectedObjectIdentity", "expectedAuthorityRevision", "expectedStateRevision"}
+        allowed = {"ref", "muted", "colorIndex", "looping", "loopStart", "loopEnd", "grooveRef", "launchMode", "launchQuantization", "legato", "ramMode", "velocityAmount", "expectedObjectIdentity", "expectedAuthorityRevision", "expectedStateRevision"}
         if set(args) - allowed:
             raise ValueError("clip fields are invalid")
         proposals: list[tuple[str, str, Any]] = []
@@ -3331,6 +3332,29 @@ class LiveObjectMapper:
             value = args["colorIndex"]
             if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 69: raise ValueError("colorIndex is invalid")
             proposals.append(("colorIndex", "color_index", value))
+        if ("launchMode" in args or "launchQuantization" in args) and (self._read_attr(clip, "is_playing") is True or self._read_attr(clip, "is_triggered") is True): raise ValueError("launch behavior changes on a playing or triggered clip are refused")
+        if "launchMode" in args:
+            value = args["launchMode"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 3: raise ValueError("launchMode is invalid")
+            proposals.append(("launchMode", "launch_mode", value))
+        if "launchQuantization" in args:
+            value = args["launchQuantization"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 14: raise ValueError("launchQuantization is invalid")
+            proposals.append(("launchQuantization", "launch_quantization", value))
+        if "legato" in args:
+            value = args["legato"]
+            if not isinstance(value, bool): raise ValueError("legato is invalid")
+            proposals.append(("legato", "legato", value))
+        if "ramMode" in args:
+            value = args["ramMode"]
+            if not isinstance(value, bool): raise ValueError("ramMode is invalid")
+            if not is_audio: raise ValueError("ramMode is only available on audio clips")
+            proposals.append(("ramMode", "ram_mode", value))
+        if "velocityAmount" in args:
+            value = args["velocityAmount"]
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not 0 <= float(value) <= 1: raise ValueError("velocityAmount is invalid")
+            if is_audio: raise ValueError("velocityAmount is only available on MIDI clips")
+            proposals.append(("velocityAmount", "velocity_amount", float(value)))
         if "looping" in args:
             value = args["looping"]
             if not isinstance(value, bool): raise ValueError("looping is invalid")

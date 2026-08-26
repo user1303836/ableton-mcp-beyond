@@ -750,8 +750,8 @@ const toolDescriptors = [
   },
   {
     name: "live_clip_properties_preview",
-    description: "Read-only preflight for bounded clip edits (mute, color, MIDI clip loop) with prior-value capture.",
-    inputSchema: { type: "object", properties: { clipRef: { type: "string", minLength: 1, maxLength: 256 }, muted: { type: "boolean" }, colorIndex: { type: "integer", minimum: 0, maximum: 69 }, looping: { type: "boolean" }, loopStart: { type: "number", minimum: 0 }, loopEnd: { type: "number", minimum: 0 } }, required: ["clipRef"], additionalProperties: false },
+    description: "Read-only preflight for bounded clip edits (mute, color, MIDI clip loop, launch mode/quantization, legato, RAM mode for audio clips, velocity amount for MIDI clips) with prior-value capture.",
+    inputSchema: { type: "object", properties: { clipRef: { type: "string", minLength: 1, maxLength: 256 }, muted: { type: "boolean" }, colorIndex: { type: "integer", minimum: 0, maximum: 69 }, looping: { type: "boolean" }, loopStart: { type: "number", minimum: 0 }, loopEnd: { type: "number", minimum: 0 }, launchMode: { type: "integer", minimum: 0, maximum: 3 }, launchQuantization: { type: "integer", minimum: 0, maximum: 14 }, legato: { type: "boolean" }, ramMode: { type: "boolean" }, velocityAmount: { type: "number", minimum: 0, maximum: 1 } }, required: ["clipRef"], additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   },
   {

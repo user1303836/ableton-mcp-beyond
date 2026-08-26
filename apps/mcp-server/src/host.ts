@@ -2937,21 +2937,24 @@ export class McpHost {
   }
 
   private clipPropertiesMutationAuthority(snapshot: LiveSnapshot, clipRef: LiveRef): JsonObject {
-    const located = this.clipRow(snapshot, clipRef); const fields = ["muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove"];
+    const located = this.clipRow(snapshot, clipRef); const fields = ["muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove", "launchMode", "launchQuantization", "legato", "ramMode", "velocityAmount"];
     const state = Object.fromEntries(fields.map((field) => [field, located.clip[field] ?? null]));
     const expectedAuthorityRevision = this.clipAuthorityDigest(snapshot, clipRef);
     return { expectedObjectIdentity: located.clip.objectIdentity, expectedAuthorityRevision, expectedStateRevision: createHash("sha256").update(canonicalMutationIdentity(state)).digest("hex") };
   }
 
   private async liveClipPropertiesPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
-    const fields = ["muted", "colorIndex", "looping", "loopStart", "loopEnd"] as const;
+    const fields = ["muted", "colorIndex", "looping", "loopStart", "loopEnd", "launchMode", "launchQuantization", "legato", "ramMode", "velocityAmount"] as const;
     if (!isObject(params) || !hasOnly(params, ["clipRef", "grooveRef", ...fields]) || !isNonEmptyString(params.clipRef, 256)) return error(id, -32602, "clipRef is required");
     const proposed: Record<string, unknown> = {};
     for (const field of fields) {
       const value = params[field];
       if (value === undefined) continue;
-      if (field === "muted" || field === "looping") { if (typeof value !== "boolean") return error(id, -32602, `${field} must be boolean`); }
+      if (field === "muted" || field === "looping" || field === "legato" || field === "ramMode") { if (typeof value !== "boolean") return error(id, -32602, `${field} must be boolean`); }
       else if (field === "colorIndex") { if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 69) return error(id, -32602, "colorIndex is out of bounds"); }
+      else if (field === "launchMode") { if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 3) return error(id, -32602, "launchMode is out of bounds"); }
+      else if (field === "launchQuantization") { if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 14) return error(id, -32602, "launchQuantization is out of bounds"); }
+      else if (field === "velocityAmount") { if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) return error(id, -32602, "velocityAmount is out of bounds"); }
       else if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return error(id, -32602, `${field} is out of bounds`);
       proposed[field] = value;
     }
@@ -2965,6 +2968,9 @@ export class McpHost {
       const snapshot = await this.asyncAdapter().snapshotAsync();
       const row = this.clipRow(snapshot, params.clipRef as LiveRef);
       if (row.clip.isAudio === true && Object.keys(proposed).some((field) => field === "looping" || field === "loopStart" || field === "loopEnd")) return this.transactionError(id, "audio clip loop editing uses live_audio_clip_preview");
+      if (row.clip.isAudio === true && proposed.velocityAmount !== undefined) return this.transactionError(id, "velocityAmount is only available on MIDI clips");
+      if (row.clip.isAudio !== true && proposed.ramMode !== undefined) return this.transactionError(id, "ramMode is only available on audio clips");
+      if ((proposed.launchMode !== undefined || proposed.launchQuantization !== undefined) && (row.clip.isPlaying === true || row.clip.isTriggered === true)) return this.transactionError(id, "launch behavior changes on a playing or triggered clip are refused");
       if (fields.some((field) => proposed[field] !== undefined && (row.clip[field] === null || row.clip[field] === undefined))) return this.transactionError(id, "one or more requested clip fields are unavailable on this exact clip");
       if (params.grooveRef !== undefined && params.grooveRef !== null) { const grooves = (snapshot.groovePool?.grooves ?? []); if (!grooves.some((groove) => groove.ref === params.grooveRef)) return this.transactionError(id, "groove reference is unknown"); }
       const finalStart = (proposed.loopStart ?? row.clip.loopStart ?? null) as number | null; const finalEnd = (proposed.loopEnd ?? row.clip.loopEnd ?? null) as number | null;
@@ -2993,7 +2999,7 @@ export class McpHost {
       if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
       const adapter = this.asyncAdapter();
       const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
-      const fields = ["muted", "colorIndex", "looping", "loopStart", "loopEnd"] as const;
+      const fields = ["muted", "colorIndex", "looping", "loopStart", "loopEnd", "launchMode", "launchQuantization", "legato", "ramMode", "velocityAmount"] as const;
       if (!reconciliation) { const snapshot = await adapter.snapshotAsync(context); const row = this.clipRow(snapshot, transaction.clipRef!);
         if (JSON.stringify({ ref: transaction.clipRef, objectIdentity: row.clip.objectIdentity, fields: fields.map((field) => row.clip[field] ?? null) }) !== transaction.fence) return this.transactionError(id, "clip identity or state changed since preview; preview again"); }
       transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;

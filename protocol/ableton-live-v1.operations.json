@@ -3368,6 +3368,27 @@
       "minimum": 0,
       "maximum": 1000000000
      },
+     "launchMode": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+     },
+     "launchQuantization": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 14
+     },
+     "legato": {
+      "type": "boolean"
+     },
+     "ramMode": {
+      "type": "boolean"
+     },
+     "velocityAmount": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+     },
      "expectedObjectIdentity": {
       "type": "string",
       "minLength": 1,

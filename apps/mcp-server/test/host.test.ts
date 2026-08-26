@@ -1903,6 +1903,32 @@ test("track color is readable on rows and writable with exact undo", async () =>
   assert.equal(((await call(7, "live_track_properties_preview", { ref: "track:track-1" })) as any).error.code, -32602);
 });
 
+test("clip launch, legato, and velocity fields write with fencing, gating, and undo", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const snapshot = JSON.parse(((await call(2, "live_snapshot", {})) as any).result.content[0].text);
+  const clipRow = snapshot.snapshot.tracks[0].clips[0];
+  assert.equal(clipRow.launchMode, 0); assert.equal(clipRow.launchQuantization, 4); assert.equal(clipRow.legato, false); assert.equal(clipRow.velocityAmount, 0);
+  const preview = JSON.parse(((await call(3, "live_clip_properties_preview", { clipRef: "clip:clip-1", launchMode: 1, launchQuantization: 14, legato: true, velocityAmount: 0.5 })) as any).result.content[0].text);
+  assert.equal(preview.prior.launchMode, 0); assert.equal(preview.proposed.launchQuantization, 14);
+  const applied = JSON.parse(((await call(4, "live_clip_properties_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "clip-launch-1" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied");
+  const clip = (simulator as any).state.tracks[0].clips[0];
+  assert.equal(clip.launchMode, 1); assert.equal(clip.launchQuantization, 14); assert.equal(clip.legato, true); assert.equal(clip.velocityAmount, 0.5);
+  const undone = JSON.parse(((await call(5, "live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "clip-launch-undo" })) as any).result.content[0].text);
+  assert.equal(undone.state, "undone");
+  assert.equal(clip.launchMode, 0); assert.equal(clip.launchQuantization, 4); assert.equal(clip.legato, false); assert.equal(clip.velocityAmount, 0);
+  assert.equal(((await call(6, "live_clip_properties_preview", { clipRef: "clip:clip-1", launchMode: 4 })) as any).error.code, -32602);
+  assert.equal(((await call(7, "live_clip_properties_preview", { clipRef: "clip:clip-1", launchQuantization: 15 })) as any).error.code, -32602);
+  assert.equal(((await call(8, "live_clip_properties_preview", { clipRef: "clip:clip-1", velocityAmount: 1.5 })) as any).error.code, -32602);
+  assert.equal(((await call(9, "live_clip_properties_preview", { clipRef: "clip:clip-1", ramMode: true })) as any).result.isError, true);
+  (simulator as any).state.tracks[0].clips[0].isPlaying = true;
+  assert.equal(((await call(10, "live_clip_properties_preview", { clipRef: "clip:clip-1", launchMode: 2 })) as any).result.isError, true);
+  (simulator as any).state.tracks[0].clips[0].isPlaying = false;
+});
+
 test("song state reads, time conversion, transport actions, and exact cue jumps", async () => {
   const simulator = new DeterministicLiveSimulator();
   const host = new McpHost(simulator);

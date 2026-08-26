@@ -611,7 +611,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "20af0cff705c35352bbc16fffc40d740fa4728ccf5ad64430434f90471bf8aac")
+        self.assertEqual(digest, "b5732105b4a2f72f800350881dd0a5812cf51984a74b630e626b64f6f0866439")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -2628,7 +2628,7 @@ class ViewLocatorClipExpansionTests(unittest.TestCase):
         song.tracks[0].clip_slots[0].clip = clip
         mapper = LiveObjectMapper(song); row = mapper.snapshot()["tracks"][0]["clips"][0]
         self.assertEqual((row["muted"], row["colorIndex"], row["looping"], row["loopStart"], row["loopEnd"]), (False, 1, False, 0.0, 8.0))
-        fields = ("muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove")
+        fields = LiveObjectMapper._CLIP_SET_FIELDS
         def payload(**changes):
             current = mapper.get(row["ref"])
             return {"ref": row["ref"], **changes, "expectedObjectIdentity": row["objectIdentity"],
@@ -2649,7 +2649,7 @@ class ViewLocatorClipExpansionTests(unittest.TestCase):
         song.tracks[0].clip_slots[0].clip = clip
         mapper = LiveObjectMapper(song); row = mapper.snapshot()["tracks"][0]["clips"][0]
         self.assertEqual((row["loopStart"], row["loopEnd"]), (0.0, 4.0))
-        fields = ("muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove")
+        fields = LiveObjectMapper._CLIP_SET_FIELDS
         def payload(**changes):
             current = mapper.get(row["ref"])
             return {"ref": row["ref"], **changes, "expectedObjectIdentity": row["objectIdentity"],
@@ -2682,13 +2682,79 @@ class ViewLocatorClipExpansionTests(unittest.TestCase):
         clip = FakeClip(4.0); clip.name = "Arr"; clip.start_time = 4.0; clip.is_audio_clip = False; clip.muted = False; clip.color_index = 1; clip.looping = True; clip.loop_start = 0.0; clip.loop_end = 4.0
         track.arrangement_clips = [clip]
         mapper = LiveObjectMapper(song); row = mapper.snapshot()["arrangement"]["clips"][0]
-        fields = ("muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove")
+        fields = LiveObjectMapper._CLIP_SET_FIELDS
         current = mapper.get(row["ref"])
         args = {"ref": row["ref"], "muted": True, "expectedObjectIdentity": row["objectIdentity"],
                 "expectedAuthorityRevision": mapper._arrangement_clip_authority_revision(row["ref"]),
                 "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({field: current.get(field) for field in fields}).encode()).hexdigest()}
         result = mapper.invoke("clip.set", args)
         self.assertTrue(result["changed"]); self.assertTrue(clip.muted)
+
+    def test_clip_set_launch_legato_ram_and_velocity_fields_with_gating(self):
+        song = FakeSong(); clip = FakeClip(8.0)
+        clip.is_audio_clip = False; clip.muted = False; clip.color_index = 1; clip.looping = False; clip.loop_start = 0.0; clip.loop_end = 8.0
+        clip.launch_mode = 0; clip.launch_quantization = 4; clip.legato = False; clip.velocity_amount = 0.0; clip.is_playing = False; clip.is_triggered = False
+        song.tracks[0].clip_slots[0].clip = clip
+        mapper = LiveObjectMapper(song); row = mapper.snapshot()["tracks"][0]["clips"][0]
+        self.assertEqual((row["launchMode"], row["launchQuantization"], row["legato"], row["velocityAmount"], row["ramMode"]), (0, 4, False, 0.0, None))
+        fields = LiveObjectMapper._CLIP_SET_FIELDS
+        def payload(**changes):
+            current = mapper.get(row["ref"])
+            return {"ref": row["ref"], **changes, "expectedObjectIdentity": row["objectIdentity"],
+                    "expectedAuthorityRevision": hashlib.sha256(mapper._bounded_canonical(mapper._session_clip_authority(row["ref"])).encode()).hexdigest(),
+                    "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({field: current.get(field) for field in fields}).encode()).hexdigest()}
+        result = mapper.invoke("clip.set", payload(launchMode=1, launchQuantization=14, legato=True, velocityAmount=0.5))
+        self.assertTrue(result["changed"]); validate_operation_payload("clip.set", "result", result)
+        self.assertEqual((clip.launch_mode, clip.launch_quantization, clip.legato, clip.velocity_amount), (1, 14, True, 0.5))
+        with self.assertRaisesRegex(ValueError, "launchMode is invalid"): mapper.invoke("clip.set", payload(launchMode=4))
+        with self.assertRaisesRegex(ValueError, "launchQuantization is invalid"): mapper.invoke("clip.set", payload(launchQuantization=15))
+        with self.assertRaisesRegex(ValueError, "velocityAmount is invalid"): mapper.invoke("clip.set", payload(velocityAmount=1.5))
+        with self.assertRaisesRegex(ValueError, "legato is invalid"): mapper.invoke("clip.set", payload(legato=1))
+        with self.assertRaisesRegex(ValueError, "only available on audio clips"): mapper.invoke("clip.set", payload(ramMode=True))
+        clip.is_playing = True
+        with self.assertRaisesRegex(ValueError, "playing or triggered"): mapper.invoke("clip.set", payload(launchMode=2))
+        clip.is_playing = False
+
+    def test_clip_set_audio_ram_mode_and_velocity_gating(self):
+        song = FakeSong(); clip = FakeClip(4.0)
+        clip.is_audio_clip = True; clip.muted = False; clip.color_index = 2; clip.looping = True; clip.loop_start = 0.0; clip.loop_end = 4.0
+        clip.launch_mode = 0; clip.launch_quantization = 4; clip.ram_mode = False; clip.is_playing = False; clip.is_triggered = False
+        song.tracks[0].clip_slots[0].clip = clip
+        mapper = LiveObjectMapper(song); row = mapper.snapshot()["tracks"][0]["clips"][0]
+        fields = LiveObjectMapper._CLIP_SET_FIELDS
+        def payload(**changes):
+            current = mapper.get(row["ref"])
+            return {"ref": row["ref"], **changes, "expectedObjectIdentity": row["objectIdentity"],
+                    "expectedAuthorityRevision": hashlib.sha256(mapper._bounded_canonical(mapper._session_clip_authority(row["ref"])).encode()).hexdigest(),
+                    "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({field: current.get(field) for field in fields}).encode()).hexdigest()}
+        result = mapper.invoke("clip.set", payload(ramMode=True))
+        self.assertTrue(result["changed"]); self.assertTrue(clip.ram_mode)
+        with self.assertRaisesRegex(ValueError, "only available on MIDI clips"): mapper.invoke("clip.set", payload(velocityAmount=0.5))
+        del clip.ram_mode
+        with self.assertRaisesRegex(ValueError, "unavailable on this clip"): mapper.invoke("clip.set", payload(ramMode=False))
+
+    def test_clip_set_multi_field_failure_rolls_back_launch_fields_exactly(self):
+        song = FakeSong()
+        class LegatoRefusingClip(FakeClip):
+            @property
+            def legato(self): return self._legato
+            @legato.setter
+            def legato(self, value):
+                if value is True: raise RuntimeError("Live rejected the write")
+                self._legato = value
+        clip = LegatoRefusingClip(8.0); clip._legato = False
+        clip.is_audio_clip = False; clip.muted = False; clip.color_index = 1; clip.looping = False; clip.loop_start = 0.0; clip.loop_end = 8.0
+        clip.launch_mode = 0; clip.launch_quantization = 4; clip.velocity_amount = 0.0; clip.is_playing = False; clip.is_triggered = False
+        song.tracks[0].clip_slots[0].clip = clip
+        mapper = LiveObjectMapper(song); row = mapper.snapshot()["tracks"][0]["clips"][0]
+        fields = LiveObjectMapper._CLIP_SET_FIELDS
+        current = mapper.get(row["ref"])
+        args = {"ref": row["ref"], "launchMode": 3, "legato": True, "expectedObjectIdentity": row["objectIdentity"],
+                "expectedAuthorityRevision": hashlib.sha256(mapper._bounded_canonical(mapper._session_clip_authority(row["ref"])).encode()).hexdigest(),
+                "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({field: current.get(field) for field in fields}).encode()).hexdigest()}
+        with self.assertRaises(RuntimeError):
+            mapper.invoke("clip.set", args)
+        self.assertEqual((clip.launch_mode, clip.launch_quantization, clip.legato), (0, 4, False))
 
     def test_locator_jump_navigates_cue_points(self):
         song = FakeArrangementSong()
@@ -3035,7 +3101,7 @@ class TakeLaneExpansionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "absolute path"): mapper.invoke("take-lane.audio-clip.create", {**base, "filePath": "demo.wav", "position": 20.0})
         clip_row = mapper.snapshot()["tracks"][0]["takeLanes"][0]["clips"][1]
         self.assertTrue(clip_row["isTakeLaneClip"])
-        fields = ("muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove")
+        fields = LiveObjectMapper._CLIP_SET_FIELDS
         current = mapper.get(clip_row["ref"])
         args = {"ref": clip_row["ref"], "muted": True, "expectedObjectIdentity": clip_row["objectIdentity"], "expectedAuthorityRevision": mapper._clip_authority_digest(clip_row["ref"]), "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({field: current.get(field) for field in fields}).encode()).hexdigest()}
         lane.arrangement_clips[1].muted = False; lane.arrangement_clips[1].color_index = 1; lane.arrangement_clips[1].looping = True; lane.arrangement_clips[1].loop_start = 0.0; lane.arrangement_clips[1].loop_end = 4.0
@@ -3165,7 +3231,7 @@ class GroovePoolTests(unittest.TestCase):
         groove_ref = mapper.invoke("groove.read", {"setRef": set_ref})["grooves"][0]["ref"]
         row = mapper.snapshot()["tracks"][0]["clips"][0]
         self.assertIsNone(row["groove"]); self.assertFalse(row["hasGroove"])
-        fields = ("muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove")
+        fields = LiveObjectMapper._CLIP_SET_FIELDS
         def fences():
             current = mapper.get(row["ref"])
             return {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedAuthorityRevision": mapper._clip_authority_digest(row["ref"]),
