@@ -75,13 +75,15 @@ interface SubtreeRow extends DeviceStateParameterRow {
 }
 
 /** Walk a device subtree (chains and drum-pad chains) into stable named
- *  parameter paths: `Device/Chain/…/Parameter`. Refs are captured for the
- *  live transaction only and are never persisted to snapshot files. */
-function subtreeParameters(device: Row, prefix = ""): SubtreeRow[] {
+ *  parameter paths: `Device/Chain[index]/…/Device[index]/Parameter`. Every
+ *  nested sibling segment includes its zero-based array index so duplicate
+ *  display names remain independently addressable without persisting refs.
+ *  Refs are captured for the live transaction only. */
+function subtreeParameters(device: Row, prefix = "", siblingIndex?: number): SubtreeRow[] {
   const rows: SubtreeRow[] = [];
   const deviceName = isNonEmptyString(device.name, 256) ? device.name : "unnamed";
   const deviceRef = typeof device.ref === "string" ? device.ref : "";
-  const base = `${prefix}${deviceName}`;
+  const base = `${prefix}${deviceName}${siblingIndex === undefined ? "" : `[${siblingIndex}]`}`;
   const parameters = (Array.isArray(device.parameters) ? device.parameters : []) as unknown[];
   for (const parameter of parameters.filter(isObject)) {
     if (!isNonEmptyString(parameter.ref, 256) || !isNonEmptyString(parameter.name, 256)) throw new Error("device state parameter identity is unavailable");
@@ -89,21 +91,25 @@ function subtreeParameters(device: Row, prefix = ""): SubtreeRow[] {
     const quantization = typeof parameter.quantization === "number" && Number.isFinite(parameter.quantization) ? parameter.quantization : 0;
     rows.push({ path: `${base}/${parameter.name}`, name: parameter.name, value: parameter.value, min: parameter.min, max: parameter.max, quantization, parameterRef: parameter.ref, deviceRef, automatable: parameter.automatable === true, enabled: parameter.enabled !== false, deviceEnabled: device.enabled !== false });
   }
-  const visitChild = (child: unknown, segment: string): void => { if (isObject(child)) rows.push(...subtreeParameters(child, `${base}/${segment}/`)); };
-  for (const chain of (Array.isArray(device.chains) ? device.chains : []) as unknown[]) {
-    if (!isObject(chain)) continue;
-    const chainName = isNonEmptyString(chain.name, 256) ? chain.name : `chain-${String(chain.index ?? "?")}`;
-    for (const child of (Array.isArray(chain.devices) ? chain.devices : []) as unknown[]) visitChild(child, chainName);
-  }
-  for (const pad of (Array.isArray(device.drumPads) ? device.drumPads : []) as unknown[]) {
-    if (!isObject(pad)) continue;
-    const padName = isNonEmptyString(pad.name, 256) ? pad.name : `pad-${String(pad.index ?? "?")}`;
-    for (const chain of (Array.isArray(pad.chains) ? pad.chains : []) as unknown[]) {
-      if (!isObject(chain)) continue;
-      const chainName = isNonEmptyString(chain.name, 256) ? chain.name : `chain-${String(chain.index ?? "?")}`;
-      for (const child of (Array.isArray(chain.devices) ? chain.devices : []) as unknown[]) visitChild(child, `${padName}/${chainName}`);
-    }
-  }
+  const visitChild = (child: unknown, segment: string, index: number): void => { if (isObject(child)) rows.push(...subtreeParameters(child, `${base}/${segment}/`, index)); };
+  const chains = (Array.isArray(device.chains) ? device.chains : []) as unknown[];
+  chains.forEach((chain, chainIndex) => {
+    if (!isObject(chain)) return;
+    const chainName = isNonEmptyString(chain.name, 256) ? chain.name : `chain-${String(chain.index ?? chainIndex)}`;
+    const chainSegment = `${chainName}[${chainIndex}]`;
+    ((Array.isArray(chain.devices) ? chain.devices : []) as unknown[]).forEach((child, childIndex) => visitChild(child, chainSegment, childIndex));
+  });
+  const drumPads = (Array.isArray(device.drumPads) ? device.drumPads : []) as unknown[];
+  drumPads.forEach((pad, padIndex) => {
+    if (!isObject(pad)) return;
+    const padName = isNonEmptyString(pad.name, 256) ? pad.name : `pad-${String(pad.index ?? padIndex)}`;
+    ((Array.isArray(pad.chains) ? pad.chains : []) as unknown[]).forEach((chain, chainIndex) => {
+      if (!isObject(chain)) return;
+      const chainName = isNonEmptyString(chain.name, 256) ? chain.name : `chain-${String(chain.index ?? chainIndex)}`;
+      const segment = `${padName}[${padIndex}]/${chainName}[${chainIndex}]`;
+      ((Array.isArray(chain.devices) ? chain.devices : []) as unknown[]).forEach((child, childIndex) => visitChild(child, segment, childIndex));
+    });
+  });
   return rows;
 }
 

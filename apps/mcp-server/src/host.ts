@@ -1,6 +1,6 @@
 import type { Readable, Writable } from "node:stream";
 import { createHash, randomBytes } from "node:crypto";
-import { realpathSync, statSync, createReadStream, constants as fsConstants, mkdtempSync, chmodSync, unlinkSync, lstatSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { realpathSync, statSync, createReadStream, constants as fsConstants, mkdtempSync, chmodSync, closeSync, fsyncSync, linkSync, openSync, renameSync, unlinkSync, lstatSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, extname, isAbsolute, join as joinPath, resolve } from "node:path";
 import { sep } from "node:path";
 import { tmpdir } from "node:os";
@@ -2558,6 +2558,57 @@ export class McpHost {
     return validateDeviceStateFile(parsed);
   }
 
+  private writeDeviceStateFileAtomically(target: string, file: DeviceStateFile, overwrite: boolean): boolean {
+    let targetExists = false;
+    try {
+      const stats = lstatSync(target);
+      targetExists = true;
+      if (!stats.isFile() || stats.isSymbolicLink()) throw new Error("device-state snapshot target must be a real regular file, not a symbolic link");
+      if (!overwrite) throw new Error("device-state snapshot already exists; pass overwrite=true to replace it");
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+    }
+
+    const temporary = `${target}.tmp-${process.pid}-${randomBytes(12).toString("hex")}`;
+    let descriptor: number | undefined;
+    let temporaryExists = false;
+    try {
+      descriptor = openSync(temporary, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | (fsConstants.O_NOFOLLOW ?? 0), 0o600);
+      temporaryExists = true;
+      try {
+        writeFileSync(descriptor, `${JSON.stringify(file, null, 2)}\n`, { encoding: "utf8" });
+        fsyncSync(descriptor);
+      } finally {
+        const opened = descriptor;
+        descriptor = undefined;
+        closeSync(opened);
+      }
+      const staged = this.readDeviceStateFile(temporary);
+      if (staged.digest !== file.digest) throw new Error("device-state staged snapshot failed read-back verification");
+
+      if (targetExists) {
+        // Renaming a verified regular file replaces the directory entry and
+        // never follows a target symlink introduced after the lstat check.
+        renameSync(temporary, target);
+        temporaryExists = false;
+      } else {
+        // Hard-link installation is an atomic no-clobber create. A concurrent
+        // target creation fails with EEXIST instead of being overwritten.
+        try { linkSync(temporary, target); }
+        catch (cause) {
+          if ((cause as NodeJS.ErrnoException).code === "EEXIST") throw new Error("device-state snapshot target changed during save; retry");
+          throw cause;
+        }
+        unlinkSync(temporary);
+        temporaryExists = false;
+      }
+      return targetExists;
+    } finally {
+      if (descriptor !== undefined) { try { closeSync(descriptor); } catch { /* preserve the original error */ } }
+      if (temporaryExists) { try { unlinkSync(temporary); } catch { /* preserve the original error */ } }
+    }
+  }
+
   private async liveDeviceStateSaveAsync(id: RequestId, params: unknown): Promise<JsonObject> {
     if (!isObject(params) || !hasOnly(params, ["deviceRef", "name", "directory", "overwrite"]) || !isNonEmptyString(params.deviceRef, 256) || !isNonEmptyString(params.name, 64) || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(params.name) || (params.overwrite !== undefined && typeof params.overwrite !== "boolean")) return error(id, -32602, "deviceRef, a filesystem-safe name, directory, and optional overwrite are required");
     try {
@@ -2568,12 +2619,8 @@ export class McpHost {
       const file = buildDeviceStateFile(snapshot, params.deviceRef, params.name);
       const directory = this.deviceStateDirectory(params.directory);
       const target = joinPath(directory, `${params.name}${McpHost.DEVICE_STATE_FILE_SUFFIX}`);
-      const exists = existsSync(target);
-      if (exists && params.overwrite !== true) throw new Error("a snapshot with this name already exists; pass overwrite=true to replace it");
-      writeFileSync(target, `${JSON.stringify(file, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-      const verified = this.readDeviceStateFile(target);
-      if (verified.digest !== file.digest) throw new Error("the written device-state snapshot failed read-back verification");
-      return this.successText(id, { saved: true, file: target, overwritten: exists, schema: DEVICE_STATE_SCHEMA, name: params.name, device: file.device, privacy: file.privacy, digest: file.digest });
+      const overwritten = this.writeDeviceStateFileAtomically(target, file, params.overwrite === true);
+      return this.successText(id, { saved: true, file: target, overwritten, schema: DEVICE_STATE_SCHEMA, name: params.name, device: file.device, privacy: file.privacy, digest: file.digest });
     } catch (cause) { return this.adapterToolError(id, cause, "Device-state save is read-only toward Live and writes exactly one bounded owner-scoped file."); }
   }
 

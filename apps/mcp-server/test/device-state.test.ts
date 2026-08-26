@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -48,6 +48,8 @@ test("save writes a verified schema-versioned snapshot; recall restores values; 
   // a duplicate save refuses without overwrite
   const overwriteFrame = (await call("live_device_state_save", { deviceRef: device.ref, name: "utility-base", directory })) as any;
   assert.equal(overwriteFrame.result.isError, true, "re-saving without overwrite is refused");
+  const replaced = await parse(call("live_device_state_save", { deviceRef: device.ref, name: "utility-base", directory, overwrite: true }));
+  assert.equal(replaced.overwritten, true, "overwrite atomically replaces an existing regular snapshot");
   // modify the parameter, then recall the snapshot
   (simulator as any).simulateExternalEdit(parameter.ref, "value", 0.9);
   const preview = await parse(call("live_device_state_recall_preview", { file: saved.file, targetDeviceRef: device.ref }));
@@ -118,15 +120,61 @@ test("rack subtree recall walks chains with stable named paths", async (t) => {
   };
   const saved = await parse(call("live_device_state_save", { deviceRef: rack.ref, name: "rack-state", directory }));
   const onDisk = JSON.parse(readFileSync(saved.file, "utf8"));
-  assert.deepEqual(onDisk.parameters.map((row: any) => row.path), ["FX Rack/Wet/Saturator/Drive"]);
+  assert.deepEqual(onDisk.parameters.map((row: any) => row.path), ["FX Rack/Wet[0]/Saturator[0]/Drive"]);
   inner.parameters[0]!.value = 0.8;
   const preview = await parse(call("live_device_state_recall_preview", { file: saved.file, targetDeviceRef: rack.ref }));
   assert.equal(preview.applicable, 1);
-  assert.equal(preview.dispositions[0].path, "FX Rack/Wet/Saturator/Drive");
+  assert.equal(preview.dispositions[0].path, "FX Rack/Wet[0]/Saturator[0]/Drive");
   const applied = await parse(call("live_device_state_recall_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "recall-rack" }));
   assert.equal(applied.state, "applied");
   assert.equal(inner.parameters[0]!.value, 0.2, "the nested chain parameter was restored");
   assert.equal(writes.length, 1);
+});
+
+test("duplicate sibling device names use indexed paths and round-trip independently", async (t) => {
+  const { simulator, call, parse, directory } = connectedHost();
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const state = (simulator as any).state;
+  const siblings = [
+    { ref: "device:eq-1", objectIdentity: "simulator:device:eq-1", name: "EQ Eight", kind: "audio-effect", enabled: true, parameters: [
+      { ref: "parameter:eq-gain-1", objectIdentity: "simulator:parameter:eq-gain-1", name: "Gain", value: 0.2, min: 0, max: 1, automatable: true, quantization: 0, enabled: true, revision: 1 },
+    ] },
+    { ref: "device:eq-2", objectIdentity: "simulator:device:eq-2", name: "EQ Eight", kind: "audio-effect", enabled: true, parameters: [
+      { ref: "parameter:eq-gain-2", objectIdentity: "simulator:parameter:eq-gain-2", name: "Gain", value: 0.7, min: 0, max: 1, automatable: true, quantization: 0, enabled: true, revision: 1 },
+    ] },
+  ];
+  const rack = { ref: "device:duplicate-rack", objectIdentity: "simulator:device:duplicate-rack", name: "FX Rack", kind: "rack", enabled: true, parameters: [], chains: [
+    { ref: "chain:duplicate-chain", objectIdentity: "simulator:chain:duplicate-chain", parentRef: "device:duplicate-rack", index: 0, name: "Wet", mute: false, solo: false, devices: siblings },
+  ] };
+  state.tracks[0].devices.push(rack);
+  const original = simulator.invokeAsync.bind(simulator);
+  const writes: string[] = [];
+  simulator.invokeAsync = async (invocation: any) => {
+    if (invocation.operation !== "device.parameter.set") return original(invocation);
+    const parameter = siblings.flatMap((device) => device.parameters).find((candidate) => candidate.ref === invocation.args.ref);
+    assert.ok(parameter, "the indexed path resolves to the intended duplicate sibling");
+    writes.push(parameter.ref);
+    parameter.value = invocation.args.value as number;
+    parameter.revision += 1;
+    return { changed: true, ref: parameter.ref, value: parameter.value, revision: parameter.revision };
+  };
+
+  const saved = await parse(call("live_device_state_save", { deviceRef: rack.ref, name: "duplicate-devices", directory }));
+  const onDisk = JSON.parse(readFileSync(saved.file, "utf8"));
+  assert.deepEqual(onDisk.parameters.map((row: any) => row.path), [
+    "FX Rack/Wet[0]/EQ Eight[0]/Gain",
+    "FX Rack/Wet[0]/EQ Eight[1]/Gain",
+  ]);
+  siblings[0]!.parameters[0]!.value = 0.8;
+  siblings[1]!.parameters[0]!.value = 0.9;
+  const preview = await parse(call("live_device_state_recall_preview", { file: saved.file, targetDeviceRef: rack.ref }));
+  assert.equal(preview.applicable, 2);
+  assert.deepEqual(preview.dispositions.map((row: any) => row.proposedValue), [0.2, 0.7]);
+  const applied = await parse(call("live_device_state_recall_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "recall-duplicates" }));
+  assert.equal(applied.state, "applied");
+  assert.equal(siblings[0]!.parameters[0]!.value, 0.2);
+  assert.equal(siblings[1]!.parameters[0]!.value, 0.7);
+  assert.deepEqual(writes, ["parameter:eq-gain-1", "parameter:eq-gain-2"]);
 });
 
 test("device-class and layout mismatches refuse with per-parameter reports; partial layout is opt-in", async (t) => {
@@ -224,6 +272,21 @@ test("snapshot file validation is fail-closed: digest tampering, schema, overwri
   assert.equal(relativeDir.toolError !== undefined, true);
   const badMorph = (await call("live_device_state_recall_preview", { file: saved.file, targetDeviceRef: device.ref, morphFromLive: true })) as any;
   assert.equal(badMorph.error?.code, -32602, "morph without an explicit amount is invalid");
+});
+
+test("snapshot save refuses an output symlink without modifying its target", async (t) => {
+  const { simulator, call, parseError, directory } = connectedHost();
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  if (process.platform === "win32") { t.skip("file symlink creation requires optional Windows privilege"); return; }
+  const unrelated = join(directory, "unrelated.txt");
+  const output = join(directory, "linked.ableton-device-state.json");
+  writeFileSync(unrelated, "do not replace\n");
+  symlinkSync(unrelated, output);
+
+  const refusal = await parseError(call("live_device_state_save", { deviceRef: firstDevice(simulator).ref, name: "linked", directory, overwrite: true }));
+  assert.ok(refusal.toolError, "the save is refused before following the output symlink");
+  assert.equal(readFileSync(unrelated, "utf8"), "do not replace\n");
+  assert.equal(lstatSync(output).isSymbolicLink(), true, "the refused save leaves the symlink entry untouched");
 });
 
 test("a mid-recall refusal rolls written parameters back to their exact prior values", async (t) => {
