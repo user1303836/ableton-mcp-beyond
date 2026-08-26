@@ -1874,7 +1874,7 @@ test("staged import copies become managed media on success and are released on e
   assert.equal((occupied as any).result.isError, true);
   assert.equal(readdirSync(stagingDir()).length, 0);
   assert.ok(stagingDir().startsWith(realpathSync(managed)));
-  assert.equal(lstatSync(stagingDir()).mode & 0o777, 0o700);
+  if (process.platform !== "win32") assert.equal(lstatSync(stagingDir()).mode & 0o777, 0o700);
 
   // Preview expiry: the bounded-transaction sweep releases audio-import and simpler staged copies.
   const expiringAudio = JSON.parse(((await call(3, "live_audio_import_preview", { filePath: audioPath, allowedRoot: dir, trackRef: "track:track-1", sceneIndex: 1 })) as any).result.content[0].text);
