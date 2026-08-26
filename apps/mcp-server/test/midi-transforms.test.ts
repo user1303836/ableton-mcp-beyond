@@ -177,6 +177,25 @@ test("arpeggiate spreads chord onsets within the original span with exact rates"
   assert.deepEqual(single.notes.map((item) => [item.id, item.pitch, item.start]), [[9, 60, 2]]);
 });
 
+test("arpeggiate refuses pathological spans before allocating and honors the exact note bound", () => {
+  // Extreme durations and rates across the legal parameter range refuse without an allocation spike.
+  const next = random(0xa2291);
+  for (let iteration = 0; iteration < 100; iteration += 1) {
+    const span = Math.pow(10, next() * 9);
+    const rate = (1 / 1024) * Math.pow(4096, next());
+    const chord = [note(60, 0, span, 100, 1), note(64, 0, span, 100, 2)];
+    const expected = Math.max(1, Math.floor(span / rate));
+    if (expected > 2048) assert.throws(() => applyMidiTransform(chord, { type: "arpeggiate", params: { pattern: "up", rate } }), /2048/);
+    else assert.equal(applyMidiTransform(chord, { type: "arpeggiate", params: { pattern: "up", rate } }).notes.length, expected);
+  }
+  // Legitimate arpeggios at exactly the 2048-note boundary still succeed.
+  const boundary = [note(60, 0, 512, 100, 1), note(64, 0, 512, 100, 2)];
+  assert.equal(applyMidiTransform(boundary, { type: "arpeggiate", params: { pattern: "up", rate: 0.25 } }).notes.length, 2048);
+  // One step past the boundary and pathological drone spans refuse with a clear parameter error.
+  assert.throws(() => applyMidiTransform([note(60, 0, 512.25, 100, 1), note(64, 0, 512.25, 100, 2)], { type: "arpeggiate", params: { pattern: "up", rate: 0.25 } }), /2048/);
+  assert.throws(() => applyMidiTransform([note(60, 0, 1_000_000, 100, 1), note(64, 0, 1_000_000, 100, 2)], { type: "arpeggiate", params: { pattern: "up", rate: 1 / 1024 } }), /rate/);
+});
+
 test("seeded variation stays within bounded velocity, timing, and probability ranges", () => {
   const next = random(0xbeef01);
   for (let iteration = 0; iteration < 100; iteration += 1) {
