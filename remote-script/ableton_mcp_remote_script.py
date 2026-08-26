@@ -2452,6 +2452,10 @@ class LiveObjectMapper:
             self.refs.reset()
             self._playback_state_digest = None
             self._playback_revision_counter = 0
+            # Observe subscriptions are epoch-bound; the new epoch makes every
+            # existing entry unusable, so release their quota immediately
+            # instead of letting them linger until expiry.
+            self._observe_subscriptions = {}
             return self.status()
         if operation in {"locator.add", "arrangement.locator.create"}:
             return self._locator_mutate(args, delete=False)
@@ -5678,6 +5682,10 @@ class LiveObjectMapper:
         topics = args.get("topics")
         if not isinstance(topics, list) or not 1 <= len(topics) <= 64: raise ValueError("topics are invalid")
         if not hasattr(self, "_observe_subscriptions"): self._observe_subscriptions = {}
+        sweep_ms = int(time.time() * 1000)
+        for existing_id, existing in list(self._observe_subscriptions.items()):
+            if sweep_ms >= existing.get("expiresAtMs", 0) or existing.get("epoch") != self.refs.epoch:
+                del self._observe_subscriptions[existing_id]
         if len(self._observe_subscriptions) >= 8: raise ValueError("observe subscription quota is exhausted")
         interval = args.get("minIntervalMs", 250)
         if not isinstance(interval, int) or isinstance(interval, bool) or not 100 <= interval <= 60000: raise ValueError("minIntervalMs is invalid")
@@ -5716,7 +5724,6 @@ class LiveObjectMapper:
             raise ValueError("observe subscription expired; resubscribe")
         if now - subscription["lastPollMs"] < subscription["minIntervalMs"]: raise ValueError("observe poll is faster than the negotiated minimum interval")
         subscription["lastPollMs"] = now
-        subscription["expiresAtMs"] = now + 900000
         events = []; overflow = False
         for index, topic in enumerate(subscription["topics"]):
             digest, values = self._observe_topic_digest(topic)
@@ -5733,6 +5740,10 @@ class LiveObjectMapper:
                 digest, values = self._observe_topic_digest(topic)
                 topic["revision"] = digest
                 topic["values"] = values
+        # Renew only after every topic digest succeeded: a subscription whose
+        # digests keep failing must still expire instead of being kept alive
+        # (and occupying quota) by a client polling a permanently broken topic.
+        subscription["expiresAtMs"] = now + 900000
         subscription["sequence"] += 1
         return {"events": events, "overflow": overflow, "sequence": subscription["sequence"]}
 

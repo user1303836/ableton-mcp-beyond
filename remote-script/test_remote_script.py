@@ -4088,6 +4088,39 @@ class ObserverModelTests(unittest.TestCase):
             for _ in range(9):
                 mapper.invoke("observe.subscribe", {"topics": [{"kind": "transport"}], "minIntervalMs": 100})
 
+    def test_expired_subscriptions_are_swept_before_the_quota_check(self):
+        song = FakeSong(); mapper = LiveObjectMapper(song)
+        for _ in range(8):
+            mapper.invoke("observe.subscribe", {"topics": [{"kind": "transport"}], "minIntervalMs": 100})
+        with self.assertRaisesRegex(ValueError, "quota is exhausted"):
+            mapper.invoke("observe.subscribe", {"topics": [{"kind": "transport"}], "minIntervalMs": 100})
+        for subscription in mapper._observe_subscriptions.values():
+            subscription["expiresAtMs"] = 0
+        result = mapper.invoke("observe.subscribe", {"topics": [{"kind": "transport"}], "minIntervalMs": 100})
+        self.assertTrue(result["subscriptionId"].startswith("obs_")); validate_operation_payload("observe.subscribe", "result", result)
+        self.assertEqual(len(mapper._observe_subscriptions), 1)
+
+    def test_failing_topic_digest_does_not_renew_the_subscription(self):
+        song = FakeSong(); mapper = LiveObjectMapper(song)
+        track_ref = mapper.snapshot()["tracks"][0]["ref"]
+        result = mapper.invoke("observe.subscribe", {"topics": [{"kind": "track", "ref": track_ref}], "minIntervalMs": 100})
+        subscription = mapper._observe_subscriptions[result["subscriptionId"]]
+        mapper.refs.delete(track_ref)
+        before = subscription["expiresAtMs"]
+        with self.assertRaises(KeyError):
+            mapper.invoke("observe.poll", {"subscriptionId": result["subscriptionId"]})
+        self.assertEqual(subscription["expiresAtMs"], before)
+
+    def test_reconnect_clears_prior_epoch_subscriptions(self):
+        song = FakeSong(); mapper = LiveObjectMapper(song)
+        for _ in range(8):
+            mapper.invoke("observe.subscribe", {"topics": [{"kind": "transport"}], "minIntervalMs": 100})
+        self.assertEqual(len(mapper._observe_subscriptions), 8)
+        mapper.invoke("session.reconnect", {})
+        self.assertEqual(mapper._observe_subscriptions, {})
+        result = mapper.invoke("observe.subscribe", {"topics": [{"kind": "transport"}], "minIntervalMs": 100})
+        self.assertTrue(result["subscriptionId"].startswith("obs_"))
+
 
 class BrowserSurfaceTests(unittest.TestCase):
     def test_browser_roots_reports_unofficial_internal_bindings(self):
