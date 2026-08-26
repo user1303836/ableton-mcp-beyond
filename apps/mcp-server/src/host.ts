@@ -1,9 +1,9 @@
 import type { Readable, Writable } from "node:stream";
 import { createHash, randomBytes } from "node:crypto";
-import { realpathSync, statSync, createReadStream, constants as fsConstants, mkdtempSync, chmodSync, unlinkSync, readdirSync, lstatSync, rmdirSync, existsSync } from "node:fs";
-import { dirname, extname, join as joinPath } from "node:path";
+import { realpathSync, statSync, createReadStream, constants as fsConstants, chmodSync, unlinkSync, lstatSync, existsSync, mkdirSync } from "node:fs";
+import { dirname, extname, isAbsolute, join as joinPath } from "node:path";
 import { sep } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { AnalysisRunner, type EncodedAnalysisSource } from "./analysis-runner.js";
 import type { PcmAnalysis } from "./analysis.js";
 import type { ConventionalChannelLabel } from "./audio-standards.js";
@@ -382,10 +382,10 @@ export class McpHost {
   private toolPolicy: ToolPolicySpec;
   private toolListFingerprint: string | undefined;
 
-  public constructor(private readonly adapter: LiveAdapter = new UnavailableLiveAdapter(), options: { toolPolicy?: ToolPolicySpec | unknown } = {}) {
+  public constructor(private readonly adapter: LiveAdapter = new UnavailableLiveAdapter(), options: { toolPolicy?: ToolPolicySpec | unknown; importStagingDir?: string } = {}) {
     this.midiTransactions = new SessionMidiTransactionManager(adapter);
     this.toolPolicy = options.toolPolicy === undefined ? DEFAULT_TOOL_POLICY : parseToolPolicySpec(options.toolPolicy);
-    McpHost.reapOrphanedImportStagingDirs();
+    this.importStagingDirOption = options.importStagingDir;
   }
 
   /** The effective deployment tool policy (profile plus explicit overrides). */
@@ -3089,12 +3089,30 @@ export class McpHost {
   }
 
   private importStagingRoot(): string {
-    // Canonicalize once: tmpdir may contain symlinks (/var -> /private/var on
-    // macOS), and containment checks compare canonical paths.
-    this.importStagingDir ??= realpathSync(mkdtempSync(joinPath(tmpdir(), "ableton-mcp-import-")));
+    // Persistent, owner-controlled managed media directory (never $TMPDIR):
+    // Live references imported audio in place, so a staged copy becomes the
+    // clip's or Simpler's media once an apply succeeds. Staged files are
+    // released only on no-consumer paths (preview failure, transaction
+    // expiry/eviction/finalization, pre-dispatch refusals, failed apply, and
+    // undo after the clip is deleted) — never on apply success, host
+    // shutdown, or wall-clock age. Canonicalize once; containment checks
+    // compare canonical paths.
+    if (this.importStagingDir === undefined) {
+      const configured = this.importStagingDirOption ?? process.env.ABLETON_MCP_IMPORT_STAGING_DIR;
+      if (configured !== undefined && !isAbsolute(configured)) throw new Error("import staging directory override must be an absolute path");
+      const appData = process.env.APPDATA;
+      const root = configured ?? (process.platform === "win32" ? joinPath(appData !== undefined && isAbsolute(appData) ? appData : joinPath(homedir(), "AppData", "Roaming"), "ableton-mcp", "import-staging") : joinPath(homedir(), ".config", "ableton-mcp", "import-staging"));
+      mkdirSync(root, { recursive: true, mode: 0o700 });
+      const stats = lstatSync(root);
+      if (!stats.isDirectory()) throw new Error("import staging root is not a directory");
+      if (typeof process.getuid === "function" && stats.uid !== process.getuid()) throw new Error("import staging root is not owned by the current user");
+      chmodSync(root, 0o700);
+      this.importStagingDir = realpathSync(root);
+    }
     return this.importStagingDir;
   }
   private importStagingDir: string | undefined;
+  private readonly importStagingDirOption: string | undefined;
 
   /** Re-verify the authorized source through one no-follow descriptor (identity
       and size checked before and after a byte-bounded read), then copy the
@@ -3162,47 +3180,6 @@ export class McpHost {
 
   private releaseStagedImportFor(transaction: ClipLifecycleTransaction | undefined): void {
     if (transaction && (transaction.kind === "session-audio-create" || transaction.kind === "simpler")) this.releaseStagedImportFile(transaction.payload?.filePath);
-  }
-
-  /** Best-effort release of every staged import file owned by this process,
-      plus the per-process staging directory itself (host shutdown path). */
-  public releaseStagedImports(): void {
-    const dir = this.importStagingDir;
-    if (dir === undefined) return;
-    try { for (const entry of readdirSync(dir)) this.releaseStagedImportFile(joinPath(dir, entry)); } catch { /* best-effort staging cleanup */ }
-    try { rmdirSync(dir); this.importStagingDir = undefined; } catch { /* files remain or already removed; keep the root for later releases */ }
-  }
-
-  private static readonly IMPORT_STAGING_PREFIX = "ableton-mcp-import-";
-  private static readonly IMPORT_STAGING_REAP_MIN_AGE_MS = 24 * 60 * 60 * 1000;
-  private static readonly IMPORT_STAGING_REAP_MAX_DIRS = 64;
-  private static readonly IMPORT_STAGING_REAP_MAX_FILES = 256;
-
-  /** Reap staging directories orphaned by previous host runs. Only same-owner
-      real directories within the documented naming pattern whose modification
-      time is older than the age gate are touched; symlinks and foreign or
-      recent entries are left alone. Best-effort and bounded. */
-  private static reapOrphanedImportStagingDirs(): void {
-    let entries;
-    try { entries = readdirSync(tmpdir(), { withFileTypes: true }); } catch { return; }
-    let examined = 0;
-    for (const entry of entries) {
-      if (examined >= McpHost.IMPORT_STAGING_REAP_MAX_DIRS) break;
-      if (!entry.name.startsWith(McpHost.IMPORT_STAGING_PREFIX)) continue;
-      examined += 1;
-      const full = joinPath(tmpdir(), entry.name);
-      try {
-        const stats = lstatSync(full);
-        if (!stats.isDirectory()) continue;
-        if (typeof process.getuid === "function" && stats.uid !== process.getuid()) continue;
-        if (Date.now() - stats.mtimeMs < McpHost.IMPORT_STAGING_REAP_MIN_AGE_MS) continue;
-        for (const file of readdirSync(full).slice(0, McpHost.IMPORT_STAGING_REAP_MAX_FILES)) {
-          const filePath = joinPath(full, file);
-          try { chmodSync(filePath, 0o600); unlinkSync(filePath); } catch { /* skip foreign or racing entries */ }
-        }
-        rmdirSync(full);
-      } catch { /* best-effort orphan reaping */ }
-    }
   }
 
   private clipAuthorityDigest(snapshot: LiveSnapshot, clipRef: LiveRef): string {
@@ -3341,9 +3318,9 @@ export class McpHost {
       transaction.created = result;
       transaction.applyKey = params.idempotencyKey as string;
       transaction.state = "applied";
-      // The created clip is confirmed by fresh authoritative state; the staged
-      // transaction copy has no further authority role and must not linger.
-      this.releaseStagedImportFor(transaction);
+      // The staged copy is now the created clip's media: Live references the
+      // path in place from the managed staging directory. It is released only
+      // by undo (after the clip is deleted) — never on apply success.
       return this.successText(id, { transactionId: transaction.id, state: "applied", result, idempotent: false });
     } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Audio-import state is uncertain; perform fresh discovery before retrying."); }
   }
@@ -5425,9 +5402,9 @@ export class McpHost {
       transaction.created = { samplePath: result.filePath ?? transaction.payload.filePath };
       transaction.applyKey = params.idempotencyKey as string;
       transaction.state = "applied";
-      // The replacement is confirmed; the staged transaction copy has no
-      // further authority role (undo restores the original sample by path).
-      this.releaseStagedImportFor(transaction);
+      // The staged copy is now the Simpler's sample media: Live references the
+      // path in place from the managed staging directory. It is released only
+      // by undo (which restores the original sample) — never on apply success.
       return this.successText(id, { transactionId: transaction.id, state: "applied", result, idempotent: false });
     } catch (cause) { transaction.state = "uncertain"; return this.adapterToolError(id, cause, "Simpler state is uncertain; perform fresh discovery before retrying."); }
   }
@@ -7884,7 +7861,6 @@ export async function serve(input: Readable, output: Writable, diagnostics: Writ
       return JSON.stringify(error(null, -32603, "Internal error"));
     }
   }, { notifier: (emit) => host.setEventEmitter((value) => emit(value)), shouldStop: () => host.isShuttingDown() }); } finally {
-    host.releaseStagedImports();
     const close = (adapter as Partial<{ close: () => Promise<void> }>).close;
     if (typeof close === "function") await close.call(adapter);
   }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmdirSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1823,7 +1823,8 @@ test("recording preview gates intent, destination, and recording state", async (
 
 test("session audio import enforces file authority, TOCTOU re-verification, and guarded cleanup", async () => {
   const simulator = new DeterministicLiveSimulator();
-  const host = new McpHost(simulator);
+  const managed = mkdtempSync(join(tmpdir(), "managed-staging-"));
+  const host = new McpHost(simulator, { importStagingDir: managed });
   ready(host);
   const dir = mkdtempSync(join(tmpdir(), "audio-import-"));
   const audioPath = join(dir, "demo.wav");
@@ -1846,16 +1847,17 @@ test("session audio import enforces file authority, TOCTOU re-verification, and 
   writeFileSync(audioPath, Buffer.concat([Buffer.from("RIFF"), Buffer.from([16, 0, 0, 0]), Buffer.from("WAVE"), Buffer.from("fake-audio-bytes")]));
   const preview2 = JSON.parse(((await call(6, "live_audio_import_preview", { filePath: audioPath, allowedRoot: dir, trackRef: "track:track-1", sceneIndex: 1, name: "Imported" })) as any).result.content[0].text);
   const applied = JSON.parse(((await call(7, "live_audio_import_apply", { transactionId: preview2.transactionId, confirmation: "apply", idempotencyKey: "import-key-1" })) as any).result.content[0].text);
-  assert.equal(applied.state, "applied"); assert.match(applied.result.filePath, /ableton-mcp-import-/);
+  assert.equal(applied.state, "applied"); assert.ok((applied.result.filePath as string).startsWith(realpathSync(managed)));
   const slot = (simulator as any).state.tracks[0].clipSlots[1];
   assert.equal(slot.clipRef.startsWith("clip:"), true);
   const undone = JSON.parse(((await call(8, "live_undo", { transactionId: preview2.transactionId, confirmation: "undo", idempotencyKey: "import-undo-1" })) as any).result.content[0].text);
   assert.equal(undone.state, "undone"); assert.equal(slot.clipRef, null);
 });
 
-test("staged import copies are released on preview failure, expiry, apply outcomes, undo, and shutdown", async () => {
+test("staged import copies become managed media on success and are released on every no-consumer path", async () => {
   const simulator = new DeterministicLiveSimulator();
-  const host = new McpHost(simulator);
+  const managed = mkdtempSync(join(tmpdir(), "managed-staging-"));
+  const host = new McpHost(simulator, { importStagingDir: managed });
   ready(host);
   const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
   const dir = mkdtempSync(join(tmpdir(), "staging-release-"));
@@ -1871,6 +1873,8 @@ test("staged import copies are released on preview failure, expiry, apply outcom
   const occupied = await call(2, "live_audio_import_preview", { filePath: audioPath, allowedRoot: dir, trackRef: "track:track-1", sceneIndex: 0 });
   assert.equal((occupied as any).result.isError, true);
   assert.equal(readdirSync(stagingDir()).length, 0);
+  assert.ok(stagingDir().startsWith(realpathSync(managed)));
+  assert.equal(lstatSync(stagingDir()).mode & 0o777, 0o700);
 
   // Preview expiry: the bounded-transaction sweep releases audio-import and simpler staged copies.
   const expiringAudio = JSON.parse(((await call(3, "live_audio_import_preview", { filePath: audioPath, allowedRoot: dir, trackRef: "track:track-1", sceneIndex: 1 })) as any).result.content[0].text);
@@ -1893,13 +1897,14 @@ test("staged import copies are released on preview failure, expiry, apply outcom
   assert.equal((retried as any).result.isError, true); assert.match((retried as any).result.content[0].text, /no longer available/);
   (simulator as any).state.tracks[0].objectIdentity = originalIdentity;
 
-  // Apply success: the confirmed creation releases the staged copy; undo stays a no-op release.
+  // Apply success: the staged copy is now the created clip's media and is retained; undo (which deletes the clip) releases it.
   const success = JSON.parse(((await call(9, "live_audio_import_preview", { filePath: audioPath, allowedRoot: dir, trackRef: "track:track-1", sceneIndex: 1, name: "Imported" })) as any).result.content[0].text);
   const successPath = stagedOf(success.transactionId);
   const applied = JSON.parse(((await call(10, "live_audio_import_apply", { transactionId: success.transactionId, confirmation: "apply", idempotencyKey: "import-ok" })) as any).result.content[0].text);
-  assert.equal(applied.state, "applied"); assert.equal(existsSync(successPath), false);
+  assert.equal(applied.state, "applied");
+  assert.equal(existsSync(successPath), true); assert.ok(successPath.startsWith(stagingDir()));
   const undone = JSON.parse(((await call(11, "live_undo", { transactionId: success.transactionId, confirmation: "undo", idempotencyKey: "import-ok-undo" })) as any).result.content[0].text);
-  assert.equal(undone.state, "undone");
+  assert.equal(undone.state, "undone"); assert.equal(existsSync(successPath), false);
 
   // Post-dispatch apply failure keeps the staged copy for exact-key reconciliation; recovery finalization releases it.
   const uncertain = JSON.parse(((await call(12, "live_audio_import_preview", { filePath: audioPath, allowedRoot: dir, trackRef: "track:track-1", sceneIndex: 1 })) as any).result.content[0].text);
@@ -1912,45 +1917,13 @@ test("staged import copies are released on preview failure, expiry, apply outcom
   assert.equal(finalized.finalized, true); assert.equal(existsSync(uncertainPath), false);
   simulator.invokeAsync = original;
 
-  // Simpler terminal paths: apply success and undo leave no staged bytes.
+  // Simpler paths: apply success retains the staged copy as the device's sample media; undo (restoring the original sample) releases it.
   const simplerPreview = JSON.parse(((await call(15, "live_simpler_preview", { deviceRef: "device:simpler-1", filePath: audioPath, allowedRoot: dir })) as any).result.content[0].text);
   const simplerPath = stagedOf(simplerPreview.transactionId);
   const simplerApplied = JSON.parse(((await call(16, "live_simpler_apply", { transactionId: simplerPreview.transactionId, confirmation: "apply", idempotencyKey: "simpler-ok" })) as any).result.content[0].text);
-  assert.equal(simplerApplied.state, "applied"); assert.equal(existsSync(simplerPath), false);
+  assert.equal(simplerApplied.state, "applied"); assert.equal(existsSync(simplerPath), true);
   const simplerUndone = JSON.parse(((await call(17, "live_undo", { transactionId: simplerPreview.transactionId, confirmation: "undo", idempotencyKey: "simpler-ok-undo" })) as any).result.content[0].text);
   assert.equal(simplerUndone.state, "undone"); assert.equal(existsSync(simplerPath), false);
-
-  // Host shutdown: remaining staged bytes are released with the per-process staging directory.
-  const shutdownPreview = JSON.parse(((await call(18, "live_simpler_preview", { deviceRef: "device:simpler-1", filePath: audioPath, allowedRoot: dir })) as any).result.content[0].text);
-  assert.equal(existsSync(stagedOf(shutdownPreview.transactionId)), true);
-  const activeDir = stagingDir();
-  host.releaseStagedImports();
-  assert.equal(existsSync(activeDir), false);
-});
-
-test("startup reaps only same-owner orphaned import staging directories older than the age gate", () => {
-  const stale = mkdtempSync(join(tmpdir(), "ableton-mcp-import-"));
-  const staleFile = join(stale, "orphaned.wav");
-  writeFileSync(staleFile, Buffer.from("orphaned")); chmodSync(staleFile, 0o444);
-  const aged = new Date(Date.now() - 48 * 60 * 60 * 1000);
-  utimesSync(staleFile, aged, aged); utimesSync(stale, aged, aged);
-  const fresh = mkdtempSync(join(tmpdir(), "ableton-mcp-import-"));
-  const unmatched = mkdtempSync(join(tmpdir(), "ableton-mcp-other-"));
-  const prefixedFile = join(tmpdir(), `ableton-mcp-import-${randomBytes(6).toString("hex")}.wav`);
-  writeFileSync(prefixedFile, Buffer.from("not a directory"));
-  const linkPath = join(tmpdir(), `ableton-mcp-import-${randomBytes(6).toString("hex")}`);
-  symlinkSync(unmatched, linkPath, "dir");
-  try {
-    new McpHost();
-    assert.equal(existsSync(stale), false);
-    assert.equal(existsSync(fresh), true);
-    assert.equal(existsSync(unmatched), true);
-    assert.equal(existsSync(prefixedFile), true);
-    assert.equal(lstatSync(linkPath).isSymbolicLink(), true);
-  } finally {
-    rmdirSync(fresh); rmdirSync(unmatched); unlinkSync(prefixedFile); unlinkSync(linkPath);
-    if (existsSync(stale)) { unlinkSync(staleFile); rmdirSync(stale); }
-  }
 });
 
 test("warp marker add, move, delete round-trip with collection fencing and guarded undo", async () => {
@@ -2051,7 +2024,8 @@ test("automation clear-envelopes clears with presence fencing and refuses undo",
 
 test("take lanes are discoverable, renamable, and accept MIDI and audio clips with exact fencing", async () => {
   const simulator = new DeterministicLiveSimulator();
-  const host = new McpHost(simulator);
+  const managed = mkdtempSync(join(tmpdir(), "managed-staging-"));
+  const host = new McpHost(simulator, { importStagingDir: managed });
   ready(host);
   const laneRef = "take-lane:track-1:0";
   const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
@@ -2076,7 +2050,7 @@ test("take lanes are discoverable, renamable, and accept MIDI and audio clips wi
   assert.equal(audioPreview.impact, "creates-take-lane-audio-clip-no-undo");
   const audioApplied = JSON.parse(((await call(9, "live_audio_import_apply", { transactionId: audioPreview.transactionId, confirmation: "apply", idempotencyKey: "lane-audio-1" })) as any).result.content[0].text);
   assert.equal(audioApplied.state, "applied");
-  assert.equal(lane.clips.length, 2); assert.equal(lane.clips[1].kind, "audio"); assert.match(lane.clips[1].filePath, /ableton-mcp-import-/);
+  assert.equal(lane.clips.length, 2); assert.equal(lane.clips[1].kind, "audio"); assert.ok(lane.clips[1].filePath.startsWith(realpathSync(managed)));
   assert.equal(((await call(10, "live_undo", { transactionId: audioPreview.transactionId, confirmation: "undo", idempotencyKey: "lane-audio-undo" })) as any).result.isError, true);
   assert.equal(((await call(11, "live_audio_import_preview", { filePath: audioPath, allowedRoot: dir, takeLaneRef: laneRef, position: 0, trackRef: "track:track-1" })) as any).error.code, -32602);
   const mutePreview = JSON.parse(((await call(12, "live_clip_properties_preview", { clipRef: lane.clips[0].ref, muted: true })) as any).result.content[0].text);
@@ -2463,7 +2437,8 @@ test("chain color and flags, drum pads, rack properties/actions, and rack view",
 
 test("specialized device families, looper, and simpler sample replacement", async () => {
   const simulator = new DeterministicLiveSimulator();
-  const host = new McpHost(simulator);
+  const managed = mkdtempSync(join(tmpdir(), "managed-staging-"));
+  const host = new McpHost(simulator, { importStagingDir: managed });
   ready(host);
   const drift = { ref: "device:drift-1", parentRef: "track:track-1", name: "Drift", kind: "instrument", className: "DriftDevice", parameters: [], objectIdentity: "simulator:device:drift-1", enabled: true, drift: { pitchBendRange: 12, voiceCount: 2, voiceMode: 0, voiceCountList: ["1", "4", "8", "16"], voiceModeList: ["Poly", "Mono"] } };
   (simulator as any).state.tracks[0].devices.push(drift);
@@ -2498,7 +2473,7 @@ test("specialized device families, looper, and simpler sample replacement", asyn
   const simplerPreview = JSON.parse(((await call(11, "live_simpler_preview", { deviceRef: "device:simpler-1", filePath: audioPath, allowedRoot: dir })) as any).result.content[0].text);
   assert.equal(simplerPreview.currentSample, "/old/a.wav");
   const simplerApplied = JSON.parse(((await call(12, "live_simpler_apply", { transactionId: simplerPreview.transactionId, confirmation: "apply", idempotencyKey: "simpler-key-1" })) as any).result.content[0].text);
-  assert.equal(simplerApplied.state, "applied"); assert.match(simpler.samplePath, /ableton-mcp-import-/);
+  assert.equal(simplerApplied.state, "applied"); assert.ok(simpler.samplePath.startsWith(realpathSync(managed)));
   const simplerUndone = JSON.parse(((await call(13, "live_undo", { transactionId: simplerPreview.transactionId, confirmation: "undo", idempotencyKey: "simpler-undo-1" })) as any).result.content[0].text);
   assert.equal(simplerUndone.state, "undone"); assert.equal(simpler.samplePath, "/old/a.wav");
   assert.equal(((await call(14, "live_device_specialized_preview", { family: "drift", deviceRef: "device:drift-1", pitchBendRange: 200 })) as any).error.code, -32602);
