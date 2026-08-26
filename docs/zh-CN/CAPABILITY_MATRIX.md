@@ -52,6 +52,7 @@
 | 写入歌曲播放设置 | `live_song_settings_preview/apply` | 全局拍号(分子/分母按序写入,部分失败精确回滚)、摆动量(0..1)、剪辑触发量化与 MIDI 录音量化 —— 仅在形态暴露 setter 时可写,像走带编辑一样带修订栅栏与精确撤销;拍号与触发量化变更会立即影响播放感受(预览时披露) |
 | 驱动走带 | `live_transport_preview/apply`、`live_transport_action_preview/apply` | 修订栅栏的位置/循环/节拍器/穿入穿出编辑(可撤销),另有瞬时动作:开始、继续、停止、播放选区、刮擦、打点测速、上/下微调、重启用自动化、触发 Session 录音、强制 Link 节拍时间(带栅栏,可发声动作标记为不可撤销;紧急停止保持独立) |
 | 按 ID 或选择读取音符 | `live_note_read` | 只读定向音符读取,包括 Live 暴露时的当前选择 |
+| 估计音乐调性 | `live_key_estimate` | 按时值/力度加权的音高级相关,对照 Krumhansl-Schmuckler 剖面,带文档化调式候选与主音中心决胜;排序候选与得分、显式置信度分级和歧义标记。确定性且只读;歧义、半音化或薄弱素材如实报告,绝不猜测 |
 | 清除剪辑全部包络 | `live_automation_preview/apply` 加 `clear-envelopes` | 对剪辑上全部包络(设备、rack 与混音器参数)的计数、存在性栅栏清除;诚实不可撤销 |
 | 静音、着色、循环和启动剪辑 | `live_clip_properties_preview/apply` | 任意剪辑的静音和颜色;MIDI 剪辑的循环边界(音频循环在 `live_audio_clip_*` 中);启动模式(Trigger/Gate/Toggle/Repeat)、含 Global 哨兵的逐剪辑启动量化,以及任意已宣告剪辑的 legato(剪辑播放或触发中时拒绝);音频剪辑的 RAM 模式;MIDI 剪辑的力度量 —— 每个字段仅在精确剪辑宣告时写入,带精确回滚与撤销 |
 | 编辑音频剪辑声音:增益、音高、warp、淡变 | `live_audio_clip_preview/apply` | 只写入确切剪辑宣告的字段;含 warp 模式和淡变 |

@@ -93,6 +93,7 @@ export const TOOL_AVAILABILITY_RULES: readonly AvailabilityRule[] = [
   { prefix: "live_clip_action_", prereq: { capabilitiesAll: ["clips"], operationsAll: ["snapshot", "clip.action"] } },
   { prefix: "live_note_edit_", prereq: { capabilitiesAll: ["session.midi_note.write"], operationsAll: ["snapshot"], operationsAny: ["note.quantize", "note.duplicate"] } },
   { name: "live_note_read", prereq: { capabilitiesAll: ["session.midi_note.read"], operationsAny: ["note.read-by-id", "note.read-selected"] } },
+  { name: "live_key_estimate", prereq: { capabilitiesAll: ["clips"], operationsAll: ["snapshot"] } },
   { prefix: "live_tuning_", prereq: { capabilitiesAll: ["tuning"], operationsAll: ["tuning.read", "tuning.set"] } },
   { prefix: "live_groove_", prereq: { capabilitiesAll: ["groove"], operationsAll: ["groove.read"], operationsAny: ["groove.set", "groove.edit"] } },
   { name: "live_scene_preview", prereq: { capabilitiesAll: ["scenes"], operationsAll: ["snapshot", "scene.set"] } },
@@ -162,6 +163,7 @@ export const TOOL_POLICY_RULES: readonly PolicyRule[] = [
   { name: "live_snapshot", policyClass: "read" },
   { name: "live_discover", policyClass: "read" },
   { name: "live_note_read", policyClass: "read" },
+  { name: "live_key_estimate", policyClass: "read" },
   { name: "live_song_state", policyClass: "read" },
   { name: "live_performance_read", policyClass: "read" },
   { prefix: "live_observe_", policyClass: "read" },
@@ -814,6 +816,12 @@ const toolDescriptors = [
     name: "live_note_read",
     description: "Read notes by stable IDs, or the currently selected notes, from one MIDI clip.",
     inputSchema: { type: "object", properties: { clipRef: { type: "string", minLength: 1, maxLength: 256 }, noteIds: { type: "array", maxItems: 1024, items: { type: "integer", minimum: 0 } }, selected: { type: "boolean" } }, required: ["clipRef"], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_key_estimate",
+    description: "Estimate the musical key of a MIDI clip (or an explicit note set) as ranked candidates with correlation scores, an explicit confidence classification, and an ambiguity flag — never a forced single answer. Read-only and deterministic.",
+    inputSchema: { type: "object", properties: { clipRef: { type: "string", minLength: 1, maxLength: 256 }, notes: { type: "array", maxItems: 4096, items: { type: "object", properties: { pitch: { type: "integer", minimum: 0, maximum: 127 }, start: { type: "number", minimum: 0 }, duration: { type: "number", exclusiveMinimum: 0 }, velocity: { type: "integer", minimum: 0, maximum: 127 } }, required: ["pitch", "start", "duration"], additionalProperties: false } }, expectedNotesRevision: { type: "string", minLength: 64, maxLength: 64, pattern: "^[0-9a-f]{64}$" } }, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   },
   {

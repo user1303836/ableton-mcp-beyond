@@ -1955,6 +1955,32 @@ test("song playback settings write with fencing, rollback, and undo", async () =
   assert.equal(state.midiRecordingQuantization.value, 0);
 });
 
+test("key estimation covers clip and note-set paths with revision fencing", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const estimate = JSON.parse(((await call(2, "live_key_estimate", { clipRef: "clip:clip-1" })) as any).result.content[0].text);
+  assert.ok(Array.isArray(estimate.candidates) && estimate.candidates.length <= 5);
+  assert.ok(["high", "medium", "low", "insufficient-evidence"].includes(estimate.confidence));
+  assert.equal(typeof estimate.ambiguous, "boolean");
+  assert.equal(estimate.evidence.clipRef, "clip:clip-1");
+  assert.equal(typeof estimate.evidence.notesRevision, "string");
+  const repeat = JSON.parse(((await call(3, "live_key_estimate", { clipRef: "clip:clip-1" })) as any).result.content[0].text);
+  assert.deepEqual(repeat, estimate);
+  const fenced = JSON.parse(((await call(4, "live_key_estimate", { clipRef: "clip:clip-1", expectedNotesRevision: estimate.evidence.notesRevision })) as any).result.content[0].text);
+  assert.deepEqual(fenced, estimate);
+  assert.equal(((await call(5, "live_key_estimate", { clipRef: "clip:clip-1", expectedNotesRevision: "0".repeat(64) })) as any).result.isError, true);
+  const noteSet = JSON.parse(((await call(6, "live_key_estimate", { notes: [
+    { pitch: 60, start: 0, duration: 1 }, { pitch: 62, start: 1, duration: 1 }, { pitch: 64, start: 2, duration: 1 },
+    { pitch: 65, start: 3, duration: 1 }, { pitch: 67, start: 4, duration: 2 }, { pitch: 64, start: 6, duration: 1 },
+    { pitch: 62, start: 7, duration: 1 }, { pitch: 60, start: 8, duration: 2 },
+  ] })) as any).result.content[0].text);
+  assert.equal(noteSet.candidates[0].key, "C major");
+  assert.equal(((await call(7, "live_key_estimate", { notes: [{ pitch: 60, start: 0, duration: 1 }], clipRef: "clip:clip-1" })) as any).error.code, -32602);
+  assert.equal(((await call(8, "live_key_estimate", { notes: [{ pitch: 200, start: 0, duration: 1 }] })) as any).error.code, -32602);
+});
+
 test("song state reads, time conversion, transport actions, and exact cue jumps", async () => {
   const simulator = new DeterministicLiveSimulator();
   const host = new McpHost(simulator);
