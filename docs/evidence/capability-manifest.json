@@ -1,7 +1,7 @@
 {
   "schema": "ableton-mcp-capability-manifest/v1",
-  "registryHash": "b5732105b4a2f72f800350881dd0a5812cf51984a74b630e626b64f6f0866439",
-  "operationCount": 155,
+  "registryHash": "8f57bf4a212810ed4cd6cd91153df9791d4c0bcce722d4d4b530bbb470edbf9f",
+  "operationCount": 156,
   "coverageRules": [
     "Covered means reachable end to end from MCP through the negotiated bridge with a verified response.",
     "Read, write, call, and observe access are tracked separately per family notes.",
@@ -574,13 +574,20 @@
     },
     {
       "family": "song-link",
-      "surface": "Song state, Link, time conversion",
+      "surface": "Song state, settings, Link, time conversion",
       "operations": [
         {
           "id": "song.read",
           "status": "executable-negotiated",
           "access": [
             "read"
+          ]
+        },
+        {
+          "id": "song.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
           ]
         },
         {

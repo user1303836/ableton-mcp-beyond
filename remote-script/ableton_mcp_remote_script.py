@@ -824,6 +824,9 @@ class LiveObjectMapper:
             return any(callable(getattr(getattr(track, "view", None), "select_instrument", None)) for track in tracks)
         if operation == "selection.set":
             return getattr(self.song, "view", None) is not None
+        if operation == "song.set":
+            settings_state = self._song_settings_state()
+            return any(settings_state.get(field) is not None for field in self._SONG_SET_FIELDS)
         if operation == "song.view.set":
             return self._read_attr(getattr(self.song, "view", None), "draw_mode") is not None
         if operation == "clip.view.set":
@@ -2311,6 +2314,8 @@ class LiveObjectMapper:
             return self._track_select_instrument(args)
         if operation == "selection.set":
             return self._selection_set(args)
+        if operation == "song.set":
+            return self._song_set(args)
         if operation == "song.view.set":
             return self._song_view_set(args)
         if operation == "clip.view.set":
@@ -4368,6 +4373,7 @@ class LiveObjectMapper:
             "sessionRecord": optional_bool("session_record"),
             "sessionAutomationRecord": optional_bool("session_automation_record"),
             "clipTriggerQuantization": self._enum_wire(quantization),
+            "midiRecordingQuantization": self._enum_wire(self._read_attr(song, "midi_recording_quantization")),
             "isAbletonLinkEnabled": optional_bool("is_ableton_link_enabled"),
             "isAbletonLinkStartStopSyncEnabled": optional_bool("is_ableton_link_start_stop_sync_enabled"),
             "tempoFollower": optional_bool("tempo_follower"),
@@ -4759,6 +4765,71 @@ class LiveObjectMapper:
             except BaseException: raise ValueError("draw mode change failed and exact rollback failed") from error
             raise
         return {"changed": True, "revision": hashlib.sha256(self._bounded_canonical({"drawMode": self._read_attr(view, "draw_mode")}).encode("utf-8")).hexdigest()}
+
+    _SONG_SET_FIELDS = ("signatureNumerator", "signatureDenominator", "swingAmount", "clipTriggerQuantization", "midiRecordingQuantization")
+
+    def _song_settings_state(self) -> dict[str, Any]:
+        def int_or_none(value: Any) -> int | None:
+            return int(value) if isinstance(value, int) and not isinstance(value, bool) else None
+        def enum_or_none(value: Any) -> int | None:
+            if value is None or isinstance(value, bool): return None
+            if isinstance(value, int): return int(value)
+            try:
+                candidate = int(value)
+                return candidate if 0 <= candidate <= 10**6 else None
+            except (TypeError, ValueError):
+                return None
+        swing = self._read_attr(self.song, "swing_amount")
+        return {"signatureNumerator": int_or_none(self._read_attr(self.song, "signature_numerator")),
+                "signatureDenominator": int_or_none(self._read_attr(self.song, "signature_denominator")),
+                "swingAmount": float(swing) if isinstance(swing, (int, float)) and not isinstance(swing, bool) and math.isfinite(float(swing)) else None,
+                "clipTriggerQuantization": enum_or_none(self._read_attr(self.song, "clip_trigger_quantization")),
+                "midiRecordingQuantization": enum_or_none(self._read_attr(self.song, "midi_recording_quantization"))}
+
+    def _song_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        if set(args) - set(self._SONG_SET_FIELDS) - {"expectedStateRevision"}: raise ValueError("song settings fields are invalid")
+        state_revision = hashlib.sha256(self._bounded_canonical(self._song_settings_state()).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("song settings state changed since preview")
+        proposals = []
+        if "signatureNumerator" in args:
+            value = args["signatureNumerator"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 99: raise ValueError("signatureNumerator is invalid")
+            proposals.append(("signatureNumerator", "signature_numerator", value))
+        if "signatureDenominator" in args:
+            value = args["signatureDenominator"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 99: raise ValueError("signatureDenominator is invalid")
+            proposals.append(("signatureDenominator", "signature_denominator", value))
+        if "swingAmount" in args:
+            value = args["swingAmount"]
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or not 0 <= float(value) <= 1: raise ValueError("swingAmount is invalid")
+            proposals.append(("swingAmount", "swing_amount", float(value)))
+        if "clipTriggerQuantization" in args:
+            value = args["clipTriggerQuantization"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 13: raise ValueError("clipTriggerQuantization is invalid")
+            proposals.append(("clipTriggerQuantization", "clip_trigger_quantization", value))
+        if "midiRecordingQuantization" in args:
+            value = args["midiRecordingQuantization"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 8: raise ValueError("midiRecordingQuantization is invalid")
+            proposals.append(("midiRecordingQuantization", "midi_recording_quantization", value))
+        if not proposals: raise ValueError("song settings mutation has no fields")
+        for _, attribute, _ in proposals:
+            if self._read_attr(self.song, attribute) is None: raise ValueError(f"{attribute} is unavailable on this song")
+        assignments = [(field, attribute, value, self._read_attr(self.song, attribute)) for field, attribute, value in proposals]
+        before_revision = state_revision
+        try:
+            for _, attribute, value, _ in assignments: setattr(self.song, attribute, value)
+            observed_state = self._song_settings_state()
+            for field, _, value, _ in assignments:
+                observed = observed_state.get(field)
+                if not isinstance(observed, (int, float)) or isinstance(observed, bool) or float(observed) != float(value): raise ValueError("song settings change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for _, attribute, _, prior in reversed(assignments):
+                try: setattr(self.song, attribute, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or hashlib.sha256(self._bounded_canonical(self._song_settings_state()).encode("utf-8")).hexdigest() != before_revision: raise ValueError("song settings change failed and exact rollback failed") from error
+            raise
+        return {"changed": True, "revision": hashlib.sha256(self._bounded_canonical(self._song_settings_state()).encode("utf-8")).hexdigest()}
 
     def _clip_view_state(self, clip: Any) -> dict[str, Any]:
         view = getattr(clip, "view", None)

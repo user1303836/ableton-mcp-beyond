@@ -611,7 +611,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "b5732105b4a2f72f800350881dd0a5812cf51984a74b630e626b64f6f0866439")
+        self.assertEqual(digest, "8f57bf4a212810ed4cd6cd91153df9791d4c0bcce722d4d4b530bbb470edbf9f")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -3339,6 +3339,44 @@ class SongTransportLinkTests(unittest.TestCase):
         self.assertEqual((result["isAbletonLinkEnabled"], result["isAbletonLinkStartStopSyncEnabled"]), (True, False))
         self.assertEqual(result["clipTriggerQuantization"], {"name": "grid_sixteenth", "value": 5})
         validate_operation_payload("song.read", "result", result)
+
+    def test_song_set_writes_playback_settings_with_exact_rollback(self):
+        song, mapper = self._mapper_with_song_state()
+        song.midi_recording_quantization = 0
+        self.assertTrue(mapper._operation_supported("song.set"))
+        def revision():
+            return hashlib.sha256(mapper._bounded_canonical(mapper._song_settings_state()).encode()).hexdigest()
+        result = mapper.invoke("song.set", {"signatureNumerator": 6, "signatureDenominator": 8, "expectedStateRevision": revision()})
+        self.assertTrue(result["changed"]); validate_operation_payload("song.set", "result", result)
+        self.assertEqual((song.signature_numerator, song.signature_denominator), (6, 8))
+        result = mapper.invoke("song.set", {"swingAmount": 0.5, "clipTriggerQuantization": 7, "midiRecordingQuantization": 5, "expectedStateRevision": revision()})
+        self.assertTrue(result["changed"])
+        self.assertEqual((song.swing_amount, song.clip_trigger_quantization, song.midi_recording_quantization), (0.5, 7, 5))
+        with self.assertRaisesRegex(ValueError, "signatureNumerator is invalid"): mapper.invoke("song.set", {"signatureNumerator": 0, "expectedStateRevision": revision()})
+        with self.assertRaisesRegex(ValueError, "swingAmount is invalid"): mapper.invoke("song.set", {"swingAmount": 1.5, "expectedStateRevision": revision()})
+        with self.assertRaisesRegex(ValueError, "clipTriggerQuantization is invalid"): mapper.invoke("song.set", {"clipTriggerQuantization": 14, "expectedStateRevision": revision()})
+        with self.assertRaisesRegex(ValueError, "midiRecordingQuantization is invalid"): mapper.invoke("song.set", {"midiRecordingQuantization": 9, "expectedStateRevision": revision()})
+        with self.assertRaisesRegex(ValueError, "changed since preview"): mapper.invoke("song.set", {"swingAmount": 0.25, "expectedStateRevision": "0" * 64})
+        with self.assertRaisesRegex(ValueError, "no fields"): mapper.invoke("song.set", {"expectedStateRevision": revision()})
+        class SignatureRefusingSong(FakeSong):
+            @property
+            def signature_denominator(self): return self._denominator
+            @signature_denominator.setter
+            def signature_denominator(self, value):
+                if value != self._denominator: raise RuntimeError("denominator write rejected")
+                self._denominator = value
+        refusing = SignatureRefusingSong()
+        refusing.signature_numerator = 3; refusing._denominator = 4; refusing.swing_amount = 0.0
+        refusing.clip_trigger_quantization = 4; refusing.midi_recording_quantization = 0
+        mapper2 = LiveObjectMapper(refusing)
+        revision2 = hashlib.sha256(mapper2._bounded_canonical(mapper2._song_settings_state()).encode()).hexdigest()
+        with self.assertRaises(RuntimeError):
+            mapper2.invoke("song.set", {"signatureNumerator": 7, "signatureDenominator": 8, "expectedStateRevision": revision2})
+        self.assertEqual((refusing.signature_numerator, refusing.signature_denominator), (3, 4))
+        plain = LiveObjectMapper(FakeSong())
+        self.assertFalse(plain._operation_supported("song.set"))
+        with self.assertRaisesRegex(ValueError, "unavailable on this song"):
+            plain.invoke("song.set", {"swingAmount": 0.5, "expectedStateRevision": hashlib.sha256(plain._bounded_canonical(plain._song_settings_state()).encode()).hexdigest()})
 
     def test_transport_action_dispatches_and_fences(self):
         song, mapper = self._mapper_with_song_state()

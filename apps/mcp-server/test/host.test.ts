@@ -1929,6 +1929,32 @@ test("clip launch, legato, and velocity fields write with fencing, gating, and u
   (simulator as any).state.tracks[0].clips[0].isPlaying = false;
 });
 
+test("song playback settings write with fencing, rollback, and undo", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(2, "live_song_settings_preview", { signatureNumerator: 6, signatureDenominator: 8, swingAmount: 0.5, clipTriggerQuantization: 7, midiRecordingQuantization: 5 })) as any).result.content[0].text);
+  assert.equal(preview.prior.signatureNumerator, 4); assert.equal(preview.prior.swingAmount, 0); assert.equal(preview.prior.clipTriggerQuantization, 5); assert.equal(preview.prior.midiRecordingQuantization, 0);
+  assert.equal(preview.impact, "edits-song-settings-playback-feel");
+  const applied = JSON.parse(((await call(3, "live_song_settings_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "song-set-1" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied");
+  const song = (simulator as any).state.song;
+  assert.equal(song.signatureNumerator, 6); assert.equal(song.signatureDenominator, 8); assert.equal(song.swingAmount, 0.5);
+  assert.equal(song.clipTriggerQuantization.value, 7); assert.equal(song.midiRecordingQuantization.value, 5);
+  const undone = JSON.parse(((await call(4, "live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "song-set-undo" })) as any).result.content[0].text);
+  assert.equal(undone.state, "undone");
+  assert.equal(song.signatureNumerator, 4); assert.equal(song.signatureDenominator, 4); assert.equal(song.swingAmount, 0);
+  assert.equal(song.clipTriggerQuantization.value, 5); assert.equal(song.midiRecordingQuantization.value, 0);
+  assert.equal(((await call(5, "live_song_settings_preview", { signatureNumerator: 0 })) as any).error.code, -32602);
+  assert.equal(((await call(6, "live_song_settings_preview", { swingAmount: 1.5 })) as any).error.code, -32602);
+  assert.equal(((await call(7, "live_song_settings_preview", { clipTriggerQuantization: 14 })) as any).error.code, -32602);
+  assert.equal(((await call(8, "live_song_settings_preview", { midiRecordingQuantization: 9 })) as any).error.code, -32602);
+  assert.equal(((await call(9, "live_song_settings_preview", {})) as any).error.code, -32602);
+  const state = JSON.parse(((await call(10, "live_song_state", {})) as any).result.content[0].text);
+  assert.equal(state.midiRecordingQuantization.value, 0);
+});
+
 test("song state reads, time conversion, transport actions, and exact cue jumps", async () => {
   const simulator = new DeterministicLiveSimulator();
   const host = new McpHost(simulator);
