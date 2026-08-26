@@ -5,8 +5,7 @@
 <h1 align="center">Ableton MCP Beyond</h1>
 
 <p align="center">
-  Safety-first MCP control of Ableton Live 12 —<br/>
-  a capability-aware surface of 150 negotiated tools, an authenticated loopback bridge, and standards-based audio analysis.
+  Fully featured safety-first MCP control of Ableton Live 12
 </p>
 
 <p align="center">
