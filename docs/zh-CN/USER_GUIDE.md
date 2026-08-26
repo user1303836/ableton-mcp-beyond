@@ -53,6 +53,21 @@ SHA-256 安装。`private: true` 仅防止意外发布,不改变 MIT 权利;见
   `session-playback`,支持有界父级、最多八个标量过滤器、请求字段、遍历
   预算、分页以及绑定 epoch/修订的游标。兼容回退仍限于 `track`、`scene`、
   `clip`、`note`。
+- `live_browser_inspect` 按精确条目 id 报告单个权威 Browser 结果:稳定标识
+  (id、对象标识与内容修订)、类型与浏览器内部路径元数据、适配器/epoch
+  来源,以及附带原因的显式可加载性。绝不返回原始文件系统路径;仅设备条目
+  可通过 `live_browser_load_preview/apply` 加载。
+- `live_arrangement_automation_read` 探测某个精确 Arrangement 剪辑上单个
+  参数的自动化包络:所有者标识、精确时间范围、完整的分页点集(512 点
+  上限、绑定修订的游标,绝不静默截断),并显式注明曲线形状不予暴露。
+  不宣告任何 Arrangement 自动化变更。
+- `live_take_lane_read` 与 `live_comp_read` 以分页、绑定修订的方式清点
+  take lane、lane 剪辑范围/指纹、主 lane 摘要以及适配器协商的 comp 来源
+  分段。不存在试听、lane 变更、take 提升或最佳 take 排名;适配器无法枚举
+  的关系会被显式报告。
+- `live_warp_marker_read` 探测某个精确音频剪辑的完整有界 warp 标记集:
+  `(beatTime, sampleTime)` 对、单调性检查、适配器/集合/剪辑权威修订,
+  以及只读的变更可行性证据。标记按节拍时间寻址;不暴露独立的标记标识。
 - `audio_analyze` 分析调用方提供的 float32 PCM,返回有界的聚合、波形、
   频谱、瞬态、动态、削波、ITU-R BS.1770-5/EBU 响度、LRA 以及经验证的
   44.1/48 kHz 真峰值摘要。它在隔离的可取消 worker 中运行,绝不捕获 Live
@@ -69,6 +84,32 @@ SHA-256 安装。`private: true` 仅防止意外发布,不改变 MIT 权利;见
 - `plan_user_journey` 返回一个不变更的、感知当前能力的计划,覆盖节拍/歌曲
   创作、进阶鼓组、声音设计、参考对比或混音/录音/演出诊断。参见
   [USER_JOURNEYS.md](USER_JOURNEYS.md)。
+
+## 工具发现与部署策略
+
+`tools/list` 只返回当前可执行且被有效部署策略允许的工具——绝不返回不可用的占位工具或已协商 Live 形态无法运行的工具。服务器宣告
+`notifications/tools/list_changed`,并在连接/断开、epoch 或操作集变更,
+以及有效运行时策略变更时发出该通知;适配器状态刷新、同 epoch 重连与
+会话中途断连都会在变更发生时即时通告,而不是等到下一次请求。始终可见的
+`live_status` 读取会先尝试有界的刷新/重连,因此同 epoch 桥接掉线绝不会
+让发现机制在陈旧的断开缓存背后死锁。保存/打开等已协商的限制通过
+`ableton://capabilities` 资源的 `limitations` 分区报告,而不是通过可调用的
+工具发现。
+
+部署策略取命名配置档与显式覆盖的交集;deny 始终优先:
+
+- `read-only` —— 本地工具与只读 Live 发现;无任何变更。
+- `edit-no-audio` —— 读取外加结构、MIDI、设备、混音器、自动化与路由编辑;不含可发声、音频文件、录音、实时、捕获或文件系统变更类工具。
+- `performance` —— 读取外加 live set 控制:走带、速度、剪辑/场景启动、受护栏试听、紧急停止、混音器、视图、选择与定位点导航。受护栏撤销与恢复终结保持可用,已应用的事务绝不会被搁置;所有者域复查仍会拒绝已被禁止域的撤销。
+- `full`(默认)—— 当前可执行的全部工具。
+
+使用 `ABLETON_MCP_TOOL_POLICY`(配置档名称)与可选的逗号分隔
+`ABLETON_MCP_TOOL_ALLOW` / `ABLETON_MCP_TOOL_DENY` 名称或 `prefix_*`
+列表进行配置。策略在每次分发时于服务器端按名称强制——包括预览创建、
+应用、撤销与紧急停止路径——因此被隐藏的工具绝不可调用;当事务所属域被
+撤销时,撤销也会被拒绝。诊断会报告有效配置档与覆盖模式(不含机密);
+capability 资源会报告可执行、可见与策略拒绝的工具集,以及每个工具的
+策略类别。
 
 ## 变更工作流
 
@@ -87,6 +128,21 @@ SHA-256 安装。`private: true` 仅防止意外发布,不改变 MIT 权利;见
 - `live_arrangement_section_preview/apply` —— 在有界且不冲突的范围内创建
   两个命名定位点。
 - `live_tempo_preview/apply` —— 有界的速度变更。
+- `live_midi_transform_preview/apply` —— 对某个精确剪辑执行一次确定性的
+  带种子 MIDI 变换:transpose、scale-constrain、quantize、swing、
+  velocity-curve、带种子 humanize、legato、staccato、rotate、repeat、
+  ratchet、chord voicing、arpeggiate 或带种子 variation。预览返回精确的
+  add/update/delete 音符差异、源修订、约束、假设、MPE 探测以及撤销路径。
+  随机性变换必须显式提供种子,并可逐字节复现。生成型或大型变换默认采用
+  duplicate-first,写入某个精确的空槽位(源剪辑保留);原地生成式编辑被
+  拒绝,因为删除/重建无法保留规范音符模式未暴露的逐音符表情,而仅更新型
+  变换通过 `note.update` 修补已暴露字段,从而保留未暴露的逐音符数据。
+  音符变更按注册表上限分块执行,每个分块都对照预期的中间音符集设置栅栏,
+  因此分块之间的外部编辑会失败关闭,而不会被覆盖;精确键重试会在计划
+  中途失败后恢复已记录的计划。原地撤销要求精确且已验证的变换后状态
+  (绑定标识,音符间的内容交换同样会被拒绝),并以可恢复的分块还原先前
+  字段;duplicate 范围的撤销只删除事务创建的剪辑,而失败的 duplicate
+  应用会保留事务所有的副本供精确键恢复,而不是盲目删除。
 - `live_undo` —— 撤销一个 epoch 与已验证事后状态仍匹配的事务,或在
   epoch 未变时对确认丢失的撤销进行精确键对账。
 - `live_recovery_finalize` —— 仅在具备明确的权威人工恢复证据后,注销受

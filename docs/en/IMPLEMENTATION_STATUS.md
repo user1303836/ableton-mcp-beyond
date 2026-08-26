@@ -237,7 +237,9 @@ are. Source, schemas, and tests are the final authority.
   isolated resource benchmarks, compatibility/package verification, and Windows
   permission hardening.
 - MIT-licensed, local/unpublished release-v2 staging with an independently
-  exact 77-file allowlist, full payload hashes, packed-license byte equality,
+  verified exact payload allowlist (`release-manifest.json` enumerates the
+  payload and is the source of truth), full payload hashes, packed-license
+  byte equality,
   and clean-SHA/toolchain/lock/workflow provenance. Package `private: true`
   prevents accidental npm publication without changing MIT rights. The release
   workflow requires fresh-clone byte reproducibility and shares one exact

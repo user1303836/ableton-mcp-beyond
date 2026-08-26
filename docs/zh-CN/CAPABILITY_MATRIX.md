@@ -142,7 +142,7 @@
 
 | 域 | 实现 / 安全 | 测试与证据 | 支持状态 | 限制 / 文档 |
 |---|---|---|---|---|
-| 发布产物 | 严格 77 路径 MIT npm tarball、发布清单、载荷角色/哈希、许可证字节相等 | `package:verify`、候选与 Python 绑定器、全新克隆字节比对 | 仅精确 SHA 本地未发布 tarball | `DELIVERY.md`;npm `private: true`、未签名、未公证、未发布 |
+| 发布产物 | 与允许列表严格精确匹配的 MIT npm tarball、发布清单(载荷以 `release-manifest.json` 枚举为准)、载荷角色/哈希、许可证字节相等 | `package:verify`、候选与 Python 绑定器、全新克隆字节比对 | 仅精确 SHA 本地未发布 tarball | `DELIVERY.md`;npm `private: true`、未签名、未公证、未发布 |
 | 安装/激活 | `ableton-mcp-lifecycle` 回执/日志/锁;D/FS | 生命周期单元 + 已安装候选矩阵;激活需要真实 Live 与完整回执绑定包 | macOS 15 与 Windows Server 2025 宿主契约,以精确 SHA CI 为条件 | Windows Live/Windows 11 激活未认证;`DELIVERY.md` |
 | 升级/修复/回滚/卸载 | 精确更新产物、隔离/保留清理、精确前代、仅所有者清除 | 生命周期单元、候选 OS 矩阵(含 Windows ACL/联接点/占用文件用例) | 在托管精确 SHA 结果前仅为宿主契约 | 无原生安装器;操作者必须停止/重启 Live |
 | Node/OS 兼容性 | Node 22/24/25;Ubuntu 24.04、macOS 15、Windows Server 2025 工作流 | 完整 Node 测试加精确已安装候选;Python 3.11 映射器 | 有条件;见当前检查结果 | Linux 无 Live 声明;Windows 11 不从 Server 继承 |
