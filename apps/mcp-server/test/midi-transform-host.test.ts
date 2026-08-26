@@ -249,3 +249,26 @@ test("previews beyond the 2048-note transform bound fail with the public bound m
   assert.equal((refused as any).error.code, -32602);
   assert.match((refused as any).error.message, /2048/);
 });
+
+test("pathological arpeggiate previews refuse with a parameter error without generating notes", async () => {
+  const { simulator, call } = await hostWithMidiClip();
+  const clip = (simulator as any).state.tracks[0].clips[0];
+  clip.notes.push(
+    { pitch: 84, start: 0, duration: 1_000_000, velocity: 90, channel: 1, id: 9001, mute: false, probability: 1, velocityDeviation: 0, releaseVelocity: 64 },
+    { pitch: 88, start: 0, duration: 1_000_000, velocity: 90, channel: 1, id: 9002, mute: false, probability: 1, velocityDeviation: 0, releaseVelocity: 64 },
+  );
+  clip.notesRevision = createHash("sha256").update(JSON.stringify(clip.notes)).digest("hex");
+  const refused = await call("live_midi_transform_preview", { clipRef: "clip:clip-1", transform: "arpeggiate", params: { pattern: "up", rate: 1 / 1024 } });
+  assert.equal((refused as any).error.code, -32602);
+  assert.match((refused as any).error.message, /2048/);
+});
+
+test("repeat outputs beyond the bound still fail through the post-transform check", async () => {
+  const { simulator, call } = await hostWithMidiClip();
+  const clip = (simulator as any).state.tracks[0].clips[0];
+  for (let index = 0; index < 1100; index += 1) clip.notes.push({ pitch: 60, start: (index % 512) / 128, duration: 0.25, velocity: 90, channel: 1, id: 3000 + index, mute: false, probability: 1, velocityDeviation: 0, releaseVelocity: 64 });
+  clip.notesRevision = createHash("sha256").update(JSON.stringify(clip.notes)).digest("hex");
+  const refused = await call("live_midi_transform_preview", { clipRef: "clip:clip-1", transform: "repeat", params: { times: 2 } });
+  assert.equal((refused as any).result.isError, true);
+  assert.match((refused as any).result.content[0].text, /2048/);
+});

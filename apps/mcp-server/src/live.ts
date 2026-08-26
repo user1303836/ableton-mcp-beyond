@@ -1502,7 +1502,7 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         return { changed: true, revision: ++this.sequence };
       }
       case "parameter.re-enable-automation": {
-        const parameter = this.state.tracks.flatMap((track) => track.devices.flatMap((device) => device.parameters)).find((candidate) => candidate.ref === objectRef("ref"));
+        const parameter = this.state.tracks.flatMap((track) => track.devices.flatMap((device) => [...device.parameters, ...(((device as { macros?: { ref: LiveRef; objectIdentity?: string; value?: unknown }[] }).macros) ?? [])])).find((candidate) => candidate.ref === objectRef("ref"));
         if (!parameter) throw new Error("parameter reference is stale or invalid");
         if (parameter.objectIdentity !== args.expectedObjectIdentity) throw new Error("parameter identity changed since preview");
         if (args.expectedStateRevision !== simulatorRevision({ automationState: "none" })) throw new Error("parameter automation state changed since preview");

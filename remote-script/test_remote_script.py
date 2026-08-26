@@ -3089,6 +3089,16 @@ class TakeLaneExpansionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "postcondition was not confirmed"): mapper2.invoke("take-lane.rename", bad_args)
         self.assertEqual(failing.name, "Old")
 
+    def test_take_lane_rename_undo_round_trip(self):
+        _, track, lane, existing, mapper = self._mapper_with_lanes()
+        lane_row = mapper.snapshot()["tracks"][0]["takeLanes"][0]
+        apply_args = {"ref": lane_row["ref"], "name": "Verse Take", "expectedName": "Take 1", "expectedObjectIdentity": lane_row["objectIdentity"], "expectedAuthorityRevision": mapper._take_lane_collection_revision(track, 0)}
+        applied = mapper.invoke("take-lane.rename", apply_args)
+        self.assertEqual(applied, {"renamed": lane_row["ref"], "name": "Verse Take"}); validate_operation_payload("take-lane.rename", "result", applied)
+        undo_args = {"ref": lane_row["ref"], "name": "Take 1", "expectedName": "Verse Take", "expectedObjectIdentity": lane_row["objectIdentity"], "expectedAuthorityRevision": mapper._take_lane_collection_revision(track, 0)}
+        undone = mapper.invoke("take-lane.rename", undo_args)
+        self.assertEqual(undone, {"renamed": lane_row["ref"], "name": "Take 1"}); validate_operation_payload("take-lane.rename", "result", undone); self.assertEqual(lane.name, "Take 1")
+
     def test_take_lane_clip_create_midi_and_audio(self):
         _, track, lane, existing, mapper = self._mapper_with_lanes()
         lane_row = mapper.snapshot()["tracks"][0]["takeLanes"][0]
@@ -3586,6 +3596,17 @@ class SelectionViewExpansionTests(unittest.TestCase):
         stale = dict(args, expectedStateRevision="0" * 64)
         with self.assertRaisesRegex(ValueError, "changed since preview"): mapper.invoke("selection.set", stale)
 
+    def test_selection_set_rejects_draw_mode_and_other_non_selection_fields(self):
+        song = FakeSong()
+        song.view = type("SongView", (), {"selected_track": None, "selected_scene": None, "highlighted_clip_slot": None, "detail_clip": None, "selected_device": None, "selected_parameter": None, "selected_chain": None})()
+        mapper = LiveObjectMapper(song)
+        track_ref = mapper.snapshot()["tracks"][0]["ref"]
+        with self.assertRaisesRegex(ValueError, "selection fields are invalid"):
+            mapper.invoke("selection.set", {"trackRef": track_ref, "drawMode": False, "expectedStateRevision": mapper._selection_revision()})
+        with self.assertRaisesRegex(ValueError, "selection fields are invalid"):
+            mapper.invoke("selection.set", {"trackRef": track_ref, "unexpected": 1, "expectedStateRevision": mapper._selection_revision()})
+        self.assertIsNone(song.view.selected_track)
+
     def test_song_view_draw_mode_clip_view_and_device_view(self):
         song = FakeSong()
         song.view = type("SongView", (), {"draw_mode": False})()
@@ -3847,6 +3868,19 @@ class DeviceParameterExpansionTests(unittest.TestCase):
         device.can_compare_ab = False
         with self.assertRaisesRegex(ValueError, "unavailable"):
             mapper.invoke("device.comparison.save-to-slot", {"ref": device_row["ref"], "expectedObjectIdentity": device_row["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({"canCompareAb": False, "isUsingComparePresetB": False}).encode()).hexdigest()})
+
+    def test_parameter_re_enable_automation_accepts_rack_macro_refs(self):
+        song = FakeSong()
+        rack = FakeRackDevice()
+        macro = rack.macros[0]
+        called = []
+        macro.re_enable_automation = lambda: called.append(True)
+        song.tracks[0].devices = [rack]
+        mapper = LiveObjectMapper(song)
+        macro_row = mapper.snapshot()["tracks"][0]["devices"][0]["macros"][0]
+        self.assertTrue(macro_row["ref"].endswith(":macro:0"))
+        result = mapper.invoke("parameter.re-enable-automation", {"ref": macro_row["ref"], "expectedObjectIdentity": macro_row["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical({"automationState": "none"}).encode()).hexdigest()})
+        self.assertEqual(result, {"done": True}); validate_operation_payload("parameter.re-enable-automation", "result", result); self.assertEqual(called, [True])
 
     def test_cross_track_and_chain_device_move(self):
         song = FakeSong()
