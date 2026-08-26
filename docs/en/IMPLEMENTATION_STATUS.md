@@ -47,6 +47,38 @@ are. Source, schemas, and tests are the final authority.
   envelopes. Content-destroying actions (crop, envelope clear) are honestly
   non-undoable. Verified at the host, simulator, Python contract, and packaged
   fake-Live levels; exact-candidate real-Live proof is pending.
+- Ranked Browser search: host-side multi-term order-independent token matching
+  with documented integer scores and matched-token explanations over a bounded,
+  epoch-bound per-root candidate cache (60-second TTL, explicit refresh, cache
+  and truncation provenance in every result); exact-substring matching remains
+  as a documented fallback, and inspect/load identity fencing is unchanged.
+  Compound batch transactions (`live_batch_preview/apply`) execute a bounded
+  (≤32) ordered allowlist of composable operations (`mixer.set`,
+  `device.parameter.set`, `clip.set`, `track.rename`, `scene.rename`,
+  `track.create`, `routing.arm`) in one preview/apply/undo cycle with
+  per-operation policy enforcement, one mutation per exact target, checkpoint
+  fencing, exact rollback of completed steps on mid-batch refusal, and
+  lost-acknowledgement reconciliation via recorded per-step checkpoints.
+  Device parameter-state snapshots (`live_device_state_save`,
+  `live_device_state_recall_preview/apply`) save named schema-versioned,
+  digest-verified snapshot files to owner-scoped directories and recall or
+  morph them onto class-and-layout-fenced targets with per-parameter
+  dispositions, deterministic float64 quantization rounding, per-step revision
+  fencing, exact rollback, and exact pre-recall undo. Batch and device-state
+  mutations reuse existing negotiated registry operations only; they are
+  verified at the host and simulator levels, and exact-candidate real-Live
+  proof is pending.
+- Opt-in read-only Live library database search (`live_library_search`):
+  owner-allowlisted `Live-files-*.db`/`Live-plugins-*.db` opened read-only
+  with a dependency-free SQLite reader (no writes ever, no journals,
+  uncheckpointed WAL refused), fail-closed schema-version gating (files
+  database 12300, plug-ins database 1, shape-probed first-hand on the Live
+  12.4.5 macOS install), tag/kind/source/sort queries with bounded
+  revision-paged results, plug-in inventory with vendor/format filters, path
+  redaction, and explicit similarity/duplicate unavailability. Verified at the
+  host level with fixture databases and by reading a real Live 12.4.5 database
+  copy; newer or older schema versions report structured unavailability rather
+  than guessing.
 - Take-lane discovery under `Track.take_lanes` with bounded rows and
   stable-in-snapshot references, lane rename, file-backed audio clip creation
   inside existing lanes, and `is_take_lane_clip` exposure on clip rows. The

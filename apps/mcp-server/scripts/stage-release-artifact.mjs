@@ -40,7 +40,7 @@ const include = (absolute, role) => {
   files[path] = digest(absolute);
   roles[path] = role;
 };
-const runtimeModules = ["analysis-job-worker", "analysis-runner", "analysis", "audio-diagnosis", "audio-file", "audio-standards", "bridge/remote-adapter", "cli", "delivery", "diagnostics", "framing", "host", "index", "install-remote-script", "journeys", "lifecycle-cli", "lifecycle", "live", "loopback", "migrate", "platform", "project", "project-semantic", "project-semantic-diff", "reference-analysis", "registry", "setup", "stdio", "tool-catalog", "midi-transforms", "transactions/session-midi"];
+const runtimeModules = ["analysis-job-worker", "analysis-runner", "analysis", "audio-diagnosis", "audio-file", "audio-standards", "bridge/remote-adapter", "cli", "delivery", "diagnostics", "framing", "host", "index", "install-remote-script", "journeys", "lifecycle-cli", "lifecycle", "live", "loopback", "migrate", "platform", "project", "project-semantic", "project-semantic-diff", "reference-analysis", "registry", "setup", "stdio", "tool-catalog", "midi-transforms", "transactions/session-midi", "transactions/batch", "transactions/device-state", "sqlite-reader", "library-search"];
 for (const module of runtimeModules) for (const extension of ["js", "d.ts"]) {
   const path = join(packageRoot, "dist", "src", `${module}.${extension}`);
   if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`allowlisted runtime artifact is missing: ${module}.${extension}`);

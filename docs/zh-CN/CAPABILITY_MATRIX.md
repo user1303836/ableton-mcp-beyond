@@ -22,12 +22,14 @@
 | 应用对话框 | `live_application_dialog_preview/apply` | 读取当前对话框状态,仅在预览的状态仍精确成立时按下一个对话框按钮 —— 对话框按钮可能有破坏性,状态一变即拒绝 |
 | 创建 MIDI 剪辑并写入音符 | `live_midi_clip_preview/apply`、`live_note_update_preview/apply`、`live_note_delete_preview/apply` | 完整表情字段:velocity、channel、probability、velocity deviation、release velocity、mute;稳定音符 ID;每个剪辑一次原子批量 |
 | 调整设备和插件参数 | `live_device_parameter_preview/apply` | 作用于具有权威边界的已发布数值参数;写入后验证;含受护栏撤销 |
+| 保存、召回与变形设备参数状态 | `live_device_state_save`、`live_device_state_recall_preview/apply` | 命名的带架构版本快照文件,含内容摘要与隐私档案(仅参数与设备名称 —— 绝不包含工程路径、会话引用或对象标识)。召回围栏设备类别身份(`className`,回退到显示名,加上 kind)与记录的参数布局指纹;不匹配在写入前拒绝并附逐参数不兼容报告;`allowPartialLayout` 可选择部分召回并带逐参数跳过(只读、缺失、越界)。变形以显式 0..1 比例在两个快照(或快照与实时状态)之间插值,带文档化的确定性 float64 量化舍入。写入经护栏设备参数机制,带逐步围栏、精确回滚与精确的召回前撤销 |
 | 加载乐器、效果和预置 | `live_browser_search`、`live_browser_load_preview/apply` | 把确切的 Browser 项目加载到选定轨道;插件必须在 Live 自己的 Browser 中可见 |
 | 插入、启用、移动或移除设备 | `live_device_preview/apply`、`live_device_delete_preview/apply` | 移除仅限于事务自身创建的设备(精确清理);显式删除现有设备带栅栏且诚实不可撤销 |
 | Deep device and parameter control | `live_device_advanced_preview/apply`、`live_device_parameter_preview/apply` | 每行参数暴露元数据(默认值、原名、状态、枚举项、显示值);参数库带精确撤销;自动化重启用与 A/B 对比保存(瞬时);链设备插入(空链守卫);经 `Song.move_device` 的跨轨道/链设备移动,带精确反向移动撤销。Bypass 绝不从只读 `Device.is_active` 推断可写 —— 只使用探针验证的 Device On 参数 |
 | 专用设备 API | `live_device_specialized_preview/apply`、`live_looper_preview/apply`、`live_simpler_preview/apply` | Drift 弯音范围与复音数/模式的 index-and-list 成员(调制矩阵列表在设备行);鼓单元语义增益;Eq8 编辑/全局模式、`oversample` 与视图所选频段;Hybrid Reverb 以 index-and-list 选择 IR 类别/文件,以及 IR attack/decay/size 塑形;Meld 引擎、unison voices、单/复音与 poly voices;插件预置发现/选择与编辑器窗口状态(读/写);Looper 传输动作含 double/half speed(瞬时)、导出到精确空白 Clip 槽,以及可写的 `overdubAfterRecord`/`recordLengthIndex`(精确撤销),`loopLength`/`tempo` 在设备行上只读;Simpler 采样替换带暂存文件权限与经逆向替换的撤销。全部按设备类与成员存在性按形态协商 |
 | 未覆盖的专用设备 | — | RoarDevice、ShifterDevice、SpectralResonatorDevice、WavetableDevice 尚无语义映射;其通用参数仍可通过标准设备参数工作流使用,只有在取得真实 Live 形态后才会提供专用族(明确处置:延期,不声称覆盖)。Sample 表面(片段行之外的切片/warp/采样元数据)与 Simpler 的其余表面(包络、滤波器、LFO、回放模式)同样延期且如实不声称 |
 | 混音:音量、声像、静音、独奏、cue、发送 | `live_mixer_preview/apply` | 先捕获先前值,混音改动可以精确撤销 |
+| 复合批量事务 | `live_batch_preview/apply` | 单个预览/应用/撤销周期执行有界(≤32)有序的可组合操作列表(`mixer.set`、`device.parameter.set`、`clip.set`、`track.rename`、`scene.rename`、`track.create`、`routing.arm`)。按操作执行部署策略,每个精确目标仅一个操作,检查点围栏,中途拒绝时精确回滚已完成步骤,丢失确认按记录的逐步检查点调和,整个批次共享一条按逆序恢复先验状态的撤销记录。批量预设(全部取消静音、全部取消独奏、全部解除武装、独奏独占)可表示为单个批次 |
 | 扩展混音与交叉淡化 | `live_mixer_extended_preview/apply` | 轨道激活器、交叉推子、交叉分配、声像模式与分离立体声左/右声像,带精确撤销。主轨道的语义速度参数在其混音行上只读暴露;速度更改仍走速度工作流 |
 | Rack 链混音器 | `live_chain_mixer_preview/apply` | 链音量、声像、发送与链激活器,带精确撤销 |
 | 链、鼓垫与机架 | `live_chain_preview/apply`、`live_drum_pad_preview/apply`、`live_rack_preview/apply`、`live_rack_view_preview/apply` | 链颜色/自动颜色/静音/独奏,行上暴露鼓链音符与窒息组;鼓垫音符/独奏带精确撤销,另有显式全部链删除(不可撤销);机架返回链、宏状态、可见宏数量与所选变体在行上;宏添加/移除/随机化、链插入、垫复制与变体保存/召回/删除作为瞬时动作;机架视图所选链/垫、垫滚动与链设备可见性,带精确撤销 |
@@ -61,7 +63,8 @@
 | 撤销更改 | `live_undo` | 在先前状态仍匹配时精确恢复;被其他改动破坏时拒绝 |
 | 分析音频(响度、真峰值、频谱) | `audio_analyze`、`audio_compare_reference`、`audio_diagnose_live_context` | ITU-R BS.1770/EBU R128 标准,隐私保护,结果不含原始 PCM |
 | 切换视图并控制 Arrangement 视图 | `live_view_preview/apply` | Session/Arranger 切换、缩放/滚动、跟随播放、轨道折叠;仅 UI,不触碰音乐状态 |
-| 搜索 Browser 并检查项目 | `live_browser_search`、`live_browser_roots`、`live_browser_inspect` | 有界 DFS 名称匹配(非标签/过滤/相似度搜索 —— 无公共 API);按形态协商的根(sounds、samples、User Library、用户文件夹、当前工程),各绑定的层级由 `live_browser_roots` 报告;单项 `live_browser_inspect` 返回稳定身份、类型、来源与显式可加载性,不含原始文件系统路径。内部绑定绝非稳定公共 LOM API |
+| 搜索 Browser 并检查项目 | `live_browser_search`、`live_browser_roots`、`live_browser_inspect` | 宿主侧多词项排序匹配(与顺序无关的词元、词边界/前缀加权、每项文档化得分与命中词元说明),基于有界、epoch 绑定的按根候选缓存(60 秒 TTL、显式 `refresh`、报告缓存来源与截断);保留精确子串匹配作为文档化回退模式;非标签/过滤/相似度搜索 —— 无公共 API(下方资源库数据库表面在其架构被枚举时覆盖标签);按形态协商的根(sounds、samples、User Library、用户文件夹、当前工程),各绑定的层级由 `live_browser_roots` 报告;单项 `live_browser_inspect` 返回稳定身份、类型、来源与显式可加载性,不含原始文件系统路径。内部绑定绝非稳定公共 LOM API |
+| 搜索 Live 资源库数据库(标签、类型、使用计数、插件清单) | `live_library_search` | 可选加入、属主允许列表、只读(绝不写入,拒绝未检查点 WAL)。按 Live 12.4.5 上第一手探测的架构版本做失败关闭式设防(文件数据库 12300;插件数据库 1 —— 其他版本报告带观测版本的结构化不可用)。名称/通配符 + 标签合取 + 类型 + 来源 + 排序过滤,结果有界并按修订分页;插件清单支持厂商/格式过滤;路径遮蔽、使用计数不透明;相似度/重复查询显式不可用;discovery-only 条目有标注,可加载性仍需 `live_browser_inspect` |
 | Browser 预览与热交换 | —— | 明确拒绝:`preview_item`/`stop_preview` 是非官方绑定,且不存在可用于验证后置条件的权威可观察预览状态,同时它是可发声的。热交换/邻近预置加载因同样可验证性原因推迟。保留的 `browser.preview.*` 契约保持故障关闭,直至存在权威预览状态 |
 | 读取 Set:轨道、剪辑、设备、路由、播放 | `live_snapshot`、`live_discover`、`live_status` | 只读;过时引用被拒绝,绝不猜测 |
 | 观察状态变化 | `live_observe_subscribe`、`live_observe_poll`、`live_observe_unsubscribe` | 对文档可观察状态的受限协商主题 —— 走带、选择、轨道、剪辑、设备、参数、律动、律制、场景、电平与机架状态。配额(8 订阅、各 64 主题)、按修订去重、变更字段列表、显式溢出、协商最小轮询间隔,以及每个事件携带修订/身份 —— 均非变更权限 |

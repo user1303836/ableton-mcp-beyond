@@ -53,10 +53,30 @@ SHA-256 安装。`private: true` 仅防止意外发布,不改变 MIT 权利;见
   `session-playback`,支持有界父级、最多八个标量过滤器、请求字段、遍历
   预算、分页以及绑定 epoch/修订的游标。兼容回退仍限于 `track`、`scene`、
   `clip`、`note`。
+- `live_browser_search` 在宿主侧对 Browser 结果排序:多词项、与顺序无关的
+  词元匹配,带词边界/前缀加权;每个结果带文档化的整数得分与命中词元说明,
+  并列时按得分、名称、id 确定性排序。每个根至多一次有界候选遍历(≤100 项)
+  缓存 60 秒,绑定当前连接 epoch,绝不持久化;`refresh: true` 强制重新遍历。
+  结果报告 `searchedRoots`(贡献了候选的根 —— 受界遍历可能未覆盖每个请求的
+  根)、`candidates`、`candidateBoundReached`、`truncated`、`fromCache` 与
+  `cacheAgeSeconds`。`matchMode: "substring"` 保留旧的精确透传行为。加载仍
+  需要新鲜的 `live_browser_inspect` 结果。
 - `live_browser_inspect` 按精确条目 id 报告单个权威 Browser 结果:稳定标识
   (id、对象标识与内容修订)、类型与浏览器内部路径元数据、适配器/epoch
   来源,以及附带原因的显式可加载性。绝不返回原始文件系统路径;仅设备条目
   可通过 `live_browser_load_preview/apply` 加载。
+- `live_library_search` 是对 Live 自身资源库数据库的可选只读查询面,不依赖
+  Live 连接。它要求显式绝对路径的 `database` 且位于显式属主 `allowlistRoot`
+  之内,以只读方式打开文件(绝不写入、绝不创建日志文件,并拒绝存在未检查点
+  WAL 帧的数据库),按 Live 12.4.5 上第一手探测的枚举架构版本设防(文件数据库
+  版本 12300;插件数据库版本 1 —— 其他版本报告带观测版本号的结构化
+  `unavailable`,绝不臆测)。文件查询支持名称/通配符、标签合取(叶子名或完整
+  路径如 `Devices|Synthesizer|FM`)、内容类型、来源与排序(`useCount`、
+  `modified`、`name`),结果有界且按修订分页并如实报告截断;`mode: "plugins"`
+  列出插件清单(支持厂商/格式过滤);`mode: "tags"` 列出标签词表。数据库路径与
+  原始文件系统路径一律遮蔽,使用计数为不透明数字,相似度与重复样本查询报告显式
+  不可用;无法解析为 Browser 身份候选的条目标记为 discovery-only —— 可加载性
+  仍需 `live_browser_inspect`。
 - `live_arrangement_automation_read` 探测某个精确 Arrangement 剪辑上单个
   参数的自动化包络:所有者标识、精确时间范围、完整的分页点集(512 点
   上限、绑定修订的游标,绝不静默截断),并显式注明曲线形状不予暴露。
@@ -119,9 +139,33 @@ capability 资源会报告可执行、可见与策略拒绝的工具集,以及�
 - `live_device_parameter_preview/apply` —— 针对权威设备上已发现的已启用
   数值参数。检查边界、有限值、量化、归属与修订;通过 `live_undo` 受护栏
   撤销。
+- `live_device_state_save` 与 `live_device_state_recall_preview/apply` ——
+  单个设备或机架子树的命名参数状态快照。保存会向显式属主目录写入带架构版本、
+  经摘要校验的 JSON 文件(仅参数与设备名称;绝不包含工程路径、会话引用或对象
+  标识;重名保存需 `overwrite: true`)。召回先验证文件,再围栏设备类别身份
+  (`className`,回退到显示名,加上 kind)与记录的参数布局指纹:不匹配在写入前
+  拒绝并附逐参数不兼容报告;`allowPartialLayout: true` 可选择部分召回,带逐参数
+  处置(`applicable`、`skipped-read-only`、`skipped-missing`、`skipped-rebound`)。
+  变形(`morphFromFile` 或 `morphFromLive: true` 加显式 0..1 的 `amount`)在宿主侧
+  插值,带文档化的确定性 float64 量化舍入 —— 相同输入与比例必得相同值。应用经护栏
+  设备参数机制写入,带逐步修订围栏;召回中途拒绝时精确回滚已写参数,并通过
+  `live_undo` 精确恢复召回前状态。
 - `live_session_structure_preview/apply` —— 有界的命名 MIDI/音频轨道与
   场景创建。插入索引仅对应常规轨道,并在变更前对照当前集合检查。既有
   对象、剪辑、设备、路由、走带与录音均不受影响。
+- `live_batch_preview/apply` —— 单个复合事务,执行有界(至多 32 个)、有序的
+  可组合操作列表:`mixer.set`、`device.parameter.set`、`clip.set`、
+  `track.rename`、`scene.rename`、`track.create`(名称/类型/可选有界插入
+  索引;协商注册表不暴露轨道颜色)与 `routing.arm`。只读预览解析每个目标,
+  拒绝重复的变更目标(每批每个精确目标仅一个操作)与新名称冲突,按操作执行
+  部署策略(任一被拒操作使整个批在写入前失败),并捕获合并的精确先验状态。
+  应用按序执行并带检查点围栏:每步在派发前对照新鲜状态重新校验预览前置条件、
+  之后验证精确后置条件;中途干净拒绝会把已完成步骤精确回滚到先验状态并报告
+  失败操作索引;丢失的确认按记录的逐步检查点调和 —— 后置条件已成立的步骤
+  绝不重新派发。整个批共享一条撤销记录:`live_undo` 按逆序恢复先验状态,已创建
+  的轨道仅在与事务身份和指纹绑定时才会被删除。批量混音预设 —— 全部取消静音、
+  全部取消独奏、全部解除武装(`routing.arm`)与独奏独占 —— 可表示为单个
+  逐轨道操作的批次。
 - `live_midi_clip_preview/apply` —— 在空的 Session 槽位中创建有界 MIDI
   剪辑(含归一化音符)。应用时创建剪辑,通过一次规范的 `note.add-batch`
   变更提交完整校验过的音符集,然后验证权威音符内容。

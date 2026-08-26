@@ -1,7 +1,7 @@
 import type { Readable, Writable } from "node:stream";
 import { createHash, randomBytes } from "node:crypto";
-import { realpathSync, statSync, createReadStream, constants as fsConstants, mkdtempSync, chmodSync, unlinkSync } from "node:fs";
-import { dirname, extname, join as joinPath } from "node:path";
+import { realpathSync, statSync, createReadStream, constants as fsConstants, mkdtempSync, chmodSync, closeSync, fsyncSync, linkSync, openSync, renameSync, unlinkSync, lstatSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { dirname, extname, isAbsolute, join as joinPath, resolve } from "node:path";
 import { sep } from "node:path";
 import { tmpdir } from "node:os";
 import { AnalysisRunner, type EncodedAnalysisSource } from "./analysis-runner.js";
@@ -15,6 +15,10 @@ import { projectBackup, projectInfo, projectLimitation } from "./project.js";
 import { SEMANTIC_PROJECT_MAX_DIFF_INPUT_BYTES, assembleSemanticProjectPages, createSemanticProjectSnapshot, pageSemanticProjectSnapshot, type SemanticPrivacyProfile, type SemanticProjectPage } from "./project-semantic.js";
 import { diffSemanticProjectSnapshots, pageSemanticProjectDiff } from "./project-semantic-diff.js";
 import { SessionMidiTransactionManager, discoverSession } from "./transactions/session-midi.js";
+import { BatchTransactionManager, BATCH_OPERATION_POLICY_TOOLS, type BatchOperationKind } from "./transactions/batch.js";
+import { DEVICE_STATE_SCHEMA, DeviceStateTransactionManager, buildDeviceStateFile, planDeviceStateRecall, validateDeviceStateFile, type DeviceStateFile } from "./transactions/device-state.js";
+import { SqliteReader } from "./sqlite-reader.js";
+import { LIBRARY_KINDS, LIBRARY_SEARCH_SCHEMA, LibraryUnavailable, SUPPORTED_FILES_SCHEMA_VERSIONS, SUPPORTED_PLUGINS_SCHEMA_VERSIONS, assertSupportedFilesSchema, assertSupportedPluginsSchema, queryLibraryFiles, queryLibraryPlugins, queryLibraryTagVocabulary, type LibraryQuery } from "./library-search.js";
 import { GENERATIVE_TRANSFORMS, MIDI_TRANSFORM_LARGE_UPDATE_THRESHOLD, MIDI_TRANSFORM_TYPES, applyMidiTransform, diffNotes, midiExpressionProbe, noteContentDigest, noteIdentityDigest, type MidiTransformType } from "./midi-transforms.js";
 import { JOURNEY_IDS, JOURNEY_PROMPTS, journeyResource, planUserJourney, renderJourneyPrompt, type ExperienceLevel, type JourneyId } from "./journeys.js";
 import type { AsyncLiveAdapter } from "./live.js";
@@ -213,6 +217,13 @@ const STRUCTURE_STEP_DEADLINE_MS = 45_000;
 // mutations and authoritative readback. An explicit context may extend the
 // configured default timeout while remaining bounded by the bridge protocol.
 const SESSION_MIDI_TRANSACTION_DEADLINE_MS = 30_000;
+// Ranked browser search re-fetches a bounded candidate traversal per root at
+// most once per TTL window (or per Live connection epoch); the cache is
+// in-memory only, bounded, and never persisted across restarts.
+const BROWSER_SEARCH_CANDIDATE_LIMIT = 100;
+const BROWSER_SEARCH_CACHE_TTL_MS = 60_000;
+const BROWSER_SEARCH_CACHE_MAX_ENTRIES = 16;
+const BROWSER_SEARCH_MAX_TOKENS = 8;
 const MAX_AUDITION_TRANSACTIONS = 64;
 const MONITORABLE_TRACK_KINDS = new Set(["regular", "audio", "midi"]);
 
@@ -361,12 +372,15 @@ export class McpHost {
   private readonly sessionStructureTransactions = new BoundedTransactionMap<SessionStructureTransaction>();
   private readonly deviceParameterTransactions = new BoundedTransactionMap<DeviceParameterTransaction>();
   private readonly midiTransactions: SessionMidiTransactionManager;
+  private readonly batchTransactions: BatchTransactionManager;
+  private readonly deviceStateTransactions: DeviceStateTransactionManager;
   private readonly inFlightMutations = new Map<string, { idempotencyKey: string; argumentDigest: string; promise: Promise<JsonObject | null>; controller: AbortController; waiters: number; settled: boolean }>();
   private readonly auditionTransactions = new BoundedTransactionMap<SessionAuditionTransaction>();
   private readonly transportTransactions = new BoundedTransactionMap<TransportTransaction>();
   private readonly clipLaunchTransactions = new BoundedTransactionMap<ClipLaunchTransaction>();
   private readonly noteEditTransactions = new BoundedTransactionMap<NoteEditTransaction>();
   private readonly clipLifecycleTransactions = new BoundedTransactionMap<ClipLifecycleTransaction>();
+  private readonly browserSearchCache = new Map<string, { items: Array<{ id: string; objectIdentity: string; name: string; category: string; path: string; isDevice: boolean }>; fetchedAt: number; epoch: number }>();
   private readonly undoRecoveryPlans = new WeakMap<object, { idempotencyKey: string; steps: Array<{ operation: LiveInvocation["operation"]; args: Record<string, unknown>; completed: boolean; result?: unknown }> }>();
   private recoveryFinalizationInFlight = false;
   private activeAsyncOperations = 0;
@@ -375,6 +389,8 @@ export class McpHost {
 
   public constructor(private readonly adapter: LiveAdapter = new UnavailableLiveAdapter(), options: { toolPolicy?: ToolPolicySpec | unknown } = {}) {
     this.midiTransactions = new SessionMidiTransactionManager(adapter);
+    this.batchTransactions = new BatchTransactionManager(adapter);
+    this.deviceStateTransactions = new DeviceStateTransactionManager(adapter);
     this.toolPolicy = options.toolPolicy === undefined ? DEFAULT_TOOL_POLICY : parseToolPolicySpec(options.toolPolicy);
   }
 
@@ -447,7 +463,7 @@ export class McpHost {
     if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handle(input);
     const name = input.params.name;
     const toolArguments = input.params.arguments;
-    if (![ "live_status", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_midi_transform_preview", "live_midi_transform_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_snapshot_export", "live_project_snapshot_diff", "live_project_backup_preview", "live_project_backup_apply", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_chain_preview", "live_chain_apply", "live_drum_pad_preview", "live_drum_pad_apply", "live_rack_preview", "live_rack_apply", "live_rack_view_preview", "live_rack_view_apply", "live_device_specialized_preview", "live_device_specialized_apply", "live_looper_preview", "live_looper_apply", "live_simpler_preview", "live_simpler_apply", "live_observe_subscribe", "live_observe_poll", "live_observe_unsubscribe", "live_browser_roots", "live_browser_inspect", "live_arrangement_automation_read", "live_take_lane_read", "live_comp_read", "live_warp_marker_read", "live_application_dialog_preview", "live_application_dialog_apply"].includes(name)) return this.handle(input);
+    if (![ "live_status", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_midi_transform_preview", "live_midi_transform_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_batch_preview", "live_batch_apply", "live_device_state_save", "live_device_state_recall_preview", "live_device_state_recall_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_library_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_snapshot_export", "live_project_snapshot_diff", "live_project_backup_preview", "live_project_backup_apply", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_chain_preview", "live_chain_apply", "live_drum_pad_preview", "live_drum_pad_apply", "live_rack_preview", "live_rack_apply", "live_rack_view_preview", "live_rack_view_apply", "live_device_specialized_preview", "live_device_specialized_apply", "live_looper_preview", "live_looper_apply", "live_simpler_preview", "live_simpler_apply", "live_observe_subscribe", "live_observe_poll", "live_observe_unsubscribe", "live_browser_roots", "live_browser_inspect", "live_arrangement_automation_read", "live_take_lane_read", "live_comp_read", "live_warp_marker_read", "live_application_dialog_preview", "live_application_dialog_apply"].includes(name)) return this.handle(input);
     // Reuse the synchronous validator and request bookkeeping, then execute the
     // adapter operation asynchronously. Invalid requests never reach Live.
     const id = this.requestId(input.id);
@@ -580,6 +596,12 @@ export class McpHost {
       if (name === "live_automation_preview") return await this.liveAutomationPreviewAsync(id, toolArguments);
       if (name === "live_automation_apply") return await this.liveAutomationApplyAsync(id, toolArguments, signal);
       if (name === "live_browser_search") return await this.liveBrowserSearchAsync(id, toolArguments);
+      if (name === "live_library_search") return await this.liveLibrarySearchAsync(id, toolArguments);
+      if (name === "live_batch_preview") return await this.liveBatchPreviewAsync(id, toolArguments);
+      if (name === "live_batch_apply") return await this.liveBatchApplyAsync(id, toolArguments, signal);
+      if (name === "live_device_state_save") return await this.liveDeviceStateSaveAsync(id, toolArguments);
+      if (name === "live_device_state_recall_preview") return await this.liveDeviceStateRecallPreviewAsync(id, toolArguments);
+      if (name === "live_device_state_recall_apply") return await this.liveDeviceStateRecallApplyAsync(id, toolArguments, signal);
       if (name === "live_browser_load_preview") return await this.liveBrowserLoadPreviewAsync(id, toolArguments);
       if (name === "live_browser_load_apply") return await this.liveBrowserLoadApplyAsync(id, toolArguments, signal);
       if (name === "live_device_preview") return await this.liveDevicePreviewAsync(id, toolArguments);
@@ -1969,7 +1991,7 @@ export class McpHost {
 
   /** Map a transaction to the tool that owns its apply path for policy re-checks at undo/emergency dispatch. */
   private transactionOwnerTool(transactionId: string, kind?: string): string | undefined {
-    const byPrefix: Record<string, string> = { tempo_: "live_tempo_apply", arrangement_: "live_arrangement_section_apply", structure_: "live_session_structure_apply", parameter_: "live_device_parameter_apply", audition_: "live_session_audition_apply", transport_: "live_transport_apply", transportaction_: "live_transport_action_apply", cliplaunch_: "live_clip_launch_apply", noteupdate_: "live_note_update_apply", notedelete_: "live_note_delete_apply", midi_: "live_midi_clip_apply", miditransform_: "live_midi_transform_apply", capture_: "live_audio_capture_apply", audio_capture_: "live_audio_capture_apply", capturemidi_: "live_capture_midi_apply", scenecapture_: "live_scene_capture_apply", clipdup_: "live_clip_duplicate_apply", arrclip_: "live_arrangement_clip_apply", clipmove_: "live_clip_move_apply", audioimport_: "live_audio_import_apply", audioclip_: "live_audio_clip_apply", warp_: "live_warp_marker_apply", noteedit_: "live_note_edit_apply", rename_: "live_object_rename_apply", routing_: "live_routing_apply", backup_: "live_project_backup_apply", recording_: "live_recording_apply", realtime_: "live_realtime_arm_apply", browserload_: "live_browser_load_apply", device_: "live_device_apply", mixer_: "live_mixer_apply", mixerext_: "live_mixer_extended_apply", view_: "live_view_apply", locjump_: "live_locator_jump_apply", clipset_: "live_clip_properties_apply", clipaction_: "live_clip_action_apply", tuning_: "live_tuning_apply", groove_: "live_groove_apply", sceneset_: "live_scene_apply", scenefire_: "live_scene_fire_apply", trackstruct_: "live_track_structure_apply", devdel_: "live_device_delete_apply", trackview_: "live_track_view_apply", selection_: "live_selection_apply", clipview_: "live_clip_view_apply", devview_: "live_device_view_apply", dialog_: "live_application_dialog_apply", chainmix_: "live_chain_mixer_apply", devio_: "live_device_io_apply", devadv_: "live_device_advanced_apply", chainset_: "live_chain_apply", drumpad_: "live_drum_pad_apply", rack_: "live_rack_apply", rackview_: "live_rack_view_apply", devspec_: "live_device_specialized_apply", looper_: "live_looper_apply", simpler_: "live_simpler_apply", automation_: "live_automation_apply" };
+    const byPrefix: Record<string, string> = { tempo_: "live_tempo_apply", arrangement_: "live_arrangement_section_apply", batch_: "live_batch_apply", devstate_: "live_device_state_recall_apply", structure_: "live_session_structure_apply", parameter_: "live_device_parameter_apply", audition_: "live_session_audition_apply", transport_: "live_transport_apply", transportaction_: "live_transport_action_apply", cliplaunch_: "live_clip_launch_apply", noteupdate_: "live_note_update_apply", notedelete_: "live_note_delete_apply", midi_: "live_midi_clip_apply", miditransform_: "live_midi_transform_apply", capture_: "live_audio_capture_apply", audio_capture_: "live_audio_capture_apply", capturemidi_: "live_capture_midi_apply", scenecapture_: "live_scene_capture_apply", clipdup_: "live_clip_duplicate_apply", arrclip_: "live_arrangement_clip_apply", clipmove_: "live_clip_move_apply", audioimport_: "live_audio_import_apply", audioclip_: "live_audio_clip_apply", warp_: "live_warp_marker_apply", noteedit_: "live_note_edit_apply", rename_: "live_object_rename_apply", routing_: "live_routing_apply", backup_: "live_project_backup_apply", recording_: "live_recording_apply", realtime_: "live_realtime_arm_apply", browserload_: "live_browser_load_apply", device_: "live_device_apply", mixer_: "live_mixer_apply", mixerext_: "live_mixer_extended_apply", view_: "live_view_apply", locjump_: "live_locator_jump_apply", clipset_: "live_clip_properties_apply", clipaction_: "live_clip_action_apply", tuning_: "live_tuning_apply", groove_: "live_groove_apply", sceneset_: "live_scene_apply", scenefire_: "live_scene_fire_apply", trackstruct_: "live_track_structure_apply", devdel_: "live_device_delete_apply", trackview_: "live_track_view_apply", selection_: "live_selection_apply", clipview_: "live_clip_view_apply", devview_: "live_device_view_apply", dialog_: "live_application_dialog_apply", chainmix_: "live_chain_mixer_apply", devio_: "live_device_io_apply", devadv_: "live_device_advanced_apply", chainset_: "live_chain_apply", drumpad_: "live_drum_pad_apply", rack_: "live_rack_apply", rackview_: "live_rack_view_apply", devspec_: "live_device_specialized_apply", looper_: "live_looper_apply", simpler_: "live_simpler_apply", automation_: "live_automation_apply" };
     const prefixes = Object.keys(byPrefix).sort((a, b) => b.length - a.length);
     for (const prefix of prefixes) if (transactionId.startsWith(prefix)) return byPrefix[prefix];
     const byKind: Record<string, string> = { "audio-set": "live_audio_clip_apply", "mixer-set": "live_mixer_apply", automation: "live_automation_apply", "browser-load": "live_browser_load_apply", device: "live_device_apply", "routing-set": "live_routing_apply", recording: "live_recording_apply", backup: "live_project_backup_apply", "realtime-arm": "live_realtime_arm_apply", view: "live_view_apply", "locator-jump": "live_locator_jump_apply", "clip-set": "live_clip_properties_apply", "clip-action": "live_clip_action_apply", tuning: "live_tuning_apply", groove: "live_groove_apply", "scene-set": "live_scene_apply", "scene-fire": "live_scene_fire_apply", "transport-action": "live_transport_action_apply", "track-structure": "live_track_structure_apply", "device-delete": "live_device_delete_apply", "track-view": "live_track_view_apply", selection: "live_selection_apply", "clip-view": "live_clip_view_apply", "device-view": "live_device_view_apply", dialog: "live_application_dialog_apply", "mixer-extended": "live_mixer_extended_apply", "chain-mixer": "live_chain_mixer_apply", "device-io": "live_device_io_apply", "device-advanced": "live_device_advanced_apply", "chain-set": "live_chain_apply", "drum-pad": "live_drum_pad_apply", rack: "live_rack_apply", "rack-view": "live_rack_view_apply", "device-specialized": "live_device_specialized_apply", looper: "live_looper_apply", simpler: "live_simpler_apply", rename: "live_object_rename_apply", "warp-marker": "live_warp_marker_apply", "note-target": "live_note_edit_apply", duplicate: "live_clip_duplicate_apply", move: "live_clip_move_apply", "session-audio-create": "live_audio_import_apply", "capture-midi": "live_capture_midi_apply", "scene-capture": "live_scene_capture_apply", "arrangement-create": "live_arrangement_clip_apply", "arrangement-audio-create": "live_arrangement_clip_apply", "arrangement-take-lane-create": "live_arrangement_clip_apply" };
@@ -2396,21 +2418,337 @@ export class McpHost {
     throw new Error("owned device cleanup was not confirmed");
   }
 
+  /** Rank one bounded browser candidate against tokenized query terms.
+   * Documented scoring (deterministic, integer-only): the full query as an
+   * exact name substring scores 100 (path substring 40); each query token
+   * scores 30 for an exact name-word match, 18 for a name-word prefix, 10 for
+   * a name substring, plus 4 when it also appears in the path; matching every
+   * token adds a 25-point coverage bonus. Ties break by name then id using
+   * code-point order, so identical candidates and query always rank alike. */
+  private rankBrowserCandidate(item: { id: string; name: string; path: string }, queryLower: string, tokens: readonly string[]): { score: number; matchedTokens: string[]; exactNameMatch: boolean } {
+    const name = item.name.toLowerCase();
+    const path = item.path.toLowerCase();
+    const nameWords = name.split(/[^a-z0-9]+/).filter((word) => word.length > 0);
+    let score = 0;
+    let exactNameMatch = false;
+    if (queryLower.length > 0 && name.includes(queryLower)) { score += 100; exactNameMatch = true; }
+    else if (queryLower.length > 0 && path.includes(queryLower)) score += 40;
+    const matchedTokens: string[] = [];
+    for (const token of tokens) {
+      let tokenScore = 0;
+      if (nameWords.includes(token)) tokenScore = 30;
+      else if (nameWords.some((word) => word.startsWith(token))) tokenScore = 18;
+      else if (name.includes(token)) tokenScore = 10;
+      if (path.includes(token)) tokenScore += 4;
+      if (tokenScore > 0) { matchedTokens.push(token); score += tokenScore; }
+    }
+    if (tokens.length > 0 && matchedTokens.length === tokens.length) score += 25;
+    return { score, matchedTokens, exactNameMatch };
+  }
+
   private async liveBrowserSearchAsync(id: RequestId, params: unknown): Promise<JsonObject> {
     const categories = ["instruments", "audio_effects", "midi_effects", "drums", "plugins", "packs", "max_for_live", "clips"];
-    if (!isObject(params) || !hasOnly(params, ["category", "query", "limit"]) || (params.category !== undefined && !categories.includes(String(params.category))) || (params.query !== undefined && !isNonEmptyString(params.query, 256) && params.query !== "") || (params.limit !== undefined && !isIntegerInRange(params.limit, 1, 100))) return error(id, -32602, "category, query, and limit are invalid");
+    if (!isObject(params) || !hasOnly(params, ["category", "query", "limit", "matchMode", "refresh"]) || (params.category !== undefined && !categories.includes(String(params.category))) || (params.query !== undefined && !isNonEmptyString(params.query, 256) && params.query !== "") || (params.limit !== undefined && !isIntegerInRange(params.limit, 1, 100)) || (params.matchMode !== undefined && params.matchMode !== "ranked" && params.matchMode !== "substring") || (params.refresh !== undefined && typeof params.refresh !== "boolean")) return error(id, -32602, "category, query, limit, matchMode, and refresh are invalid");
     try {
       const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
       if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
       if (!(status.operations ?? []).includes("browser.search")) throw new Error("the Live Browser is unavailable");
       const adapter = this.asyncAdapter();
-      const searchArgs: Record<string, unknown> = {};
-      if (params.category !== undefined) searchArgs.category = params.category;
-      if (params.query !== undefined) searchArgs.query = params.query;
-      if (params.limit !== undefined) searchArgs.limit = params.limit;
-      const result = await adapter.invokeAsync({ operation: "browser.search", args: searchArgs }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as { items?: unknown };
-      return this.successText(id, { items: Array.isArray(result.items) ? result.items : [] });
+      if (params.matchMode === "substring") {
+        const searchArgs: Record<string, unknown> = {};
+        if (params.category !== undefined) searchArgs.category = params.category;
+        if (params.query !== undefined) searchArgs.query = params.query;
+        if (params.limit !== undefined) searchArgs.limit = params.limit;
+        const result = await adapter.invokeAsync({ operation: "browser.search", args: searchArgs }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as { items?: unknown };
+        return this.successText(id, { items: Array.isArray(result.items) ? result.items : [] });
+      }
+      const epoch = (status.epoch ?? 0) as number;
+      const cacheKey = typeof params.category === "string" ? params.category : "all";
+      const cached = this.browserSearchCache.get(cacheKey);
+      const cacheValid = cached !== undefined && cached.epoch === epoch && Date.now() - cached.fetchedAt < BROWSER_SEARCH_CACHE_TTL_MS;
+      let candidates: Array<{ id: string; objectIdentity: string; name: string; category: string; path: string; isDevice: boolean }>;
+      let fetchedAt: number;
+      let fromCache: boolean;
+      if (cacheValid && params.refresh !== true) {
+        candidates = cached.items; fetchedAt = cached.fetchedAt; fromCache = true;
+        this.browserSearchCache.delete(cacheKey); this.browserSearchCache.set(cacheKey, cached);
+      } else {
+        const searchArgs: Record<string, unknown> = { query: "", limit: BROWSER_SEARCH_CANDIDATE_LIMIT };
+        if (params.category !== undefined) searchArgs.category = params.category;
+        const result = await adapter.invokeAsync({ operation: "browser.search", args: searchArgs }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as { items?: unknown };
+        if (!Array.isArray(result.items) || result.items.length > BROWSER_SEARCH_CANDIDATE_LIMIT) throw new Error("browser search returned an unbounded or malformed candidate set");
+        const rows = result.items.filter(isObject).map((item) => ({ id: item.id, objectIdentity: item.objectIdentity, name: item.name, category: item.category, path: item.path, isDevice: item.isDevice }));
+        if (rows.length !== result.items.length || rows.some((item) => !isNonEmptyString(item.id, 256) || !isNonEmptyString(item.objectIdentity, 256) || typeof item.name !== "string" || item.name.length > 256 || !isNonEmptyString(item.category, 64) || typeof item.path !== "string" || item.path.length > 512 || typeof item.isDevice !== "boolean")) throw new Error("browser search returned a malformed candidate set");
+        candidates = rows as Array<{ id: string; objectIdentity: string; name: string; category: string; path: string; isDevice: boolean }>;
+        fetchedAt = Date.now(); fromCache = false;
+        this.browserSearchCache.set(cacheKey, { items: candidates, fetchedAt, epoch });
+        while (this.browserSearchCache.size > BROWSER_SEARCH_CACHE_MAX_ENTRIES) { const oldest = this.browserSearchCache.keys().next().value; if (oldest === undefined) break; this.browserSearchCache.delete(oldest); }
+      }
+      const queryText = typeof params.query === "string" ? params.query : "";
+      const queryLower = queryText.trim().toLowerCase();
+      const tokens = [...new Set(queryLower.split(/[^a-z0-9]+/).filter((token) => token.length > 0 && token.length <= 64))].slice(0, BROWSER_SEARCH_MAX_TOKENS);
+      const ranked = candidates
+        .map((item) => ({ item, ...this.rankBrowserCandidate(item, queryLower, tokens) }))
+        .filter((entry) => tokens.length === 0 || entry.matchedTokens.length > 0);
+      ranked.sort((a, b) => (b.score - a.score) || (a.item.name < b.item.name ? -1 : a.item.name > b.item.name ? 1 : 0) || (a.item.id < b.item.id ? -1 : a.item.id > b.item.id ? 1 : 0));
+      const limit = params.limit === undefined ? 50 : (params.limit as number);
+      const page = ranked.slice(0, limit);
+      return this.successText(id, {
+        items: page.map((entry) => ({ ...entry.item, score: entry.score, match: { matchedTokens: entry.matchedTokens, exactNameMatch: entry.exactNameMatch } })),
+        matchMode: "ranked",
+        query: queryText,
+        tokens,
+        searchedRoots: [...new Set(candidates.map((item) => item.category))].sort(),
+        candidates: candidates.length,
+        candidateBound: BROWSER_SEARCH_CANDIDATE_LIMIT,
+        candidateBoundReached: candidates.length >= BROWSER_SEARCH_CANDIDATE_LIMIT,
+        truncated: ranked.length > page.length,
+        fromCache,
+        cacheAgeSeconds: Math.max(0, Math.round((Date.now() - fetchedAt) / 1000)),
+        cacheTtlSeconds: BROWSER_SEARCH_CACHE_TTL_MS / 1000,
+        epoch,
+        note: "Ranked host-side over one bounded candidate traversal per root; searchedRoots are the roots that contributed candidates, so a bound-limited traversal may not have reached every requested root. Substring-exact matching remains available with matchMode=substring. Loadability still requires a fresh live_browser_inspect result.",
+      });
     } catch (cause) { return this.adapterToolError(id, cause, "Browser search requires an available Live Browser."); }
+  }
+
+  private async liveBatchPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, ["operations"]) || !Array.isArray(params.operations)) return error(id, -32602, "a bounded operations array is required");
+    try {
+      // Policy: every contained operation must be permitted by the effective
+      // deployment policy; a single denied operation fails the whole batch.
+      for (const operation of params.operations) {
+        const kind = isObject(operation) ? operation.kind : undefined;
+        const ownerTool = typeof kind === "string" ? BATCH_OPERATION_POLICY_TOOLS[kind as BatchOperationKind] : undefined;
+        if (ownerTool === undefined) return this.transactionError(id, "transaction batch operation kind is not in the composable allowlist");
+        if (!this.policyAllowsTool(ownerTool)) return this.transactionError(id, `transaction batch contains an operation denied by the deployment policy (${ownerTool})`);
+      }
+      const result = await this.batchTransactions.previewAsync(params);
+      return this.successText(id, result);
+    } catch (cause) { return this.adapterToolError(id, cause, "Batch preview failed without mutation; every operation must resolve against fresh authoritative state."); }
+  }
+
+  private async liveBatchApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    if (signal?.aborted) return null;
+    try {
+      const result = await this.batchTransactions.applyAsync(params.transactionId as string, params.confirmation, params.idempotencyKey as string, { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string });
+      return this.successText(id, result);
+    } catch (cause) { return this.adapterToolError(id, cause, "Batch apply may be uncertain; reconcile with the exact original idempotency key and do not retry blindly."); }
+  }
+
+  private static readonly DEVICE_STATE_FILE_SUFFIX = ".ableton-device-state.json";
+
+  private deviceStateDirectory(directory: unknown): string {
+    if (!isNonEmptyString(directory, 4096) || !isAbsolute(directory) || directory.includes("\0")) throw new Error("an explicit absolute directory is required");
+    const resolved = resolve(directory);
+    const stats = lstatSync(resolved);
+    if (!stats.isDirectory() || stats.isSymbolicLink()) throw new Error("the device-state directory must be a real directory");
+    return realpathSync(resolved);
+  }
+
+  private readDeviceStateFile(file: unknown): DeviceStateFile {
+    if (!isNonEmptyString(file, 4096) || !isAbsolute(file) || file.includes("\0")) throw new Error("an explicit absolute snapshot file path is required");
+    const resolved = resolve(file);
+    const stats = lstatSync(resolved);
+    if (!stats.isFile() || stats.isSymbolicLink()) throw new Error("the device-state snapshot must be a real regular file");
+    if (stats.size > 256 * 1024) throw new Error("the device-state snapshot exceeds its 256 KiB bound");
+    let parsed: unknown;
+    try { parsed = JSON.parse(readFileSync(resolved, "utf8")); } catch (cause) { throw new Error(`the device-state snapshot is not readable JSON (${cause instanceof Error ? cause.message : String(cause)})`); }
+    return validateDeviceStateFile(parsed);
+  }
+
+  private writeDeviceStateFileAtomically(target: string, file: DeviceStateFile, overwrite: boolean): boolean {
+    let targetExists = false;
+    try {
+      const stats = lstatSync(target);
+      targetExists = true;
+      if (!stats.isFile() || stats.isSymbolicLink()) throw new Error("device-state snapshot target must be a real regular file, not a symbolic link");
+      if (!overwrite) throw new Error("device-state snapshot already exists; pass overwrite=true to replace it");
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+    }
+
+    const temporary = `${target}.tmp-${process.pid}-${randomBytes(12).toString("hex")}`;
+    let descriptor: number | undefined;
+    let temporaryExists = false;
+    try {
+      descriptor = openSync(temporary, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | (fsConstants.O_NOFOLLOW ?? 0), 0o600);
+      temporaryExists = true;
+      try {
+        writeFileSync(descriptor, `${JSON.stringify(file, null, 2)}\n`, { encoding: "utf8" });
+        fsyncSync(descriptor);
+      } finally {
+        const opened = descriptor;
+        descriptor = undefined;
+        closeSync(opened);
+      }
+      const staged = this.readDeviceStateFile(temporary);
+      if (staged.digest !== file.digest) throw new Error("device-state staged snapshot failed read-back verification");
+
+      if (targetExists) {
+        // Renaming a verified regular file replaces the directory entry and
+        // never follows a target symlink introduced after the lstat check.
+        renameSync(temporary, target);
+        temporaryExists = false;
+      } else {
+        // Hard-link installation is an atomic no-clobber create. A concurrent
+        // target creation fails with EEXIST instead of being overwritten.
+        try { linkSync(temporary, target); }
+        catch (cause) {
+          if ((cause as NodeJS.ErrnoException).code === "EEXIST") throw new Error("device-state snapshot target changed during save; retry");
+          throw cause;
+        }
+        unlinkSync(temporary);
+        temporaryExists = false;
+      }
+      return targetExists;
+    } finally {
+      if (descriptor !== undefined) { try { closeSync(descriptor); } catch { /* preserve the original error */ } }
+      if (temporaryExists) { try { unlinkSync(temporary); } catch { /* preserve the original error */ } }
+    }
+  }
+
+  private async liveDeviceStateSaveAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, ["deviceRef", "name", "directory", "overwrite"]) || !isNonEmptyString(params.deviceRef, 256) || !isNonEmptyString(params.name, 64) || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(params.name) || (params.overwrite !== undefined && typeof params.overwrite !== "boolean")) return error(id, -32602, "deviceRef, a filesystem-safe name, directory, and optional overwrite are required");
+    try {
+      const status = this.requireConnected("devices");
+      if (!(status.capabilities ?? []).includes("parameters")) throw new Error("parameter capability is unavailable");
+      if (!(status.operations ?? []).includes("snapshot")) throw new Error("snapshot operation is unavailable");
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const file = buildDeviceStateFile(snapshot, params.deviceRef, params.name);
+      const directory = this.deviceStateDirectory(params.directory);
+      const target = joinPath(directory, `${params.name}${McpHost.DEVICE_STATE_FILE_SUFFIX}`);
+      const overwritten = this.writeDeviceStateFileAtomically(target, file, params.overwrite === true);
+      return this.successText(id, { saved: true, file: target, overwritten, schema: DEVICE_STATE_SCHEMA, name: params.name, device: file.device, privacy: file.privacy, digest: file.digest });
+    } catch (cause) { return this.adapterToolError(id, cause, "Device-state save is read-only toward Live and writes exactly one bounded owner-scoped file."); }
+  }
+
+  private async liveDeviceStateRecallPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    if (!isObject(params) || !hasOnly(params, ["file", "targetDeviceRef", "morphFromFile", "morphFromLive", "amount", "allowPartialLayout"]) || !isNonEmptyString(params.targetDeviceRef, 256) || (params.morphFromLive !== undefined && typeof params.morphFromLive !== "boolean") || (params.allowPartialLayout !== undefined && typeof params.allowPartialLayout !== "boolean") || (params.amount !== undefined && (typeof params.amount !== "number" || !Number.isFinite(params.amount) || params.amount < 0 || params.amount > 1))) return error(id, -32602, "file, targetDeviceRef, and optional morph fields are invalid");
+    const morphKinds = [params.morphFromFile !== undefined, params.morphFromLive === true].filter(Boolean).length;
+    if (morphKinds > 1 || (morphKinds === 1 && params.amount === undefined) || (morphKinds === 0 && params.amount !== undefined)) return error(id, -32602, "morph requires exactly one source (morphFromFile or morphFromLive=true) plus an explicit amount from 0 to 1");
+    try {
+      const file = this.readDeviceStateFile(params.file);
+      const morphFile = params.morphFromFile !== undefined ? this.readDeviceStateFile(params.morphFromFile) : undefined;
+      const status = this.requireConnected("device.parameter.write");
+      if (!(status.capabilities ?? []).includes("parameters")) throw new Error("parameter capability is unavailable");
+      if (!(status.operations ?? []).includes("device.parameter.set")) throw new Error("device parameter writes are unavailable");
+      const snapshot = await this.asyncAdapter().snapshotAsync();
+      const mode = morphKinds === 1 ? "morph" : "recall";
+      const plan = planDeviceStateRecall(snapshot, file, params.targetDeviceRef, { allowPartialLayout: params.allowPartialLayout === true, ...(morphFile ? { morphFrom: { kind: "file", file: morphFile } } : params.morphFromLive === true ? { morphFrom: { kind: "live" } } : {}), ...(params.amount === undefined ? {} : { amount: params.amount }) });
+      const record = await this.deviceStateTransactions.previewAsync(plan, mode, params.amount as number | undefined) as { transactionId: string; epoch: number; expiresAt: number };
+      return this.successText(id, { transactionId: record.transactionId, epoch: record.epoch, mode, ...(params.amount === undefined ? {} : { amount: params.amount }), target: { deviceRef: plan.deviceRef, identity: plan.identity, layoutFingerprint: plan.layoutFingerprint }, source: { name: file.name, identity: file.device.identity, layoutFingerprint: file.device.layoutFingerprint, digest: file.digest }, ...(morphFile ? { morphSource: { name: morphFile.name, digest: morphFile.digest } } : params.morphFromLive === true ? { morphSource: "live" } : {}), applicable: plan.applicable, skipped: plan.skipped, dispositions: plan.dispositions, impact: mode === "morph" ? "interpolates-device-parameter-state" : "restores-device-parameter-state", confirmation: "apply", expiresAt: record.expiresAt });
+    } catch (cause) {
+      const report = (cause as { deviceStateReport?: unknown }).deviceStateReport;
+      if (report !== undefined) return response(id, { content: [{ type: "text", text: JSON.stringify(report) }], isError: true });
+      return this.adapterToolError(id, cause, "Device-state recall preview failed without mutation; verify the snapshot file and target device identity.");
+    }
+  }
+
+  private async liveDeviceStateRecallApplyAsync(id: RequestId, params: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
+    if (!this.validTransactionParams(params, "apply")) return error(id, -32602, "transactionId, confirmation=apply, and idempotencyKey are required");
+    if (signal?.aborted) return null;
+    try {
+      const result = await this.deviceStateTransactions.applyAsync(params.transactionId as string, params.confirmation, params.idempotencyKey as string, { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string });
+      return this.successText(id, result);
+    } catch (cause) { return this.adapterToolError(id, cause, "Device-state recall may be uncertain; reconcile with the exact original idempotency key and do not retry blindly."); }
+  }
+
+  private static readonly LIBRARY_DATABASE_MAX_BYTES = 128 * 1024 * 1024;
+
+  private libraryAllowlistedFile(file: unknown, allowlistRoot: unknown, label: string): string {
+    if (!isNonEmptyString(file, 4096) || !isAbsolute(file) || file.includes("\0")) throw new LibraryUnavailable(`an explicit absolute ${label} path is required`, {});
+    if (!isNonEmptyString(allowlistRoot, 4096) || !isAbsolute(allowlistRoot) || allowlistRoot.includes("\0")) throw new LibraryUnavailable("an explicit absolute allowlist root is required", {});
+    const root = resolve(allowlistRoot);
+    let rootStats;
+    try { rootStats = lstatSync(root); } catch { throw new LibraryUnavailable("the allowlist root does not exist", {}); }
+    if (!rootStats.isDirectory() || rootStats.isSymbolicLink()) throw new LibraryUnavailable("the allowlist root must be a real directory", {});
+    let realRoot: string;
+    try { realRoot = realpathSync(root); } catch { throw new LibraryUnavailable("the allowlist root cannot be resolved", {}); }
+    const resolved = resolve(file);
+    let stats;
+    try { stats = lstatSync(resolved); } catch { throw new LibraryUnavailable(`the ${label} does not exist`, {}); }
+    if (!stats.isFile() || stats.isSymbolicLink()) throw new LibraryUnavailable(`the ${label} must be a real regular file`, {});
+    if (stats.size > McpHost.LIBRARY_DATABASE_MAX_BYTES) throw new LibraryUnavailable(`the ${label} exceeds its 128 MiB bound`, {});
+    let realFile: string;
+    try { realFile = realpathSync(resolved); } catch { throw new LibraryUnavailable(`the ${label} cannot be resolved`, {}); }
+    if (realFile !== realRoot && !realFile.startsWith(`${realRoot}${sep}`)) throw new LibraryUnavailable(`the ${label} is outside the owner allowlist root`, {});
+    return realFile;
+  }
+
+  private readLibraryDatabase(realFile: string): SqliteReader {
+    let reader: SqliteReader;
+    try { reader = new SqliteReader(new Uint8Array(readFileSync(realFile))); }
+    catch (cause) { throw new LibraryUnavailable(`the library database is unreadable (${cause instanceof Error ? cause.message : String(cause)})`, {}); }
+    if (reader.walMode) {
+      const wal = `${realFile}-wal`;
+      try { if (existsSync(wal) && lstatSync(wal).size > 0) throw new LibraryUnavailable("the library database has uncheckpointed WAL frames; close Live and retry after a checkpoint rather than guessing at partial content", {}); }
+      catch (cause) { if (cause instanceof LibraryUnavailable) throw cause; }
+    }
+    return reader;
+  }
+
+  private async liveLibrarySearchAsync(id: RequestId, params: unknown): Promise<JsonObject> {
+    const modes = ["files", "plugins", "tags"];
+    const sorts = ["useCount", "modified", "name"];
+    const formats = ["vst3", "vst2", "au", "clap", "unknown"];
+    const boundedStringArray = (value: unknown, maxItems: number): boolean => Array.isArray(value) && value.length <= maxItems && value.every((item) => isNonEmptyString(item, 256));
+    if (!isObject(params) || !hasOnly(params, ["database", "allowlistRoot", "pluginsDatabase", "mode", "query", "tags", "kinds", "sources", "vendors", "formats", "sort", "limit", "cursor"])
+      || (params.mode !== undefined && !modes.includes(String(params.mode)))
+      || (params.query !== undefined && !isNonEmptyString(params.query, 256) && params.query !== "")
+      || (params.tags !== undefined && !boundedStringArray(params.tags, 8))
+      || (params.kinds !== undefined && !(Array.isArray(params.kinds) && params.kinds.length <= LIBRARY_KINDS.length && params.kinds.every((item) => (LIBRARY_KINDS as readonly string[]).includes(String(item)))))
+      || (params.sources !== undefined && !boundedStringArray(params.sources, 8))
+      || (params.vendors !== undefined && !boundedStringArray(params.vendors, 8))
+      || (params.formats !== undefined && !(Array.isArray(params.formats) && params.formats.length <= formats.length && params.formats.every((item) => formats.includes(String(item)))))
+      || (params.sort !== undefined && !sorts.includes(String(params.sort)))
+      || (params.limit !== undefined && !isIntegerInRange(params.limit, 1, 100))
+      || (params.cursor !== undefined && !isNonEmptyString(params.cursor, 4096))) return error(id, -32602, "database, allowlistRoot, and bounded query fields are invalid");
+    const mode = (params.mode ?? "files") as "files" | "plugins" | "tags";
+    try {
+      const databasePath = this.libraryAllowlistedFile(params.database, params.allowlistRoot, "library database");
+      const query: LibraryQuery = { mode, limit: (params.limit as number | undefined) ?? 50, ...(params.query !== undefined ? { query: params.query as string } : {}), ...(params.tags !== undefined ? { tags: params.tags as string[] } : {}), ...(params.kinds !== undefined ? { kinds: params.kinds as LibraryQuery["kinds"] } : {}), ...(params.sources !== undefined ? { sources: params.sources as string[] } : {}), ...(params.vendors !== undefined ? { vendors: params.vendors as string[] } : {}), ...(params.formats !== undefined ? { formats: params.formats as LibraryQuery["formats"] } : {}), ...(params.sort !== undefined ? { sort: params.sort as LibraryQuery["sort"] } : {}), ...(params.cursor !== undefined ? { cursor: params.cursor as string } : {}) };
+      let items: unknown[];
+      let paging: Record<string, unknown>;
+      let databaseVersion: number;
+      let supportedVersions: readonly number[];
+      let extra: Record<string, unknown> = {};
+      if (mode === "plugins") {
+        if (params.pluginsDatabase === undefined) throw new LibraryUnavailable("plug-in inventory requires an explicit pluginsDatabase path (Live-plugins-*.db) inside the same allowlist root", {});
+        const pluginsPath = this.libraryAllowlistedFile(params.pluginsDatabase, params.allowlistRoot, "plug-in database");
+        const reader = this.readLibraryDatabase(pluginsPath);
+        databaseVersion = assertSupportedPluginsSchema(reader);
+        supportedVersions = SUPPORTED_PLUGINS_SCHEMA_VERSIONS;
+        const page = queryLibraryPlugins(reader, query);
+        items = page.items; paging = page.paging as unknown as Record<string, unknown>;
+      } else {
+        const reader = this.readLibraryDatabase(databasePath);
+        databaseVersion = assertSupportedFilesSchema(reader);
+        supportedVersions = SUPPORTED_FILES_SCHEMA_VERSIONS;
+        const page = mode === "tags" ? queryLibraryTagVocabulary(reader, query) : queryLibraryFiles(reader, query);
+        items = page.items; paging = page.paging as unknown as Record<string, unknown>;
+        if (mode === "files" && "tagVocabularyNote" in page) extra = { tagVocabularyNote: (page as { tagVocabularyNote?: string }).tagVocabularyNote };
+      }
+      return this.successText(id, {
+        schema: LIBRARY_SEARCH_SCHEMA,
+        mode,
+        databaseVersion,
+        supportedVersions: [...supportedVersions],
+        items,
+        paging,
+        ...extra,
+        unavailable: {
+          similarity: "audio-similarity queries are unavailable in this build: the fe_values record schema is not enumerated (presence is noted, semantics are never guessed)",
+          duplicates: "duplicate-sample queries are unavailable in this build: no duplicate-identity evidence is enumerated",
+        },
+        privacy: { note: "the database path, allowlist root, and raw filesystem paths are redacted from results; usage counts are opaque numbers; only module basenames are reported for plug-ins", redacted: ["database", "allowlistRoot", "pluginsDatabase", "plugin_modules.path"] },
+        provenance: { bindingEvidence: "shape-probed first-hand on Live 12.4.5 (files database version 12300, macOS platform 2; plug-ins database version 1); unofficial undocumented schema, version-specific; results are discovery evidence and loadability still requires live_browser_inspect", supportedFilesVersions: [...SUPPORTED_FILES_SCHEMA_VERSIONS], supportedPluginsVersions: [...SUPPORTED_PLUGINS_SCHEMA_VERSIONS] },
+      });
+    } catch (cause) {
+      if (cause instanceof LibraryUnavailable) return response(id, { content: [{ type: "text", text: JSON.stringify({ unavailable: true, reason: cause.message, ...cause.details }) }], isError: true });
+      return this.adapterToolError(id, cause, "Library search is read-only and fail-closed; verify the database path and allowlist root.");
+    }
   }
 
   /** Revision-bound opaque paging for read-only probe surfaces: cursors carry
@@ -6291,7 +6629,9 @@ export class McpHost {
     try {
       const maps = [this.transactions, this.arrangementTransactions, this.sessionStructureTransactions, this.deviceParameterTransactions, this.auditionTransactions, this.transportTransactions, this.clipLaunchTransactions, this.noteEditTransactions, this.clipLifecycleTransactions, this.audioCaptureTransactions] as unknown as Array<Map<string, { state: string; kind?: string; epoch: number }>>;
       const owner = maps.find((candidate) => candidate.has(transactionId)); const midiFinalizable = !owner && this.midiTransactions.isFinalizable(transactionId);
-      if (!owner && !midiFinalizable) return this.recoveryFinalizeError(id, "Recovery transaction was not found or is not finalizable.");
+      const batchFinalizable = !owner && !midiFinalizable && this.batchTransactions.isFinalizable(transactionId);
+      const deviceStateFinalizable = !owner && !midiFinalizable && !batchFinalizable && this.deviceStateTransactions.isFinalizable(transactionId);
+      if (!owner && !midiFinalizable && !batchFinalizable && !deviceStateFinalizable) return this.recoveryFinalizeError(id, "Recovery transaction was not found or is not finalizable.");
       const retireRemote = async (): Promise<boolean> => { const retire = (this.adapter as Partial<{ retireTransactionAsync(transactionId: string, context?: LiveOperationContext, terminal?: boolean): Promise<unknown> }>).retireTransactionAsync; if (typeof retire !== "function") return true; try { await retire.call(this.adapter, transactionId, { deadlineMs: Date.now() + 5_000 }, true); return true; } catch { return false; } };
       const adapter = this.asyncAdapter(); const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS }); const safetySnapshot = await adapter.snapshotAsync({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS }); const transport = safetySnapshot.playback?.transport;
       if (!transport || transport.playing !== false || transport.arrangementRecord !== false || transport.sessionRecord !== false || safetySnapshot.playback.playingTargets.length > 0 || safetySnapshot.playback.firedTargets.length > 0) return this.recoveryFinalizeError(id, "Recovery finalization requires authoritative stopped playback and recording with no active Session targets.");
@@ -6299,6 +6639,14 @@ export class McpHost {
       if (midiFinalizable) {
         if (!await retireRemote()) return this.recoveryFinalizeError(id, "Remote replay authority could not be retired; finalization refused.");
         const finalized = this.midiTransactions.finalize(transactionId); return this.successText(id, { ...finalized, resolution: params.resolution, evidence: params.evidence, liveMutated: false, recoveryAuthorityRetired: true });
+      }
+      if (batchFinalizable) {
+        if (!await retireRemote()) return this.recoveryFinalizeError(id, "Remote replay authority could not be retired; finalization refused.");
+        const finalized = this.batchTransactions.finalize(transactionId); return this.successText(id, { ...finalized, resolution: params.resolution, evidence: params.evidence, liveMutated: false, recoveryAuthorityRetired: true });
+      }
+      if (deviceStateFinalizable) {
+        if (!await retireRemote()) return this.recoveryFinalizeError(id, "Remote replay authority could not be retired; finalization refused.");
+        const finalized = this.deviceStateTransactions.finalize(transactionId); return this.successText(id, { ...finalized, resolution: params.resolution, evidence: params.evidence, liveMutated: false, recoveryAuthorityRetired: true });
       }
       const record = owner!.get(transactionId)!; const audioOwner = owner === (this.audioCaptureTransactions as unknown as Map<string, { state: string; epoch: number }>);
       if (audioOwner ? record.state !== "uncertain" : (!["uncertain", "applied", "undone"].includes(record.state) || ACTIVE_TRANSACTION_STATES.has(record.state))) return this.recoveryFinalizeError(id, "Active or unresolved transaction work cannot be finalized.");
@@ -6316,6 +6664,8 @@ export class McpHost {
     if (undoOwnerTool !== undefined && !this.policyAllowsTool(undoOwnerTool)) return this.transactionError(id, "The current deployment policy no longer allows this transaction's tool domain; reconcile manually or restore the policy before undo.");
     const transaction = this.transactions.get(params.transactionId as string);
     if (!transaction && String(params.transactionId).startsWith("midi_")) return this.successText(id, await this.midiTransactions.undoAsync(params.transactionId as string, params.confirmation, params.idempotencyKey as string, { signal, deadlineMs: Date.now() + SESSION_MIDI_TRANSACTION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }));
+    if (!transaction && String(params.transactionId).startsWith("batch_")) return this.successText(id, await this.batchTransactions.undoAsync(params.transactionId as string, params.confirmation, params.idempotencyKey as string, { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }));
+    if (!transaction && String(params.transactionId).startsWith("devstate_")) return this.successText(id, await this.deviceStateTransactions.undoAsync(params.transactionId as string, params.confirmation, params.idempotencyKey as string, { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }));
     if (!transaction && String(params.transactionId).startsWith("transport_")) {
       const transport = this.transportTransactions.get(params.transactionId as string);
       if (!transport) return this.transactionError(id, "Unknown or expired transport transaction");
@@ -7291,7 +7641,7 @@ export class McpHost {
     this.noteToolListChanged();
     if (!this.toolCallable(params.name)) return this.toolGateError(id, params.name);
     if (this.recoveryFinalizationInFlight && !["server_status", "capabilities", "plan_user_journey", "live_status", "live_snapshot", "live_discover", "live_project_snapshot_export", "live_project_snapshot_diff"].includes(params.name)) return this.adapterToolError(id, new Error("recovery finalization safety barrier is in progress"), "Wait for terminal recovery finalization before any synchronous mutation.");
-    const argumentTools = new Set(["plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_snapshot_export", "live_project_snapshot_diff", "live_project_backup_preview", "live_project_backup_apply", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_midi_transform_preview", "live_midi_transform_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_chain_preview", "live_chain_apply", "live_drum_pad_preview", "live_drum_pad_apply", "live_rack_preview", "live_rack_apply", "live_rack_view_preview", "live_rack_view_apply", "live_device_specialized_preview", "live_device_specialized_apply", "live_looper_preview", "live_looper_apply", "live_simpler_preview", "live_simpler_apply", "live_observe_subscribe", "live_observe_poll", "live_observe_unsubscribe", "live_browser_roots", "live_browser_inspect", "live_arrangement_automation_read", "live_take_lane_read", "live_comp_read", "live_warp_marker_read", "live_application_dialog_preview", "live_application_dialog_apply"]);
+    const argumentTools = new Set(["plan_user_journey", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_discover", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_batch_preview", "live_batch_apply", "live_device_state_save", "live_device_state_recall_preview", "live_device_state_recall_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_library_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_snapshot_export", "live_project_snapshot_diff", "live_project_backup_preview", "live_project_backup_apply", "live_device_parameter_preview", "live_device_parameter_apply", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_midi_transform_preview", "live_midi_transform_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_chain_preview", "live_chain_apply", "live_drum_pad_preview", "live_drum_pad_apply", "live_rack_preview", "live_rack_apply", "live_rack_view_preview", "live_rack_view_apply", "live_device_specialized_preview", "live_device_specialized_apply", "live_looper_preview", "live_looper_apply", "live_simpler_preview", "live_simpler_apply", "live_observe_subscribe", "live_observe_poll", "live_observe_unsubscribe", "live_browser_roots", "live_browser_inspect", "live_arrangement_automation_read", "live_take_lane_read", "live_comp_read", "live_warp_marker_read", "live_application_dialog_preview", "live_application_dialog_apply"]);
     if (!argumentTools.has(params.name) && params.arguments !== undefined && Object.keys(params.arguments as JsonObject).length !== 0) {
       return error(id, -32602, "Tool arguments must be an empty object");
     }
@@ -7316,7 +7666,7 @@ export class McpHost {
     if (params.name === "live_status") return this.liveStatus(id);
     if (params.name === "live_snapshot") return this.liveSnapshot(id);
     if (params.name === "live_discover") return this.liveDiscover(id, params.arguments);
-    if (["audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_snapshot_export", "live_project_snapshot_diff", "live_project_backup_preview", "live_project_backup_apply", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_chain_preview", "live_chain_apply", "live_drum_pad_preview", "live_drum_pad_apply", "live_rack_preview", "live_rack_apply", "live_rack_view_preview", "live_rack_view_apply", "live_device_specialized_preview", "live_device_specialized_apply", "live_looper_preview", "live_looper_apply", "live_simpler_preview", "live_simpler_apply", "live_observe_subscribe", "live_observe_poll", "live_observe_unsubscribe", "live_browser_roots", "live_browser_inspect", "live_arrangement_automation_read", "live_take_lane_read", "live_comp_read", "live_warp_marker_read", "live_application_dialog_preview", "live_application_dialog_apply"].includes(params.name)) return error(id, -32001, "This operation requires the asynchronous host request path");
+    if (["audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_batch_preview", "live_batch_apply", "live_device_state_save", "live_device_state_recall_preview", "live_device_state_recall_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_library_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_snapshot_export", "live_project_snapshot_diff", "live_project_backup_preview", "live_project_backup_apply", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_chain_preview", "live_chain_apply", "live_drum_pad_preview", "live_drum_pad_apply", "live_rack_preview", "live_rack_apply", "live_rack_view_preview", "live_rack_view_apply", "live_device_specialized_preview", "live_device_specialized_apply", "live_looper_preview", "live_looper_apply", "live_simpler_preview", "live_simpler_apply", "live_observe_subscribe", "live_observe_poll", "live_observe_unsubscribe", "live_browser_roots", "live_browser_inspect", "live_arrangement_automation_read", "live_take_lane_read", "live_comp_read", "live_warp_marker_read", "live_application_dialog_preview", "live_application_dialog_apply"].includes(params.name)) return error(id, -32001, "This operation requires the asynchronous host request path");
     if (params.name === "live_device_parameter_preview") return this.liveDeviceParameterPreview(id, params.arguments);
     if (params.name === "live_device_parameter_apply") return this.liveDeviceParameterApply(id, params.arguments);
     if (params.name === "live_session_structure_preview") return this.liveSessionStructurePreview(id, params.arguments);
