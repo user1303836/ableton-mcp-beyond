@@ -454,6 +454,8 @@ export class McpHost {
    * handle() remains for deterministic in-process callers. */
   public async handleAsync(input: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
     if (signal?.aborted) return null;
+    // JSON-RPC notifications are never answered on either request path.
+    if (isObject(input) && input.id === undefined) return this.handle(input);
     if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handle(input);
     const name = input.params.name;
     const toolArguments = input.params.arguments;
@@ -466,6 +468,7 @@ export class McpHost {
     if (this.seenIds.has(key)) return error(id, -32600, "Duplicate request identifier");
     this.seenIds.add(key); this.idOrder.push(key);
     if (this.idOrder.length > MAX_TRACKED_REQUEST_IDS) { const expired = this.idOrder.shift(); if (expired !== undefined) this.seenIds.delete(expired); }
+    if (this.shuttingDown) return error(id, -32600, "Server is shutting down");
     if (!this.initialized) return error(id, -32002, "Server has not been initialized");
     if (!this.initializedNotification && name !== "live_status") return error(id, -32002, "Server has not received initialized notification");
     this.noteToolListChanged();
@@ -7300,6 +7303,7 @@ export class McpHost {
         return null;
       }
       if (input.method === "notifications/cancelled") return null;
+      if (input.method === "exit") { this.shuttingDown = true; return null; }
       return null;
     }
     if (!this.isId(id)) return error(null, -32600, "Invalid Request");
@@ -7322,6 +7326,10 @@ export class McpHost {
       if (input.params !== undefined && (!isObject(input.params) || !hasOnly(input.params, ["requestId"]) || !this.isId(input.params.requestId))) return null;
       return null;
     }
+    // Lifecycle, not a tool: an id-bearing exit is acknowledged and the
+    // transport terminates after the response flushes; new work is refused by
+    // the shutdown guard above from then on.
+    if (input.method === "exit") { this.shuttingDown = true; return response(id, {}); }
     if (!this.initialized && input.method !== "initialize") {
       return error(id, -32002, "Server has not been initialized");
     }
@@ -7340,6 +7348,9 @@ export class McpHost {
       default: return error(id, -32601, "Method not found");
     }
   }
+
+  /** True once a peer asked the server to exit; new request work is refused. */
+  public isShuttingDown(): boolean { return this.shuttingDown; }
 
   private initialize(id: RequestId, params: unknown): JsonObject {
     if (this.initialized) return error(id, -32600, "Already initialized");
@@ -7860,7 +7871,7 @@ export async function serve(input: Readable, output: Writable, diagnostics: Writ
       diagnostics.write("mcp-host: internal fault\n");
       return JSON.stringify(error(null, -32603, "Internal error"));
     }
-  }, { notifier: (emit) => host.setEventEmitter((value) => emit(value)) }); } finally {
+  }, { notifier: (emit) => host.setEventEmitter((value) => emit(value)), shouldStop: () => host.isShuttingDown() }); } finally {
     host.releaseStagedImports();
     const close = (adapter as Partial<{ close: () => Promise<void> }>).close;
     if (typeof close === "function") await close.call(adapter);

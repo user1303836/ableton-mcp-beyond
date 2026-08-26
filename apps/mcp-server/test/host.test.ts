@@ -989,6 +989,49 @@ test("rejects legacy shutdown and cancellation requests", () => {
   assert.equal(host.handle({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: 1 } }), null);
 });
 
+test("id-bearing exit is acknowledged before shutdown and notification exit is unanswered", async () => {
+  const host = new McpHost();
+  ready(host);
+  const exitResponse = host.handle({ jsonrpc: "2.0", id: 90, method: "exit" });
+  assert.deepEqual((exitResponse as any).result, {});
+  assert.equal(host.isShuttingDown(), true);
+  const refusedPing = host.handle({ jsonrpc: "2.0", id: 91, method: "ping" });
+  assert.equal((refusedPing as any).error.code, -32600); assert.match((refusedPing as any).error.message, /shutting down/);
+  const refusedCall = await host.handleAsync({ jsonrpc: "2.0", id: 92, method: "tools/call", params: { name: "live_status", arguments: {} } });
+  assert.equal((refusedCall as any).error.code, -32600); assert.match((refusedCall as any).error.message, /shutting down/);
+  const second = new McpHost();
+  ready(second);
+  assert.equal(second.handle({ jsonrpc: "2.0", method: "exit" }), null);
+  assert.equal(second.isShuttingDown(), true);
+  assert.equal((second.handle({ jsonrpc: "2.0", id: 3, method: "ping" }) as any).error.code, -32600);
+});
+
+test("id-less tools/call is a notification and receives no response on either path", async () => {
+  const host = new McpHost();
+  ready(host);
+  assert.equal(host.handle({ jsonrpc: "2.0", method: "tools/call", params: { name: "live_status", arguments: {} } }), null);
+  assert.equal(await host.handleAsync({ jsonrpc: "2.0", method: "tools/call", params: { name: "live_status", arguments: {} } }), null);
+});
+
+test("serve flushes the exit acknowledgement before terminating and ignores a notification exit on the wire", async () => {
+  const acknowledged = new PassThrough(); const acknowledgedOutput = new PassThrough(); const acknowledgedDiagnostics = new PassThrough();
+  const chunks: Buffer[] = []; acknowledgedOutput.on("data", (chunk) => chunks.push(chunk));
+  const done = serve(acknowledged, acknowledgedOutput, acknowledgedDiagnostics);
+  acknowledged.write(`${JSON.stringify(initialize)}\n${JSON.stringify(initialized)}\n${JSON.stringify({ jsonrpc: "2.0", id: 7, method: "exit" })}\n`);
+  await done;
+  const records = Buffer.concat(chunks).toString().trim().split("\n").map((line) => JSON.parse(line));
+  assert.deepEqual(records.at(-1), { jsonrpc: "2.0", id: 7, result: {} });
+
+  const notified = new PassThrough(); const notifiedOutput = new PassThrough(); const notifiedDiagnostics = new PassThrough();
+  const notifiedChunks: Buffer[] = []; notifiedOutput.on("data", (chunk) => notifiedChunks.push(chunk));
+  const notifiedDone = serve(notified, notifiedOutput, notifiedDiagnostics);
+  notified.write(`${JSON.stringify(initialize)}\n${JSON.stringify(initialized)}\n${JSON.stringify({ jsonrpc: "2.0", method: "exit" })}\n`);
+  await notifiedDone;
+  const notifiedRecords = Buffer.concat(notifiedChunks).toString().trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(notifiedRecords.some((record) => record.id === null || record.method === "exit"), false);
+  assert.deepEqual(notifiedRecords.map((record) => record.id), [1]);
+});
+
 test("transport preview applies with a revision fence and guardedly undoes", async () => {
   const { adapter, state: fixtureState } = auditionFixture();
   const host = new McpHost(adapter);
