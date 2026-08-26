@@ -1394,10 +1394,22 @@ export class McpHost {
       if (status.epoch !== transaction.epoch) throw new Error("Live connection epoch changed; preview again");
       const adapter = this.asyncAdapter();
       const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: transaction.applyKey, transactionId: transaction.id };
+      const before = await adapter.snapshotAsync(context); const state = this.auditionSnapshot(before, transaction.sceneRef);
+      // Reconciliation after a real acknowledgement loss: if every active
+      // target belongs to this transaction (matching scene, subset of the
+      // eligible targets), the unacked launch did dispatch — reconcile to
+      // applied without re-dispatching (the mapper execution ledger makes
+      // replay safe), mirroring the clip-launch precedent.
+      const activeTargets = [...state.playback.firedTargets, ...state.playback.playingTargets];
+      if (reconciliation && activeTargets.length > 0) {
+        if (activeTargets.some((target) => target.sceneRef !== transaction.sceneRef || !transaction.eligibleTargetKeys.includes(`${target.trackRef}|${target.clipSlotRef}|${target.sceneRef}`))) throw new Error("external playback appeared during audition reconciliation");
+        transaction.launched = { launched: transaction.sceneRef, targets: activeTargets };
+        transaction.state = "applied";
+        return { transactionId: transaction.id, state: "applied", launched: transaction.launched, verified: { sceneRef: transaction.sceneRef, firedOrPlaying: true }, stopConfirmation: transaction.stopConfirmation, reconciled: true };
+      }
       // The authority fence, safety evidence, and all dynamic preconditions are
       // rechecked host-side immediately before the single potentially audible
       // dispatch on both the initial and the reconciliation path.
-      const before = await adapter.snapshotAsync(context); const state = this.auditionSnapshot(before, transaction.sceneRef);
       if (JSON.stringify(state.scene) !== transaction.sceneRevision || state.playbackRevision !== transaction.playbackRevision || state.set.objectIdentity !== transaction.setIdentity || this.auditionAuthorityRevision(before, transaction.sceneRef, transaction.eligibleTargetKeys) !== transaction.authorityRevision) throw new Error("audition state or identity hierarchy changed since preview");
       this.validateAuditionSafety(status, state.set, state.tracks, state.playback, transaction.outputSafety, transaction.setName);
       const scene = state.scene; const playbackRevision = state.playback.revision;

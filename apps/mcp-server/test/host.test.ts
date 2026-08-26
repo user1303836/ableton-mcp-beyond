@@ -185,11 +185,14 @@ test("a pre-dispatch stop failure from an uncertain audition record leaves it un
   state.set = { ...state.set, name: "Renamed Externally" };
   const failedStop = await call(4, "live_session_audition_stop", { transactionId: preview.transactionId, confirmation: preview.stopConfirmation, idempotencyKey: "audition-stop-1" });
   assert.equal((failedStop as any).result.isError, true); assert.equal(counts.stops, 0);
-  // Still uncertain (not downgraded to applied): a different stop key is refused and an apply replay never claims a fake idempotent success.
+  // Still uncertain (not downgraded to applied): a different stop key is refused, and an exact-key apply replay reconciles honestly rather than reporting a fake idempotent success.
   const wrongKey = await call(5, "live_session_audition_stop", { transactionId: preview.transactionId, confirmation: preview.stopConfirmation, idempotencyKey: "audition-stop-other" });
   assert.equal((wrongKey as any).result.isError, true); assert.match(JSON.stringify((wrongKey as any).result), /exact original idempotency key/);
-  const replay = await call(6, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-lost" });
-  assert.equal((replay as any).result.isError, true);
+  const replay = JSON.parse(((await call(6, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-lost" })) as any).result.content[0].text);
+  assert.equal(replay.state, "applied"); assert.equal(replay.reconciled, true);
+  state.set = { ...state.set, name: "Disposable Set" };
+  const stopped = JSON.parse(((await call(7, "live_session_audition_stop", { transactionId: preview.transactionId, confirmation: preview.stopConfirmation, idempotencyKey: "audition-stop-2" })) as any).result.content[0].text);
+  assert.equal(stopped.state, "stopped"); assert.equal(state.playback.transport.playing, false);
 });
 
 test("exact-key replay after a failed uncertain-audition stop reconciles without double dispatch", async () => {
@@ -246,7 +249,7 @@ test("audition reconciliation revalidates the fence and safety host-side before 
   assert.equal(retried.state, "applied"); assert.equal(counts.launches, 1);
 });
 
-test("uncertain-after-dispatch audition reconciliation refuses host-side without a second dispatch", async () => {
+test("uncertain-after-dispatch audition reconciliation succeeds without a second dispatch", async () => {
   const { state, counts, adapter } = auditionFixture();
   const original = adapter.invokeAsync.bind(adapter); let ackLost = false;
   adapter.invokeAsync = async (invocation: any) => {
@@ -258,9 +261,17 @@ test("uncertain-after-dispatch audition reconciliation refuses host-side without
   const preview = JSON.parse(((await call(2, "live_session_audition_preview", { sceneRef: "scene:scene-1", setName: "Disposable Set", outputSafety: { safe: true, provenance: "operator-confirmed-headphones", scope: "master" } })) as any).result.content[0].text);
   const apply = await call(3, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-1" });
   assert.equal((apply as any).result.isError, true); assert.equal(counts.launches, 1); assert.equal(state.playback.transport.playing, true);
-  const retry = await call(4, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-1" });
-  assert.equal((retry as any).result.isError, true); assert.equal(counts.launches, 1); assert.equal(state.playback.transport.playing, true);
-  const stopped = JSON.parse(((await call(5, "live_session_audition_stop", { transactionId: preview.transactionId, confirmation: preview.stopConfirmation, idempotencyKey: "audition-stop-1" })) as any).result.content[0].text);
+  // External playback alongside ours blocks reconciliation without a dispatch.
+  state.playback.playingTargets = [...state.playback.playingTargets, { ...state.playback.playingTargets[0], sceneRef: "scene:external" }];
+  const external = await call(4, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-1" });
+  assert.equal((external as any).result.isError, true); assert.equal(counts.launches, 1);
+  state.playback.playingTargets = [state.playback.playingTargets[0]];
+  // Every active target is ours: reconcile to applied without re-dispatching.
+  const reconciled = JSON.parse(((await call(5, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-1" })) as any).result.content[0].text);
+  assert.equal(reconciled.state, "applied"); assert.equal(reconciled.reconciled, true); assert.equal(reconciled.launched.launched, "scene:scene-1"); assert.equal(counts.launches, 1);
+  const replay = JSON.parse(((await call(6, "live_session_audition_apply", { transactionId: preview.transactionId, confirmation: preview.confirmation, idempotencyKey: "audition-apply-1" })) as any).result.content[0].text);
+  assert.equal(replay.idempotent, true); assert.equal(replay.launched.launched, "scene:scene-1");
+  const stopped = JSON.parse(((await call(7, "live_session_audition_stop", { transactionId: preview.transactionId, confirmation: preview.stopConfirmation, idempotencyKey: "audition-stop-1" })) as any).result.content[0].text);
   assert.equal(stopped.state, "stopped"); assert.equal(state.playback.transport.playing, false);
 });
 
