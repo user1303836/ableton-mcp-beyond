@@ -5512,11 +5512,23 @@ class LiveObjectMapper:
             if rollback_failed: raise ValueError("IR selection change failed and exact rollback failed") from error
             raise
         if any(field in args for field in ("attack", "decay", "size")):
-            return self._specialized_set(reference, args, {
-                "attack": ("ir_attack_time", lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 10000),
-                "decay": ("ir_decay_time", lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 100000),
-                "size": ("ir_size_factor", lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 10000),
-            }, "hybrid-reverb")
+            try:
+                return self._specialized_set(reference, args, {
+                    "attack": ("ir_attack_time", lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 10000),
+                    "decay": ("ir_decay_time", lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 100000),
+                    "size": ("ir_size_factor", lambda value: isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)) and 0 <= float(value) <= 10000),
+                }, "hybrid-reverb")
+            except BaseException as error:
+                # The shaping phase fences independently, but a failure there
+                # must not strand the IR indices already applied above:
+                # restore the exact prior selection so one failed call leaves
+                # the device untouched, like every other specialized family.
+                rollback_failed = False
+                for index_attr, prior in reversed(applied):
+                    try: setattr(device, index_attr, prior)
+                    except BaseException: rollback_failed = True
+                if rollback_failed: raise ValueError("hybrid-reverb shaping change failed and exact IR rollback failed") from error
+                raise
         if not ir_proposals: raise ValueError("hybrid-reverb mutation has no fields")
         revision = self.refs.touch(reference)
         return {"changed": True, "revision": revision}

@@ -3981,6 +3981,33 @@ class SpecializedDeviceTests(unittest.TestCase):
         self.assertTrue(result["changed"]); self.assertEqual((device.ir_attack_time, device.ir_decay_time), (25.0, 2400.0))
         with self.assertRaisesRegex(ValueError, "authority is invalid"): mapper.invoke("hybrid-reverb.set", {**identity_args, "time": 3000.0})
 
+    def test_hybrid_reverb_second_phase_failure_rolls_back_applied_ir_indices(self):
+        class AttackRefusingDevice(FakeDevice):
+            @property
+            def ir_attack_time(self): return self._ir_attack_time
+            @ir_attack_time.setter
+            def ir_attack_time(self, value):
+                if value != self._ir_attack_time: raise RuntimeError("attack write rejected")
+        device = AttackRefusingDevice(); device._ir_attack_time = 10.0
+        device.name = "Hybrid"; device.class_name = "HybridReverbDevice"
+        device.ir_category_list = [{"name": "Halls"}, {"name": "Plates"}]; device.ir_category_index = 0
+        device.ir_file_list = [{"name": "Hall A"}, {"name": "Hall B"}]; device.ir_file_index = 0
+        device.ir_decay_time = 1200.0; device.ir_size_factor = 50.0
+        song = FakeSong(); song.tracks[0].devices = [device]
+        mapper = LiveObjectMapper(song)
+        row = mapper.snapshot()["tracks"][0]["devices"][0]
+        specs = [("attack", "ir_attack_time"), ("decay", "ir_decay_time"), ("size", "ir_size_factor")]
+        def fences():
+            state = mapper._specialized_state(device, specs)
+            return {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical(state).encode()).hexdigest()}
+        combined = mapper.invoke("hybrid-reverb.set", {**fences(), "irCategory": "Plates", "decay": 2400.0})
+        self.assertTrue(combined["changed"]); validate_operation_payload("hybrid-reverb.set", "result", combined)
+        self.assertEqual((device.ir_category_index, device.ir_decay_time), (1, 2400.0))
+        with self.assertRaisesRegex(RuntimeError, "attack write rejected"):
+            mapper.invoke("hybrid-reverb.set", {**fences(), "irFile": "Hall B", "attack": 25.0})
+        self.assertEqual((device.ir_category_index, device.ir_file_index), (1, 0))
+        self.assertEqual((device.ir_attack_time, device.ir_decay_time, device.ir_size_factor), (10.0, 2400.0, 50.0))
+
     def test_looper_actions_and_properties(self):
         song = FakeSong()
         device = FakeDevice(); device.name = "Looper"; device.class_name = "LooperDevice"
