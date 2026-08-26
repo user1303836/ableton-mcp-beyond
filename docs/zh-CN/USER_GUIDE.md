@@ -127,6 +127,17 @@ capability 资源会报告可执行、可见与策略拒绝的工具集,以及�
 - `live_device_parameter_preview/apply` —— 针对权威设备上已发现的已启用
   数值参数。检查边界、有限值、量化、归属与修订;通过 `live_undo` 受护栏
   撤销。
+- `live_device_state_save` 与 `live_device_state_recall_preview/apply` ——
+  单个设备或机架子树的命名参数状态快照。保存会向显式属主目录写入带架构版本、
+  经摘要校验的 JSON 文件(仅参数与设备名称;绝不包含工程路径、会话引用或对象
+  标识;重名保存需 `overwrite: true`)。召回先验证文件,再围栏设备类别身份
+  (`className`,回退到显示名,加上 kind)与记录的参数布局指纹:不匹配在写入前
+  拒绝并附逐参数不兼容报告;`allowPartialLayout: true` 可选择部分召回,带逐参数
+  处置(`applicable`、`skipped-read-only`、`skipped-missing`、`skipped-rebound`)。
+  变形(`morphFromFile` 或 `morphFromLive: true` 加显式 0..1 的 `amount`)在宿主侧
+  插值,带文档化的确定性 float64 量化舍入 —— 相同输入与比例必得相同值。应用经护栏
+  设备参数机制写入,带逐步修订围栏;召回中途拒绝时精确回滚已写参数,并通过
+  `live_undo` 精确恢复召回前状态。
 - `live_session_structure_preview/apply` —— 有界的命名 MIDI/音频轨道与
   场景创建。插入索引仅对应常规轨道,并在变更前对照当前集合检查。既有
   对象、剪辑、设备、路由、走带与录音均不受影响。

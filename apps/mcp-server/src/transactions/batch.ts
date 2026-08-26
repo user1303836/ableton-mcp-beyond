@@ -92,11 +92,11 @@ export interface BatchRecord {
 
 type Row = Record<string, unknown>;
 
-function isObject(value: unknown): value is Row { return typeof value === "object" && value !== null && !Array.isArray(value); }
+export function isObject(value: unknown): value is Row { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function clone<T>(value: T): T { return structuredClone(value); }
-function canonical(value: unknown): string { if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") return JSON.stringify(value); if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`; const row = value as Row; return `{${Object.keys(row).sort().map((key) => `${JSON.stringify(key)}:${canonical(row[key])}`).join(",")}}`; }
-function fingerprint(value: unknown): string { return createHash("sha256").update(canonical(value)).digest("hex"); }
-function isNonEmptyString(value: unknown, maxLength: number): value is string { return typeof value === "string" && value.length >= 1 && value.length <= maxLength; }
+export function canonical(value: unknown): string { if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") return JSON.stringify(value); if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`; const row = value as Row; return `{${Object.keys(row).sort().map((key) => `${JSON.stringify(key)}:${canonical(row[key])}`).join(",")}}`; }
+export function fingerprint(value: unknown): string { return createHash("sha256").update(canonical(value)).digest("hex"); }
+export function isNonEmptyString(value: unknown, maxLength: number): value is string { return typeof value === "string" && value.length >= 1 && value.length <= maxLength; }
 
 function structureRevision(snapshot: LiveSnapshot): string {
   const identity = { tracks: snapshot.tracks.map((item, index) => [item.ref, item.objectIdentity, item.name, item.kind, index]), scenes: snapshot.scenes.map((item, index) => [item.ref, item.objectIdentity, item.name, index]) };
@@ -119,7 +119,7 @@ function mixerAuthority(target: { track: Row; mixer: Row }): Row {
   return { expectedObjectIdentity: target.track.objectIdentity, expectedVolumeIdentity: target.mixer.volumeIdentity, expectedPanIdentity: target.mixer.panIdentity, expectedCueIdentity: target.mixer.cueIdentity, expectedSendIdentities: clone(target.mixer.sendIdentities), expectedStateRevision: fingerprint(state) };
 }
 
-function flattenDeviceRows(values: unknown): Row[] {
+export function flattenDeviceRows(values: unknown): Row[] {
   const flattened: Row[] = [];
   const visit = (value: unknown): void => {
     if (!isObject(value) || flattened.length >= 512) return;
@@ -131,7 +131,7 @@ function flattenDeviceRows(values: unknown): Row[] {
   return flattened;
 }
 
-function parameterTarget(snapshot: LiveSnapshot, deviceRef: string, parameterRef: string): { device: Row; parameter: Row; track: Row } {
+export function parameterTarget(snapshot: LiveSnapshot, deviceRef: string, parameterRef: string): { device: Row; parameter: Row; track: Row } {
   for (const track of snapshot.tracks as unknown as Row[]) {
     const device = flattenDeviceRows(track.devices).find((item) => item.ref === deviceRef);
     const parameter = Array.isArray(device?.parameters) ? (device!.parameters as unknown[]).filter(isObject).find((item) => item.ref === parameterRef) : undefined;
@@ -140,9 +140,9 @@ function parameterTarget(snapshot: LiveSnapshot, deviceRef: string, parameterRef
   throw new Error("transaction batch device and parameter references are not authoritative children");
 }
 
-function parameterRevision(parameter: Row): number { return typeof parameter.revision === "number" ? parameter.revision : 1; }
+export function parameterRevision(parameter: Row): number { return typeof parameter.revision === "number" ? parameter.revision : 1; }
 
-function parameterAuthority(snapshot: LiveSnapshot, parameterRef: string): Row {
+export function parameterAuthority(snapshot: LiveSnapshot, parameterRef: string): Row {
   for (const track of snapshot.tracks as unknown as Row[]) {
     const trackRef = typeof track.ref === "string" ? track.ref : undefined;
     const trackIdentity = typeof track.objectIdentity === "string" ? track.objectIdentity : undefined;

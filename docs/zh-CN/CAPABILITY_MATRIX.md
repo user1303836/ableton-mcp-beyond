@@ -22,6 +22,7 @@
 | 应用对话框 | `live_application_dialog_preview/apply` | 读取当前对话框状态,仅在预览的状态仍精确成立时按下一个对话框按钮 —— 对话框按钮可能有破坏性,状态一变即拒绝 |
 | 创建 MIDI 剪辑并写入音符 | `live_midi_clip_preview/apply`、`live_note_update_preview/apply`、`live_note_delete_preview/apply` | 完整表情字段:velocity、channel、probability、velocity deviation、release velocity、mute;稳定音符 ID;每个剪辑一次原子批量 |
 | 调整设备和插件参数 | `live_device_parameter_preview/apply` | 作用于具有权威边界的已发布数值参数;写入后验证;含受护栏撤销 |
+| 保存、召回与变形设备参数状态 | `live_device_state_save`、`live_device_state_recall_preview/apply` | 命名的带架构版本快照文件,含内容摘要与隐私档案(仅参数与设备名称 —— 绝不包含工程路径、会话引用或对象标识)。召回围栏设备类别身份(`className`,回退到显示名,加上 kind)与记录的参数布局指纹;不匹配在写入前拒绝并附逐参数不兼容报告;`allowPartialLayout` 可选择部分召回并带逐参数跳过(只读、缺失、越界)。变形以显式 0..1 比例在两个快照(或快照与实时状态)之间插值,带文档化的确定性 float64 量化舍入。写入经护栏设备参数机制,带逐步围栏、精确回滚与精确的召回前撤销 |
 | 加载乐器、效果和预置 | `live_browser_search`、`live_browser_load_preview/apply` | 把确切的 Browser 项目加载到选定轨道;插件必须在 Live 自己的 Browser 中可见 |
 | 插入、启用、移动或移除设备 | `live_device_preview/apply`、`live_device_delete_preview/apply` | 移除仅限于事务自身创建的设备(精确清理);显式删除现有设备带栅栏且诚实不可撤销 |
 | Deep device and parameter control | `live_device_advanced_preview/apply`、`live_device_parameter_preview/apply` | 每行参数暴露元数据(默认值、原名、状态、枚举项、显示值);参数库带精确撤销;自动化重启用与 A/B 对比保存(瞬时);链设备插入(空链守卫);经 `Song.move_device` 的跨轨道/链设备移动,带精确反向移动撤销。Bypass 绝不从只读 `Device.is_active` 推断可写 —— 只使用探针验证的 Device On 参数 |
