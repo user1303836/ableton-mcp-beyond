@@ -131,6 +131,7 @@ export const TOOL_AVAILABILITY_RULES: readonly AvailabilityRule[] = [
   { prefix: "live_mixer_", prereq: { capabilitiesAll: ["mixing"], operationsAll: ["snapshot", "mixer.set"] } },
   { prefix: "live_automation_", prereq: { capabilitiesAll: ["automation"], operationsAll: ["snapshot", "automation.envelope.read", "automation.envelope.create", "automation.envelope.delete", "automation.point.insert", "automation.point.delete"] } },
   { name: "live_browser_search", prereq: { capabilitiesAll: ["browser"], operationsAll: ["browser.search"] } },
+  { name: "live_library_search", prereq: { always: true } },
   { prefix: "live_browser_load_", prereq: { capabilitiesAll: ["browser"], operationsAll: ["snapshot", "browser.inspect", "browser.load", "device.delete"] } },
   { prefix: "live_device_parameter_", prereq: { capabilitiesAll: ["devices", "parameters", "device.parameter.write"], operationsAll: ["snapshot", "device.parameter.set"] } },
   { name: "live_device_state_save", prereq: { capabilitiesAll: ["devices", "parameters"], operationsAll: ["snapshot"] } },
@@ -169,6 +170,7 @@ export const TOOL_POLICY_RULES: readonly PolicyRule[] = [
   { name: "live_subscribe", policyClass: "read" },
   { name: "live_unsubscribe", policyClass: "read" },
   { name: "live_browser_search", policyClass: "read" },
+  { name: "live_library_search", policyClass: "read" },
   { name: "live_browser_roots", policyClass: "read" },
   { name: "live_browser_inspect", policyClass: "read" },
   { name: "live_project_info", policyClass: "read" },
@@ -516,6 +518,12 @@ const toolDescriptors = [
     name: "live_browser_search",
     description: "Search the Live Browser catalog with ranked multi-term matching over a bounded per-root candidate cache (or exact substring fallback), returning scored results with stable identities and explicit traversal/cache provenance.",
     inputSchema: { type: "object", properties: { category: { type: "string", enum: ["instruments", "audio_effects", "midi_effects", "drums", "plugins", "packs", "max_for_live", "clips"] }, query: { type: "string", maxLength: 256 }, limit: { type: "integer", minimum: 1, maximum: 100 }, matchMode: { type: "string", enum: ["ranked", "substring"] }, refresh: { type: "boolean" } }, required: [], additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  },
+  {
+    name: "live_library_search",
+    description: "Opt-in read-only search over Live's own library database: owner-allowlisted Live-files-*.db (and Live-plugins-*.db for the plug-in inventory), opened read-only with fail-closed schema-version gating (files 12300, plug-ins 1, shape-probed first-hand on Live 12.4.5). Name/wildcard, tag-conjunction, kind, source, and sort filters with bounded paged results; unknown versions, missing databases, and uncheckpointed WAL state report structured unavailability. Database paths and raw filesystem paths are redacted; loadability still requires live_browser_inspect.",
+    inputSchema: { type: "object", properties: { database: { type: "string", minLength: 1, maxLength: 4096 }, allowlistRoot: { type: "string", minLength: 1, maxLength: 4096 }, pluginsDatabase: { type: "string", minLength: 1, maxLength: 4096 }, mode: { type: "string", enum: ["files", "plugins", "tags"] }, query: { type: "string", maxLength: 256 }, tags: { type: "array", items: { type: "string", minLength: 1, maxLength: 256 }, maxItems: 8 }, kinds: { type: "array", items: { type: "string", enum: ["audio", "midi", "set", "preset", "device-group", "device", "clip", "max-device", "pack", "scale", "other"] }, maxItems: 11 }, sources: { type: "array", items: { type: "string", minLength: 1, maxLength: 256 }, maxItems: 8 }, vendors: { type: "array", items: { type: "string", minLength: 1, maxLength: 256 }, maxItems: 8 }, formats: { type: "array", items: { type: "string", enum: ["vst3", "vst2", "au", "clap", "unknown"] }, maxItems: 5 }, sort: { type: "string", enum: ["useCount", "modified", "name"] }, limit: { type: "integer", minimum: 1, maximum: 100 }, cursor: { type: "string", minLength: 1, maxLength: 4096 } }, required: ["database", "allowlistRoot"], additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   },
   {

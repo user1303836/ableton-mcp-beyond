@@ -63,7 +63,8 @@
 | 撤销更改 | `live_undo` | 在先前状态仍匹配时精确恢复;被其他改动破坏时拒绝 |
 | 分析音频(响度、真峰值、频谱) | `audio_analyze`、`audio_compare_reference`、`audio_diagnose_live_context` | ITU-R BS.1770/EBU R128 标准,隐私保护,结果不含原始 PCM |
 | 切换视图并控制 Arrangement 视图 | `live_view_preview/apply` | Session/Arranger 切换、缩放/滚动、跟随播放、轨道折叠;仅 UI,不触碰音乐状态 |
-| 搜索 Browser 并检查项目 | `live_browser_search`、`live_browser_roots`、`live_browser_inspect` | 宿主侧多词项排序匹配(与顺序无关的词元、词边界/前缀加权、每项文档化得分与命中词元说明),基于有界、epoch 绑定的按根候选缓存(60 秒 TTL、显式 `refresh`、报告缓存来源与截断);保留精确子串匹配作为文档化回退模式;非标签/过滤/相似度搜索 —— 无公共 API;按形态协商的根(sounds、samples、User Library、用户文件夹、当前工程),各绑定的层级由 `live_browser_roots` 报告;单项 `live_browser_inspect` 返回稳定身份、类型、来源与显式可加载性,不含原始文件系统路径。内部绑定绝非稳定公共 LOM API |
+| 搜索 Browser 并检查项目 | `live_browser_search`、`live_browser_roots`、`live_browser_inspect` | 宿主侧多词项排序匹配(与顺序无关的词元、词边界/前缀加权、每项文档化得分与命中词元说明),基于有界、epoch 绑定的按根候选缓存(60 秒 TTL、显式 `refresh`、报告缓存来源与截断);保留精确子串匹配作为文档化回退模式;非标签/过滤/相似度搜索 —— 无公共 API(下方资源库数据库表面在其架构被枚举时覆盖标签);按形态协商的根(sounds、samples、User Library、用户文件夹、当前工程),各绑定的层级由 `live_browser_roots` 报告;单项 `live_browser_inspect` 返回稳定身份、类型、来源与显式可加载性,不含原始文件系统路径。内部绑定绝非稳定公共 LOM API |
+| 搜索 Live 资源库数据库(标签、类型、使用计数、插件清单) | `live_library_search` | 可选加入、属主允许列表、只读(绝不写入,拒绝未检查点 WAL)。按 Live 12.4.5 上第一手探测的架构版本做失败关闭式设防(文件数据库 12300;插件数据库 1 —— 其他版本报告带观测版本的结构化不可用)。名称/通配符 + 标签合取 + 类型 + 来源 + 排序过滤,结果有界并按修订分页;插件清单支持厂商/格式过滤;路径遮蔽、使用计数不透明;相似度/重复查询显式不可用;discovery-only 条目有标注,可加载性仍需 `live_browser_inspect` |
 | Browser 预览与热交换 | —— | 明确拒绝:`preview_item`/`stop_preview` 是非官方绑定,且不存在可用于验证后置条件的权威可观察预览状态,同时它是可发声的。热交换/邻近预置加载因同样可验证性原因推迟。保留的 `browser.preview.*` 契约保持故障关闭,直至存在权威预览状态 |
 | 读取 Set:轨道、剪辑、设备、路由、播放 | `live_snapshot`、`live_discover`、`live_status` | 只读;过时引用被拒绝,绝不猜测 |
 | 观察状态变化 | `live_observe_subscribe`、`live_observe_poll`、`live_observe_unsubscribe` | 对文档可观察状态的受限协商主题 —— 走带、选择、轨道、剪辑、设备、参数、律动、律制、场景、电平与机架状态。配额(8 订阅、各 64 主题)、按修订去重、变更字段列表、显式溢出、协商最小轮询间隔,以及每个事件携带修订/身份 —— 均非变更权限 |

@@ -65,6 +65,18 @@ SHA-256 安装。`private: true` 仅防止意外发布,不改变 MIT 权利;见
   (id、对象标识与内容修订)、类型与浏览器内部路径元数据、适配器/epoch
   来源,以及附带原因的显式可加载性。绝不返回原始文件系统路径;仅设备条目
   可通过 `live_browser_load_preview/apply` 加载。
+- `live_library_search` 是对 Live 自身资源库数据库的可选只读查询面,不依赖
+  Live 连接。它要求显式绝对路径的 `database` 且位于显式属主 `allowlistRoot`
+  之内,以只读方式打开文件(绝不写入、绝不创建日志文件,并拒绝存在未检查点
+  WAL 帧的数据库),按 Live 12.4.5 上第一手探测的枚举架构版本设防(文件数据库
+  版本 12300;插件数据库版本 1 —— 其他版本报告带观测版本号的结构化
+  `unavailable`,绝不臆测)。文件查询支持名称/通配符、标签合取(叶子名或完整
+  路径如 `Devices|Synthesizer|FM`)、内容类型、来源与排序(`useCount`、
+  `modified`、`name`),结果有界且按修订分页并如实报告截断;`mode: "plugins"`
+  列出插件清单(支持厂商/格式过滤);`mode: "tags"` 列出标签词表。数据库路径与
+  原始文件系统路径一律遮蔽,使用计数为不透明数字,相似度与重复样本查询报告显式
+  不可用;无法解析为 Browser 身份候选的条目标记为 discovery-only —— 可加载性
+  仍需 `live_browser_inspect`。
 - `live_arrangement_automation_read` 探测某个精确 Arrangement 剪辑上单个
   参数的自动化包络:所有者标识、精确时间范围、完整的分页点集(512 点
   上限、绑定修订的游标,绝不静默截断),并显式注明曲线形状不予暴露。
