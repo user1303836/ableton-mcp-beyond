@@ -53,6 +53,14 @@ SHA-256 安装。`private: true` 仅防止意外发布,不改变 MIT 权利;见
   `session-playback`,支持有界父级、最多八个标量过滤器、请求字段、遍历
   预算、分页以及绑定 epoch/修订的游标。兼容回退仍限于 `track`、`scene`、
   `clip`、`note`。
+- `live_browser_search` 在宿主侧对 Browser 结果排序:多词项、与顺序无关的
+  词元匹配,带词边界/前缀加权;每个结果带文档化的整数得分与命中词元说明,
+  并列时按得分、名称、id 确定性排序。每个根至多一次有界候选遍历(≤100 项)
+  缓存 60 秒,绑定当前连接 epoch,绝不持久化;`refresh: true` 强制重新遍历。
+  结果报告 `searchedRoots`(贡献了候选的根 —— 受界遍历可能未覆盖每个请求的
+  根)、`candidates`、`candidateBoundReached`、`truncated`、`fromCache` 与
+  `cacheAgeSeconds`。`matchMode: "substring"` 保留旧的精确透传行为。加载仍
+  需要新鲜的 `live_browser_inspect` 结果。
 - `live_browser_inspect` 按精确条目 id 报告单个权威 Browser 结果:稳定标识
   (id、对象标识与内容修订)、类型与浏览器内部路径元数据、适配器/epoch
   来源,以及附带原因的显式可加载性。绝不返回原始文件系统路径;仅设备条目

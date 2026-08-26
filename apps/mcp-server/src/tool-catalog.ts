@@ -495,8 +495,8 @@ const toolDescriptors = [
   },
   {
     name: "live_browser_search",
-    description: "Search the Live Browser catalog by category and query with stable result identities.",
-    inputSchema: { type: "object", properties: { category: { type: "string", enum: ["instruments", "audio_effects", "midi_effects", "drums", "plugins", "packs", "max_for_live", "clips"] }, query: { type: "string", maxLength: 256 }, limit: { type: "integer", minimum: 1, maximum: 100 } }, required: [], additionalProperties: false },
+    description: "Search the Live Browser catalog with ranked multi-term matching over a bounded per-root candidate cache (or exact substring fallback), returning scored results with stable identities and explicit traversal/cache provenance.",
+    inputSchema: { type: "object", properties: { category: { type: "string", enum: ["instruments", "audio_effects", "midi_effects", "drums", "plugins", "packs", "max_for_live", "clips"] }, query: { type: "string", maxLength: 256 }, limit: { type: "integer", minimum: 1, maximum: 100 }, matchMode: { type: "string", enum: ["ranked", "substring"] }, refresh: { type: "boolean" } }, required: [], additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   },
   {

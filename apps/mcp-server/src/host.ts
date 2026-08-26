@@ -213,6 +213,13 @@ const STRUCTURE_STEP_DEADLINE_MS = 45_000;
 // mutations and authoritative readback. An explicit context may extend the
 // configured default timeout while remaining bounded by the bridge protocol.
 const SESSION_MIDI_TRANSACTION_DEADLINE_MS = 30_000;
+// Ranked browser search re-fetches a bounded candidate traversal per root at
+// most once per TTL window (or per Live connection epoch); the cache is
+// in-memory only, bounded, and never persisted across restarts.
+const BROWSER_SEARCH_CANDIDATE_LIMIT = 100;
+const BROWSER_SEARCH_CACHE_TTL_MS = 60_000;
+const BROWSER_SEARCH_CACHE_MAX_ENTRIES = 16;
+const BROWSER_SEARCH_MAX_TOKENS = 8;
 const MAX_AUDITION_TRANSACTIONS = 64;
 const MONITORABLE_TRACK_KINDS = new Set(["regular", "audio", "midi"]);
 
@@ -367,6 +374,7 @@ export class McpHost {
   private readonly clipLaunchTransactions = new BoundedTransactionMap<ClipLaunchTransaction>();
   private readonly noteEditTransactions = new BoundedTransactionMap<NoteEditTransaction>();
   private readonly clipLifecycleTransactions = new BoundedTransactionMap<ClipLifecycleTransaction>();
+  private readonly browserSearchCache = new Map<string, { items: Array<{ id: string; objectIdentity: string; name: string; category: string; path: string; isDevice: boolean }>; fetchedAt: number; epoch: number }>();
   private readonly undoRecoveryPlans = new WeakMap<object, { idempotencyKey: string; steps: Array<{ operation: LiveInvocation["operation"]; args: Record<string, unknown>; completed: boolean; result?: unknown }> }>();
   private recoveryFinalizationInFlight = false;
   private activeAsyncOperations = 0;
@@ -2396,20 +2404,97 @@ export class McpHost {
     throw new Error("owned device cleanup was not confirmed");
   }
 
+  /** Rank one bounded browser candidate against tokenized query terms.
+   * Documented scoring (deterministic, integer-only): the full query as an
+   * exact name substring scores 100 (path substring 40); each query token
+   * scores 30 for an exact name-word match, 18 for a name-word prefix, 10 for
+   * a name substring, plus 4 when it also appears in the path; matching every
+   * token adds a 25-point coverage bonus. Ties break by name then id using
+   * code-point order, so identical candidates and query always rank alike. */
+  private rankBrowserCandidate(item: { id: string; name: string; path: string }, queryLower: string, tokens: readonly string[]): { score: number; matchedTokens: string[]; exactNameMatch: boolean } {
+    const name = item.name.toLowerCase();
+    const path = item.path.toLowerCase();
+    const nameWords = name.split(/[^a-z0-9]+/).filter((word) => word.length > 0);
+    let score = 0;
+    let exactNameMatch = false;
+    if (queryLower.length > 0 && name.includes(queryLower)) { score += 100; exactNameMatch = true; }
+    else if (queryLower.length > 0 && path.includes(queryLower)) score += 40;
+    const matchedTokens: string[] = [];
+    for (const token of tokens) {
+      let tokenScore = 0;
+      if (nameWords.includes(token)) tokenScore = 30;
+      else if (nameWords.some((word) => word.startsWith(token))) tokenScore = 18;
+      else if (name.includes(token)) tokenScore = 10;
+      if (path.includes(token)) tokenScore += 4;
+      if (tokenScore > 0) { matchedTokens.push(token); score += tokenScore; }
+    }
+    if (tokens.length > 0 && matchedTokens.length === tokens.length) score += 25;
+    return { score, matchedTokens, exactNameMatch };
+  }
+
   private async liveBrowserSearchAsync(id: RequestId, params: unknown): Promise<JsonObject> {
     const categories = ["instruments", "audio_effects", "midi_effects", "drums", "plugins", "packs", "max_for_live", "clips"];
-    if (!isObject(params) || !hasOnly(params, ["category", "query", "limit"]) || (params.category !== undefined && !categories.includes(String(params.category))) || (params.query !== undefined && !isNonEmptyString(params.query, 256) && params.query !== "") || (params.limit !== undefined && !isIntegerInRange(params.limit, 1, 100))) return error(id, -32602, "category, query, and limit are invalid");
+    if (!isObject(params) || !hasOnly(params, ["category", "query", "limit", "matchMode", "refresh"]) || (params.category !== undefined && !categories.includes(String(params.category))) || (params.query !== undefined && !isNonEmptyString(params.query, 256) && params.query !== "") || (params.limit !== undefined && !isIntegerInRange(params.limit, 1, 100)) || (params.matchMode !== undefined && params.matchMode !== "ranked" && params.matchMode !== "substring") || (params.refresh !== undefined && typeof params.refresh !== "boolean")) return error(id, -32602, "category, query, limit, matchMode, and refresh are invalid");
     try {
       const status = await this.freshStatus({ deadlineMs: Date.now() + AUDITION_DEADLINE_MS });
       if (!status.connected || !(status.capabilities ?? []).includes("session.read")) throw new Error("session read capability is unavailable");
       if (!(status.operations ?? []).includes("browser.search")) throw new Error("the Live Browser is unavailable");
       const adapter = this.asyncAdapter();
-      const searchArgs: Record<string, unknown> = {};
-      if (params.category !== undefined) searchArgs.category = params.category;
-      if (params.query !== undefined) searchArgs.query = params.query;
-      if (params.limit !== undefined) searchArgs.limit = params.limit;
-      const result = await adapter.invokeAsync({ operation: "browser.search", args: searchArgs }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as { items?: unknown };
-      return this.successText(id, { items: Array.isArray(result.items) ? result.items : [] });
+      if (params.matchMode === "substring") {
+        const searchArgs: Record<string, unknown> = {};
+        if (params.category !== undefined) searchArgs.category = params.category;
+        if (params.query !== undefined) searchArgs.query = params.query;
+        if (params.limit !== undefined) searchArgs.limit = params.limit;
+        const result = await adapter.invokeAsync({ operation: "browser.search", args: searchArgs }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as { items?: unknown };
+        return this.successText(id, { items: Array.isArray(result.items) ? result.items : [] });
+      }
+      const epoch = (status.epoch ?? 0) as number;
+      const cacheKey = typeof params.category === "string" ? params.category : "all";
+      const cached = this.browserSearchCache.get(cacheKey);
+      const cacheValid = cached !== undefined && cached.epoch === epoch && Date.now() - cached.fetchedAt < BROWSER_SEARCH_CACHE_TTL_MS;
+      let candidates: Array<{ id: string; objectIdentity: string; name: string; category: string; path: string; isDevice: boolean }>;
+      let fetchedAt: number;
+      let fromCache: boolean;
+      if (cacheValid && params.refresh !== true) {
+        candidates = cached.items; fetchedAt = cached.fetchedAt; fromCache = true;
+        this.browserSearchCache.delete(cacheKey); this.browserSearchCache.set(cacheKey, cached);
+      } else {
+        const searchArgs: Record<string, unknown> = { query: "", limit: BROWSER_SEARCH_CANDIDATE_LIMIT };
+        if (params.category !== undefined) searchArgs.category = params.category;
+        const result = await adapter.invokeAsync({ operation: "browser.search", args: searchArgs }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as { items?: unknown };
+        if (!Array.isArray(result.items) || result.items.length > BROWSER_SEARCH_CANDIDATE_LIMIT) throw new Error("browser search returned an unbounded or malformed candidate set");
+        const rows = result.items.filter(isObject).map((item) => ({ id: item.id, objectIdentity: item.objectIdentity, name: item.name, category: item.category, path: item.path, isDevice: item.isDevice }));
+        if (rows.length !== result.items.length || rows.some((item) => !isNonEmptyString(item.id, 256) || !isNonEmptyString(item.objectIdentity, 256) || typeof item.name !== "string" || item.name.length > 256 || !isNonEmptyString(item.category, 64) || typeof item.path !== "string" || item.path.length > 512 || typeof item.isDevice !== "boolean")) throw new Error("browser search returned a malformed candidate set");
+        candidates = rows as Array<{ id: string; objectIdentity: string; name: string; category: string; path: string; isDevice: boolean }>;
+        fetchedAt = Date.now(); fromCache = false;
+        this.browserSearchCache.set(cacheKey, { items: candidates, fetchedAt, epoch });
+        while (this.browserSearchCache.size > BROWSER_SEARCH_CACHE_MAX_ENTRIES) { const oldest = this.browserSearchCache.keys().next().value; if (oldest === undefined) break; this.browserSearchCache.delete(oldest); }
+      }
+      const queryText = typeof params.query === "string" ? params.query : "";
+      const queryLower = queryText.trim().toLowerCase();
+      const tokens = [...new Set(queryLower.split(/[^a-z0-9]+/).filter((token) => token.length > 0 && token.length <= 64))].slice(0, BROWSER_SEARCH_MAX_TOKENS);
+      const ranked = candidates
+        .map((item) => ({ item, ...this.rankBrowserCandidate(item, queryLower, tokens) }))
+        .filter((entry) => tokens.length === 0 || entry.matchedTokens.length > 0);
+      ranked.sort((a, b) => (b.score - a.score) || (a.item.name < b.item.name ? -1 : a.item.name > b.item.name ? 1 : 0) || (a.item.id < b.item.id ? -1 : a.item.id > b.item.id ? 1 : 0));
+      const limit = params.limit === undefined ? 50 : (params.limit as number);
+      const page = ranked.slice(0, limit);
+      return this.successText(id, {
+        items: page.map((entry) => ({ ...entry.item, score: entry.score, match: { matchedTokens: entry.matchedTokens, exactNameMatch: entry.exactNameMatch } })),
+        matchMode: "ranked",
+        query: queryText,
+        tokens,
+        searchedRoots: [...new Set(candidates.map((item) => item.category))].sort(),
+        candidates: candidates.length,
+        candidateBound: BROWSER_SEARCH_CANDIDATE_LIMIT,
+        candidateBoundReached: candidates.length >= BROWSER_SEARCH_CANDIDATE_LIMIT,
+        truncated: ranked.length > page.length,
+        fromCache,
+        cacheAgeSeconds: Math.max(0, Math.round((Date.now() - fetchedAt) / 1000)),
+        cacheTtlSeconds: BROWSER_SEARCH_CACHE_TTL_MS / 1000,
+        epoch,
+        note: "Ranked host-side over one bounded candidate traversal per root; searchedRoots are the roots that contributed candidates, so a bound-limited traversal may not have reached every requested root. Substring-exact matching remains available with matchMode=substring. Loadability still requires a fresh live_browser_inspect result.",
+      });
     } catch (cause) { return this.adapterToolError(id, cause, "Browser search requires an available Live Browser."); }
   }
 
