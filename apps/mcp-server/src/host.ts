@@ -3619,8 +3619,80 @@ export class McpHost {
     }
   }
 
+  private validTransformParams(params: unknown): params is Record<string, unknown> {
+    if (!isObject(params) || Object.keys(params).length > 12) return false;
+    for (const value of Object.values(params)) {
+      if (typeof value === "string" || typeof value === "number") continue;
+      if (Array.isArray(value) && value.length >= 1 && value.length <= 32 && value.every((entry) => typeof entry === "string" && entry.length >= 1 && entry.length <= 32)) continue;
+      if (isObject(value) && Object.keys(value).length <= 32 && Object.entries(value).every(([key, entry]) => key.length <= 32 && typeof entry === "number" && Number.isFinite(entry))) continue;
+      return false;
+    }
+    return true;
+  }
+
+  private discoverDrumMapping(snapshot: LiveSnapshot): { mapping: Record<string, number>; assumptions: string[] } {
+    const roleMatchers: ReadonlyArray<readonly [string, (name: string) => boolean]> = [
+      ["kick", (name) => name.includes("kick")],
+      ["snare", (name) => name.includes("snare")],
+      ["openHat", (name) => name.includes("open") && name.includes("hat")],
+      ["closedHat", (name) => name.includes("hat")],
+      ["clap", (name) => name.includes("clap")],
+      ["ride", (name) => name.includes("ride")],
+      ["crash", (name) => name.includes("crash")],
+      ["highTom", (name) => name.includes("high") && name.includes("tom")],
+      ["lowTom", (name) => name.includes("low") && name.includes("tom")],
+      ["midTom", (name) => name.includes("tom")],
+    ];
+    const mapping: Record<string, number> = {};
+    const discovered: string[] = [];
+    const visit = (devices: readonly unknown[]): void => {
+      for (const device of devices.filter(isObject)) {
+        for (const chain of ((device.chains as unknown[]) ?? []).filter(isObject)) {
+          const name = String(chain.name ?? "").toLowerCase();
+          const inNote = chain.inNote;
+          if (Number.isInteger(inNote) && (inNote as number) >= 0 && (inNote as number) <= 127) {
+            for (const [role, match] of roleMatchers) {
+              if (mapping[role] === undefined && match(name)) { mapping[role] = inNote as number; discovered.push(`${role}=${inNote} (chain "${String(chain.name ?? "")}")`); break; }
+            }
+          }
+          visit((chain.devices as unknown[]) ?? []);
+        }
+      }
+    };
+    for (const track of ((snapshot.tracks as unknown[]) ?? []).filter(isObject)) visit((track.devices as unknown[]) ?? []);
+    return { mapping, assumptions: discovered.length > 0 ? [`drum mapping discovered from the Set's drum-chain notes: ${discovered.join(", ")}`] : [] };
+  }
+
+  private async resolveMidiTransformContext(transform: MidiTransformType, params: Record<string, unknown>, snapshot: LiveSnapshot, status: LiveStatus): Promise<{ params: Record<string, unknown>; assumptions: string[] }> {
+    const resolved: Record<string, unknown> = { ...params };
+    const assumptions: string[] = [];
+    if ((transform === "chord-progression" || transform === "bassline") && resolved.root === undefined && resolved.scale === undefined) {
+      const tokens = (transform === "chord-progression" ? resolved.numerals ?? resolved.symbols : resolved.chords) as unknown;
+      const roman = Array.isArray(tokens) && tokens.length > 0 && tokens.every((token) => typeof token === "string" && /^(vii|vi|iv|v|iii|ii|i)(°|dim)?(7)?$/i.test(token.trim()));
+      if (roman) {
+        if (!(status.operations ?? []).includes("tuning.read")) throw new Error("roman-numeral input requires an explicit key/mode: tuning state is unavailable");
+        const tuning = await this.asyncAdapter().invokeAsync({ operation: "tuning.read", args: { setRef: snapshot.set.ref } }) as JsonObject;
+        const scale = tuning.scale as JsonObject | undefined;
+        const rootNote = scale?.rootNote;
+        const scaleNameRaw = scale?.scaleName;
+        const scaleName = typeof scaleNameRaw === "string" ? scaleNameRaw.trim().toLowerCase().replace(/\s+/g, "-") : null;
+        if (!Number.isInteger(rootNote) || (rootNote as number) < 0 || (rootNote as number) > 11 || scaleName === null || scaleName === "") throw new Error("roman-numeral input requires an explicit key/mode: the Set does not name a song scale");
+        resolved.root = rootNote;
+        resolved.scale = scaleName;
+        assumptions.push(`key/mode discovered from the Set's song scale: root ${rootNote}, ${scaleName}`);
+      }
+    }
+    if (transform === "drum-pattern" && resolved.mapping === undefined) {
+      const discovered = this.discoverDrumMapping(snapshot);
+      if (Object.keys(discovered.mapping).length === 0) throw new Error("drum-pattern requires an explicit mapping: no drum-chain notes were discovered in the Set");
+      resolved.mapping = discovered.mapping;
+      assumptions.push(...discovered.assumptions);
+    }
+    return { params: resolved, assumptions };
+  }
+
   private async liveMidiTransformPreviewAsync(id: RequestId, params: unknown): Promise<JsonObject> {
-    if (!isObject(params) || !hasOnly(params, ["clipRef", "transform", "params", "scope", "target"]) || !isNonEmptyString(params.clipRef, 256) || typeof params.transform !== "string" || !(MIDI_TRANSFORM_TYPES as readonly string[]).includes(params.transform) || !isObject(params.params) || Object.keys(params.params).length > 12 || Object.values(params.params).some((value) => typeof value !== "string" && typeof value !== "number") || (params.scope !== undefined && !["in-place", "duplicate"].includes(String(params.scope)))) return error(id, -32602, "clipRef, a known transform, and bounded string/number params are required");
+    if (!isObject(params) || !hasOnly(params, ["clipRef", "transform", "params", "scope", "target"]) || !isNonEmptyString(params.clipRef, 256) || typeof params.transform !== "string" || !(MIDI_TRANSFORM_TYPES as readonly string[]).includes(params.transform) || !this.validTransformParams(params.params) || (params.scope !== undefined && !["in-place", "duplicate"].includes(String(params.scope)))) return error(id, -32602, "clipRef, a known transform, and bounded params (strings, numbers, string arrays, or flat pitch maps) are required");
     const transform = params.transform as MidiTransformType;
     const generative = GENERATIVE_TRANSFORMS.includes(transform);
     const probe = midiExpressionProbe();
@@ -3634,8 +3706,15 @@ export class McpHost {
       const snapshot = await this.asyncAdapter().snapshotAsync();
       const clip = this.noteClip(snapshot, params.clipRef as LiveRef);
       if (clip.notes.some((note) => typeof note.id !== "number")) throw new Error("stable note identity is unavailable for this clip");
+      let resolvedParams = params.params as Record<string, unknown>;
+      let contextAssumptions: string[] = [];
+      if (transform === "chord-progression" || transform === "bassline" || transform === "drum-pattern") {
+        const resolved = await this.resolveMidiTransformContext(transform, resolvedParams, snapshot, status);
+        resolvedParams = resolved.params;
+        contextAssumptions = resolved.assumptions;
+      }
       let outcome;
-      try { outcome = applyMidiTransform(structuredClone(clip.notes) as never, { type: transform, params: params.params }, clip.length); }
+      try { outcome = applyMidiTransform(structuredClone(clip.notes) as never, { type: transform, params: resolvedParams }, clip.length); }
       catch (cause) { return error(id, -32602, cause instanceof Error ? cause.message : "invalid transform parameters"); }
       const diff = diffNotes(clip.notes as never, outcome.notes as never);
       if (diff.add.length + diff.update.length + diff.delete.length === 0) return this.transactionError(id, "transform produced no changes");
@@ -3661,14 +3740,15 @@ export class McpHost {
         fenceTarget = { target: slot.ref, targetIdentity: slot.objectIdentity, targetTrackIdentity: targetTrack.objectIdentity, targetSceneIdentity: scene.objectIdentity, empty: slot.empty };
       }
       const fence = JSON.stringify({ ref: params.clipRef, notes: clip.notes, notesRevision: clip.notesRevision, authority, ...fenceTarget });
-      const transaction: ClipLifecycleTransaction = { id: `miditransform_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "midi-transform", fence, clipRef: params.clipRef as LiveRef, payload: { transform, params: structuredClone(params.params), scope: effectiveScope, generative, seed: outcome.seed ?? null, target: targetAuthority ?? null, diff: structuredClone(diff), sourceRevision: clip.notesRevision, authority, expectedResultContent: this.canonicalNoteContent(outcome.notes as unknown as Array<Record<string, unknown>>), expectedResultIdentity: noteIdentityDigest(outcome.notes as unknown as Array<Record<string, unknown>>), clipLength: clip.length }, prior: { notes: clip.notes.map((note) => structuredClone(note)) }, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
+      const transaction: ClipLifecycleTransaction = { id: `miditransform_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "midi-transform", fence, clipRef: params.clipRef as LiveRef, payload: { transform, params: structuredClone(resolvedParams), scope: effectiveScope, generative, seed: outcome.seed ?? null, target: targetAuthority ?? null, diff: structuredClone(diff), sourceRevision: clip.notesRevision, authority, expectedResultContent: this.canonicalNoteContent(outcome.notes as unknown as Array<Record<string, unknown>>), expectedResultIdentity: noteIdentityDigest(outcome.notes as unknown as Array<Record<string, unknown>>), clipLength: clip.length }, prior: { notes: clip.notes.map((note) => structuredClone(note)) }, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
       this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "MIDI transform");
       return this.successText(id, {
         transactionId: transaction.id, epoch: transaction.epoch, transform, scope: effectiveScope, clipRef: params.clipRef,
         sourceRevision: clip.notesRevision,
         diff: { add: diff.add.length, update: diff.update.length, delete: diff.delete.length, notes: diff },
         constraints: { sourceNotes: clip.notes.length, resultNotes: diff.add.length + clip.notes.length - diff.delete.length, generative, largeEdit, duplicateFirstDefault: generative || largeEdit },
-        assumptions: outcome.assumptions,
+        assumptions: [...contextAssumptions, ...outcome.assumptions],
+        params: resolvedParams,
         seed: outcome.seed ?? null,
         mpe: { ...probe, refusedInPlace: generative && !probe.deleteRecreatePreservesExpression, note: "Per-note Pitch/Slide/Pressure are not in the canonical note schema and are never authored or silently erased by transforms; update-only transforms patch exposed fields through note.update, which preserves unexposed per-note data." },
         undo: effectiveScope === "duplicate" ? "live_undo deletes the exact transaction-created duplicate clip" : "live_undo restores the exact prior note fields through note.update",
@@ -7892,7 +7972,7 @@ export class McpHost {
   private successText(id: RequestId, value: unknown): JsonObject { return response(id, { content: [{ type: "text", text: JSON.stringify(value) }], isError: false }); }
   private adapterToolError(id: RequestId, cause: unknown, remediation: string): JsonObject {
     const raw = cause instanceof Error ? cause.message : "adapter request failed";
-    const reason = /^(live-|MIDI |Session |Tempo |note-|note |automation |clip-|device-|routing |mixer |rename |Arrangement |Only an applied|confirmation=|transaction|observe |file |filePath |staged |browser |probe |warp |notes |adapter request)/i.test(raw) && raw.length <= 160 ? raw : "adapter request failed";
+    const reason = /^(live-|MIDI |Session |Tempo |note-|note |automation |clip-|device-|routing |mixer |rename |Arrangement |Only an applied|confirmation=|transaction|observe |file |filePath |staged |browser |probe |warp |notes |roman-numeral |drum-pattern |adapter request)/i.test(raw) && raw.length <= 160 ? raw : "adapter request failed";
     return response(id, { content: [{ type: "text", text: JSON.stringify({ reason, remediation }) }], isError: true });
   }
 

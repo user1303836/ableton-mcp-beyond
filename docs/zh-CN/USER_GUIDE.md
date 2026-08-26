@@ -132,7 +132,11 @@ capability 资源会报告可执行、可见与策略拒绝的工具集,以及�
 - `live_midi_transform_preview/apply` —— 对某个精确剪辑执行一次确定性的
   带种子 MIDI 变换:transpose、scale-constrain、quantize、swing、
   velocity-curve、带种子 humanize、legato、staccato、rotate、repeat、
-  ratchet、chord voicing、arpeggiate 或带种子 variation。预览返回精确的
+  ratchet、chord voicing、arpeggiate 或带种子 variation —— 另有生成型原语:
+  欧几里得节奏、和弦进行(罗马数字或显式符号,质量按音阶实现,含 close/drop-2/
+  spread 排列与最小移动声部引导)、鼓型与贝斯线模板(鼓映射/调性要么显式给出、
+  要么从 Set 发现并在预览中披露,绝不臆造),以及动机变换(显式轴倒影、逆行、
+  精确比率增值/减值)。预览返回精确的
   add/update/delete 音符差异、源修订、约束、假设、MPE 探测以及撤销路径。
   随机性变换必须显式提供种子,并可逐字节复现。生成型或大型变换默认采用
   duplicate-first,写入某个精确的空槽位(源剪辑保留);原地生成式编辑被
