@@ -177,6 +177,22 @@ test("lint reports bounded findings with severity and object identity", () => {
   }
 });
 
+test("lint does not probe a sibling path that only shares the allowed-root prefix", () => {
+  const directory = tempDir();
+  try {
+    const allowedRoot = join(directory, "allowed");
+    const siblingRoot = join(directory, "allowed-sibling");
+    mkdirSync(allowedRoot);
+    mkdirSync(siblingRoot);
+    const path = writeFixture(directory, "PrefixCollision.als", fixtureXml({ mediaPath: join(siblingRoot, "secret.wav") }));
+    const { model } = readAlsModel(path);
+    const { findings } = lintAlsModel(model, { allowedRoot });
+    assert.equal(findings.some((finding) => finding.check === "missing-sample-reference"), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 function failClosedHost() {
   const host = new McpHost();
   host.handle({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "test", version: "1" } } });

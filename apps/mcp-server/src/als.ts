@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, resolve, sep } from "node:path";
 import { decodeXmlAttribute, projectSourceEvidence, readSetSource, type SetSourceRead } from "./project.js";
 import { createSemanticProjectSnapshot, type SemanticPrivacyProfile, type SemanticProjectArtifact } from "./project-semantic.js";
 import type { Clip, Device, Note, Track } from "./live.js";
@@ -385,6 +385,8 @@ export function lintAlsModel(model: AlsModel, options: { allowedRoot?: string; m
     findings.push(finding);
   };
   const lastLocatorTime = model.locators.length > 0 ? model.locators[model.locators.length - 1]!.time : null;
+  const mediaRoot = options.allowedRoot === undefined ? undefined : resolve(options.allowedRoot);
+  const mediaRootPrefix = mediaRoot === undefined ? undefined : mediaRoot.endsWith(sep) ? mediaRoot : `${mediaRoot}${sep}`;
   const trackNameCounts = new Map<string, number>();
   for (const track of model.tracks) if (track.name) trackNameCounts.set(track.name, (trackNameCounts.get(track.name) ?? 0) + 1);
   const arrangementClipCount = model.tracks.reduce((sum, track) => sum + track.clips.filter((clip) => clip.lane === "arrangement").length, 0);
@@ -395,9 +397,10 @@ export function lintAlsModel(model: AlsModel, options: { allowedRoot?: string; m
     track.clips.forEach((clip, clipIndex) => {
       if (lastLocatorTime !== null && clip.lane === "arrangement" && clip.start > lastLocatorTime) push({ severity: "info", check: "clip-beyond-last-locator", message: `clip "${clip.name}" starts at ${clip.start} beats, beyond the last locator at ${lastLocatorTime}`, object: { kind: "clip", name: clip.name, index: clipIndex } });
       if (clip.kind === "audio" && clip.warping === false && clip.sampleLengthBeats !== null && clip.sampleLengthBeats > 60) push({ severity: "warning", check: "unwarped-long-sample", message: `audio clip "${clip.name}" is not warped over a ${clip.sampleLengthBeats}-beat sample`, object: { kind: "clip", name: clip.name, index: clipIndex } });
-      if (clip.samplePath) {
-        const within = options.allowedRoot !== undefined && (clip.samplePath.startsWith(options.allowedRoot) || clip.samplePath.replaceAll("\\", "/").startsWith(options.allowedRoot.replaceAll("\\", "/")));
-        if (options.allowedRoot !== undefined && within && !existsSync(clip.samplePath)) push({ severity: "error", check: "missing-sample-reference", message: `referenced sample is missing: ${basename(clip.samplePath)}`, object: { kind: "clip", name: clip.name, index: clipIndex } });
+      if (clip.samplePath && mediaRoot !== undefined && mediaRootPrefix !== undefined) {
+        const candidate = resolve(clip.samplePath);
+        const within = candidate === mediaRoot || candidate.startsWith(mediaRootPrefix);
+        if (within && !existsSync(candidate)) push({ severity: "error", check: "missing-sample-reference", message: `referenced sample is missing: ${basename(candidate)}`, object: { kind: "clip", name: clip.name, index: clipIndex } });
       }
     });
   });
