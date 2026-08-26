@@ -3928,9 +3928,12 @@ class LiveObjectMapper:
         creator = getattr(track, "create_take_lane", None)
         if not callable(creator): raise ValueError("take-lane creation is unavailable")
         before_lanes = self._items(self._read_attr(track, "take_lanes") or []); before_identities = [self._capture_object_identity(lane) for lane in before_lanes]
-        lane = creator()
+        # The LOM documents no return value for create_take_lane, so the
+        # creator's result is deliberately ignored and creation is confirmed
+        # purely through the identity-diff.
+        creator()
         lanes = self._items(self._read_attr(track, "take_lanes") or []); created_rows = [(index, candidate) for index, candidate in enumerate(lanes) if self._capture_object_identity(candidate) not in set(before_identities)]
-        if lane is None or len(lanes) != len(before_lanes) + 1 or len(created_rows) != 1: raise ValueError("take-lane creation was not confirmed (note: the public LOM exposes no take-lane deletion, so creation cannot be compensated)")
+        if len(lanes) != len(before_lanes) + 1 or len(created_rows) != 1: raise ValueError("take-lane creation was not confirmed (note: the public LOM exposes no take-lane deletion, so creation cannot be compensated)")
         lane_index, created = created_rows[0]
         if name is not None and hasattr(created, "name"): created.name = name
         if name is not None and str(getattr(created, "name", "")) != name: raise ValueError("take-lane name was not confirmed (no public deletion exists for compensation)")
@@ -3981,9 +3984,12 @@ class LiveObjectMapper:
         method = getattr(lane, "create_audio_clip" if audio else "create_midi_clip", None)
         if not callable(method): raise ValueError("take-lane clip creation is unavailable")
         before_clips = self._items(self._read_attr(lane, "arrangement_clips") or []); before_identity_order = [self._capture_object_identity(item) for item in before_clips]; before_identities = set(before_identity_order)
-        clip = method(file_path, float(position)) if audio else method(float(position), float(length))
+        # The LOM documents no return value for TakeLane.create_*_clip, so the
+        # creator's result is deliberately ignored and creation is confirmed
+        # purely through the identity-diff.
+        method(file_path, float(position)) if audio else method(float(position), float(length))
         clips = self._items(self._read_attr(lane, "arrangement_clips") or []); created_rows = [(index, candidate) for index, candidate in enumerate(clips) if self._capture_object_identity(candidate) not in before_identities]
-        if clip is None or len(clips) != len(before_clips) + 1 or len(created_rows) != 1: raise ValueError("take-lane clip creation was not confirmed (the public LOM exposes no take-lane clip deletion, so creation cannot be compensated)")
+        if len(clips) != len(before_clips) + 1 or len(created_rows) != 1: raise ValueError("take-lane clip creation was not confirmed (the public LOM exposes no take-lane clip deletion, so creation cannot be compensated)")
         clip_index, created = created_rows[0]
         if name is not None and hasattr(created, "name"): created.name = name
         actual_start = self._read_attr(created, "start_time"); actual_length = self._read_attr(created, "length")
@@ -4511,16 +4517,41 @@ class LiveObjectMapper:
         if not callable(creator): raise ValueError("return-track creation is unavailable")
         name = args.get("name")
         if name is not None and (not isinstance(name, str) or not 1 <= len(name) <= 256): raise ValueError("name is invalid")
-        before = self._items(getattr(self.song, "return_tracks", [])); before_identities = [self._capture_object_identity(item) for item in before]
-        track = creator()
-        after = self._items(getattr(self.song, "return_tracks", [])); created = [candidate for candidate in after if self._capture_object_identity(candidate) not in set(before_identities)]
-        if track is None or len(after) != len(before) + 1 or len(created) != 1: raise ValueError("return-track creation was not confirmed")
-        created_track = created[0]
-        if name is not None and hasattr(created_track, "name"): created_track.name = name
-        if name is not None and str(getattr(created_track, "name", "")) != name: raise ValueError("return-track name was not confirmed")
-        index = len(after) - 1; reference = self.refs.put("return_track", created_track, str(index)); identity = self._capture_object_identity(created_track)
-        fingerprint = hashlib.sha256(self._bounded_canonical({"ref": reference, "objectIdentity": identity, "name": str(getattr(created_track, "name", "")), "index": index}).encode("utf-8")).hexdigest()
-        return {"ref": reference, "objectIdentity": identity, "name": str(getattr(created_track, "name", "")), "index": index, "createdFingerprint": fingerprint}
+        before = self._items(getattr(self.song, "return_tracks", [])); before_identities = [self._capture_object_identity(item) for item in before]; baseline_topology = self._creation_topology()
+        if len(set(before_identities)) != len(before_identities): raise ValueError("return-track collection identity is ambiguous")
+        # The LOM documents no return value for create_return_track, so the
+        # creator's result is deliberately ignored: creation is confirmed
+        # purely through the identity-diff, and any post-creation failure
+        # rolls the created return track back exactly, exactly like
+        # _structure_create_atomic does for tracks and scenes.
+        checkpoint = self.refs.checkpoint(); creation_error: BaseException | None = None
+        try: creator()
+        except BaseException as error: creation_error = error
+        after = self._items(getattr(self.song, "return_tracks", [])); created = [(position, item, self._capture_object_identity(item)) for position, item in enumerate(after) if self._capture_object_identity(item) not in set(before_identities)]
+        try:
+            if creation_error is not None: raise creation_error
+            if len(after) != len(before) + 1 or len(created) != 1: raise ValueError("return-track creation did not produce one exact identity-distinct object")
+            position, created_track, identity = created[0]; expected_identity_order = list(before_identities); expected_identity_order.insert(position, identity)
+            if [self._capture_object_identity(candidate) for candidate in after] != expected_identity_order: raise ValueError("return-track creation reordered pre-existing objects")
+            if name is not None and hasattr(created_track, "name"): created_track.name = name
+            if name is not None and str(getattr(created_track, "name", "")) != name: raise ValueError("return-track name was not confirmed")
+            reference = self.refs.put("return_track", created_track, str(position))
+            fingerprint = hashlib.sha256(self._bounded_canonical({"ref": reference, "objectIdentity": identity, "name": str(getattr(created_track, "name", "")), "index": position}).encode("utf-8")).hexdigest()
+            return {"ref": reference, "objectIdentity": identity, "name": str(getattr(created_track, "name", "")), "index": position, "createdFingerprint": fingerprint}
+        except BaseException as error:
+            rollback_failed = False; deleter = getattr(self.song, "delete_return_track", None)
+            current = self._items(getattr(self.song, "return_tracks", [])); new_rows = [(position, item) for position, item in enumerate(current) if self._capture_object_identity(item) not in set(before_identities)]
+            if new_rows and not callable(deleter): rollback_failed = True
+            if callable(deleter):
+                for position, _ in reversed(new_rows):
+                    try: deleter(position)
+                    except BaseException: pass
+            if [self._capture_object_identity(item) for item in self._items(getattr(self.song, "return_tracks", []))] != before_identities or self._creation_topology() != baseline_topology: rollback_failed = True
+            if rollback_failed:
+                try: self.snapshot()
+                except BaseException: pass
+                raise ValueError("return-track creation failed and exact rollback failed") from error
+            self.refs.restore(checkpoint); raise
 
     def _track_delete_return(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")

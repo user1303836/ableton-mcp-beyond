@@ -3022,6 +3022,34 @@ class TakeLaneExpansionTests(unittest.TestCase):
         self.assertEqual(len(track.take_lanes), 2)
         with self.assertRaisesRegex(ValueError, "collection changed"): mapper.invoke("take-lane.create", args)
 
+    def test_take_lane_create_confirms_by_identity_diff_when_creator_returns_none(self):
+        song, track, lane, existing, mapper = self._mapper_with_lanes()
+        # list.append returns None, matching Live shapes whose creator has no
+        # documented return value; confirmation must come from the identity-diff.
+        track.create_take_lane = lambda: track.take_lanes.append(FakeTakeLane(f"Take {len(track.take_lanes) + 1}"))
+        track_row = mapper.snapshot()["tracks"][0]
+        args = {"trackRef": track_row["ref"], "name": "Take 2", "expectedTrackIdentity": track_row["objectIdentity"], "expectedTakeLaneCollectionRevision": mapper._take_lane_collection_revision(track, 0)}
+        result = mapper.invoke("take-lane.create", args)
+        self.assertEqual((result["name"], result["index"]), ("Take 2", 1)); validate_operation_payload("take-lane.create", "result", result)
+        self.assertEqual(len(track.take_lanes), 2)
+
+    def test_take_lane_clip_create_confirms_by_identity_diff_when_creator_returns_none(self):
+        _, track, lane, existing, mapper = self._mapper_with_lanes()
+        lane_row = mapper.snapshot()["tracks"][0]["takeLanes"][0]
+        def create_midi_clip(position, length):
+            clip = FakeClip(length); clip.start_time = position; clip.is_take_lane_clip = True
+            lane.arrangement_clips.append(clip)  # append returns None: the undocumented-return shape
+        def create_audio_clip(file_path, position):
+            clip = FakeClip(4.0); clip.is_audio_clip = True; clip.start_time = position; clip.file_path = file_path; clip.is_take_lane_clip = True
+            lane.arrangement_clips.append(clip)
+        lane.create_midi_clip = create_midi_clip; lane.create_audio_clip = create_audio_clip
+        base = {"takeLaneRef": lane_row["ref"], "expectedTakeLaneIdentity": lane_row["objectIdentity"], "expectedCollectionRevision": mapper._take_lane_clip_collection_revision(lane, lane_row["ref"])}
+        result = mapper.invoke("take-lane.clip.create", {**base, "position": 8.0, "length": 4.0, "name": "New Take"})
+        self.assertEqual((result["name"], result["start"], result["length"]), ("New Take", 8.0, 4.0)); validate_operation_payload("take-lane.clip.create", "result", result)
+        audio = mapper.invoke("take-lane.audio-clip.create", {**base, "expectedCollectionRevision": mapper._take_lane_clip_collection_revision(lane, lane_row["ref"]), "filePath": "/tmp/demo.wav", "position": 16.0, "name": "Audio Take"})
+        self.assertEqual((audio["filePath"], audio["start"]), ("/tmp/demo.wav", 16.0)); validate_operation_payload("take-lane.audio-clip.create", "result", audio)
+        self.assertEqual(len(lane.arrangement_clips), 3)
+
     def test_take_lane_rename_with_rollback(self):
         _, track, lane, existing, mapper = self._mapper_with_lanes()
         lane_row = mapper.snapshot()["tracks"][0]["takeLanes"][0]
@@ -3418,6 +3446,36 @@ class TrackStructureExpansionTests(unittest.TestCase):
         self.assertTrue(mapper._operation_supported("track.delete-return"))
         deleted = mapper.invoke("track.delete-return", {"ref": result["ref"], "expectedObjectIdentity": result["objectIdentity"], "expectedStructureRevision": mapper._structure_revision()})
         self.assertEqual(deleted, {"deleted": result["ref"]}); self.assertEqual(len(song.return_tracks), 0)
+
+    def test_return_track_create_confirms_by_identity_diff_when_creator_returns_none(self):
+        song = FakeSong()
+        # list.append returns None, matching Live shapes whose creator has no
+        # documented return value; confirmation must come from the identity-diff.
+        song.create_return_track = lambda: song.return_tracks.append(FakeTrack())
+        song.delete_return_track = lambda index: song.return_tracks.pop(index)
+        mapper = LiveObjectMapper(song)
+        result = mapper.invoke("track.create-return", {"name": "Verb", "expectedStructureRevision": mapper._structure_revision()})
+        self.assertEqual((result["name"], result["index"]), ("Verb", 0)); validate_operation_payload("track.create-return", "result", result)
+        self.assertEqual(len(song.return_tracks), 1)
+
+    def test_return_track_create_rolls_back_exactly_on_post_creation_failure(self):
+        class NameRefusingTrack(FakeTrack):
+            @property
+            def name(self): return self._name
+            @name.setter
+            def name(self, value):
+                if value != "Boom": self._name = value  # silently refuses "Boom": the write is not confirmed
+        song = FakeSong()
+        keep = FakeTrack(); keep.name = "Keep"; song.return_tracks = [keep]
+        song.create_return_track = lambda: song.return_tracks.append(NameRefusingTrack())
+        song.delete_return_track = lambda index: song.return_tracks.pop(index)
+        mapper = LiveObjectMapper(song)
+        revision = mapper._structure_revision()
+        with self.assertRaisesRegex(ValueError, "return-track name was not confirmed"):
+            mapper.invoke("track.create-return", {"name": "Boom", "expectedStructureRevision": revision})
+        self.assertEqual([track.name for track in song.return_tracks], ["Keep"])
+        result = mapper.invoke("track.create-return", {"name": "Verb", "expectedStructureRevision": mapper._structure_revision()})
+        self.assertEqual((result["name"], result["index"]), ("Verb", 1)); self.assertEqual(len(song.return_tracks), 2)
 
     def test_track_and_scene_duplication(self):
         song = FakeSong()
