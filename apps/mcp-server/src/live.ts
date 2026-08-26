@@ -101,7 +101,7 @@ export interface SessionPlaybackState {
 
 export interface LiveStatus {
   connected: boolean;
-  adapter: "simulator" | "remote-script" | "extension" | "unavailable";
+  adapter: "simulator" | "remote-script" | "extension" | "unavailable" | "offline-file";
   epoch: number | null;
   protocol: string;
   capabilities: readonly LiveCapability[];

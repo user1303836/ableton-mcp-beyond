@@ -61,11 +61,11 @@ function sha256File(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-interface SetSourceRead { path: string; raw: Buffer; xml: string; size: number; mtimeMs: number; sha256: string }
+export interface SetSourceRead { path: string; raw: Buffer; xml: string; size: number; mtimeMs: number; sha256: string }
 
 /** Read once, then verify that the regular-file identity did not change while
  * it was open. XML, size, and hash therefore describe the same bounded bytes. */
-function readSetSource(path: string): SetSourceRead {
+export function readSetSource(path: string): SetSourceRead {
   const resolved = assertSafeSetPath(path);
   const before = lstatSync(resolved);
   const raw = readFileSync(resolved);
@@ -80,7 +80,7 @@ function readSetSource(path: string): SetSourceRead {
   return { path: resolved, raw, xml: xmlBytes.toString("utf8"), size: after.size, mtimeMs: after.mtimeMs, sha256: createHash("sha256").update(raw).digest("hex") };
 }
 
-function decodeXmlAttribute(value: string): string {
+export function decodeXmlAttribute(value: string): string {
   return value.replace(/&(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);/g, (entity) => {
     const named: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"", "&apos;": "'" };
     if (named[entity] !== undefined) return named[entity];
