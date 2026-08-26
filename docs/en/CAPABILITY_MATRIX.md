@@ -16,7 +16,8 @@ most content edits can be undone with `live_undo`.
 |---|---|---|
 | Create MIDI or audio tracks and scenes | `live_session_structure_preview/apply` | Insert positions address regular tracks only; return/main tracks are never treated as insert slots |
 | Return tracks and duplication | `live_track_structure_preview/apply` | Create return tracks, duplicate tracks or scenes with structure fencing and guarded cleanup; return-track deletion is explicit and honestly non-undoable |
-| Read track health and state | `live_snapshot`, `live_discover` | Group membership, visibility, selection, frozen/fold state, implicit arm, back-to-arranger, muted-via-solo, all input/output meters, and performance impact on every track row |
+| Read track health and state | `live_snapshot`, `live_discover` | Group membership, visibility, selection, frozen/fold state, implicit arm, back-to-arranger, muted-via-solo, all input/output meters, performance impact, and color palette index/RGB (when the shape exposes them) on every track row |
+| Track properties (color) | `live_track_properties_preview/apply` | Write the track color palette index (0-69) with exact prior-value undo and post-write verification; the resolved RGB value is reported on track rows when the shape exposes it |
 | Performance and latency diagnostics | `live_performance_read` | One bounded, on-demand sample: average/peak process usage, per-track meters and performance impact, and device latency in samples and milliseconds. Point-in-time evidence; meters are Live UI meters, never decoded audio analysis |
 | Delete an existing device | `live_device_delete_preview/apply` | Explicit deletion of an existing device with exact identity and sibling fencing; honestly non-undoable |
 | Track view and instrument focus | `live_track_view_preview/apply` | Collapse state and device insert mode with exact undo, plus instrument selection in Live's device view (momentary, non-undoable) |

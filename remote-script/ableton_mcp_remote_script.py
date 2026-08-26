@@ -816,6 +816,8 @@ class LiveObjectMapper:
             return callable(getattr(self.song, "duplicate_track", None)) and bool(self._items(getattr(self.song, "tracks", [])))
         if operation == "scene.duplicate":
             return callable(getattr(self.song, "duplicate_scene", None)) and bool(self._items(getattr(self.song, "scenes", [])))
+        if operation == "track.set":
+            return any(self._read_attr(track, "color_index") is not None for track in tracks)
         if operation == "track.view.set":
             return any(getattr(track, "view", None) is not None and (self._read_attr(getattr(track, "view", None), "is_collapsed") is not None or self._read_attr(getattr(track, "view", None), "device_insert_mode") is not None) for track in tracks)
         if operation == "track.select-instrument":
@@ -2301,6 +2303,8 @@ class LiveObjectMapper:
             return self._track_duplicate(args)
         if operation == "scene.duplicate":
             return self._scene_duplicate(args)
+        if operation == "track.set":
+            return self._track_set(args)
         if operation == "track.view.set":
             return self._track_view_set(args)
         if operation == "track.select-instrument":
@@ -4461,11 +4465,15 @@ class LiveObjectMapper:
         group = self._read_attr(track, "group_track")
         group_ref = self.refs.put("track", group, f"group:{track_index}") if group is not None else None
         view = getattr(track, "view", None)
+        color_index = self._read_attr(track, "color_index")
+        color_rgb = self._read_attr(track, "color")
         selected_device = self._read_attr(view, "selected_device") if view is not None else None
         device_insert_mode = self._read_attr(view, "device_insert_mode") if view is not None else None
         selected_track = self._read_attr(getattr(self.song, "view", None), "selected_track")
         return {
             "groupTrackRef": group_ref,
+            "colorIndex": int(color_index) if isinstance(color_index, int) and not isinstance(color_index, bool) and 0 <= color_index <= 69 else None,
+            "color": int(color_rgb) if isinstance(color_rgb, int) and not isinstance(color_rgb, bool) and 0 <= color_rgb <= 0xFFFFFF else None,
             "isVisible": optional_bool(track, "is_visible"),
             "isSelected": (selected_track is track) if selected_track is not None else None,
             "isFrozen": optional_bool(track, "is_frozen"),
@@ -4561,6 +4569,44 @@ class LiveObjectMapper:
         created = after[index + 1]; reference_new = self.refs.put("scene", created, str(index + 1)); identity = self._capture_object_identity(created)
         fingerprint = hashlib.sha256(self._bounded_canonical({"ref": reference_new, "objectIdentity": identity, "name": str(getattr(created, "name", "")), "index": index + 1}).encode("utf-8")).hexdigest()
         return {"ref": reference_new, "objectIdentity": identity, "name": str(getattr(created, "name", "")), "index": index + 1, "createdFingerprint": fingerprint}
+
+    def _track_properties_state(self, track: Any) -> dict[str, Any]:
+        color_index = self._read_attr(track, "color_index")
+        return {"colorIndex": int(color_index) if isinstance(color_index, int) and not isinstance(color_index, bool) and 0 <= color_index <= 69 else None}
+
+    def _track_set(self, args: dict[str, Any]) -> dict[str, Any]:
+        reference = args.get("ref")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:track:") or set(args) - {"ref", "colorIndex", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("track properties authority is invalid")
+        tracks = self._items(getattr(self.song, "tracks", [])); parts = reference.split(":"); index = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+        if not 0 <= index < len(tracks): raise ValueError("track hierarchy changed")
+        track = tracks[index]
+        if not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(track), args["expectedObjectIdentity"]): raise ValueError("track identity changed since preview")
+        state_revision = hashlib.sha256(self._bounded_canonical(self._track_properties_state(track)).encode("utf-8")).hexdigest()
+        if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("track properties state changed since preview")
+        proposals = []
+        if "colorIndex" in args:
+            value = args["colorIndex"]
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 69: raise ValueError("colorIndex is invalid")
+            proposals.append(("color_index", value))
+        if not proposals: raise ValueError("track properties mutation has no fields")
+        for attribute, _ in proposals:
+            if self._read_attr(track, attribute) is None: raise ValueError(f"{attribute} is unavailable on this track")
+        assignments = [(attribute, value, self._read_attr(track, attribute)) for attribute, value in proposals]
+        before_revision = state_revision
+        try:
+            for attribute, value, _ in assignments: setattr(track, attribute, value)
+            for attribute, value, _ in assignments:
+                observed = self._read_attr(track, attribute)
+                if not isinstance(observed, int) or isinstance(observed, bool) or observed != value: raise ValueError("track properties change was not confirmed")
+        except BaseException as error:
+            rollback_failed = False
+            for attribute, _, prior in reversed(assignments):
+                try: setattr(track, attribute, prior)
+                except BaseException: rollback_failed = True
+            if rollback_failed or hashlib.sha256(self._bounded_canonical(self._track_properties_state(track)).encode("utf-8")).hexdigest() != before_revision: raise ValueError("track properties change failed and exact rollback failed") from error
+            raise
+        revision = self.refs.touch(reference)
+        return {"changed": True, "revision": revision}
 
     def _track_view_set(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")

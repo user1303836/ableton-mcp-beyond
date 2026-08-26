@@ -11759,6 +11759,61 @@
    }
   },
   {
+   "id": "track.set",
+   "method": "invoke",
+   "request": {
+    "type": "object",
+    "properties": {
+     "ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+     },
+     "colorIndex": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 69
+     },
+     "expectedObjectIdentity": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+     },
+     "expectedStateRevision": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+     }
+    },
+    "required": [
+     "ref",
+     "expectedObjectIdentity",
+     "expectedStateRevision"
+    ],
+    "additionalProperties": false
+   },
+   "result": {
+    "type": "object",
+    "properties": {
+     "changed": {
+      "type": "boolean",
+      "const": true
+     },
+     "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+     }
+    },
+    "required": [
+     "changed",
+     "revision"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
    "id": "track.view.set",
    "method": "invoke",
    "request": {

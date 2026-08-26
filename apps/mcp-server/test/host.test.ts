@@ -1883,6 +1883,26 @@ test("scene property edits verify state and guardedly undo; direct scene fire is
   (simulator as any).state.playback.transport.playing = false; scene.isTriggered = false;
 });
 
+test("track color is readable on rows and writable with exact undo", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const snapshot = JSON.parse(((await call(2, "live_snapshot", {})) as any).result.content[0].text);
+  const trackRow = snapshot.snapshot.tracks[0];
+  assert.equal(trackRow.colorIndex, 4); assert.equal(trackRow.color, 0xFF0000);
+  const preview = JSON.parse(((await call(3, "live_track_properties_preview", { ref: "track:track-1", colorIndex: 12 })) as any).result.content[0].text);
+  assert.equal(preview.prior.colorIndex, 4); assert.equal(preview.proposed.colorIndex, 12); assert.equal(preview.impact, "edits-track-properties");
+  const applied = JSON.parse(((await call(4, "live_track_properties_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "track-set-1" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied");
+  assert.equal((simulator as any).state.tracks[0].colorIndex, 12);
+  const undone = JSON.parse(((await call(5, "live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "track-set-undo" })) as any).result.content[0].text);
+  assert.equal(undone.state, "undone");
+  assert.equal((simulator as any).state.tracks[0].colorIndex, 4);
+  assert.equal(((await call(6, "live_track_properties_preview", { ref: "track:track-1", colorIndex: 70 })) as any).error.code, -32602);
+  assert.equal(((await call(7, "live_track_properties_preview", { ref: "track:track-1" })) as any).error.code, -32602);
+});
+
 test("song state reads, time conversion, transport actions, and exact cue jumps", async () => {
   const simulator = new DeterministicLiveSimulator();
   const host = new McpHost(simulator);

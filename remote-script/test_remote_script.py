@@ -611,7 +611,7 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertEqual(registry["protocol"], "ableton-live/v1")
         canonical = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
-        self.assertEqual(digest, "a8a73b3157bd771b112b822164d4e9bec57f2a47078727ec157f83593af6f48a")
+        self.assertEqual(digest, "20af0cff705c35352bbc16fffc40d740fa4728ccf5ad64430434f90471bf8aac")
         self.assertIn("audio.capture.start", [item["id"] for item in registry["operations"]])
         self.assertIn("device.parameter.set", [item["id"] for item in registry["operations"]])
         ids = [item["id"] for item in registry["operations"]]
@@ -3366,6 +3366,46 @@ class TrackStructureExpansionTests(unittest.TestCase):
         self.assertEqual((row["outputMeterLeft"], row["outputMeterLevel"], row["performanceImpact"]), (0.6, 0.58, 1))
         self.assertEqual((row["view"]["isCollapsed"], row["view"]["deviceInsertMode"]), (False, 1))
         self.assertIsNotNone(row["view"]["selectedDeviceRef"])
+
+    def test_track_color_rows_and_properties_set_with_rollback(self):
+        song = FakeSong(); track = song.tracks[0]
+        track.color_index = 5; track.color = 0xFF0000
+        mapper = LiveObjectMapper(song)
+        row = mapper.snapshot()["tracks"][0]
+        self.assertEqual((row["colorIndex"], row["color"]), (5, 0xFF0000))
+        self.assertTrue(mapper._operation_supported("track.set"))
+        def fences():
+            return {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical(mapper._track_properties_state(track)).encode()).hexdigest()}
+        result = mapper.invoke("track.set", {**fences(), "colorIndex": 12})
+        self.assertTrue(result["changed"]); validate_operation_payload("track.set", "result", result)
+        self.assertEqual(track.color_index, 12)
+        with self.assertRaisesRegex(ValueError, "colorIndex is invalid"): mapper.invoke("track.set", {**fences(), "colorIndex": 70})
+        with self.assertRaisesRegex(ValueError, "colorIndex is invalid"): mapper.invoke("track.set", {**fences(), "colorIndex": True})
+        with self.assertRaisesRegex(ValueError, "state changed since preview"): mapper.invoke("track.set", {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedStateRevision": "0" * 64, "colorIndex": 3})
+        with self.assertRaisesRegex(ValueError, "mutation has no fields"): mapper.invoke("track.set", fences())
+        # A silently-refused write restores the exact prior value.
+        class SometimesRefusingTrack(FakeTrack):
+            @property
+            def color_index(self): return self._color_index
+            @color_index.setter
+            def color_index(self, value):
+                if getattr(self, "refuse", False): return
+                self._color_index = value
+        refusing = SometimesRefusingTrack(); refusing._color_index = 7; refusing.color = 0x00FF00
+        song2 = FakeSong(); song2.tracks[0] = refusing
+        mapper2 = LiveObjectMapper(song2)
+        row2 = mapper2.snapshot()["tracks"][0]
+        refusing.refuse = True
+        with self.assertRaisesRegex(ValueError, "was not confirmed"):
+            mapper2.invoke("track.set", {"ref": row2["ref"], "expectedObjectIdentity": row2["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper2._bounded_canonical(mapper2._track_properties_state(refusing)).encode()).hexdigest(), "colorIndex": 9})
+        self.assertEqual(refusing.color_index, 7)
+        # A shape without color keeps the field honestly null and refuses writes.
+        plain_song = FakeSong(); plain = LiveObjectMapper(plain_song)
+        plain_row = plain.snapshot()["tracks"][0]
+        self.assertIsNone(plain_row["colorIndex"]); self.assertIsNone(plain_row["color"])
+        self.assertFalse(plain._operation_supported("track.set"))
+        with self.assertRaisesRegex(ValueError, "unavailable on this track"):
+            plain.invoke("track.set", {"ref": plain_row["ref"], "expectedObjectIdentity": plain_row["objectIdentity"], "expectedStateRevision": hashlib.sha256(plain._bounded_canonical(plain._track_properties_state(plain_song.tracks[0])).encode()).hexdigest(), "colorIndex": 3})
 
     def test_return_track_create_and_delete_with_fencing(self):
         song = FakeSong()
