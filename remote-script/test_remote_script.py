@@ -1135,6 +1135,27 @@ class ControlSurfaceTests(unittest.TestCase):
         result = bridge._subscribe_main({"args": {"types": ["transport", "object"]}}, holder)
         self.assertTrue(result["subscribed"]); holder["subscription"].close()
 
+    def test_subscription_mid_registration_failure_leaves_no_registered_callbacks(self):
+        class PartialListenerSong(FakeSong):
+            def __init__(self): super().__init__(); self.listeners = {name: [] for name in ("is_playing", "record_mode", "session_record", "tracks", "scenes")}
+            def _add(self, name, callback): self.listeners[name].append(callback)
+            def _remove(self, name, callback): self.listeners[name].remove(callback)
+            def add_is_playing_listener(self, callback): self._add("is_playing", callback)
+            def remove_is_playing_listener(self, callback): self._remove("is_playing", callback)
+            def add_record_mode_listener(self, callback): self._add("record_mode", callback)
+            def remove_record_mode_listener(self, callback): self._remove("record_mode", callback)
+            def add_session_record_listener(self, callback): self._add("session_record", callback)
+            def remove_session_record_listener(self, callback): self._remove("session_record", callback)
+            def add_tracks_listener(self, callback): self._add("tracks", callback)
+            def remove_tracks_listener(self, callback): self._remove("tracks", callback)
+            def add_scenes_listener(self, callback): raise RuntimeError("listener registration rejected")
+            def remove_scenes_listener(self, callback): self._remove("scenes", callback)
+
+        song = PartialListenerSong(); mapper = LiveObjectMapper(song)
+        with self.assertRaisesRegex(RuntimeError, "listener registration rejected"):
+            _Subscription(mapper, {"transport", "object"})
+        self.assertTrue(all(callbacks == [] for callbacks in song.listeners.values()))
+
     def test_subscription_coalescing_preserves_continuity_without_false_overflow(self):
         mapper = LiveObjectMapper(FakeSong()); subscription = _Subscription(mapper, {"object"})
         subscription._emit("object", {"index": 1}); subscription._emit("object", {"index": 2})
@@ -3319,6 +3340,20 @@ class SongTransportLinkTests(unittest.TestCase):
         without = LiveObjectMapper(FakeSong())
         self.assertFalse(without._operation_supported("locator.jump-to"))
 
+    def test_locator_jump_to_confirms_within_tolerance_and_refuses_gross_mismatch(self):
+        song = FakeArrangementSong()
+        song.cue_points = [FakeLocator(4.0, "A"), FakeLocator(16.0, "B")]
+        song.cue_points[0].jump = lambda: setattr(song, "current_song_time", 4.0 + 5e-4)
+        song.cue_points[1].jump = lambda: setattr(song, "current_song_time", 16.5)
+        mapper = LiveObjectMapper(song)
+        locators = mapper._locator_items()
+        def args_for(row):
+            return {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedCollectionRevision": hashlib.sha256(mapper._bounded_canonical(mapper._locator_items()).encode()).hexdigest()}
+        result = mapper.invoke("locator.jump-to", args_for(locators[0]))
+        self.assertAlmostEqual(result["position"], 4.0005, places=6); validate_operation_payload("locator.jump-to", "result", result)
+        with self.assertRaisesRegex(ValueError, "locator jump was not confirmed"):
+            mapper.invoke("locator.jump-to", args_for(locators[1]))
+
     def test_song_time_convert_documented_queries(self):
         song = FakeSong()
         song.get_beats_loop_start = lambda: 8.0
@@ -3474,6 +3509,19 @@ class SelectionViewExpansionTests(unittest.TestCase):
         result = mapper.invoke("device.view.set", {"ref": device_row["ref"], "collapsed": True, "expectedObjectIdentity": device_row["objectIdentity"], "expectedStateRevision": collapsed_revision})
         self.assertTrue(result["changed"]); validate_operation_payload("device.view.set", "result", result)
         self.assertTrue(device.view.is_collapsed)
+
+    def test_clip_view_set_rejects_non_clip_refs_with_clean_authority_error(self):
+        song = FakeSong()
+        clip = FakeClip(4.0)
+        clip.view = type("ClipView", (), {"grid_quantization": 1, "grid_is_triplet": False})()
+        song.tracks[0].clip_slots[0].clip = clip
+        track = song.tracks[0]
+        track.view = type("TrackView", (), {"grid_quantization": 1, "grid_is_triplet": False})()
+        mapper = LiveObjectMapper(song)
+        track_row = mapper.snapshot()["tracks"][0]
+        with self.assertRaisesRegex(ValueError, "clip view authority is invalid"):
+            mapper.invoke("clip.view.set", {"ref": track_row["ref"], "gridQuantization": 4, "expectedObjectIdentity": track_row["objectIdentity"], "expectedStateRevision": "0" * 64})
+        self.assertEqual((track.view.grid_quantization, track.view.grid_is_triplet), (1, False))
 
     def test_application_dialog_read_and_guarded_press(self):
         class FakeApp:

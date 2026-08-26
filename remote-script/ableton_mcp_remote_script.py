@@ -567,6 +567,13 @@ class ReferenceRegistry:
         self._objects, self._revisions = dict(checkpoint[0]), dict(checkpoint[1])
 
 
+# A momentary locator jump can land a few milliseconds off the cue-point time
+# on some Live shapes. Confirm the landed position within a small absolute
+# beat tolerance instead of exact float equality; a gross mismatch (for
+# example the wrong locator) still refuses.
+_LOCATOR_JUMP_CONFIRMATION_TOLERANCE_BEATS = 1e-3
+
+
 class LiveObjectMapper:
     """Small, version-tolerant Live object mapper used only on Live's main thread."""
 
@@ -4406,7 +4413,7 @@ class LiveObjectMapper:
         position = self._read_attr(self.song, "current_song_time")
         locator_time = self._read_attr(locator, "time")
         if not isinstance(position, (int, float)) or isinstance(position, bool) or not math.isfinite(float(position)) or float(position) < 0: raise ValueError("locator jump did not report a readable song position")
-        if isinstance(locator_time, (int, float)) and float(position) != float(locator_time): raise ValueError("locator jump was not confirmed")
+        if isinstance(locator_time, (int, float)) and abs(float(position) - float(locator_time)) > _LOCATOR_JUMP_CONFIRMATION_TOLERANCE_BEATS: raise ValueError("locator jump was not confirmed")
         return {"position": float(position)}
 
     _SMPTE_FORMAT_ENUM_NAMES = {"smpte-24": "smpte_24", "smpte-25": "smpte_25", "smpte-29": "smpte_29", "smpte-30": "smpte_30", "smpte-30-drop": "smpte_30_drop"}
@@ -4700,7 +4707,7 @@ class LiveObjectMapper:
 
     def _clip_view_set(self, args: dict[str, Any]) -> dict[str, Any]:
         reference = args.get("ref")
-        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:") or set(args) - {"ref", "gridQuantization", "gridIsTriplet", "showEnvelope", "showLoop", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("clip view authority is invalid")
+        if not isinstance(reference, str) or not reference.startswith(f"{self.refs.epoch}:clip:") or set(args) - {"ref", "gridQuantization", "gridIsTriplet", "showEnvelope", "showLoop", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("clip view authority is invalid")
         clip = self.refs.get(reference); view = getattr(clip, "view", None)
         if view is None: raise ValueError("clip view is unavailable")
         current = self.get(reference)
@@ -7535,7 +7542,15 @@ class _Subscription:
                 continue
             register = getattr(song, f"add_{name}_listener", None)
             if callable(register):
-                register(callback)
+                try:
+                    register(callback)
+                except BaseException:
+                    # A mid-registration failure must not strand the callbacks
+                    # that already registered: they would fire into this
+                    # orphaned subscription on Live's main thread for the rest
+                    # of the process lifetime.
+                    self.close()
+                    raise
                 self._registrations.append((song, name, callback))
 
     def _emit(self, event_type: str, payload: dict[str, Any], ref: str | None = None) -> None:
