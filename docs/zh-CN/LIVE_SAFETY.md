@@ -77,6 +77,22 @@ Arrangement 剪辑与定位点;混音器与路由;Session 自动化;设备与 Br
 语义证据,保留歧义与截断限制,并始终报告 `mergeProposed=false`。它不编辑 `.als`,
 也不把不透明插件/Max 状态当作可移植数据。
 
+## 导入媒体暂存
+
+音频导入(`live_audio_import_*`)与 Simpler 采样替换(`live_simpler_*`)会把
+已授权源文件的已验证只读副本,暂存到一个持久的、由所有者管理的目录:
+Linux/macOS 为 `~/.config/ableton-mcp/import-staging`,Windows 为
+`%APPDATA%\ableton-mcp\import-staging`(可用环境变量
+`ABLETON_MCP_IMPORT_STAGING_DIR` 覆盖,且必须是绝对路径)。该目录以仅所有者
+(`0o700`)创建,并在使用前校验所有权。暂存文件以不可写方式创建,Live 只会收到
+这些字节,因此允许源目录中的重命名替换无法注入未授权内容。
+
+Live 就地引用导入的音频:apply 成功后,暂存副本就是新建剪辑或 Simpler 的媒体本体,
+在用户将文件归集到工程或删除该剪辑之前,一直保存在受管目录中。因此,暂存副本只在没有
+消费者的路径上释放 — 预览失败、事务过期、淘汰或恢复终结、分发前的 apply 拒绝、
+apply 失败,以及 undo(删除已建剪辑或还原原始采样之后)— 绝不在 apply 成功、
+宿主关闭或按时间龄期释放。当引用它们的剪辑不复存在后,运维者可以手动清理受管目录。
+
 ## 可发声的 Session 操作
 
 场景/剪辑启动要求:明确的输出安全证据、精确的合格目标、停止且未录音的

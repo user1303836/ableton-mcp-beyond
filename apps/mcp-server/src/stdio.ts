@@ -13,6 +13,9 @@ export interface StdioOptions {
   readonly maxInFlight?: number;
   /** Register a server-initiated emitter (used for event notifications). */
   readonly notifier?: (emit: (value: string) => Promise<void>) => void;
+  /** Cooperative termination: checked after each input chunk; when true the
+      read loop ends cleanly so pending responses flush before return. */
+  readonly shouldStop?: () => boolean;
 }
 
 type JsonRecord = { method?: unknown; id?: unknown; params?: unknown };
@@ -191,6 +194,7 @@ export async function serveStdio(input: Readable, output: Writable, handler: Rec
   try {
     for await (const chunk of input) {
       for (const event of framer.push(Buffer.from(chunk as Uint8Array))) await process(event);
+      if (options.shouldStop?.()) break;
     }
     for (const event of framer.end()) await process(event);
     await Promise.all([...pending.values()].map((entry) => entry.task));
