@@ -1,7 +1,7 @@
-import { analyzeReconstructedPcm, type PcmAnalysis } from "./analysis.js";
+import { analyzePcm, analyzeReconstructedPcm, type BoundaryCount, type PcmAnalysis } from "./analysis.js";
 import type { ConventionalChannelLabel } from "./audio-standards.js";
 
-export const REFERENCE_ANALYSIS_VERSION = "reference-analysis/v1" as const;
+export const REFERENCE_ANALYSIS_VERSION = "reference-analysis/v2" as const;
 export const MAX_COMPARISON_TOTAL_SAMPLES = 4_000_000;
 export const MAX_COMPARISON_SECONDS_PER_SOURCE = 30;
 export const MAX_COMPARISON_CHANNELS = 2;
@@ -31,8 +31,8 @@ export interface ReferenceComparison {
   analysisRate: number;
   resampling: {
     method: "32-tap Blackman-windowed sinc";
-    project: { sourceRate: number; targetRate: number; resampled: boolean };
-    reference: { sourceRate: number; targetRate: number; resampled: boolean };
+    project: { sourceRate: number; targetRate: number; resampled: boolean; sourceClipping: BoundaryCount };
+    reference: { sourceRate: number; targetRate: number; resampled: boolean; sourceClipping: BoundaryCount };
   };
   alignment: {
     available: boolean;
@@ -90,6 +90,12 @@ function validateSource(source: ReferencePcmSource, label: string, observedLengt
     samples[index] = value;
   }
   return { samples, sampleRate: source.sampleRate, channels: source.channels, ...(channelLayout ? { channelLayout } : {}) };
+}
+
+function sourceClipping(source: ReferencePcmSource): BoundaryCount {
+  let count = 0;
+  for (let index = 0; index < source.samples.length; index += 1) if (Math.abs(source.samples[index] ?? 0) >= 0.999999) count += 1;
+  return { count, ratio: count / source.samples.length };
 }
 
 function sinc(value: number): number {
@@ -271,6 +277,8 @@ export function compareReferenceAudio(input: ReferenceComparisonInput): Referenc
   if (!Number.isFinite(maxLagSeconds) || maxLagSeconds < 0 || maxLagSeconds > MAX_ALIGNMENT_LAG_SECONDS) throw new RangeError(`alignment.maxLagSeconds must be from 0 to ${MAX_ALIGNMENT_LAG_SECONDS}`);
   const projectResampled = resampleValidatedPcm(projectSource);
   const referenceResampled = resampleValidatedPcm(referenceSource);
+  const projectSourceClipping = sourceClipping(projectSource);
+  const referenceSourceClipping = sourceClipping(referenceSource);
   let offsetSeconds = 0;
   let correlation: number | null = null;
   let confidence: number | null = null;
@@ -307,8 +315,10 @@ export function compareReferenceAudio(input: ReferenceComparisonInput): Referenc
   if (comparisonTrusted && aligned.frames <= 0) throw new RangeError("alignment leaves no overlapping audio");
   const projectSamples = comparisonTrusted ? aligned.project : projectResampled;
   const referenceSamples = comparisonTrusted ? aligned.reference : referenceResampled;
-  const project = analyzeReconstructedPcm({ samples: projectSamples, sampleRate: COMPARISON_ANALYSIS_RATE, channels: projectSource.channels, ...(projectSource.channelLayout ? { channelLayout: projectSource.channelLayout } : {}) });
-  const reference = analyzeReconstructedPcm({ samples: referenceSamples, sampleRate: COMPARISON_ANALYSIS_RATE, channels: referenceSource.channels, ...(referenceSource.channelLayout ? { channelLayout: referenceSource.channelLayout } : {}) });
+  const projectInput = { samples: projectSamples, sampleRate: COMPARISON_ANALYSIS_RATE, channels: projectSource.channels, ...(projectSource.channelLayout ? { channelLayout: projectSource.channelLayout } : {}) };
+  const referenceInput = { samples: referenceSamples, sampleRate: COMPARISON_ANALYSIS_RATE, channels: referenceSource.channels, ...(referenceSource.channelLayout ? { channelLayout: referenceSource.channelLayout } : {}) };
+  const project = projectSource.sampleRate === COMPARISON_ANALYSIS_RATE ? analyzePcm(projectInput) : analyzeReconstructedPcm(projectInput);
+  const reference = referenceSource.sampleRate === COMPARISON_ANALYSIS_RATE ? analyzePcm(referenceInput) : analyzeReconstructedPcm(referenceInput);
   const projectLufs = project.standardsAudio.loudness.integratedLufs;
   const referenceLufs = reference.standardsAudio.loudness.integratedLufs;
   const gain = comparisonTrusted ? finiteDifference(referenceLufs, projectLufs) : null;
@@ -321,8 +331,8 @@ export function compareReferenceAudio(input: ReferenceComparisonInput): Referenc
     analysisRate: COMPARISON_ANALYSIS_RATE,
     resampling: {
       method: "32-tap Blackman-windowed sinc",
-      project: { sourceRate: projectSource.sampleRate, targetRate: COMPARISON_ANALYSIS_RATE, resampled: projectSource.sampleRate !== COMPARISON_ANALYSIS_RATE },
-      reference: { sourceRate: referenceSource.sampleRate, targetRate: COMPARISON_ANALYSIS_RATE, resampled: referenceSource.sampleRate !== COMPARISON_ANALYSIS_RATE },
+      project: { sourceRate: projectSource.sampleRate, targetRate: COMPARISON_ANALYSIS_RATE, resampled: projectSource.sampleRate !== COMPARISON_ANALYSIS_RATE, sourceClipping: projectSourceClipping },
+      reference: { sourceRate: referenceSource.sampleRate, targetRate: COMPARISON_ANALYSIS_RATE, resampled: referenceSource.sampleRate !== COMPARISON_ANALYSIS_RATE, sourceClipping: referenceSourceClipping },
     },
     alignment: {
       available: alignmentAvailable,

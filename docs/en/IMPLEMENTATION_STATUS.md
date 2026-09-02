@@ -205,9 +205,9 @@ are. Source, schemas, and tests are the final authority.
   source ports, channels, exact parameter refs, packet/rate/queue bounds,
   sequence/replay checks, generation fencing, verified writes, XY compensation,
   telemetry, disarm, and independent TCP emergency stop.
-- `pcm-analysis/v2`: privacy-preserving waveform, spectral, time-frequency,
-  transient, channel, phase, dynamics, clipping, and deterministic aggregate
-  analysis.
+- `pcm-analysis/v3`: privacy-preserving waveform, spectral, time-frequency,
+  transient, channel, phase, dynamics, source clipping/reconstruction-over
+  separation, and deterministic aggregate analysis.
 - ITU-R BS.1770-5 / EBU R128, Tech 3341, and Tech 3342 programme loudness,
   momentary/short-term measures, loudness range, semantic channel weights, and
   validated 44.1/48 kHz true peak. Generated independent FFmpeg-oracle evidence

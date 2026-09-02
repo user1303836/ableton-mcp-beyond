@@ -754,7 +754,7 @@ class EnvelopeEvent:
     const projectSource = { pcmBase64: samples.toString("base64"), sampleRate, channels: 2, channelLayout: ["L", "R"] };
     journeyProgress("compare-reference-mix", "source-relationship", "applying", { relationship: "generated-test-fixture", rawPathSupplied: false, tool: "audio_analyze" });
     const sourceAnalysis = (await textOf(client, "audio_analyze", projectSource, 30_000)).parsed;
-    assert(sourceAnalysis.version === "pcm-analysis/v2" && sourceAnalysis.privacy?.rawAudioReturned === false && sourceAnalysis.privacy?.rawAudioRetained === false, "source relationship analysis violated privacy/version contract");
+    assert(sourceAnalysis.version === "pcm-analysis/v3" && sourceAnalysis.privacy?.rawAudioReturned === false && sourceAnalysis.privacy?.rawAudioRetained === false, "source relationship analysis violated privacy/version contract");
     journeyProgress("compare-reference-mix", "source-relationship", "completed", { relationship: "generated-test-fixture", rawPathSupplied: false, toolResultVersion: sourceAnalysis.version });
     const referenceBytes = Buffer.from(samples);
     for (let frame = 0; frame < sampleRate; frame += 1) {
@@ -765,7 +765,7 @@ class EnvelopeEvent:
     journeyProgress("compare-reference-mix", "measure", "applying", { worker: "disposable-installed-package" });
     const compared = (await textOf(client, "audio_compare_reference", { project: projectSource, reference: { ...projectSource, pcmBase64: referenceBytes.toString("base64") }, alignment: { mode: "disabled" } }, 30_000)).parsed;
     journeyProgress("compare-reference-mix", "measure", "verifying", { version: compared.version, alignment: compared.alignment?.mode });
-    assert(compared.version === "reference-analysis/v1" && compared.privacy?.rawAudioReturned === false && compared.privacy?.rawAudioRetained === false, "reference analysis privacy/version contract mismatch");
+    assert(compared.version === "reference-analysis/v2" && compared.privacy?.rawAudioReturned === false && compared.privacy?.rawAudioRetained === false, "reference analysis privacy/version contract mismatch");
     assert(compared.project?.standardsAudio?.standards?.programmeLoudness === "ITU-R BS.1770-5" && compared.reference?.standardsAudio?.standards?.operatingRecommendation === "EBU R128" && compared.project?.standardsAudio?.truePeak?.method?.includes("ITU-R BS.1770-5 Annex 2"), "reference analysis omitted standards provenance");
     assert(Number.isFinite(compared.deltas?.projectMinusReference?.integratedLoudnessLu), "reference loudness delta is unavailable");
     journeyProgress("compare-reference-mix", "measure", "completed", { rawAudioReturned: false, standards: ["ITU-R BS.1770-5", "EBU R128"], integratedLoudnessDeltaLu: compared.deltas.projectMinusReference.integratedLoudnessLu });

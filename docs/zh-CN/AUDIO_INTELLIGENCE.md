@@ -23,9 +23,11 @@ Remote Script 不暴露 PCM。第三个工作流是用途特定的 Live 录音�
 
 ## 标准分析
 
-`pcm-analysis/v2` 增加了 `standardsAudio`,同时保留旧的
-`loudness.rms-derived-proxy` 字段,仅作为明确弃用的兼容值。交付或母带
-决策必须使用 `standardsAudio`,而不是那个代理值。
+`pcm-analysis/v3` 保留 `standardsAudio`,同时保留旧的
+`loudness.rms-derived-proxy` 字段,仅作为明确弃用的兼容值。它把归一化源采样
+到达满刻度边界的 `clipping`,与带限参考对比重建所产生的 0 dBFS 以上数值
+`reconstructedOvers` 区分开来。重建过冲不能证明源发生削波。交付或母带决策
+必须使用 `standardsAudio`,而不是兼容代理值。
 
 标准结果标识:
 
@@ -94,6 +96,11 @@ Node 子进程,限制为:
 5. 当两个源都合格时,报告 BS.1770 积分电平差与有界的 ±24 dB 建议匹配值;
 6. 报告响度、真/采样峰值、RMS、波峰因数、动态范围、频谱与瞬态密度差值,
    不返回对齐后的 PCM。
+
+`reference-analysis/v2` 在 `resampling.*.sourceClipping` 中报告源域边界计数。
+对于实际转换到 48 kHz 的源,嵌套分析把 0 dBFS 以上的重建值单独报告为
+`reconstructedOvers`,绝不把它误称为源 `clipping`。有损振幅直方图会按有界
+重建范围缩放,因此不会再把所有大于 1 的值压进最后一个区间。
 
 重采样不是时间拉伸或速度匹配。建议的电平匹配不改变任何音频。
 

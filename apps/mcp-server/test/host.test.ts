@@ -570,7 +570,7 @@ test("analyzes supplied PCM through the cancellable MCP worker without Live side
   const result = await host.handleAsync({ jsonrpc: "2.0", id: 20, method: "tools/call", params: { name: "audio_analyze", arguments: { pcmBase64: bytes.toString("base64"), sampleRate: 44100 } } });
   const text = (result as any).result.content[0].text;
   const analysis = JSON.parse(text) as { version: string; sampleCount: number; privacy: { rawAudioReturned: boolean }; safety: { projectMutated: boolean } };
-  assert.equal(analysis.version, "pcm-analysis/v2");
+  assert.equal(analysis.version, "pcm-analysis/v3");
   assert.equal(analysis.sampleCount, 4);
   assert.equal(analysis.privacy.rawAudioReturned, false);
   assert.equal(analysis.safety.projectMutated, false);
@@ -587,7 +587,7 @@ test("compares caller-supplied references without exposing raw PCM", async () =>
   const result = await host.handleAsync({ jsonrpc: "2.0", id: 22, method: "tools/call", params: { name: "audio_compare_reference", arguments: { project: source, reference: source, alignment: { mode: "disabled" } } } });
   assert.equal((result as any).result.isError, false);
   const comparison = JSON.parse((result as any).result.content[0].text);
-  assert.equal(comparison.version, "reference-analysis/v1");
+  assert.equal(comparison.version, "reference-analysis/v2");
   assert.equal(comparison.privacy.rawAudioReturned, false);
   assert.ok(Math.abs(comparison.deltas.projectMinusReference.integratedLoudnessLu) < 1e-9);
 });
