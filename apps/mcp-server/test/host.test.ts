@@ -2242,6 +2242,41 @@ test("selection+drawMode apply failure compensates with allowlisted selection.se
   assert.equal((simulator as any).state.view.drawMode, false);
 });
 
+test("incomplete dialog observations are reported honestly and never authorize a press", async () => {
+  const incompleteSimulator = new DeterministicLiveSimulator();
+  const incompleteOriginal = incompleteSimulator.invokeAsync.bind(incompleteSimulator);
+  incompleteSimulator.invokeAsync = async (invocation) => {
+    if (invocation.operation === "application.dialog" && invocation.args.action === "read") return { buttonCount: 2, message: "Save changes before closing?", openDialogCount: 1, done: false };
+    return incompleteOriginal(invocation);
+  };
+  const incompleteHost = new McpHost(incompleteSimulator); ready(incompleteHost);
+  const incompleteCall = (id: number, args: unknown) => incompleteHost.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "live_application_dialog_preview", arguments: args } });
+  const read = JSON.parse(((await incompleteCall(2, {})) as any).result.content[0].text);
+  assert.equal(read.done, false);
+  const refusedPreview = (await incompleteCall(3, { button: 1 })) as any;
+  assert.equal(refusedPreview.result.isError, true);
+  assert.equal(JSON.parse(refusedPreview.result.content[0].text).reason, "dialog observation is incomplete; guarded presses are refused");
+
+  const applySimulator = new DeterministicLiveSimulator();
+  const applyOriginal = applySimulator.invokeAsync.bind(applySimulator);
+  let reads = 0; let presses = 0;
+  applySimulator.invokeAsync = async (invocation) => {
+    if (invocation.operation === "application.dialog" && invocation.args.action === "read") {
+      reads += 1;
+      return { buttonCount: 2, message: "Save changes before closing?", openDialogCount: 1, done: reads === 1 };
+    }
+    if (invocation.operation === "application.dialog" && invocation.args.action === "press") presses += 1;
+    return applyOriginal(invocation);
+  };
+  const applyHost = new McpHost(applySimulator); ready(applyHost);
+  const call = (id: number, name: string, args: unknown) => applyHost.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(4, "live_application_dialog_preview", { button: 1 })) as any).result.content[0].text);
+  const refusedApply = (await call(5, "live_application_dialog_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "dialog-incomplete" })) as any;
+  assert.equal(refusedApply.result.isError, true);
+  assert.equal(JSON.parse(refusedApply.result.content[0].text).reason, "dialog observation is incomplete; the press was refused");
+  assert.equal(presses, 0);
+});
+
 test("selection, draw mode, clip view, device view, and guarded dialog surface", async () => {
   const simulator = new DeterministicLiveSimulator();
   const host = new McpHost(simulator);
