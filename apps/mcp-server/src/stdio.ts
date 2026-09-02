@@ -78,14 +78,23 @@ export async function serveStdio(input: Readable, output: Writable, handler: Rec
       let writeReturned = false;
       let settled = false;
       const cleanup = (): void => { output.off("drain", onDrain); output.off("error", onError); output.off("close", onClose); };
-      const fail = (cause: Error): void => { if (settled) return; settled = true; cleanup(); reject(cause); };
+      const fail = (cause: Error): void => { if (settled) { cleanup(); return; } settled = true; cleanup(); reject(cause); };
+      const failCallback = (cause: Error): void => {
+        if (settled) return;
+        settled = true;
+        output.off("drain", onDrain);
+        // Keep the one-shot error/close observers until Node emits the stream
+        // error associated with a failed write callback (or failOutput closes a
+        // callback-only custom Writable), preventing an unhandled late event.
+        reject(cause);
+      };
       const finish = (): void => { if (!settled && writeReturned && callbackComplete && drainComplete) { settled = true; cleanup(); resolve(); } };
       const onDrain = (): void => { drainComplete = true; finish(); };
       const onError = (cause: Error): void => fail(cause);
       const onClose = (): void => fail(new Error("output closed"));
       output.once("error", onError); output.once("close", onClose);
       try {
-        const accepted = output.write(`${value}\n`, (cause?: Error | null) => { if (cause) return; callbackComplete = true; finish(); });
+        const accepted = output.write(`${value}\n`, (cause?: Error | null) => { if (cause) { failCallback(cause); return; } callbackComplete = true; finish(); });
         writeReturned = true;
         drainComplete = accepted;
         if (!accepted) output.once("drain", onDrain);
@@ -200,6 +209,9 @@ export async function serveStdio(input: Readable, output: Writable, handler: Rec
     await Promise.all([...pending.values()].map((entry) => entry.task));
     if (flushPromise) await flushPromise;
     await writeTail;
+  } catch (cause) {
+    failOutput(cause);
+    throw cause;
   } finally {
     closed = true;
     for (const controller of controllers.values()) controller.abort(new Error("stdio shutting down"));
