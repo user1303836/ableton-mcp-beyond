@@ -29,15 +29,17 @@ test("reports clipping and bounded reversible remediation", () => {
   assert.equal(result.performance.maxSamples, MAX_ANALYSIS_SAMPLES);
 });
 
-test("separates reconstructed overs from source-domain clipping", () => {
-  const result = analyzeReconstructedPcm({ samples: Float64Array.from([0, 0.5, 1.0001, -1.25]), sampleRate: 48_000 });
+test("separates reconstructed overs and preserves their dynamics histogram", () => {
+  const samples = Float64Array.from({ length: 100 }, (_, index) => index < 90 ? 0.5 : (index % 2 === 0 ? 1.25 : -1.25));
+  const result = analyzeReconstructedPcm({ samples, sampleRate: 48_000 });
   assert.deepEqual(result.clipping, { count: 0, ratio: 0 });
-  assert.deepEqual(result.reconstructedOvers, { count: 2, ratio: 0.5, threshold: 1, applicable: true });
+  assert.deepEqual(result.reconstructedOvers, { count: 10, ratio: 0.1, threshold: 1, applicable: true });
   assert.equal(result.channelsDetail[0]!.clipping.count, 0);
-  assert.equal(result.channelsDetail[0]!.reconstructedOvers.count, 2);
+  assert.equal(result.channelsDetail[0]!.reconstructedOvers.count, 10);
   assert.ok(!result.remediation.some((item) => item.id === "reduce-clipping"));
   assert.ok(result.remediation.some((item) => item.id === "inspect-reconstructed-overs"));
-  assert.ok(Number.isFinite(result.dynamics.dynamicRangeDb));
+  const expectedDynamicRangeDb = 20 * Math.log10(1.25 / 0.5);
+  assert.ok(Math.abs(result.dynamics.dynamicRangeDb - expectedDynamicRangeDb) < 0.01, `unexpected reconstructed dynamic range ${result.dynamics.dynamicRangeDb}`);
 });
 
 test("rejects unsafe and malformed input", () => {
