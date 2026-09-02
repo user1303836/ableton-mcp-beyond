@@ -8430,6 +8430,7 @@ class AbletonMcpBridge:
                 raise ValueError("missing, expired, or mismatched mutation authority")
             if not isinstance(transaction_id, str): raise ValueError("mutation transaction identity is required")
             idempotency_key = authority["idempotencyKey"]
+            claim = object()
             with self._executed_lock:
                 retired = getattr(self, "_retired_mutation_keys", None)
                 if retired is None: retired = self._retired_mutation_keys = {}
@@ -8437,8 +8438,6 @@ class AbletonMcpBridge:
                 if pending is None: pending = self._pending_mutations = {}
                 for key, expires_at in list(retired.items()):
                     if expires_at <= now: retired.pop(key, None)
-                for key, row in list(pending.items()):
-                    if row["expiresAt"] <= now: pending.pop(key, None)
                 finalized = getattr(self, "_finalized_transactions", set())
                 if transaction_id in finalized: raise ValueError("transaction recovery authority has been terminally finalized")
                 if idempotency_key in retired: raise ValueError("mutation replay authority has been retired")
@@ -8446,9 +8445,11 @@ class AbletonMcpBridge:
                 if prior_pending is not None and (prior_pending["transactionId"] != transaction_id or prior_pending["operation"] != request.get("operation") or prior_pending["argsDigest"] != digest): raise ValueError("idempotency key conflicts with a pending mutation")
                 if prior_pending is None:
                     if len(pending) >= 256: raise ValueError("pending mutation ledger is full")
-                    pending[idempotency_key] = {"transactionId": transaction_id, "operation": request.get("operation"), "argsDigest": digest, "count": 1, "expiresAt": int(request.get("deadlineMs", now + 60000))}
+                    pending_row = {"transactionId": transaction_id, "operation": request.get("operation"), "argsDigest": digest, "count": 1, "claims": {claim}}
+                    pending[idempotency_key] = pending_row
                 else:
-                    prior_pending["count"] += 1; prior_pending["expiresAt"] = max(prior_pending["expiresAt"], int(request.get("deadlineMs", now + 60000)))
+                    pending_row = prior_pending
+                    pending_row["claims"].add(claim); pending_row["count"] = len(pending_row["claims"])
             released = False
             def release_pending(_error: BaseException | None = None) -> None:
                 nonlocal released
@@ -8456,9 +8457,9 @@ class AbletonMcpBridge:
                     if released: return
                     released = True
                     pending = getattr(self, "_pending_mutations", {}); row = pending.get(idempotency_key)
-                    if row is not None and row.get("transactionId") == transaction_id and row.get("operation") == request.get("operation") and row.get("argsDigest") == digest:
-                        row["count"] -= 1
-                        if row["count"] == 0: pending.pop(idempotency_key, None)
+                    if row is not pending_row or claim not in pending_row["claims"]: return
+                    pending_row["claims"].remove(claim); pending_row["count"] = len(pending_row["claims"])
+                    if pending_row["count"] == 0: pending.pop(idempotency_key, None)
             def replay_or_apply(apply: Callable[[], Any]) -> Any:
                 with self._executed_lock:
                     retired = getattr(self, "_retired_mutation_keys", {}); finalized = getattr(self, "_finalized_transactions", set())
@@ -8502,8 +8503,6 @@ class AbletonMcpBridge:
                     if pending is None: pending = self._pending_mutations = {}
                     for key, expires_at in list(retired.items()):
                         if expires_at <= now: retired.pop(key, None)
-                    for key, row in list(pending.items()):
-                        if row["expiresAt"] <= now: pending.pop(key, None)
                     keys = [key for key, row in self._executed_mutations.items() if row.get("transactionId") == transaction_id]
                     pending_keys = [key for key, row in pending.items() if row.get("transactionId") == transaction_id]
                     retiring = set(keys + pending_keys)

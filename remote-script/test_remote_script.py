@@ -940,21 +940,34 @@ class ControlSurfaceTests(unittest.TestCase):
             bridge._dispatch_with_holder("invoke", {**request, "authorityToken": prepared["authorityToken"]}, holder)
         self.assertEqual(bridge._pending_mutations, {}); self.assertEqual(bridge._executed_mutations, {}); self.assertEqual(bridge.mapper._resolve_parameter(parameter["ref"]).value, 0.5)
 
-    def test_post_dispatch_uncertainty_retains_pending_claim_until_callback_finishes(self):
+    def test_post_dispatch_claim_survives_its_deadline_and_releases_only_its_own_retry_count(self):
         bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(FakeSong()); bridge._executed_mutations = {}; bridge._pending_mutations = {}; bridge._retired_mutation_keys = {}; bridge._finalized_transactions = set(); bridge._executed_lock = threading.Lock()
-        class UncertainMutationQueue:
-            def __init__(self): self.claimed = None
+        clock = [1000.0]
+        class ControlledMutationQueue:
+            def __init__(self): self.actions = []; self.cancellations = []
             def submit(self, action, deadline_ms=None, on_cancel=None):
                 if on_cancel is None: return action()
-                self.claimed = action
-                raise remote_module._DispatchUncertainError("Live main-thread operation state uncertain after dispatch")
-        bridge.queue = UncertainMutationQueue(); holder = {}; parameter = bridge.mapper.snapshot()["tracks"][0]["devices"][0]["parameters"][0]
+                self.actions.append(action); self.cancellations.append(on_cancel)
+                if len(self.actions) == 1:
+                    clock[0] = (deadline_ms + 1) / 1000
+                    raise remote_module._DispatchUncertainError("Live main-thread operation state uncertain after dispatch")
+                return {"queued": True}
+        bridge.queue = ControlledMutationQueue(); holder = {}; parameter = bridge.mapper.snapshot()["tracks"][0]["devices"][0]["parameters"][0]
         request = {"operation": "device.parameter.set", "transactionId": "transaction-post-dispatch", "args": {"ref": parameter["ref"], "value": 0.75, "expectedRevision": parameter["revision"], **self.parameter_authority(bridge.mapper, parameter["ref"])}}
-        preflight = bridge._dispatch_with_holder("preflight", request, holder); prepared = bridge._dispatch_with_holder("prepare", {**request, "preflightToken": preflight["preflightToken"], "confirmation": preflight["confirmation"], "idempotencyKey": "post-dispatch-key"}, holder)
-        with self.assertRaisesRegex(RuntimeError, "state uncertain after dispatch"):
-            bridge._dispatch_with_holder("invoke", {**request, "authorityToken": prepared["authorityToken"]}, holder)
-        self.assertEqual(bridge._pending_mutations["post-dispatch-key"]["count"], 1)
-        self.assertEqual(bridge.queue.claimed()["value"], 0.75)
+        def prepare():
+            preflight = bridge._dispatch_with_holder("preflight", request, holder)
+            return bridge._dispatch_with_holder("prepare", {**request, "preflightToken": preflight["preflightToken"], "confirmation": preflight["confirmation"], "idempotencyKey": "post-dispatch-key"}, holder)
+        with patch("ableton_mcp_remote_script.time.time", side_effect=lambda: clock[0]):
+            first = prepare(); retry = prepare(); first_deadline = int(clock[0] * 1000) + 100
+            with self.assertRaisesRegex(RuntimeError, "state uncertain after dispatch"):
+                bridge._dispatch_with_holder("invoke", {**request, "deadlineMs": first_deadline, "authorityToken": first["authorityToken"]}, holder)
+            self.assertGreater(int(clock[0] * 1000), first_deadline)
+            self.assertEqual(bridge._pending_mutations["post-dispatch-key"]["count"], 1)
+            self.assertEqual(bridge._dispatch_with_holder("invoke", {**request, "deadlineMs": int(clock[0] * 1000) + 5000, "authorityToken": retry["authorityToken"]}, holder), {"queued": True})
+            self.assertEqual(bridge._pending_mutations["post-dispatch-key"]["count"], 2)
+            self.assertEqual(bridge.queue.actions[0]()["value"], 0.75)
+            self.assertEqual(bridge._pending_mutations["post-dispatch-key"]["count"], 1)
+            bridge.queue.cancellations[1](TimeoutError("retry cancelled before dispatch"))
         self.assertEqual(bridge._pending_mutations, {}); self.assertEqual(bridge.mapper._resolve_parameter(parameter["ref"]).value, 0.75)
 
     def test_mutation_pending_release_is_idempotent_per_queued_invocation(self):
