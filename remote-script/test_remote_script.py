@@ -1896,6 +1896,24 @@ class ControlSurfaceTests(unittest.TestCase):
         self.assertTrue(bridge._stop.is_set())
         self.assertEqual(len(bridge._clients), 0)
 
+    def test_bridge_accept_loop_polls_timeouts_but_terminates_on_hard_errors(self):
+        class FailingServer:
+            def __init__(self): self.timeout = None; self.calls = 0
+            def settimeout(self, timeout): self.timeout = timeout
+            def accept(self):
+                self.calls += 1
+                if self.calls == 1: raise remote_module.socket.timeout()
+                raise OSError("injected persistent accept failure")
+
+        bridge = object.__new__(AbletonMcpBridge)
+        bridge._server = FailingServer(); bridge._stop = threading.Event(); bridge._clients = set(); bridge._workers = set()
+        with patch("ableton_mcp_remote_script._debug_trace") as trace:
+            bridge._accept()
+        self.assertEqual(bridge._server.timeout, 0.2)
+        self.assertEqual(bridge._server.calls, 2)
+        trace.assert_called_once_with("bridge-accept-failure")
+        self.assertIn("bridge-accept-failure", remote_module._DIAGNOSTIC_EVENTS)
+
     def test_disconnect_releases_waiting_main_thread_work(self):
         bridge = AbletonMcpBridge(FakeInstance(), {"host": "127.0.0.1", "port": 45679, "secret": "0123456789abcdef0123456789abcdef"})
         result = []

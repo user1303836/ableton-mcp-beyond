@@ -31,7 +31,7 @@ PROTOCOL = "ableton-loopback/v1"
 _DIAGNOSTICS_MAX_BYTES = 256 * 1024
 _DIAGNOSTICS_QUEUE_LIMIT = 64
 _DIAGNOSTICS_RECORD_LIMIT = 512
-_DIAGNOSTIC_EVENTS = {"dispatch-failure", "result-contract-failure", "capture-tick-failure", "realtime-packet-failure"}
+_DIAGNOSTIC_EVENTS = {"dispatch-failure", "result-contract-failure", "capture-tick-failure", "realtime-packet-failure", "bridge-accept-failure"}
 
 
 class _DiagnosticsSink:
@@ -8351,7 +8351,10 @@ class AbletonMcpBridge:
         self._server.settimeout(0.2)
         while not self._stop.is_set():
             try: client, _ = self._server.accept()
-            except (socket.timeout, OSError): continue
+            except socket.timeout: continue
+            except OSError:
+                if not self._stop.is_set(): _debug_trace("bridge-accept-failure")
+                break
             self._clients.add(client)
             worker = threading.Thread(target=self._client, args=(client,), daemon=True)
             self._workers.add(worker)
