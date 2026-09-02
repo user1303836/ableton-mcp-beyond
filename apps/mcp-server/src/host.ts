@@ -206,6 +206,11 @@ const AUDITION_TTL_MS = 30_000;
 // state propagates asynchronously at quantization boundaries; the deadline
 // must cover snapshot + dispatch + polled verification.
 const AUDITION_DEADLINE_MS = 15_000;
+// Mirrors the Remote Script's _LOCATOR_JUMP_CONFIRMATION_TOLERANCE_BEATS: a
+// momentary jump can land a few milliseconds off the cue-point time, so the
+// host confirms within the same absolute beat tolerance instead of exact
+// float equality (a gross mismatch still refuses).
+const LOCATOR_JUMP_CONFIRMATION_TOLERANCE_BEATS = 1e-3;
 // Structure ownership checks can require multiple complete real-Live snapshots
 // around one create/delete. Each step receives a fresh protocol-bounded window.
 const STRUCTURE_STEP_DEADLINE_MS = 45_000;
@@ -2966,7 +2971,7 @@ export class McpHost {
         ? await adapter.invokeAsync({ operation: "locator.jump-to", args: { ref: transaction.payload.ref, expectedObjectIdentity: transaction.payload.expectedObjectIdentity, expectedCollectionRevision: transaction.payload.expectedCollectionRevision } }, context) as Record<string, unknown>
         : await adapter.invokeAsync({ operation: "locator.jump", args: { direction: transaction.payload.direction } }, context) as Record<string, unknown>;
       if (typeof result.position !== "number" || !Number.isFinite(result.position) || result.position < 0) throw new Error("locator jump was not confirmed");
-      if (transaction.payload.jumpTo === true && Math.abs(result.position - ((transaction.prior as { target: number }).target)) > 1e-6) throw new Error("locator jump did not land on the exact cue");
+      if (transaction.payload.jumpTo === true && Math.abs(result.position - ((transaction.prior as { target: number }).target)) > LOCATOR_JUMP_CONFIRMATION_TOLERANCE_BEATS) throw new Error("locator jump did not land on the cue within tolerance");
       transaction.applyKey = params.idempotencyKey as string;
       transaction.state = "applied";
       return this.successText(id, { transactionId: transaction.id, state: "applied", result, idempotent: false });
