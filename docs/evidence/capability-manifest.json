@@ -1,7 +1,7 @@
 {
   "schema": "ableton-mcp-capability-manifest/v1",
-  "registryHash": "a8a73b3157bd771b112b822164d4e9bec57f2a47078727ec157f83593af6f48a",
-  "operationCount": 154,
+  "registryHash": "8f57bf4a212810ed4cd6cd91153df9791d4c0bcce722d4d4b530bbb470edbf9f",
+  "operationCount": 156,
   "coverageRules": [
     "Covered means reachable end to end from MCP through the negotiated bridge with a verified response.",
     "Read, write, call, and observe access are tracked separately per family notes.",
@@ -574,13 +574,20 @@
     },
     {
       "family": "song-link",
-      "surface": "Song state, Link, time conversion",
+      "surface": "Song state, settings, Link, time conversion",
       "operations": [
         {
           "id": "song.read",
           "status": "executable-negotiated",
           "access": [
             "read"
+          ]
+        },
+        {
+          "id": "song.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
           ]
         },
         {
@@ -595,7 +602,7 @@
     },
     {
       "family": "track-structure",
-      "surface": "Return tracks, duplication, Track.View",
+      "surface": "Return tracks, duplication, Track.View, track properties",
       "operations": [
         {
           "id": "track.create-return",
@@ -640,6 +647,13 @@
           "status": "executable-negotiated",
           "access": [
             "call"
+          ]
+        },
+        {
+          "id": "track.set",
+          "status": "executable-negotiated",
+          "access": [
+            "write"
           ]
         }
       ],

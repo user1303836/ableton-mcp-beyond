@@ -109,6 +109,63 @@ test("duplicate-scope ratchet creates one transformed copy, preserves the source
   assert.equal(simulator.snapshot().tracks[0]!.clips.some((clip) => clip.ref === applied.created.ref), false);
 });
 
+test("euclidean generation flows through duplicate scope with exact diff, preserved source, and undo", async () => {
+  const { simulator, call, parse } = await hostWithMidiClip();
+  const sourceBefore = structuredClone(simulator.snapshot().tracks[0]!.clips[0]!.notes);
+  const preview = await parse(call("live_midi_transform_preview", { clipRef: "clip:clip-1", transform: "euclidean", params: { pulses: 5, steps: 16, rotation: 0, pitch: 36, velocity: 110, noteLength: 0.2, stepLength: 0.25 }, scope: "duplicate", target: { trackRef: "track:track-1", sceneIndex: 1 } }));
+  assert.equal(preview.scope, "duplicate");
+  assert.equal(preview.diff.add, 5);
+  assert.equal(preview.diff.delete, 4);
+  assert.match(preview.assumptions.join(" "), /Euclidean 5-in-16/);
+  const applied = await parse(call("live_midi_transform_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "euclidean-1" }));
+  assert.equal(applied.state, "applied");
+  const duplicateClip = simulator.snapshot().tracks[0]!.clips.find((clip) => clip.ref === applied.created.ref)!;
+  assert.deepEqual(duplicateClip.notes.map((note) => [note.pitch, note.start]), [[36, 0], [36, 0.75], [36, 1.5], [36, 2.25], [36, 3]]);
+  assert.deepEqual(simulator.snapshot().tracks[0]!.clips[0]!.notes.length, sourceBefore.length);
+  const undone = await parse(call("live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "euclidean-undo" }));
+  assert.equal(undone.state, "undone");
+  assert.equal(simulator.snapshot().tracks[0]!.clips.some((clip) => clip.ref === applied.created.ref), false);
+});
+
+test("chord progressions voice-lead through the full preview/apply path with disclosed context", async () => {
+  const { simulator, call, parse } = await hostWithMidiClip();
+  const preview = await parse(call("live_midi_transform_preview", { clipRef: "clip:clip-1", transform: "chord-progression", params: { numerals: ["ii", "V", "I"], root: 5, scale: "minor", chordDuration: 4, octave: 4 }, scope: "duplicate", target: { trackRef: "track:track-1", sceneIndex: 1 } }));
+  assert.match(preview.assumptions.join(" "), /Gdim - Cm - Fm/);
+  assert.deepEqual(preview.params.root, 5);
+  const applied = await parse(call("live_midi_transform_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "progression-apply-1" }));
+  assert.equal(applied.state, "applied");
+  const duplicateClip = simulator.snapshot().tracks[0]!.clips.find((clip) => clip.ref === applied.created.ref)!;
+  assert.equal(duplicateClip.notes.length, 9);
+});
+
+test("roman numerals without an explicit or Set-discovered key fail honestly", async () => {
+  const { simulator, call } = await hostWithMidiClip();
+  (simulator as any).state.tuning.scale = { rootNote: null, scaleName: null, scaleMode: null, scaleIntervals: [] };
+  const refused = await call("live_midi_transform_preview", { clipRef: "clip:clip-1", transform: "chord-progression", params: { numerals: ["ii", "V", "I"] }, scope: "duplicate", target: { trackRef: "track:track-1", sceneIndex: 1 } });
+  assert.equal((refused as any).result.isError, true);
+  assert.match(JSON.parse((refused as any).result.content[0].text).reason, /does not name a song scale/);
+});
+
+test("drum patterns use explicit mappings and discover drum-chain notes with disclosure", async () => {
+  const { simulator, call, parse } = await hostWithMidiClip();
+  const preview = await parse(call("live_midi_transform_preview", { clipRef: "clip:clip-1", transform: "drum-pattern", params: { style: "backbeat", bars: 2, mapping: { kick: 36, snare: 38, closedHat: 42 } }, scope: "duplicate", target: { trackRef: "track:track-1", sceneIndex: 1 } }));
+  assert.equal(preview.diff.add > 0, true);
+  const applied = await parse(call("live_midi_transform_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "drums-apply-1" }));
+  const duplicateClip = simulator.snapshot().tracks[0]!.clips.find((clip) => clip.ref === applied.created.ref)!;
+  assert.ok(duplicateClip.notes.every((note) => [36, 38, 42].includes(note.pitch)));
+  // Discovery: a drum rack's chain notes fill the mapping when none is given.
+  (simulator as any).state.scenes.push({ ref: "scene:scene-3", objectIdentity: "simulator:scene:scene-3", name: "Target 2", index: 2 });
+  (simulator as any).state.tracks[0].clipSlots.push({ ref: "clip-slot:track-1:2", parentRef: "track:track-1", objectIdentity: "simulator:clip-slot:track-1:2", sceneIndex: 2, clipRef: null, empty: true });
+  (simulator as any).state.tracks[0].devices.push({ ref: "device:rack-1", objectIdentity: "simulator:device:rack-1", name: "Kit", className: "DrumGroupDevice", chains: [
+    { ref: "chain:kick", parentRef: "device:rack-1", name: "Kick", inNote: 36 },
+    { ref: "chain:snare", parentRef: "device:rack-1", name: "Snare", inNote: 38 },
+  ] });
+  const discovered = await parse(call("live_midi_transform_preview", { clipRef: "clip:clip-1", transform: "drum-pattern", params: { style: "backbeat", bars: 1 }, scope: "duplicate", target: { trackRef: "track:track-1", sceneIndex: 2 } }));
+  assert.match(discovered.assumptions.join(" "), /discovered from the Set's drum-chain notes: kick=36/);
+  assert.equal(discovered.params.mapping.kick, 36);
+  assert.equal(discovered.params.mapping.snare, 38);
+});
+
 test("apply refuses when the clip changes after preview (revision fence)", async () => {
   const { simulator, call, parse } = await hostWithMidiClip();
   const preview = await parse(call("live_midi_transform_preview", { clipRef: "clip:clip-1", transform: "staccato", params: { factor: 0.5 } }));

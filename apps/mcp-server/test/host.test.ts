@@ -25,7 +25,7 @@ test("requires initialization and exposes only executable, policy-allowed tools"
   assert.equal(host.handle(initialized), null);
   // Disconnected (fail-closed default): only local and always-on read tools are listed.
   const tools = (host.handle({ jsonrpc: "2.0", id: 3, method: "tools/list" }) as any).result.tools;
-  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "plan_user_journey", "audio_analyze", "audio_compare_reference", "live_status", "live_project_snapshot_diff"]);
+  assert.deepEqual(tools.map((tool: { name: string }) => tool.name), ["server_status", "capabilities", "plan_user_journey", "audio_analyze", "audio_compare_reference", "live_status", "live_project_snapshot_diff", "als_read", "als_lint", "als_diff"]);
   // Negotiation placeholders are never callable discovery.
   for (const placeholder of ["live_project_save", "live_project_open"]) {
     assert.equal(tools.some((tool: { name: string }) => tool.name === placeholder), false);
@@ -604,7 +604,7 @@ test("cancels an in-flight audio worker without a response", async () => {
 test("rejects duplicates, unsupported methods, and unknown fields", () => {
   const host = new McpHost();
   ready(host);
-  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 7);
+  assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).result.tools.length, 10);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 2, method: "tools/list" }) as any).error.message, "Duplicate request identifier");
   assert.equal((host.handle({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "set", arguments: {} } }) as any).error.code, -32601);
   assert.equal((host.handle({ jsonrpc: "2.0", id: 4, method: "tools/list", debug: true }) as any).error.code, -32600);
@@ -831,7 +831,7 @@ test("derives a truthful exhaustive tool catalog from fully negotiated Live capa
   assert.equal(new Set([...catalog.tools.available, ...catalog.tools.unavailable]).size, listed.length);
   assert.deepEqual(catalog.tools.unavailable.sort(), []);
   assert.deepEqual(catalog.tools.policyDenied, []);
-  assert.deepEqual([...catalog.tools.visible].sort(), [...listed, "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "capabilities", "plan_user_journey", "server_status"].sort());
+  assert.deepEqual([...catalog.tools.visible].sort(), [...listed, "als_diff", "als_lint", "als_read", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "capabilities", "plan_user_journey", "server_status"].sort());
   assert.equal(catalog.policy.profile, "full");
   assert.equal(catalog.tools.classes.live_tempo_apply, "edit");
   assert.equal(catalog.tools.classes.live_browser_search, "read");
@@ -2137,6 +2137,104 @@ test("scene property edits verify state and guardedly undo; direct scene fire is
   assert.equal(fired.state, "applied"); assert.equal(scene.isTriggered, true); assert.equal((simulator as any).state.playback.transport.playing, true);
   assert.equal(((await call(9, "live_undo", { transactionId: firePreview.transactionId, confirmation: "undo", idempotencyKey: "scene-fire-undo" })) as any).result.isError, true);
   (simulator as any).state.playback.transport.playing = false; scene.isTriggered = false;
+});
+
+test("track color is readable on rows and writable with exact undo", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const snapshot = JSON.parse(((await call(2, "live_snapshot", {})) as any).result.content[0].text);
+  const trackRow = snapshot.snapshot.tracks[0];
+  assert.equal(trackRow.colorIndex, 4); assert.equal(trackRow.color, 0xFF0000);
+  const preview = JSON.parse(((await call(3, "live_track_properties_preview", { ref: "track:track-1", colorIndex: 12 })) as any).result.content[0].text);
+  assert.equal(preview.prior.colorIndex, 4); assert.equal(preview.proposed.colorIndex, 12); assert.equal(preview.impact, "edits-track-properties");
+  const applied = JSON.parse(((await call(4, "live_track_properties_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "track-set-1" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied");
+  assert.equal((simulator as any).state.tracks[0].colorIndex, 12);
+  const undone = JSON.parse(((await call(5, "live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "track-set-undo" })) as any).result.content[0].text);
+  assert.equal(undone.state, "undone");
+  assert.equal((simulator as any).state.tracks[0].colorIndex, 4);
+  assert.equal(((await call(6, "live_track_properties_preview", { ref: "track:track-1", colorIndex: 70 })) as any).error.code, -32602);
+  assert.equal(((await call(7, "live_track_properties_preview", { ref: "track:track-1" })) as any).error.code, -32602);
+});
+
+test("clip launch, legato, and velocity fields write with fencing, gating, and undo", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const snapshot = JSON.parse(((await call(2, "live_snapshot", {})) as any).result.content[0].text);
+  const clipRow = snapshot.snapshot.tracks[0].clips[0];
+  assert.equal(clipRow.launchMode, 0); assert.equal(clipRow.launchQuantization, 4); assert.equal(clipRow.legato, false); assert.equal(clipRow.velocityAmount, 0);
+  const preview = JSON.parse(((await call(3, "live_clip_properties_preview", { clipRef: "clip:clip-1", launchMode: 1, launchQuantization: 14, legato: true, velocityAmount: 0.5 })) as any).result.content[0].text);
+  assert.equal(preview.prior.launchMode, 0); assert.equal(preview.proposed.launchQuantization, 14);
+  const applied = JSON.parse(((await call(4, "live_clip_properties_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "clip-launch-1" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied");
+  const clip = (simulator as any).state.tracks[0].clips[0];
+  assert.equal(clip.launchMode, 1); assert.equal(clip.launchQuantization, 14); assert.equal(clip.legato, true); assert.equal(clip.velocityAmount, 0.5);
+  const undone = JSON.parse(((await call(5, "live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "clip-launch-undo" })) as any).result.content[0].text);
+  assert.equal(undone.state, "undone");
+  assert.equal(clip.launchMode, 0); assert.equal(clip.launchQuantization, 4); assert.equal(clip.legato, false); assert.equal(clip.velocityAmount, 0);
+  assert.equal(((await call(6, "live_clip_properties_preview", { clipRef: "clip:clip-1", launchMode: 4 })) as any).error.code, -32602);
+  assert.equal(((await call(7, "live_clip_properties_preview", { clipRef: "clip:clip-1", launchQuantization: 15 })) as any).error.code, -32602);
+  assert.equal(((await call(8, "live_clip_properties_preview", { clipRef: "clip:clip-1", velocityAmount: 1.5 })) as any).error.code, -32602);
+  assert.equal(((await call(9, "live_clip_properties_preview", { clipRef: "clip:clip-1", ramMode: true })) as any).result.isError, true);
+  (simulator as any).state.tracks[0].clips[0].isPlaying = true;
+  assert.equal(((await call(10, "live_clip_properties_preview", { clipRef: "clip:clip-1", launchMode: 2 })) as any).result.isError, true);
+  (simulator as any).state.tracks[0].clips[0].isPlaying = false;
+});
+
+test("song playback settings write with fencing, rollback, and undo", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const preview = JSON.parse(((await call(2, "live_song_settings_preview", { signatureNumerator: 6, signatureDenominator: 8, swingAmount: 0.5, clipTriggerQuantization: 7, midiRecordingQuantization: 5 })) as any).result.content[0].text);
+  assert.equal(preview.prior.signatureNumerator, 4); assert.equal(preview.prior.swingAmount, 0); assert.equal(preview.prior.clipTriggerQuantization, 5); assert.equal(preview.prior.midiRecordingQuantization, 0);
+  assert.equal(preview.impact, "edits-song-settings-playback-feel");
+  const applied = JSON.parse(((await call(3, "live_song_settings_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "song-set-1" })) as any).result.content[0].text);
+  assert.equal(applied.state, "applied");
+  const song = (simulator as any).state.song;
+  assert.equal(song.signatureNumerator, 6); assert.equal(song.signatureDenominator, 8); assert.equal(song.swingAmount, 0.5);
+  assert.equal(song.clipTriggerQuantization.value, 7); assert.equal(song.midiRecordingQuantization.value, 5);
+  const undone = JSON.parse(((await call(4, "live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "song-set-undo" })) as any).result.content[0].text);
+  assert.equal(undone.state, "undone");
+  assert.equal(song.signatureNumerator, 4); assert.equal(song.signatureDenominator, 4); assert.equal(song.swingAmount, 0);
+  assert.equal(song.clipTriggerQuantization.value, 5); assert.equal(song.midiRecordingQuantization.value, 0);
+  assert.equal(((await call(5, "live_song_settings_preview", { signatureNumerator: 0 })) as any).error.code, -32602);
+  assert.equal(((await call(6, "live_song_settings_preview", { swingAmount: 1.5 })) as any).error.code, -32602);
+  assert.equal(((await call(7, "live_song_settings_preview", { clipTriggerQuantization: 14 })) as any).error.code, -32602);
+  assert.equal(((await call(8, "live_song_settings_preview", { midiRecordingQuantization: 9 })) as any).error.code, -32602);
+  assert.equal(((await call(9, "live_song_settings_preview", {})) as any).error.code, -32602);
+  const state = JSON.parse(((await call(10, "live_song_state", {})) as any).result.content[0].text);
+  assert.equal(state.midiRecordingQuantization.value, 0);
+});
+
+test("key estimation covers clip and note-set paths with revision fencing", async () => {
+  const simulator = new DeterministicLiveSimulator();
+  const host = new McpHost(simulator);
+  ready(host);
+  const call = (id: number, name: string, args: unknown) => host.handleAsync({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+  const estimate = JSON.parse(((await call(2, "live_key_estimate", { clipRef: "clip:clip-1" })) as any).result.content[0].text);
+  assert.ok(Array.isArray(estimate.candidates) && estimate.candidates.length <= 5);
+  assert.ok(["high", "medium", "low", "insufficient-evidence"].includes(estimate.confidence));
+  assert.equal(typeof estimate.ambiguous, "boolean");
+  assert.equal(estimate.evidence.clipRef, "clip:clip-1");
+  assert.equal(typeof estimate.evidence.notesRevision, "string");
+  const repeat = JSON.parse(((await call(3, "live_key_estimate", { clipRef: "clip:clip-1" })) as any).result.content[0].text);
+  assert.deepEqual(repeat, estimate);
+  const fenced = JSON.parse(((await call(4, "live_key_estimate", { clipRef: "clip:clip-1", expectedNotesRevision: estimate.evidence.notesRevision })) as any).result.content[0].text);
+  assert.deepEqual(fenced, estimate);
+  assert.equal(((await call(5, "live_key_estimate", { clipRef: "clip:clip-1", expectedNotesRevision: "0".repeat(64) })) as any).result.isError, true);
+  const noteSet = JSON.parse(((await call(6, "live_key_estimate", { notes: [
+    { pitch: 60, start: 0, duration: 1 }, { pitch: 62, start: 1, duration: 1 }, { pitch: 64, start: 2, duration: 1 },
+    { pitch: 65, start: 3, duration: 1 }, { pitch: 67, start: 4, duration: 2 }, { pitch: 64, start: 6, duration: 1 },
+    { pitch: 62, start: 7, duration: 1 }, { pitch: 60, start: 8, duration: 2 },
+  ] })) as any).result.content[0].text);
+  assert.equal(noteSet.candidates[0].key, "C major");
+  assert.equal(((await call(7, "live_key_estimate", { notes: [{ pitch: 60, start: 0, duration: 1 }], clipRef: "clip:clip-1" })) as any).error.code, -32602);
+  assert.equal(((await call(8, "live_key_estimate", { notes: [{ pitch: 200, start: 0, duration: 1 }] })) as any).error.code, -32602);
 });
 
 test("song state reads, time conversion, transport actions, and exact cue jumps", async () => {

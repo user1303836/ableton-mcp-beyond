@@ -68,6 +68,8 @@ SHA-256 安装。`private: true` 仅防止意外发布,不改变 MIT 权利;见
 - `live_warp_marker_read` 探测某个精确音频剪辑的完整有界 warp 标记集:
   `(beatTime, sampleTime)` 对、单调性检查、适配器/集合/剪辑权威修订,
   以及只读的变更可行性证据。标记按节拍时间寻址;不暴露独立的标记标识。
+- `live_key_estimate` 估计某个精确 MIDI 剪辑(或显式音符集)的调性:排序候选、相关系数、显式置信度分级与歧义标记——绝不给出被迫的单一答案。确定性、只读、带修订栅栏;歧义、半音化或证据不足的素材会诚实地报告备选或证据不足。
+- `als_read`、`als_lint` 与 `als_diff` 离线检查已保存的 `.als` 文件——无需桥接,无需运行中的 Live:有界解压与加固 XML 解析为版本化语义快照(仅在线字段显式标记不可用)、仅报告不修复的 lint(带严重级别与对象身份)、可喂给 `live_key_estimate` 的逐剪辑规范 MIDI 提取,以及经既有语义 diff 引擎对两个文件或文件对已导出快照束的比较。文件授权要求操作者提供 `allowedRoot`;来源如实标注 `offline-file`。`.adg`/`.adv` 设备文件为文档化后续项。
 - `audio_analyze` 分析调用方提供的 float32 PCM,返回有界的聚合、波形、
   频谱、瞬态、动态、削波、ITU-R BS.1770-5/EBU 响度、LRA 以及经验证的
   44.1/48 kHz 真峰值摘要。它在隔离的可取消 worker 中运行,绝不捕获 Live
@@ -131,7 +133,11 @@ capability 资源会报告可执行、可见与策略拒绝的工具集,以及�
 - `live_midi_transform_preview/apply` —— 对某个精确剪辑执行一次确定性的
   带种子 MIDI 变换:transpose、scale-constrain、quantize、swing、
   velocity-curve、带种子 humanize、legato、staccato、rotate、repeat、
-  ratchet、chord voicing、arpeggiate 或带种子 variation。预览返回精确的
+  ratchet、chord voicing、arpeggiate 或带种子 variation —— 另有生成型原语:
+  欧几里得节奏、和弦进行(罗马数字或显式符号,质量按音阶实现,含 close/drop-2/
+  spread 排列与最小移动声部引导)、鼓型与贝斯线模板(鼓映射/调性要么显式给出、
+  要么从 Set 发现并在预览中披露,绝不臆造),以及动机变换(显式轴倒影、逆行、
+  精确比率增值/减值)。预览返回精确的
   add/update/delete 音符差异、源修订、约束、假设、MPE 探测以及撤销路径。
   随机性变换必须显式提供种子,并可逐字节复现。生成型或大型变换默认采用
   duplicate-first,写入某个精确的空槽位(源剪辑保留);原地生成式编辑被

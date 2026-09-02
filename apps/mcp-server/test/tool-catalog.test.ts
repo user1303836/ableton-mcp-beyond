@@ -161,7 +161,7 @@ test("capability resource reports the effective policy and denied tools without 
 test("visibleToolDescriptors returns schema-bearing descriptors only for visible tools", () => {
   const unavailable = { connected: false, adapter: "unavailable", epoch: null, protocol: "ableton-live/v1", capabilities: [] } as const;
   const descriptors = visibleToolDescriptors(unavailable as never, DEFAULT_TOOL_POLICY);
-  assert.deepEqual(descriptors.map((tool) => tool.name), ["server_status", "capabilities", "plan_user_journey", "audio_analyze", "audio_compare_reference", "live_status", "live_project_snapshot_diff"]);
+  assert.deepEqual(descriptors.map((tool) => tool.name), ["server_status", "capabilities", "plan_user_journey", "audio_analyze", "audio_compare_reference", "live_status", "live_project_snapshot_diff", "als_read", "als_lint", "als_diff"]);
   for (const descriptor of descriptors) {
     assert.equal(typeof descriptor.description, "string");
     assert.equal(descriptor.inputSchema.type, "object");

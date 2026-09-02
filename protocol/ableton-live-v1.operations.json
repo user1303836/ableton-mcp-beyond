@@ -3368,6 +3368,27 @@
       "minimum": 0,
       "maximum": 1000000000
      },
+     "launchMode": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+     },
+     "launchQuantization": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 14
+     },
+     "legato": {
+      "type": "boolean"
+     },
+     "ramMode": {
+      "type": "boolean"
+     },
+     "velocityAmount": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+     },
      "expectedObjectIdentity": {
       "type": "string",
       "minLength": 1,
@@ -10646,6 +10667,21 @@
        "maxLength": 256
       }
      },
+     "midiRecordingQuantization": {
+      "type": [
+       "object",
+       "null"
+      ],
+      "maxProperties": 4,
+      "additionalProperties": {
+       "type": [
+        "string",
+        "number",
+        "boolean"
+       ],
+       "maxLength": 256
+      }
+     },
      "isAbletonLinkEnabled": {
       "type": [
        "boolean",
@@ -10696,6 +10732,70 @@
      "isAbletonLinkEnabled",
      "isAbletonLinkStartStopSyncEnabled",
      "tempoFollower",
+     "revision"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "id": "song.set",
+   "method": "invoke",
+   "request": {
+    "type": "object",
+    "properties": {
+     "signatureNumerator": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 99
+     },
+     "signatureDenominator": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 99
+     },
+     "swingAmount": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+     },
+     "clipTriggerQuantization": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 13
+     },
+     "midiRecordingQuantization": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 8
+     },
+     "expectedStateRevision": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+     }
+    },
+    "required": [
+     "expectedStateRevision"
+    ],
+    "additionalProperties": false
+   },
+   "result": {
+    "type": "object",
+    "properties": {
+     "changed": {
+      "type": "boolean",
+      "const": true
+     },
+     "revision": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+     }
+    },
+    "required": [
+     "changed",
      "revision"
     ],
     "additionalProperties": false
@@ -11754,6 +11854,61 @@
     },
     "required": [
      "done"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "id": "track.set",
+   "method": "invoke",
+   "request": {
+    "type": "object",
+    "properties": {
+     "ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+     },
+     "colorIndex": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 69
+     },
+     "expectedObjectIdentity": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+     },
+     "expectedStateRevision": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+     }
+    },
+    "required": [
+     "ref",
+     "expectedObjectIdentity",
+     "expectedStateRevision"
+    ],
+    "additionalProperties": false
+   },
+   "result": {
+    "type": "object",
+    "properties": {
+     "changed": {
+      "type": "boolean",
+      "const": true
+     },
+     "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+     }
+    },
+    "required": [
+     "changed",
+     "revision"
     ],
     "additionalProperties": false
    }

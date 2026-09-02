@@ -49,7 +49,7 @@ export interface SemanticProjectArtifact {
   artifact: { id: string; semanticHash: string; exporterVersion: string };
   policy: { profile: SemanticPrivacyProfile; names: "typed-aliases" | "retained"; paths: "typed-digests" | "basenames" | "project-relative-or-basename" };
   provenance: {
-    source: "live-only" | "live+als";
+    source: "live-only" | "live+als" | "offline-file";
     live: { protocol: string; adapter: string; provenance: string; registryHash?: string; version?: string };
     setFileSha256?: string;
     ableton?: { creator?: string; majorVersion?: string; minorVersion?: string; schemaChangeCount?: string };
@@ -73,6 +73,12 @@ export interface CreateSemanticProjectOptions {
   projectPath?: string;
   sourceEvidence?: ProjectSourceEvidence;
   maxRecords?: number;
+  /** Offline .als parses set this so provenance never claims a live bridge. */
+  sourceKind?: "offline-file";
+  /** Live-only surfaces the offline parse cannot reconstruct (playback,
+   * armed/monitoring state, meters, groove pool, tuning) are recorded as
+   * explicitly unavailable rather than fabricated or vacuously complete. */
+  extraUnavailable?: ReadonlyArray<{ field: string; reason: string; sourceName: string }>;
 }
 
 function normalizeNumber(value: number): number {
@@ -408,6 +414,7 @@ export function createSemanticProjectSnapshot(snapshot: LiveSnapshot, options: C
   if (!source) addUnavailable("set-file-provenance", "the Live Set is unsaved or host file evidence is unavailable", "live-snapshot");
   if (!options.live.version) addUnavailable("live-version", "active Live version was not exposed by the adapter; saved Set creator/version remains source provenance only", "live-adapter");
   if (!source) addUnavailable("dependency-manifest", "saved Set FileRef evidence is unavailable; only observed Live clip/device dependencies are included", "live-snapshot");
+  for (const extra of options.extraUnavailable ?? []) addUnavailable(extra.field, extra.reason, extra.sourceName);
   addUnavailable("audio-content-hash", "referenced media bytes are never read by semantic export", "policy");
   if (source && source.manifest.tracks > snapshot.tracks.length) addUnavailable("tracks", `saved Set reports ${source.manifest.tracks} tracks while the bounded adapter snapshot supplied ${snapshot.tracks.length}`, "adapter-bound");
   if (source && source.manifest.scenes > snapshot.scenes.length) addUnavailable("scenes", `saved Set reports ${source.manifest.scenes} scenes while the bounded adapter snapshot supplied ${snapshot.scenes.length}`, "adapter-bound");
@@ -439,7 +446,7 @@ export function createSemanticProjectSnapshot(snapshot: LiveSnapshot, options: C
   } : undefined;
   const liveVersion = provenanceValue("live-version", options.live.version);
   const provenance: SemanticProjectArtifact["provenance"] = {
-    source: source ? "live+als" : "live-only",
+    source: source ? (options.sourceKind === "offline-file" ? "offline-file" : "live+als") : "live-only",
     live: { protocol: dynamicString(profile, "protocol", options.live.protocol), adapter: dynamicString(profile, "adapter", options.live.adapter), provenance: dynamicString(profile, "provenance", options.live.provenance ?? "unknown"), ...(options.live.registryHash ? { registryHash: dynamicString(profile, "registry-hash", options.live.registryHash) } : {}), ...(liveVersion ? { version: liveVersion } : {}) },
     ...(source ? { setFileSha256: source.manifest.sha256, ableton } : {}),
     limitations: ["host paging does not remove the existing bridge snapshot traversal/frame bounds", "Pack and User Library origins are path-segment heuristics, not installed ownership or portability claims", "opaque plug-in and Max state is not decoded"],
@@ -603,12 +610,12 @@ export function validateSemanticProjectArtifact(artifact: SemanticProjectArtifac
   const tuple = policyTuples[artifact.policy.profile];
   if (!tuple || artifact.policy.names !== tuple[0] || artifact.policy.paths !== tuple[1]) throw new Error("semantic snapshot privacy policy tuple is invalid");
   const live = artifact.provenance.live;
-  if (!["live-only", "live+als"].includes(artifact.provenance.source) || typeof live.protocol !== "string" || !/^[a-z][a-z0-9-]*\/v[1-9][0-9]*$/.test(live.protocol) || !["simulator", "remote-script", "extension", "unavailable"].includes(live.adapter) || !["real-live", "fake-live", "simulator", "unknown"].includes(live.provenance)) throw new Error("semantic snapshot Live provenance values are invalid");
+  if (!["live-only", "live+als", "offline-file"].includes(artifact.provenance.source) || typeof live.protocol !== "string" || !/^[a-z][a-z0-9-]*\/v[1-9][0-9]*$/.test(live.protocol) || !["simulator", "remote-script", "extension", "unavailable", "offline-file"].includes(live.adapter) || !["real-live", "fake-live", "simulator", "unknown"].includes(live.provenance)) throw new Error("semantic snapshot Live provenance values are invalid");
   if (live.registryHash !== undefined && (typeof live.registryHash !== "string" || !rawHashPattern.test(live.registryHash))) throw new Error("semantic snapshot registry hash is invalid");
   if (live.version !== undefined) assertString(live.version, "Live version", /^[A-Za-z0-9 ._+()-]+$/);
   if (!Array.isArray(artifact.provenance.limitations) || artifact.provenance.limitations.length < 1 || artifact.provenance.limitations.length > 16) throw new Error("semantic snapshot provenance limitations are invalid");
   for (const limitation of artifact.provenance.limitations) assertString(limitation, "provenance limitation");
-  if ((artifact.provenance.source === "live+als") !== (typeof artifact.provenance.setFileSha256 === "string")) throw new Error("semantic snapshot Set-file provenance relationship is invalid");
+  if ((artifact.provenance.source === "live+als" || artifact.provenance.source === "offline-file") !== (typeof artifact.provenance.setFileSha256 === "string")) throw new Error("semantic snapshot Set-file provenance relationship is invalid");
   if (artifact.provenance.setFileSha256 !== undefined && !rawHashPattern.test(artifact.provenance.setFileSha256)) throw new Error("semantic snapshot Set SHA is invalid");
   assertString(artifact.set.name, "Set name");
   if (![artifact.set.tempo, artifact.set.arrangementLength].every(isNullableNumber) || !isNonnegativeInteger(artifact.set.trackCount) || !isNonnegativeInteger(artifact.set.sceneCount)) throw new Error("semantic snapshot Set summary values are invalid");

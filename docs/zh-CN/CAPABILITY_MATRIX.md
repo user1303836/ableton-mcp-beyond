@@ -14,7 +14,8 @@
 |---|---|---|
 | 创建 MIDI 或音频轨道和场景 | `live_session_structure_preview/apply` | 插入位置只针对常规轨道;return/main 轨道绝不会被当作插入位置 |
 | 返回轨道与复制 | `live_track_structure_preview/apply` | 创建返回轨道、复制轨道或场景,带结构栅栏与受护栏清理;返回轨道删除是显式且诚实不可撤销的 |
-| 读取轨道健康与状态 | `live_snapshot`、`live_discover` | 每行轨道暴露编组关系、可见性、选中成员、冻结/折叠状态、隐式 arm、回到编排水位、独奏致 mute、全部输入/输出电平表与性能影响 |
+| 读取轨道健康与状态 | `live_snapshot`、`live_discover` | 每行轨道暴露编组关系、可见性、选中成员、冻结/折叠状态、隐式 arm、回到编排水位、独奏致 mute、全部输入/输出电平表、性能影响,以及颜色调色板索引/RGB(形态暴露时) |
+| 轨道属性(颜色) | `live_track_properties_preview/apply` | 写入轨道颜色调色板索引(0-69),带精确原值撤销与写后验证;形态暴露时,轨道行同时报告解析后的 RGB 值 |
 | 性能与延迟诊断 | `live_performance_read` | 一次有界、按需的采样:平均/峰值进程占用、逐轨道电平表与性能影响、以采样和毫秒计的设备延迟。时间点证据;电平表是 Live UI 表头,绝非解码音频分析 |
 | 删除现有设备 | `live_device_delete_preview/apply` | 带精确身份与兄弟栅栏显式删除现有设备;诚实不可撤销 |
 | 轨道视图与乐器聚焦 | `live_track_view_preview/apply` | 折叠状态与设备插入模式,带精确撤销,另有 Live 设备视图中的乐器选择(瞬时,不可撤销) |
@@ -47,11 +48,13 @@
 | 编辑律制与音阶 | `live_tuning_preview/apply` | 律制名称、音域、参考音高与全部 128 个音符偏差,以及根音、音阶名称/模式与音程。验证覆盖长度/范围约束并带精确回滚;更改全局影响播放音高,并经 `live_undo` 精确恢复 |
 | 使用律动池 | `live_groove_preview/apply`、`live_clip_properties_preview/apply`(`grooveRef`) | 全局律动感量与逐 groove 的名称/base/量化/随机/时值/力度编辑,带精确撤销;经剪辑属性分配或清除剪辑 groove(剪辑行暴露 `hasGroove`)。公共 API 没有完整的 groove 导入/提取工作流 —— groove 必须已存在于池中 |
 | 编辑并触发场景 | `live_scene_preview/apply`、`live_scene_fire_preview/apply` | 场景颜色、速度(+启用)与拍号分子/分母/启用,带精确撤销;场景行暴露空/触发/触发按钮状态,剪辑槽行暴露颜色、停止按钮、组槽、播放与启动即录状态。直接触发(fire-as-selected)是独立、带栅栏、可发声且不可撤销的动作 —— 受护栏场景试听仍是聆听检查的安全路径 |
-| 读取深层歌曲与 Link 状态 | `live_song_state` | 可见轨道、指定设备、歌曲长度/起点、拍号、摆动、overdub/arrangement overdub、回到编排水位、可捕获/撤销/重做、独占 arm/solo、预备拍中、速度跟随、自动化重启用、Session 录音/自动化,以及 Ableton Link 启用/起停同步 —— 另有节拍↔SMPTE 与循环时间换算 |
+| 读取深层歌曲与 Link 状态 | `live_song_state` | 可见轨道、指定设备、歌曲长度/起点、拍号、摆动、overdub/arrangement overdub、回到编排水位、可捕获/撤销/重做、独占 arm/solo、预备拍中、速度跟随、自动化重启用、Session 录音/自动化、剪辑触发与 MIDI 录音量化,以及 Ableton Link 启用/起停同步 —— 另有节拍↔SMPTE 与循环时间换算 |
+| 写入歌曲播放设置 | `live_song_settings_preview/apply` | 全局拍号(分子/分母按序写入,部分失败精确回滚)、摆动量(0..1)、剪辑触发量化与 MIDI 录音量化 —— 仅在形态暴露 setter 时可写,像走带编辑一样带修订栅栏与精确撤销;拍号与触发量化变更会立即影响播放感受(预览时披露) |
 | 驱动走带 | `live_transport_preview/apply`、`live_transport_action_preview/apply` | 修订栅栏的位置/循环/节拍器/穿入穿出编辑(可撤销),另有瞬时动作:开始、继续、停止、播放选区、刮擦、打点测速、上/下微调、重启用自动化、触发 Session 录音、强制 Link 节拍时间(带栅栏,可发声动作标记为不可撤销;紧急停止保持独立) |
 | 按 ID 或选择读取音符 | `live_note_read` | 只读定向音符读取,包括 Live 暴露时的当前选择 |
+| 估计音乐调性 | `live_key_estimate` | 按时值/力度加权的音高级相关,对照 Krumhansl-Schmuckler 剖面,带文档化调式候选与主音中心决胜;排序候选与得分、显式置信度分级和歧义标记。确定性且只读;歧义、半音化或薄弱素材如实报告,绝不猜测 |
 | 清除剪辑全部包络 | `live_automation_preview/apply` 加 `clear-envelopes` | 对剪辑上全部包络(设备、rack 与混音器参数)的计数、存在性栅栏清除;诚实不可撤销 |
-| 静音、着色和循环剪辑 | `live_clip_properties_preview/apply` | 任意剪辑的静音和颜色;MIDI 剪辑的循环边界(音频循环在 `live_audio_clip_*` 中) |
+| 静音、着色、循环和启动剪辑 | `live_clip_properties_preview/apply` | 任意剪辑的静音和颜色;MIDI 剪辑的循环边界(音频循环在 `live_audio_clip_*` 中);启动模式(Trigger/Gate/Toggle/Repeat)、含 Global 哨兵的逐剪辑启动量化,以及任意已宣告剪辑的 legato(剪辑播放或触发中时拒绝);音频剪辑的 RAM 模式;MIDI 剪辑的力度量 —— 每个字段仅在精确剪辑宣告时写入,带精确回滚与撤销 |
 | 编辑音频剪辑声音:增益、音高、warp、淡变 | `live_audio_clip_preview/apply` | 只写入确切剪辑宣告的字段;含 warp 模式和淡变 |
 | 编写剪辑自动化 | `live_automation_preview/apply` | 创建包络、插入点、删除范围,带包络修订栅栏 |
 | 路由、arm 和监听轨道 | `live_routing_preview/apply` | 拒绝反馈路由;arm 和监听带栅栏且可恢复 |
@@ -95,6 +98,7 @@
 | Session MIDI 剪辑与音符 | `clip.create/delete`、单音符 `note.add`、原子 `note.add-batch`、`note.update/delete`、Session MIDI preview/apply/undo | `session-midi.ts`、宿主、映射器;G;稳定音符身份、每次剪辑创建一个有界原生批量及补偿 | `session-midi.test.ts`、宿主/Python/打包旅程 | 历史真实 Live 阶段覆盖当时的基本生命周期;当前契约与表情生命周期为打包 fake-Live,精确候选真实 Live 证明待完成 | `USER_GUIDE.md`;pitch、velocity、channel、duration、probability、deviation、release velocity、mute 均为协商 |
 | 高级 MIDI / MPE | 暴露处的 probability、velocity deviation、release velocity、mute | 音符模式与映射器;G | 注册表/宿主/Python 旅程测试 | 表情字段仅在打包 fake-Live 中证明;成功的当前候选真实 Live 证明待完成;逐音符 MPE 压力/滑音/调音不可用 | `USER_GUIDE.md`;扩展点是规范音符模式加协商映射器操作,绝不捏造字段 |
 | 带种子 MIDI 变换 | `live_midi_transform_preview/apply`,基于 `note.update`/`note.add-batch`/`note.delete`/`clip.duplicate` | 纯确定性变换模块 + 宿主事务;G;精确 add/update/delete diff 预览、显式种子、逐字节可复现、生成型/大型变换默认 duplicate-first、MPE 保留探针;按注册表上限分块执行,每块对照期望中间状态设栅栏,按内容身份做重放感知恢复,原位撤销身份绑定栅栏,duplicate 范围按持久化的原始计划恢复 | `midi-transforms.test.ts`、`midi-transform-host.test.ts`、`review-round2.test.ts`、属性覆盖 | 宿主/模拟器契约;适配器级音符操作不变 | `USER_GUIDE.md`;原位生成型编辑被拒绝,因为删除重建无法保留未暴露的单音符表情;确定性变更代码中不存在艺术家模仿或品味判断 |
+| 生成型 MIDI 原语 | `live_midi_transform_preview/apply` 的 `euclidean`、`chord-progression`、`drum-pattern`、`bassline`、`motif-invert`、`motif-retrograde`、`motif-augment`、`motif-diminish` 变换 | `midi-transforms.ts` 中的纯确定性生成器:Bjorklund 欧几里得节奏(最大均匀分布、首个脉冲规范化、确定性旋转)、罗马数字或显式符号的和弦进行(质量按音阶实现而非假设,close/drop-2/spread 排列,最小移动声部引导)、文档化鼓型模板(four-on-the-floor、backbeat、breakbeat、trap hats,带网格/密度/种子参数)、跟根音贝斯线(octave、walking、arpeggiated),以及动机变换(显式轴倒影、逆行、精确比率增值/减值)。鼓映射与调性绝不臆造:来自显式参数或 Set 发现上下文(鼓链音符、歌曲音阶),并在预览中披露 | `midi-generative.test.ts` 属性覆盖(最大均匀性、声部引导单调性、逐字节可复现)+ `midi-transform-host.test.ts` 预览/应用/撤销路径 | 宿主/模拟器契约;精确候选真实 Live 证据待补 | `USER_GUIDE.md`;生成器保持 duplicate-first;动机变换仅更新 |
 | Session 捕获 | `session.capture-midi`、`scene.capture` | 宿主 preview/apply/幂等/受护栏撤销事务加映射器预检、不可变对象身份删除栅栏及新鲜修订/回读;G/A | 宿主/Python/打包旅程 | 真实 Live 阶段 5 证据 | `LIVE_SAFETY.md`;捕获结果必须可重新发现;MIDI 捕获仅在所有 Session 槽位为空时宣告,使原生失败清理无法改变既有剪辑内容 |
 | Arrangement 导航与剪辑 | arrangement 发现;剪辑创建/复制/移动;事务拥有清理;locator 添加/删除/重命名;take lane 读取/重命名与文件音频导入 | 宿主事务管理器 + 映射器;G | 宿主/Python/打包旅程 | `phase-5cd-clip-arrangement-live.txt` 及当前测试 | `USER_GUIDE.md`;拒绝任意 Arrangement 删除;精确创建身份+指纹清理仅适用于创建/复制;移动栅栏源/目标内容并使用精确反向移动恢复,绝不铸造删除权限,并消费事务创建源的任何先前清理令牌。仅映射器实现的 lane 创建/MIDI lane 剪辑路径未由公共 MCP 模式宣告;公共 LOM 不提供 take-lane 删除/试听或 comp 区域编辑 API |
 | Arrangement 音频导入 | `arrangement.audio-clip.create`(文件路径到精确位置) | 宿主 preview/apply,带轨道/集合栅栏 + 映射器创建身份;G;通过 `live_undo` 的事务拥有清理 | 宿主与 Python 测试 | 打包 fake-Live 与模拟器;当前候选真实 Live 证明待完成 | `USER_GUIDE.md`;路径必须在该机器上可被 Live 读取;按文件路径、位置和创建身份验证放置 |
@@ -110,6 +114,7 @@
 | Browser | 搜索/过滤/检查及精确的仅设备加载 | 宿主 + 映射器;R/G;检查栅栏在加载前复核 | 宿主/Python/打包旅程 | `phase-6ab-devices-browser-live.txt` | Browser 音频预览/停止在不存在权威预览/停止 API 处不可用;严格的 `browser.preview.start/stop` 契约作为未宣告扩展点测试 |
 | 应用视图 | `view.set` 主视图切换;`view.control` 缩放/滚动/跟随/轨道折叠 | 宿主 preview/apply + 映射器,带回读确认;G;仅 UI,无音乐状态 | 宿主与 Python 测试 | 模拟器与 Python 契约;当前候选真实 Live 证明待完成 | `USER_GUIDE.md`;瞬态 UI 状态不可撤销,且绝不作为音乐变更的前置 |
 | 项目与文件 | 项目信息、确定性语义快照分页/差异、依赖清单、缺失媒体、验证备份 | `project.ts`、`project-semantic.ts`、`project-semantic-diff.ts`;R/FS;三种隐私配置,不导出绝对路径/会话授权,不读媒体,保留歧义的比较 | project semantic/diff/host 测试及既有 project/Python 阶段测试 | 语义导出/差异仅有模拟器/合成 fixture 证据;`phase-7a-project-ops-live.txt` 只覆盖早期 info/backup | `live_project_snapshot_export/diff` 不是规范 `project.export`、`.als` 编辑、Collect All and Save、自动合并或插件可移植性;桥接 snapshot 遍历/帧限制仍明确存在 |
+| 离线 .als 检查 | `als_read` / `als_lint` / `als_diff` 离线解析、lint 与比较已保存 Set,无需桥接或运行中的 Live | `als.ts` 有界解压 + 加固 XML 读取(拒绝 DOCTYPE/ENTITY,深度/节点/属性/文本有界);语义产物经版本化 `project-semantic.ts` 管线组装,标注 `offline-file` 来源,仅在线字段显式标记不可用;操作者 `allowedRoot` 包容 + 规范常规文件检查;仅报告不修复的 lint,带严重级别与对象身份;逐剪辑规范 MIDI 提取,可喂给 `live_key_estimate` 与既有语义 diff 引擎 | `als.test.ts`:合成 fixture、敌意 XML 防护、隐私配置、fail-closed 宿主路径、混合束/文件差异 | 仅模拟器/fixture 证据;真实 .als 语料验证待补 | `.adg`/`.adv` 设备文件为文档化后续项;结构启发式,绝非通用 XML 解析器;lint 不提供修复 |
 | 订阅/事件 | 对已产生的 `transport`、`object`、`reset` 事件的认证订阅/退订;有界事件队列 | 适配器/映射器;R;签名 epoch 绑定事件携带 epoch;未送达的相邻合并保持连续性,真实溢出发出 reset 事件 | 回环/Python/打包旅程 | `phase-7b-subscriptions-live.txt` | 不支持的 state/meter/Max/OSC 事件过滤器被拒绝而非静默接受;epoch 变化、reset 或序列缺口要求重新快照;事件不是变更权限 |
 | UDP/OSC/XY/Max 包兼容实时 | realtime arm/disarm/stats;有界 JSON、OSC、XY 与 `max` 标签包入口 | 映射器实时平面;RT/A;令牌/TTL/来源/通道/速率/队列/代栅栏,外加每个 Live 线程包上复核的精确参数、所有者、轨道、路径与兄弟身份;诚实的 `ableton://max-extension` 资源 | 宿主/Python/打包旅程 | `phase-7c-realtime-live.json` | 运行时宣告 OSC/realtime,而非 `max` 能力。包标签仅为扩展格式;不声称捆绑 Max 设备、握手、`.amxd` 或任意包权限 |
 | 紧急恢复 | Session 紧急停止、捕获紧急停止/状态、realtime disarm | 用途专用独立权限;A/RT/P;Session 紧急停止原子清除剪辑播放、走带与两种录音模式 | 宿主/Python/打包/重启测试 | 真实 Live 阶段 4、7c、8 | `RECOVERY.md`;不确定变更绝不自动重放 |
