@@ -119,7 +119,7 @@
 | 域 | API / 实现 | 安全 | 测试与对照 | 生产证据 | 限制 / 文档 |
 |---|---|---|---|---|---|
 | PCM 分析 | `audio_analyze`;`analysis.ts` 与一次性 worker 运行器 | P;有界输入/时间/内存/输出、取消、剥离密钥的 worker、结果无原始 PCM | 分析、worker、属性、基准测试 | 打包本地分析 | `AUDIO_INTELLIGENCE.md`;所供 PCM 关系为调用方声明 |
-| 波形/频谱/时频/瞬态/相位/动态 | `pcm-analysis/v2` 聚合摘要 | P/R | 确定性夹具与边界 | 打包旅程 | 有损聚合证据,不是源重建或母带裁决 |
+| 波形/频谱/时频/瞬态/相位/动态 | `pcm-analysis/v3` 聚合摘要 | P/R | 确定性夹具与边界 | 打包旅程 | 有损聚合证据,不是源重建或母带裁决 |
 | 响度/LRA/真峰值 | `audio-standards.ts`、BS.1770-5 / EBU R128/Tech 3341/3342 | P/R | `phase-8-audio-oracle.json` 中的独立 FFmpeg 对照 | 打包分析 | 真峰值仅在 44.1/48 kHz 验证;沉浸声/对象布局不可用 |
 | 参考对比 | `audio_compare_reference`;有界重采样、对齐、电平匹配 | P/R | `reference-analysis.test.ts`、属性/基准 | 打包参考旅程 | 32–96 kHz 输入;歧义故障关闭,扣留重叠、跨源差值与增益建议,同时保留独立源分析;不推断法律/来源关系 |
 | 信号链诊断 | `diagnoseAudioWithLiveContext` | R/P;精确引用、非因果语言 | 诊断/宿主测试 | 打包旅程与阶段 8 | 测量不证明某设备造成了差异 |

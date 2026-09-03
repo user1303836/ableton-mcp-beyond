@@ -17,7 +17,7 @@ test("worker request bound contains the advertised maximum PCM payload", () => {
 test("runs standards analysis in a disposable bounded child process", async () => {
   const runner = new AnalysisRunner();
   const result = await runner.run({ mode: "analyze", source: { pcmBase64: encodedTone(), sampleRate: 48_000, channels: 1 } }) as Record<string, unknown>;
-  assert.equal(result.version, "pcm-analysis/v2");
+  assert.equal(result.version, "pcm-analysis/v3");
   assert.equal((result.privacy as Record<string, unknown>).rawAudioReturned, false);
   assert.deepEqual(runner.status(), { active: 0, queued: 0, maxConcurrent: MAX_CONCURRENT_ANALYSIS_JOBS, maxQueued: MAX_QUEUED_ANALYSIS_JOBS });
 });

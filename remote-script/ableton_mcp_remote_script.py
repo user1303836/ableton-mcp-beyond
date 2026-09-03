@@ -31,7 +31,7 @@ PROTOCOL = "ableton-loopback/v1"
 _DIAGNOSTICS_MAX_BYTES = 256 * 1024
 _DIAGNOSTICS_QUEUE_LIMIT = 64
 _DIAGNOSTICS_RECORD_LIMIT = 512
-_DIAGNOSTIC_EVENTS = {"dispatch-failure", "result-contract-failure", "capture-tick-failure", "realtime-packet-failure"}
+_DIAGNOSTIC_EVENTS = {"dispatch-failure", "result-contract-failure", "capture-tick-failure", "realtime-packet-failure", "bridge-accept-failure"}
 
 
 class _DiagnosticsSink:
@@ -8093,10 +8093,15 @@ class _RealtimePlane:
             raise error
 
 
+class _DispatchUncertainError(RuntimeError):
+    """The Live-thread callback was claimed and may still complete."""
+
+
 class _DispatchToken:
     def __init__(self, deadline_ms: int):
         self.deadline_ms = deadline_ms
         self.state = "queued"
+        self._cancel_notified = False
         self._lock = threading.Lock()
 
     def claim(self) -> bool:
@@ -8118,6 +8123,12 @@ class _DispatchToken:
         with self._lock:
             if self.state == "running": self.state = "completed"
 
+    def mark_cancel_notified(self) -> bool:
+        with self._lock:
+            if self._cancel_notified: return False
+            self._cancel_notified = True
+            return True
+
 
 class _MainThreadQueue:
     def __init__(self) -> None:
@@ -8125,7 +8136,7 @@ class _MainThreadQueue:
         self._closed = False
         self._lock = threading.Lock()
 
-    def submit(self, callback: Callable[[], Any], timeout: float = DEFAULT_TIMEOUT_SECONDS, deadline_ms: int | None = None) -> Any:
+    def submit(self, callback: Callable[[], Any], timeout: float = DEFAULT_TIMEOUT_SECONDS, deadline_ms: int | None = None, on_cancel: Callable[[BaseException], None] | None = None) -> Any:
         now_ms = int(time.time() * 1000)
         deadline_ms = deadline_ms if isinstance(deadline_ms, int) and not isinstance(deadline_ms, bool) else now_ms + int(timeout * 1000)
         if deadline_ms <= now_ms or deadline_ms > now_ms + 60000: raise TimeoutError("Live main-thread operation deadline expired")
@@ -8134,11 +8145,14 @@ class _MainThreadQueue:
         token = _DispatchToken(deadline_ms)
         with self._lock:
             if self._closed: raise RuntimeError("Live bridge is disconnected")
-            self.items.put_nowait((callback, event, result, token, None))
+            self.items.put_nowait((callback, event, result, token, on_cancel))
         wait_seconds = max(0.0, min(timeout, (deadline_ms - int(time.time() * 1000)) / 1000.0))
         if not event.wait(wait_seconds):
-            if token.cancel(): raise TimeoutError("Live main-thread operation timed out before dispatch")
-            raise RuntimeError("Live main-thread operation state uncertain after dispatch")
+            if token.cancel():
+                error = TimeoutError("Live main-thread operation timed out before dispatch")
+                self._notify_cancel(token, on_cancel, error)
+                raise error
+            raise _DispatchUncertainError("Live main-thread operation state uncertain after dispatch")
         if result and isinstance(result[0], BaseException): raise result[0]
         return result[0] if result else None
 
@@ -8159,8 +8173,8 @@ class _MainThreadQueue:
         return True
 
     @staticmethod
-    def _notify_cancel(callback: Callable[[BaseException], None] | None, error: BaseException) -> None:
-        if callback is not None:
+    def _notify_cancel(token: _DispatchToken, callback: Callable[[BaseException], None] | None, error: BaseException) -> None:
+        if callback is not None and token.mark_cancel_notified():
             try: callback(error)
             except BaseException: pass
 
@@ -8172,7 +8186,7 @@ class _MainThreadQueue:
                 except queue.Empty: break
                 error = RuntimeError("Live bridge is disconnected")
                 token.cancel(); result.append(error); event.set()
-                self._notify_cancel(on_cancel, error)
+                self._notify_cancel(token, on_cancel, error)
 
     def drain(self, budget: int = MAX_QUEUE_ITEMS) -> int:
         count = 0
@@ -8181,7 +8195,7 @@ class _MainThreadQueue:
             except queue.Empty: break
             if not token.claim():
                 error = TimeoutError("Live main-thread operation timed out before dispatch")
-                result.append(error); event.set(); self._notify_cancel(on_cancel, error)
+                result.append(error); event.set(); self._notify_cancel(token, on_cancel, error)
                 count += 1; continue
             try: result.append(callback())
             except BaseException as exc: result.append(exc)
@@ -8351,7 +8365,10 @@ class AbletonMcpBridge:
         self._server.settimeout(0.2)
         while not self._stop.is_set():
             try: client, _ = self._server.accept()
-            except (socket.timeout, OSError): continue
+            except socket.timeout: continue
+            except OSError:
+                if not self._stop.is_set(): _debug_trace("bridge-accept-failure")
+                break
             self._clients.add(client)
             worker = threading.Thread(target=self._client, args=(client,), daemon=True)
             self._workers.add(worker)
@@ -8413,6 +8430,7 @@ class AbletonMcpBridge:
                 raise ValueError("missing, expired, or mismatched mutation authority")
             if not isinstance(transaction_id, str): raise ValueError("mutation transaction identity is required")
             idempotency_key = authority["idempotencyKey"]
+            claim = object()
             with self._executed_lock:
                 retired = getattr(self, "_retired_mutation_keys", None)
                 if retired is None: retired = self._retired_mutation_keys = {}
@@ -8420,8 +8438,6 @@ class AbletonMcpBridge:
                 if pending is None: pending = self._pending_mutations = {}
                 for key, expires_at in list(retired.items()):
                     if expires_at <= now: retired.pop(key, None)
-                for key, row in list(pending.items()):
-                    if row["expiresAt"] <= now: pending.pop(key, None)
                 finalized = getattr(self, "_finalized_transactions", set())
                 if transaction_id in finalized: raise ValueError("transaction recovery authority has been terminally finalized")
                 if idempotency_key in retired: raise ValueError("mutation replay authority has been retired")
@@ -8429,9 +8445,21 @@ class AbletonMcpBridge:
                 if prior_pending is not None and (prior_pending["transactionId"] != transaction_id or prior_pending["operation"] != request.get("operation") or prior_pending["argsDigest"] != digest): raise ValueError("idempotency key conflicts with a pending mutation")
                 if prior_pending is None:
                     if len(pending) >= 256: raise ValueError("pending mutation ledger is full")
-                    pending[idempotency_key] = {"transactionId": transaction_id, "operation": request.get("operation"), "argsDigest": digest, "count": 1, "expiresAt": int(request.get("deadlineMs", now + 60000))}
+                    pending_row = {"transactionId": transaction_id, "operation": request.get("operation"), "argsDigest": digest, "count": 1, "claims": {claim}}
+                    pending[idempotency_key] = pending_row
                 else:
-                    prior_pending["count"] += 1; prior_pending["expiresAt"] = max(prior_pending["expiresAt"], int(request.get("deadlineMs", now + 60000)))
+                    pending_row = prior_pending
+                    pending_row["claims"].add(claim); pending_row["count"] = len(pending_row["claims"])
+            released = False
+            def release_pending(_error: BaseException | None = None) -> None:
+                nonlocal released
+                with self._executed_lock:
+                    if released: return
+                    released = True
+                    pending = getattr(self, "_pending_mutations", {}); row = pending.get(idempotency_key)
+                    if row is not pending_row or claim not in pending_row["claims"]: return
+                    pending_row["claims"].remove(claim); pending_row["count"] = len(pending_row["claims"])
+                    if pending_row["count"] == 0: pending.pop(idempotency_key, None)
             def replay_or_apply(apply: Callable[[], Any]) -> Any:
                 with self._executed_lock:
                     retired = getattr(self, "_retired_mutation_keys", {}); finalized = getattr(self, "_finalized_transactions", set())
@@ -8450,12 +8478,12 @@ class AbletonMcpBridge:
                     if operation in {"realtime.arm", "realtime.disarm"}: return replay_or_apply(lambda: self._realtime_op(operation, args))
                     return replay_or_apply(lambda: self.mapper.invoke(operation, args, transaction_id, request.get("ownershipToken")))
                 finally:
-                    with self._executed_lock:
-                        pending = getattr(self, "_pending_mutations", {}); row = pending.get(idempotency_key)
-                        if row is not None and row.get("transactionId") == transaction_id and row.get("operation") == request.get("operation") and row.get("argsDigest") == digest:
-                            row["count"] -= 1
-                            if row["count"] <= 0: pending.pop(idempotency_key, None)
-            return self.queue.submit(invoke_authorized, deadline_ms=request.get("deadlineMs"))
+                    release_pending()
+            try:
+                return self.queue.submit(invoke_authorized, deadline_ms=request.get("deadlineMs"), on_cancel=release_pending)
+            except BaseException as error:
+                if not isinstance(error, _DispatchUncertainError): release_pending()
+                raise
         if method == "invoke" and request.get("operation") == "realtime.stats":
             return self._realtime_op(request["operation"], request.get("args", {}))
         if method == "retire":
@@ -8475,8 +8503,6 @@ class AbletonMcpBridge:
                     if pending is None: pending = self._pending_mutations = {}
                     for key, expires_at in list(retired.items()):
                         if expires_at <= now: retired.pop(key, None)
-                    for key, row in list(pending.items()):
-                        if row["expiresAt"] <= now: pending.pop(key, None)
                     keys = [key for key, row in self._executed_mutations.items() if row.get("transactionId") == transaction_id]
                     pending_keys = [key for key, row in pending.items() if row.get("transactionId") == transaction_id]
                     retiring = set(keys + pending_keys)

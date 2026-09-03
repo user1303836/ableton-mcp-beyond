@@ -927,6 +927,68 @@ class ControlSurfaceTests(unittest.TestCase):
             self.assertFalse(token.claim())
         self.assertEqual(token.state, "cancelled")
 
+    def test_mutation_pending_count_is_released_when_submit_fails(self):
+        bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(FakeSong()); bridge._executed_mutations = {}; bridge._pending_mutations = {}; bridge._retired_mutation_keys = {}; bridge._finalized_transactions = set(); bridge._executed_lock = threading.Lock()
+        class FailingMutationQueue:
+            def submit(self, action, deadline_ms=None, on_cancel=None):
+                if on_cancel is not None: raise RuntimeError("injected submit failure")
+                return action()
+        bridge.queue = FailingMutationQueue(); holder = {}; parameter = bridge.mapper.snapshot()["tracks"][0]["devices"][0]["parameters"][0]
+        request = {"operation": "device.parameter.set", "transactionId": "transaction-submit-failure", "args": {"ref": parameter["ref"], "value": 0.75, "expectedRevision": parameter["revision"], **self.parameter_authority(bridge.mapper, parameter["ref"])}}
+        preflight = bridge._dispatch_with_holder("preflight", request, holder); prepared = bridge._dispatch_with_holder("prepare", {**request, "preflightToken": preflight["preflightToken"], "confirmation": preflight["confirmation"], "idempotencyKey": "submit-failure-key"}, holder)
+        with self.assertRaisesRegex(RuntimeError, "injected submit failure"):
+            bridge._dispatch_with_holder("invoke", {**request, "authorityToken": prepared["authorityToken"]}, holder)
+        self.assertEqual(bridge._pending_mutations, {}); self.assertEqual(bridge._executed_mutations, {}); self.assertEqual(bridge.mapper._resolve_parameter(parameter["ref"]).value, 0.5)
+
+    def test_post_dispatch_claim_survives_its_deadline_and_releases_only_its_own_retry_count(self):
+        bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(FakeSong()); bridge._executed_mutations = {}; bridge._pending_mutations = {}; bridge._retired_mutation_keys = {}; bridge._finalized_transactions = set(); bridge._executed_lock = threading.Lock()
+        clock = [1000.0]
+        class ControlledMutationQueue:
+            def __init__(self): self.actions = []; self.cancellations = []
+            def submit(self, action, deadline_ms=None, on_cancel=None):
+                if on_cancel is None: return action()
+                self.actions.append(action); self.cancellations.append(on_cancel)
+                if len(self.actions) == 1:
+                    clock[0] = (deadline_ms + 1) / 1000
+                    raise remote_module._DispatchUncertainError("Live main-thread operation state uncertain after dispatch")
+                return {"queued": True}
+        bridge.queue = ControlledMutationQueue(); holder = {}; parameter = bridge.mapper.snapshot()["tracks"][0]["devices"][0]["parameters"][0]
+        request = {"operation": "device.parameter.set", "transactionId": "transaction-post-dispatch", "args": {"ref": parameter["ref"], "value": 0.75, "expectedRevision": parameter["revision"], **self.parameter_authority(bridge.mapper, parameter["ref"])}}
+        def prepare():
+            preflight = bridge._dispatch_with_holder("preflight", request, holder)
+            return bridge._dispatch_with_holder("prepare", {**request, "preflightToken": preflight["preflightToken"], "confirmation": preflight["confirmation"], "idempotencyKey": "post-dispatch-key"}, holder)
+        with patch("ableton_mcp_remote_script.time.time", side_effect=lambda: clock[0]):
+            first = prepare(); retry = prepare(); first_deadline = int(clock[0] * 1000) + 100
+            with self.assertRaisesRegex(RuntimeError, "state uncertain after dispatch"):
+                bridge._dispatch_with_holder("invoke", {**request, "deadlineMs": first_deadline, "authorityToken": first["authorityToken"]}, holder)
+            self.assertGreater(int(clock[0] * 1000), first_deadline)
+            self.assertEqual(bridge._pending_mutations["post-dispatch-key"]["count"], 1)
+            self.assertEqual(bridge._dispatch_with_holder("invoke", {**request, "deadlineMs": int(clock[0] * 1000) + 5000, "authorityToken": retry["authorityToken"]}, holder), {"queued": True})
+            self.assertEqual(bridge._pending_mutations["post-dispatch-key"]["count"], 2)
+            self.assertEqual(bridge.queue.actions[0]()["value"], 0.75)
+            self.assertEqual(bridge._pending_mutations["post-dispatch-key"]["count"], 1)
+            bridge.queue.cancellations[1](TimeoutError("retry cancelled before dispatch"))
+        self.assertEqual(bridge._pending_mutations, {}); self.assertEqual(bridge.mapper._resolve_parameter(parameter["ref"]).value, 0.75)
+
+    def test_mutation_pending_release_is_idempotent_per_queued_invocation(self):
+        bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(FakeSong()); bridge._executed_mutations = {}; bridge._pending_mutations = {}; bridge._retired_mutation_keys = {}; bridge._finalized_transactions = set(); bridge._executed_lock = threading.Lock()
+        class CaptureMutationQueue:
+            def __init__(self): self.cancellations = []
+            def submit(self, action, deadline_ms=None, on_cancel=None):
+                if on_cancel is None: return action()
+                self.cancellations.append(on_cancel); return {"queued": True}
+        bridge.queue = CaptureMutationQueue(); holder = {}; parameter = bridge.mapper.snapshot()["tracks"][0]["devices"][0]["parameters"][0]
+        request = {"operation": "device.parameter.set", "transactionId": "transaction-double-cancel", "args": {"ref": parameter["ref"], "value": 0.75, "expectedRevision": parameter["revision"], **self.parameter_authority(bridge.mapper, parameter["ref"])}}
+        for _ in range(2):
+            preflight = bridge._dispatch_with_holder("preflight", request, holder); prepared = bridge._dispatch_with_holder("prepare", {**request, "preflightToken": preflight["preflightToken"], "confirmation": preflight["confirmation"], "idempotencyKey": "double-cancel-key"}, holder)
+            self.assertEqual(bridge._dispatch_with_holder("invoke", {**request, "authorityToken": prepared["authorityToken"]}, holder), {"queued": True})
+        self.assertEqual(bridge._pending_mutations["double-cancel-key"]["count"], 2)
+        cancelled = TimeoutError("injected pre-dispatch cancellation")
+        bridge.queue.cancellations[0](cancelled); bridge.queue.cancellations[0](cancelled)
+        self.assertEqual(bridge._pending_mutations["double-cancel-key"]["count"], 1)
+        bridge.queue.cancellations[1](cancelled)
+        self.assertEqual(bridge._pending_mutations, {}); self.assertEqual(bridge._executed_mutations, {}); self.assertEqual(bridge.mapper._resolve_parameter(parameter["ref"]).value, 0.5)
+
     def test_retirement_is_a_live_thread_barrier_for_earlier_mutations(self):
         bridge = object.__new__(AbletonMcpBridge); bridge.queue = _MainThreadQueue(); bridge._executed_mutations = {}; bridge._executed_lock = threading.Lock(); events = []
         def applied():
@@ -943,7 +1005,7 @@ class ControlSurfaceTests(unittest.TestCase):
     def test_retirement_fences_prior_key_but_allows_same_transaction_undo_key(self):
         bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(FakeSong()); bridge._executed_mutations = {}; bridge._pending_mutations = {}; bridge._retired_mutation_keys = {}; bridge._executed_lock = threading.Lock()
         class ImmediateQueue:
-            def submit(self, action, deadline_ms=None): return action()
+            def submit(self, action, deadline_ms=None, on_cancel=None): return action()
         bridge.queue = ImmediateQueue(); holder = {}; transaction_id = "transaction-apply-undo"
         def set_value(value, key):
             parameter = bridge.mapper.snapshot()["tracks"][0]["devices"][0]["parameters"][0]; request = {"operation": "device.parameter.set", "transactionId": transaction_id, "args": {"ref": parameter["ref"], "value": value, "expectedRevision": parameter["revision"], **self.parameter_authority(bridge.mapper, parameter["ref"])}}
@@ -956,7 +1018,7 @@ class ControlSurfaceTests(unittest.TestCase):
     def test_terminal_retirement_atomically_requires_safety_and_fences_prepared_authority(self):
         bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(FakeSong()); bridge._executed_mutations = {}; bridge._pending_mutations = {}; bridge._retired_mutation_keys = {}; bridge._finalized_transactions = set(); bridge._executed_lock = threading.Lock()
         class ImmediateQueue:
-            def submit(self, action, deadline_ms=None): return action()
+            def submit(self, action, deadline_ms=None, on_cancel=None): return action()
         class SafeRealtime:
             def stats(self): return {"armed": False, "pending": 0}
         bridge.queue = ImmediateQueue(); bridge._realtime = SafeRealtime(); holder = {}; transaction_id = "transaction-terminal-finalize"; parameter = bridge.mapper.snapshot()["tracks"][0]["devices"][0]["parameters"][0]
@@ -978,7 +1040,7 @@ class ControlSurfaceTests(unittest.TestCase):
         bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(FakeSong()); bridge._executed_mutations = {}; bridge._pending_mutations = {}; bridge._retired_mutation_keys = {}; bridge._executed_lock = threading.Lock()
         class DelayedMutationQueue:
             def __init__(self): self.delay = False; self.entered = threading.Event(); self.release = threading.Event()
-            def submit(self, action, deadline_ms=None):
+            def submit(self, action, deadline_ms=None, on_cancel=None):
                 if self.delay and threading.current_thread().name == "delayed-mutation": self.entered.set(); self.release.wait(1)
                 return action()
         bridge.queue = DelayedMutationQueue(); holder = {}; parameter = bridge.mapper.snapshot()["tracks"][0]["devices"][0]["parameters"][0]
@@ -1006,7 +1068,7 @@ class ControlSurfaceTests(unittest.TestCase):
     def test_mutation_preflight_is_unpredictable_one_use_and_fences_external_state(self):
         bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(FakeSong())
         class ImmediateQueue:
-            def submit(self, action, deadline_ms=None): return action()
+            def submit(self, action, deadline_ms=None, on_cancel=None): return action()
         bridge.queue = ImmediateQueue(); bridge._executed_mutations = {}; bridge._executed_lock = threading.Lock(); holder = {}
         parameter = bridge.mapper.snapshot()["tracks"][0]["devices"][0]["parameters"][0]
         request = {"operation": "device.parameter.set", "transactionId": "transaction-preflight", "args": {"ref": parameter["ref"], "value": 0.75, "expectedRevision": parameter["revision"], **self.parameter_authority(bridge.mapper, parameter["ref"])}}
@@ -1039,7 +1101,7 @@ class ControlSurfaceTests(unittest.TestCase):
         song = FakeSong(); song.is_playing = True; song.current_song_time = 1.0
         bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(song)
         class ImmediateQueue:
-            def submit(self, action, deadline_ms=None): return action()
+            def submit(self, action, deadline_ms=None, on_cancel=None): return action()
         bridge.queue = ImmediateQueue(); bridge._executed_mutations = {}; bridge._executed_lock = threading.Lock(); holder = {}
         request = {"operation": "locator.add", "transactionId": "transaction-position", "args": {"name": "Position Fence", "position": 8.0}}
         preflight = bridge._dispatch_with_holder("preflight", request, holder); song.current_song_time = 3.5
@@ -1052,7 +1114,7 @@ class ControlSurfaceTests(unittest.TestCase):
         song = FakeSong(); song.is_playing = True
         bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(song)
         class ImmediateQueue:
-            def submit(self, action, deadline_ms=None): return action()
+            def submit(self, action, deadline_ms=None, on_cancel=None): return action()
         bridge.queue = ImmediateQueue(); bridge._executed_mutations = {}; bridge._executed_lock = threading.Lock(); holder = {}
         bridge.mapper._capture_state = {"captureId": "capture-test", "startedAt": 1000, "state": "active", "sourceSlotRef": "source-slot", "destinationSlotRef": "destination-slot", "destinationTrackRef": "destination-track"}
         request = {"operation": "audio.capture.stop", "transactionId": "transaction-capture-stop", "args": {"captureId": "capture-test", "token": "t" * 24}}
@@ -1067,7 +1129,7 @@ class ControlSurfaceTests(unittest.TestCase):
         song = FakeSong(); song.tracks[0].clip_slots[0].clip = FakeClip(4.0)
         bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(song)
         class ImmediateQueue:
-            def submit(self, action, deadline_ms=None): return action()
+            def submit(self, action, deadline_ms=None, on_cancel=None): return action()
         bridge.queue = ImmediateQueue(); bridge._executed_mutations = {}; bridge._executed_lock = threading.Lock(); holder = {}
         clip = bridge.mapper.snapshot()["tracks"][0]["clips"][0]; owned_clip = song.tracks[0].clip_slots[0].clip
         bridge.mapper._capture_state = {"captureId": "capture-test", "state": "captured", "sourceSlotRef": "source-slot", "destinationSlotRef": "destination-slot", "clipRef": clip["ref"], "_destinationSlot": song.tracks[0].clip_slots[0], "_ownedClip": owned_clip, "_ownedClipIdentity": bridge.mapper._capture_object_identity(owned_clip), "residual": []}
@@ -1850,16 +1912,19 @@ class ControlSurfaceTests(unittest.TestCase):
         work = _MainThreadQueue()
         mutations = []
         errors = []
+        cancellations = []
         import threading
-        worker = threading.Thread(target=lambda: self._capture_queue_error(work, mutations, errors))
+        worker = threading.Thread(target=lambda: self._capture_queue_error(work, mutations, errors, cancellations))
         worker.start(); worker.join(1)
         self.assertEqual(errors, ["Live main-thread operation timed out before dispatch"])
+        self.assertEqual(cancellations, ["Live main-thread operation timed out before dispatch"])
         self.assertEqual(work.drain(), 1)
+        self.assertEqual(cancellations, ["Live main-thread operation timed out before dispatch"])
         self.assertEqual(mutations, [])
 
     @staticmethod
-    def _capture_queue_error(work, mutations, errors):
-        try: work.submit(lambda: mutations.append("mutated"), timeout=0.01)
+    def _capture_queue_error(work, mutations, errors, cancellations):
+        try: work.submit(lambda: mutations.append("mutated"), timeout=0.01, on_cancel=lambda error: cancellations.append(str(error)))
         except TimeoutError as error: errors.append(str(error))
 
     def test_nonblocking_main_thread_callback_reports_predispatch_expiry(self):
@@ -1895,6 +1960,24 @@ class ControlSurfaceTests(unittest.TestCase):
         bridge.disconnect()
         self.assertTrue(bridge._stop.is_set())
         self.assertEqual(len(bridge._clients), 0)
+
+    def test_bridge_accept_loop_polls_timeouts_but_terminates_on_hard_errors(self):
+        class FailingServer:
+            def __init__(self): self.timeout = None; self.calls = 0
+            def settimeout(self, timeout): self.timeout = timeout
+            def accept(self):
+                self.calls += 1
+                if self.calls == 1: raise remote_module.socket.timeout()
+                raise OSError("injected persistent accept failure")
+
+        bridge = object.__new__(AbletonMcpBridge)
+        bridge._server = FailingServer(); bridge._stop = threading.Event(); bridge._clients = set(); bridge._workers = set()
+        with patch("ableton_mcp_remote_script._debug_trace") as trace:
+            bridge._accept()
+        self.assertEqual(bridge._server.timeout, 0.2)
+        self.assertEqual(bridge._server.calls, 2)
+        trace.assert_called_once_with("bridge-accept-failure")
+        self.assertIn("bridge-accept-failure", remote_module._DIAGNOSTIC_EVENTS)
 
     def test_disconnect_releases_waiting_main_thread_work(self):
         bridge = AbletonMcpBridge(FakeInstance(), {"host": "127.0.0.1", "port": 45679, "secret": "0123456789abcdef0123456789abcdef"})
