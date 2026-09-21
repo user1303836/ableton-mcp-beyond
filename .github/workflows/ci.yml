@@ -85,7 +85,7 @@ jobs:
           name: exact-local-candidate
           path: ${{ runner.temp }}/candidate/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 90
 
   node:
     name: Node ${{ matrix.node }} / ${{ matrix.os }}
@@ -133,7 +133,7 @@ jobs:
           name: candidate-verification-${{ matrix.os }}-node-${{ matrix.node }}
           path: ${{ runner.temp }}/candidate-verification.json
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 90
       - name: Verify production journeys from the exact shared candidate
         env:
           ABLETON_MCP_ARTIFACT: ${{ runner.temp }}/ableton-candidate/${{ needs.candidate.outputs.artifact_name }}

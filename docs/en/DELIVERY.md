@@ -30,6 +30,37 @@ SHA-256 values. A release candidate must come from a clean commit. SHA-256
 proves byte integrity, not publisher identity. MIT does not grant Ableton
 trademark rights or imply signing, certification, affiliation, or endorsement.
 
+## Candidate retention and retrieval
+
+CI requests **90 days** for both `exact-local-candidate` and matching
+`candidate-verification-*` reports. This is a retrieval window, not a durable
+release channel; repository policy or deletion can shorten it. Old expired
+artifacts are not restored by this change. Before expiry, retain the tarball,
+`candidate-metadata.json`, verification reports, run URL and exact successful
+head SHA together in an owner-controlled archive. Never substitute a rebuilt
+archive for an already receipt-bound artifact, even from the same source SHA.
+
+For a **completed successful run at the intended exact commit**, use new empty
+download directories (GitHub CLI access required):
+
+```sh
+gh run view "$RUN_ID" --repo user1303836/ableton-mcp-beyond \
+  --json headSha,status,conclusion,url
+gh run download "$RUN_ID" --repo user1303836/ableton-mcp-beyond \
+  --name exact-local-candidate --dir "$CANDIDATE_DIR"
+gh run download "$RUN_ID" --repo user1303836/ableton-mcp-beyond \
+  --pattern 'candidate-verification-*' --dir "$EVIDENCE_DIR"
+```
+
+Compare the intended commit to the run and metadata, and compare the tarball's
+SHA-256 to `candidate-metadata.json` before installation. The checked-out
+source verifier is `apps/mcp-server/scripts/verify-candidate.mjs`; run it from
+`apps/mcp-server` with absolute tarball and metadata paths. It verifies bytes
+and provenance, not publisher identity or new Live certification. If expired,
+request a newly verified candidate; do not rely on a dead download link or run
+an unpublished package name via `npx`. Public publication/signing and a durable
+beta release channel still require an explicit owner decision.
+
 ## Supported matrix
 
 Node 22 and 24 are explicit supported majors; prefer Node 24 LTS. Node 25 is EOL,
@@ -291,6 +322,37 @@ preserve/purge, malformed options, restart-required state, and
 truthful unavailable activation. Hosted Windows runs add native DACL and
 held-file/process behavior; macOS runs add POSIX modes/link behavior. A passing
 lifecycle test is still not a loaded Windows Live Control Surface observation.
+
+## First-run decision path (not the #66 guided wizard)
+
+1. Install Node 24 LTS (22 remains supported); acquire and verify an exact candidate.
+2. Use the platform-specific paths above, inspect the lifecycle install plan,
+   stop Live yourself, then apply with explicit stopped confirmation. Do not
+   guess a Remote Scripts destination or override symlink/ownership refusals.
+3. Restart Live and select `AbletonMcpBridge` as a Control Surface; run lifecycle
+   `activate`, then `ableton-mcp-diagnostics --config /absolute/bridge-config.json`.
+4. Configure the MCP client to launch the exact installed executable with that
+   same `--config` path; follow [USER_GUIDE.md](USER_GUIDE.md) for its protocol era.
+
+Use the JSON report to locate the failed stage:
+
+| Stage | Evidence / next action |
+|---|---|
+| Runtime/platform | `nodeSupported`, `platformSupported`; use the supported Node/platform, not an engine override |
+| Package | `readiness.package`, entrypoint/assets; verify the exact installed candidate, not merely an existing folder |
+| Configuration/secret | `config.valid`, `bridgeConfigured`, `secretPermissions`; use the receipt-bound config and repair owned files, never print the secret |
+| Installation | Lifecycle `status` checks the selected Remote Scripts installation; diagnostics' `remoteScriptInstalled` means **packaged assets**, not proof Live loaded that destination |
+| Authenticated bridge | `authenticatedReachable`, `registryHash`, `diagnosticErrors`; verify restart/Control Surface selection, matching config/secret, loopback ports and registry |
+| Real Live | `readiness.realLiveOperational`, `provenance`, discovery; simulator/fake-Live cannot satisfy activation |
+| Release | `readiness.releaseCertified` remains false; retain exact-candidate matrix plus separate external evidence |
+
+Diagnostics exit code 0 alone is **not** readiness: unavailable/configuration or
+bridge evidence can still be false. Inspect the fields and lifecycle result.
+Do not use repeated installation as a connectivity repair or erase an uncertain
+receipt/journal. Setup remains argument-driven. Issue #66 remains open for one
+journaled/resumable guided install/verify command, stage-specific remediation,
+confirmed destination selection and clean-machine tests; there is no `onboard`
+command or generic `--yes` approval bypass today.
 
 ## Layered diagnostics
 

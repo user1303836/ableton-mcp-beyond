@@ -25,6 +25,25 @@ JavaScript 与声明、带注册表与清单的 Remote Script、发布清单与�
 发布候选必须来自干净提交。SHA-256 证明字节完整性,而不是发布者身份;MIT
 也不授予 Ableton 商标权或表示签名、认证、关联或认可。
 
+## 候选保留与获取
+
+CI 为 `exact-local-candidate` 与匹配的 `candidate-verification-*` 请求 **90 天**保留期。这是获取窗口，不是永久发布渠道；仓库策略或删除可能缩短它，旧的过期产物也不会恢复。
+到期前，将 tarball、`candidate-metadata.json`、验证报告、run URL 和成功的精确 head SHA 一起保存在所有者控制的归档中。即使源 SHA 相同，也不能用重建产物替换已绑定回执的字节。
+
+选择目标提交的已完成成功 run，使用新的空下载目录（需 GitHub CLI）：
+
+```sh
+gh run view "$RUN_ID" --repo user1303836/ableton-mcp-beyond \
+  --json headSha,status,conclusion,url
+gh run download "$RUN_ID" --repo user1303836/ableton-mcp-beyond \
+  --name exact-local-candidate --dir "$CANDIDATE_DIR"
+gh run download "$RUN_ID" --repo user1303836/ableton-mcp-beyond \
+  --pattern 'candidate-verification-*' --dir "$EVIDENCE_DIR"
+```
+
+将 run / 元数据中的提交与目标提交比较，并将 tarball 的 SHA-256 与元数据比较。源码检验器为 `apps/mcp-server/scripts/verify-candidate.mjs`；在 `apps/mcp-server` 内运行，传入 tarball 和元数据的绝对路径。
+这验证字节与来源，不证明发布者身份或新增真实 Live 认证。过期后应请求新的已验证候选，不能依赖失效链接或用 `npx` 运行未发布包名。公开发布、签名与持久 beta 渠道仍需所有者单独决定。
+
 ## 支持矩阵
 
 Node 22、24 是显式支持的主版本，推荐 Node 24 LTS。Node 25 已终止维护，Node 26 尚未验证。
@@ -262,6 +281,26 @@ restart-required 状态。安装器在 Python 缓存目录路径上拥有一个�
 运行增加原生 DACL 与占用文件/进程行为;macOS 运行增加 POSIX 模式/链接
 行为。通过的生命周期测试仍然不是已加载的 Windows Live Control Surface
 观察。
+
+## 首次设置决策路径（不是 #66 引导向导）
+
+1. 安装 Node 24 LTS（仍支持 22），获取并验证精确候选。
+2. 使用上述平台路径，查看 lifecycle install 计划，自行停止 Live，再带显式已停止确认执行。不要猜测 Remote Scripts 目录或绕过链接 / 所有权拒绝。
+3. 重启 Live，选择 `AbletonMcpBridge` Control Surface；执行 lifecycle `activate`，再运行 `ableton-mcp-diagnostics --config /absolute/bridge-config.json`。
+4. MCP 客户端使用同一 `--config` 与精确的已安装入口，协议方式见 [USER_GUIDE.md](USER_GUIDE.md)。
+
+| 阶段 | 证据 / 下一步 |
+|---|---|
+| Runtime / 平台 | `nodeSupported` / `platformSupported`；使用受支持环境，不覆盖 engine 限制 |
+| 软件包 | `readiness.package`、入口与 assets；目录存在不等于候选完整 |
+| 配置 / 密钥 | `config.valid`、`bridgeConfigured`、`secretPermissions`；修复回执绑定配置与所有者文件，不打印密钥 |
+| 安装位置 | lifecycle `status` 检查实际 Remote Scripts 位置；诊断的 `remoteScriptInstalled` 仅表示包内 assets，不证明 Live 已加载 |
+| 认证 bridge | `authenticatedReachable`、`registryHash`、`diagnosticErrors`；检查重启 / Control Surface / 同一配置密钥 / loopback 端口 / registry |
+| 真实 Live | `readiness.realLiveOperational`、`provenance`、discovery；simulator / fake-Live 不能满足 activation |
+| 发布 | `readiness.releaseCertified` 保持 false；另行保留精确候选矩阵与外部证据 |
+
+诊断退出码 0 **不等于就绪**，配置或连接字段仍可能为 false。不要以反复安装来修复连接，也不要删除不确定的 receipt / journal。
+setup 仍需参数；#66 的单命令可恢复引导、分阶段修复提示、确认目的目录和干净机器测试尚未实现。当前没有 `onboard` 命令或通用 `--yes` 授权绕过。
 
 ## 分层诊断
 

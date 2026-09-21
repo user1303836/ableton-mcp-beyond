@@ -30,6 +30,25 @@ Node 範囲とメジャー、ホスト/ブリッジプロトコル、正規レ�
 候補はクリーンなコミットから作成します。SHA-256 はバイト整合性であって公開者
 ID ではなく、MIT は Ableton の商標権、署名、認証、提携、承認を意味しません。
 
+## 候補の保持と取得
+
+CI は `exact-local-candidate` と `candidate-verification-*` を **90 日**保持するよう要求します。永続的な配布チャネルではなく、リポジトリ方針や削除で短縮される場合があります。期限切れの旧成果物は復活しません。
+期限前に tarball、`candidate-metadata.json`、検証レポート、run URL、成功した正確な head SHA を所有者管理の場所へまとめて保存してください。同じソース SHA から再ビルドしたファイルでも、既存レシートに結び付いた成果物と置き換えてはいけません。
+
+目的のコミットで完了・成功した run を選び、新しい空の保存先を使います（GitHub CLI が必要）:
+
+```sh
+gh run view "$RUN_ID" --repo user1303836/ableton-mcp-beyond \
+  --json headSha,status,conclusion,url
+gh run download "$RUN_ID" --repo user1303836/ableton-mcp-beyond \
+  --name exact-local-candidate --dir "$CANDIDATE_DIR"
+gh run download "$RUN_ID" --repo user1303836/ableton-mcp-beyond \
+  --pattern 'candidate-verification-*' --dir "$EVIDENCE_DIR"
+```
+
+run / メタデータの SHA と予定コミット、tarball の SHA-256 とメタデータを照合します。ソースの `apps/mcp-server` から `node scripts/verify-candidate.mjs` に tarball とメタデータの絶対パスを渡して検証できます。
+バイトと来歴の検証であり、発行者の身元や新しい実 Live 認証ではありません。期限切れなら新たに検証された候補を要求してください。未公開パッケージを `npx` で実行しません。公開・署名・永続的 beta チャネルは別途所有者の決定が必要です。
+
 ## サポートマトリクス
 
 Node 22、24 をサポートし、Node 24 LTS を推奨します。Node 25 は EOL、Node 26 は未検証です。
@@ -303,6 +322,26 @@ Live プロセス、ステータスを検査し、指示された修復または
 DACL と保持ファイル/プロセス動作を追加します。macOS 実行は POSIX モード/
 リンク動作を追加します。パスしたライフサイクルテストは、ロードされた
 Windows Live Control Surface の観測ではありません。
+
+## 初回セットアップの判断手順（#66 のガイド付き wizard ではありません）
+
+1. Node 24 LTS（22 も対応）を用意し、正確な候補を取得・検証します。
+2. 上記 OS 別パスで lifecycle の install plan を確認し、自分で Live を停止してから明示的停止確認付きで apply します。保存先を推測したり、リンク / 所有権の拒否を回避しません。
+3. Live を再起動し、Control Surface として `AbletonMcpBridge` を選択します。lifecycle `activate`、続いて `ableton-mcp-diagnostics --config /absolute/bridge-config.json` を実行します。
+4. 同じ `--config` と正確なインストール済み実行ファイルを MCP クライアントに指定します。方式は [USER_GUIDE.md](USER_GUIDE.md) を参照してください。
+
+| 段階 | 証拠 / 次の操作 |
+|---|---|
+| Runtime / OS | `nodeSupported` / `platformSupported`。engine 制約を回避せず対応環境を使用 |
+| Package | `readiness.package` と entrypoint / assets。フォルダーの存在だけでは不十分 |
+| 設定 / secret | `config.valid`、`bridgeConfigured`、`secretPermissions`。レシートの設定・所有ファイルを修復し、secret を表示しない |
+| 導入先 | lifecycle `status` で実際の Remote Scripts 導入先を検証。診断の `remoteScriptInstalled` はパッケージ内 assets で、Live がロードした証拠ではない |
+| 認証 bridge | `authenticatedReachable`、`registryHash`、`diagnosticErrors`。再起動 / Control Surface / 同じ設定・secret / loopback port / registry を確認 |
+| 実 Live | `readiness.realLiveOperational`、`provenance`、discovery。simulator / fake-Live は activation を満たさない |
+| Release | `readiness.releaseCertified` は false。正確な候補の matrix と外部証拠を別途保持 |
+
+診断の終了コード 0 だけで readiness を判断しません。設定や接続の値が false の場合があります。接続修復のために導入を繰り返したり、不確定な receipt / journal を消してはいけません。
+setup は引数指定方式のままです。#66 は、再開可能なガイド付き単一コマンド、段階別修復、確認付き保存先選択、クリーン環境テストのため引き続き未完了です。`onboard` コマンドや汎用 `--yes` 承認回避はありません。
 
 ## レイヤード診断
 
