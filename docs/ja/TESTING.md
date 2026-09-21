@@ -5,7 +5,9 @@
 ## MCP 互換性エビデンス
 
 `mcp-protocol.test.ts` は新方式の探索・各要求メタデータ・バージョン拒否・旧方式へのフォールバック・ID 再利用と同時重複拒否・private / TTL 0・構造化再生フラグを検証します。
-承認 / ポリシー / 応答喪失後の台帳回復、push 抑止、応答待ちキューの取消も検証します。`verify-package.mjs` はインストール済みの旧 / 新プロセスを別々に起動します。
+承認 / ポリシー / 応答喪失後の台帳回復、push 抑止、応答待ちキューの取消も検証します。
+transport 回帰テストでは、公開 `serve()` の応答 data handler 内からの即時 ID 再利用（数値 / 文字列、成功 / エラー応答）と、完了済みの成功 / エラー応答が backpressure 中の busy 応答の後ろで出力待ちになった後の取消を確認します。ID 解放と最後の abort 確認は enqueue 時や write callback 完了時でなく emission 境界で行い、旧応答の cleanup が再利用 ID の新しい取消所有者を消さないことも検証します。`stdio.test.ts` は callback の遅延だけの場合と drain backpressure の両方を対象にします。
+`verify-package.mjs` はインストール済みの旧 / 新プロセスを別々に起動します。
 ホスト / fake-Live の証拠であり、外部クライアントや新しい実 Live 認証ではありません。
 
 ## 変換の不変条件

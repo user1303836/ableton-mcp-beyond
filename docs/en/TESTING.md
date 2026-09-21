@@ -8,6 +8,13 @@ English · [简体中文](../zh-CN/TESTING.md) · [日本語](../ja/TESTING.md)
 legacy fallback, sequential ID reuse vs in-flight rejection, private zero-TTL
 results, structured/coalesced replay flags, unchanged confirmation/policy and
 lost-reply ledger recovery, absent push, and cancellation through ordered flush.
+Transport regressions exercise immediate ID reuse from the exported `serve()`
+response-data handler (numeric/string IDs and success/error replies), plus
+cancellation after a completed success/error reply enters the serialized output
+queue behind a backpressured busy response. ID retirement and the final abort
+check occur at emission, not queue admission or write-callback completion;
+old-response cleanup cannot remove a reused ID's new cancellation owner. Both
+callback-only delay and drain backpressure are covered in `stdio.test.ts`.
 `verify-package.mjs` independently starts installed legacy and modern processes.
 These are host/fake-Live checks, not third-party-client or fresh Live certification.
 

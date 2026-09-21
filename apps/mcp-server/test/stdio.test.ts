@@ -58,6 +58,86 @@ test("stdio saturation refuses excess work without stranding cancellation behind
   assert.ok(received.some((value) => JSON.parse(value).id === 15 && JSON.parse(value).error?.code === -32000));
 });
 
+test("stdio rechecks cancellation after a completed reply waits in the output queue", { timeout: 5000 }, async () => {
+  for (const rejects of [false, true]) {
+    const input = new PassThrough(); const received: number[] = [];
+    let releaseFirst!: () => void; let releaseBusy: (() => void) | undefined; let busyWritten!: () => void;
+    let signal: AbortSignal | undefined;
+    const gate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const busy = new Promise<void>((resolve) => { busyWritten = resolve; });
+    const output = new Writable({
+      highWaterMark: 1,
+      write(chunk, _encoding, callback) {
+        const frame = JSON.parse(String(chunk)); received.push(frame.id);
+        if (frame.id === 5) { releaseBusy = callback; busyWritten(); }
+        else callback();
+      },
+    });
+    const done = serveStdio(input, output, async (record, context) => {
+      const id = JSON.parse(record).id;
+      if (id === 1) {
+        signal = context!.signal;
+        await gate;
+        if (rejects) throw new Error("completed handler failed before output drained");
+      }
+      return JSON.stringify({ jsonrpc: "2.0", id, result: {} });
+    }, { maxInFlight: 1 });
+    try {
+      input.write(Array.from({ length: 5 }, (_, index) => JSON.stringify({ jsonrpc: "2.0", id: index + 1, method: "work" })).join("\n") + "\n");
+      await busy;
+      releaseFirst();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.deepEqual(received, [5], "the busy reply holds stdout while request 1 is queued to write");
+      assert.equal(signal!.aborted, false);
+      input.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: 1 } })}\n`);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(signal!.aborted, true, "completed but un-emitted replies retain cancellation ownership");
+    } finally {
+      releaseFirst(); releaseBusy?.(); input.end(); await done;
+    }
+    assert.deepEqual(received, [5, 2, 3, 4], "cancelled success/error replies are omitted without blocking later responses");
+  }
+});
+
+test("stdio emitted-response cleanup preserves a reused ID's cancellation ownership", { timeout: 5000 }, async () => {
+  for (const highWaterMark of [1, 65536]) {
+    const input = new PassThrough(); const received: number[] = []; const signals: AbortSignal[] = [];
+    let releaseWrite: (() => void) | undefined; let firstWritten!: () => void; let releaseSecond!: () => void;
+    const first = new Promise<void>((resolve) => { firstWritten = resolve; });
+    const secondGate = new Promise<void>((resolve) => { releaseSecond = resolve; });
+    const output = new Writable({
+      highWaterMark,
+      write(chunk, _encoding, callback) {
+        received.push(JSON.parse(String(chunk)).id);
+        if (received.length === 1) { releaseWrite = callback; firstWritten(); }
+        else callback();
+      },
+    });
+    const finishWrite = (): void => { const callback = releaseWrite; releaseWrite = undefined; callback?.(); };
+    const done = serveStdio(input, output, async (record, context) => {
+      signals.push(context!.signal);
+      if (signals.length === 2) await secondGate;
+      return JSON.stringify({ jsonrpc: "2.0", id: JSON.parse(record).id, result: {} });
+    });
+    try {
+      input.write('{"jsonrpc":"2.0","id":7,"method":"work"}\n');
+      await first;
+      input.write('{"jsonrpc":"2.0","id":7,"method":"work-again"}\n');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(signals.length, 2, "an emitted reply frees its ID even before the write callback/drain");
+      finishWrite();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      input.write('{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":7}}\n');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(signals[1]!.aborted, true, "old-response cleanup must not delete the replacement controller");
+      assert.equal(signals[0]!.aborted, false);
+    } finally {
+      finishWrite(); releaseSecond(); input.end(); await done;
+    }
+    assert.deepEqual(received, [7]);
+  }
+});
+
 test("stdio output failure closes authority and contains writable callback errors", async () => {
   const input = new PassThrough();
   const output = new Writable({ write(_chunk, _encoding, callback) { callback(new Error("injected output failure")); } });

@@ -5,7 +5,9 @@
 ## MCP 兼容性证据
 
 `mcp-protocol.test.ts` 覆盖新版发现 / 每请求元数据 / 版本拒绝 / 旧版回退、ID 完成后复用与并发重复拒绝、private / TTL 0 及结构化重放标志。
-还覆盖不变的确认 / 策略 / 丢失应答后的账本恢复、无主动推送和排队应答取消。`verify-package.mjs` 分别启动已安装的旧版与新版进程。
+还覆盖不变的确认 / 策略 / 丢失应答后的账本恢复、无主动推送和排队应答取消。
+transport 回归测试从导出的 `serve()` 响应 data handler 内立即复用 ID（数字 / 字符串以及成功 / 错误响应），并测试已完成的成功 / 错误响应在有背压的 busy 响应后进入串行输出队列后再取消。ID 释放与最终 abort 检查位于实际发送边界，而非入队或 write callback 完成时；旧响应清理不能删除复用 ID 的新取消所有者。`stdio.test.ts` 同时覆盖仅 callback 延迟和 drain 背压。
+`verify-package.mjs` 分别启动已安装的旧版与新版进程。
 这些只是宿主 / fake-Live 证据，不是第三方客户端或新增真实 Live 认证。
 
 ## 变换不变量

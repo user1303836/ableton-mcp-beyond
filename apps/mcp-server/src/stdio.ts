@@ -107,10 +107,15 @@ export async function serveStdio(input: Readable, output: Writable, handler: Rec
   };
   let queuedWrites = 0;
   let writeTail: Promise<void> = Promise.resolve();
-  const write = (value: string): Promise<void> => {
+  const write = (value: string, beginWrite?: () => boolean): Promise<void> => {
     if (queuedWrites >= maxQueuedWrites) throw new Error("bounded output queue is saturated");
     queuedWrites += 1;
-    const result = writeTail.then(() => writeRaw(value)).finally(() => { queuedWrites -= 1; });
+    const result = writeTail.then(() => {
+      // This is the emission boundary, not merely admission to the write queue.
+      // Do not yield between the final ownership/cancellation check and writeRaw.
+      if (beginWrite && !beginWrite()) return;
+      return writeRaw(value);
+    }).finally(() => { queuedWrites -= 1; });
     writeTail = result.catch(() => undefined);
     return result;
   };
@@ -189,13 +194,24 @@ export async function serveStdio(input: Readable, output: Writable, handler: Rec
         const current = pending.get(nextWrite)!;
         const result = await current.task;
         pending.delete(nextWrite++);
-        try {
-          // A completed handler can still be waiting behind an earlier reply.
-          // Keep cancellation/ID ownership until its ordered response flushes.
-          if (!closed && result !== null && !current.controller?.signal.aborted) await write(result);
-        } finally {
+        const retireController = (): void => {
           const key = requestKey(current.id)!;
+          // A client may already have reused this ID while the old write's
+          // callback/drain is pending; never remove that newer controller.
           if (current.controller && controllers.get(key) === current.controller) controllers.delete(key);
+        };
+        try {
+          if (!closed && result !== null && !current.controller?.signal.aborted) await write(result, () => {
+            // An earlier write (including a busy reply) can delay emission long
+            // after the handler completes. Cancellation still owns that window.
+            if (closed || current.controller?.signal.aborted) return false;
+            // Retire before output.write can synchronously expose the response.
+            // Callback completion/backpressure must not delay sequential reuse.
+            retireController();
+            return true;
+          });
+        } finally {
+          retireController();
         }
       }
     };

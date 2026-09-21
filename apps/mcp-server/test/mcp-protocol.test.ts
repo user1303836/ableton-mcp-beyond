@@ -143,6 +143,33 @@ test("modern stdio emits valid results without an initialize handshake", async (
   assert.equal(frames[1].result.structuredContent.host, "ready");
 });
 
+test("modern stdio allows immediate ID reuse from the response data handler", { timeout: 5000 }, async () => {
+  for (const id of [1, "reused-id"]) for (const method of ["ping", "unknown-method"]) {
+    const input = new PassThrough(); const output = new PassThrough(); const diagnostics = new PassThrough();
+    const frames: any[] = [];
+    let buffered = "";
+    output.on("data", (chunk) => {
+      buffered += String(chunk);
+      let newline: number;
+      while ((newline = buffered.indexOf("\n")) !== -1) {
+        frames.push(JSON.parse(buffered.slice(0, newline)));
+        buffered = buffered.slice(newline + 1);
+        if (frames.length === 1) input.write(`${JSON.stringify(modern(id, "ping"))}\n`);
+        else input.end();
+      }
+    });
+    const run = serve(input, output, diagnostics);
+    input.write(`${JSON.stringify(modern(id, method))}\n`);
+    await run;
+    assert.equal(frames.length, 2);
+    assert.deepEqual(frames.map((frame) => frame.id), [id, id]);
+    if (method === "ping") assert.equal(frames[0].result?.resultType, "complete");
+    else assert.equal(frames[0].error?.code, -32601);
+    assert.equal(frames[1].error, undefined, "a complete response retires transport ID ownership before the client reacts");
+    assert.equal(frames[1].result?.resultType, "complete");
+  }
+});
+
 test("stdio cancellation suppresses a completed response queued behind an earlier request", async () => {
   const input = new PassThrough(); const output = new PassThrough(); let text = "";
   output.on("data", (chunk) => { text += String(chunk); });
