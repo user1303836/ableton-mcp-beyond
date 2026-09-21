@@ -28,7 +28,7 @@ JavaScript 与声明、带注册表与清单的 Remote Script、发布清单与�
 ## 候选保留与获取
 
 CI 为 `exact-local-candidate` 与匹配的 `candidate-verification-*` 请求 **90 天**保留期。这是获取窗口，不是永久发布渠道；仓库策略或删除可能缩短它，旧的过期产物也不会恢复。
-到期前，将 tarball、`candidate-metadata.json`、验证报告、run URL 和成功的精确 head SHA 一起保存在所有者控制的归档中。即使源 SHA 相同，也不能用重建产物替换已绑定回执的字节。
+到期前，将 tarball、`candidate-metadata.json`、验证报告、run URL、精确 PR head 和受测提交 SHA 一起保存在所有者控制的归档中。即使源 SHA 相同，也不能用重建产物替换已绑定回执的字节。
 
 选择目标提交的已完成成功 run，使用新的空下载目录（需 GitHub CLI）：
 
@@ -41,8 +41,8 @@ gh run download "$RUN_ID" --repo user1303836/ableton-mcp-beyond \
   --pattern 'candidate-verification-*' --dir "$EVIDENCE_DIR"
 ```
 
-将 run / 元数据中的提交与目标提交比较，并将 tarball 的 SHA-256 与元数据比较。源码检验器为 `apps/mcp-server/scripts/verify-candidate.mjs`；在 `apps/mcp-server` 内运行，传入 tarball 和元数据的绝对路径。
-这验证字节与来源，不证明发布者身份或新增真实 Live 认证。过期后应请求新的已验证候选，不能依赖失效链接或用 `npx` 运行未发布包名。公开发布、签名与持久 beta 渠道仍需所有者单独决定。
+将 run 的 `headSha` 与目标 PR head 比较，并从 run 保留实际 checkout 提交及 parents。PR CI 测试 GitHub 的**合成 merge commit**：元数据 `gitSha` 与 manifest 的 `source.commit` 标识该受测提交，不一定等于 `headSha`。将 parents 与目标 head / base 绑定；main push 通常使用同一 SHA。安装前也要比较 tarball SHA-256 与元数据。
+重跑 `apps/mcp-server/scripts/verify-candidate.mjs` 时，使用位于**元数据受测 SHA 的隔离源码 checkout**，在 `apps/mcp-server` 运行 `npm ci && npm run build`，再向检验器传入 tarball 和元数据绝对路径。不同 checkout 即使看似等价的 PR head 也会被拒绝；不要覆盖 `GITHUB_SHA` 来绕过。这验证字节与来源，不证明发布者身份或新增真实 Live 认证。过期后应请求新的已验证候选，不能依赖失效链接或用 `npx` 运行未发布包名。公开发布、签名与持久 beta 渠道仍需所有者单独决定。
 
 ## 支持矩阵
 

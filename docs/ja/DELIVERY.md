@@ -33,7 +33,7 @@ ID ではなく、MIT は Ableton の商標権、署名、認証、提携、承�
 ## 候補の保持と取得
 
 CI は `exact-local-candidate` と `candidate-verification-*` を **90 日**保持するよう要求します。永続的な配布チャネルではなく、リポジトリ方針や削除で短縮される場合があります。期限切れの旧成果物は復活しません。
-期限前に tarball、`candidate-metadata.json`、検証レポート、run URL、成功した正確な head SHA を所有者管理の場所へまとめて保存してください。同じソース SHA から再ビルドしたファイルでも、既存レシートに結び付いた成果物と置き換えてはいけません。
+期限前に tarball、`candidate-metadata.json`、検証レポート、run URL、正確な PR head とテスト対象 commit SHA を所有者管理の場所へまとめて保存してください。同じソース SHA から再ビルドしたファイルでも、既存レシートに結び付いた成果物と置き換えてはいけません。
 
 目的のコミットで完了・成功した run を選び、新しい空の保存先を使います（GitHub CLI が必要）:
 
@@ -46,8 +46,8 @@ gh run download "$RUN_ID" --repo user1303836/ableton-mcp-beyond \
   --pattern 'candidate-verification-*' --dir "$EVIDENCE_DIR"
 ```
 
-run / メタデータの SHA と予定コミット、tarball の SHA-256 とメタデータを照合します。ソースの `apps/mcp-server` から `node scripts/verify-candidate.mjs` に tarball とメタデータの絶対パスを渡して検証できます。
-バイトと来歴の検証であり、発行者の身元や新しい実 Live 認証ではありません。期限切れなら新たに検証された候補を要求してください。未公開パッケージを `npx` で実行しません。公開・署名・永続的 beta チャネルは別途所有者の決定が必要です。
+run の `headSha` と目的の PR head を照合し、実際の checkout commit と parents を run から保持します。PR CI は GitHub の**合成 merge commit**をテストします。メタデータの `gitSha` と manifest の `source.commit` はその commit で、`headSha` と同一とは限りません。parents を目的の head / base に束縛します。main push では通常同じ SHA です。tarball の SHA-256 とメタデータも照合します。
+検証はメタデータの**テスト対象 SHA の隔離 checkout**で行い、`apps/mcp-server` から `npm ci && npm run build`、続いて `node scripts/verify-candidate.mjs` に tarball とメタデータの絶対パスを渡します。同等に見える PR head でも別 checkout は拒否されます。`GITHUB_SHA` を上書きして回避しません。バイトと来歴の検証であり、発行者の身元や新しい実 Live 認証ではありません。期限切れなら新たに検証された候補を要求してください。未公開パッケージを `npx` で実行しません。公開・署名・永続的 beta チャネルは別途所有者の決定が必要です。
 
 ## サポートマトリクス
 

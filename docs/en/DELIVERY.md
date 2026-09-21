@@ -36,8 +36,8 @@ CI requests **90 days** for both `exact-local-candidate` and matching
 `candidate-verification-*` reports. This is a retrieval window, not a durable
 release channel; repository policy or deletion can shorten it. Old expired
 artifacts are not restored by this change. Before expiry, retain the tarball,
-`candidate-metadata.json`, verification reports, run URL and exact successful
-head SHA together in an owner-controlled archive. Never substitute a rebuilt
+`candidate-metadata.json`, verification reports, run URL, exact PR head and
+tested commit SHA together in an owner-controlled archive. Never substitute a rebuilt
 archive for an already receipt-bound artifact, even from the same source SHA.
 
 For a **completed successful run at the intended exact commit**, use new empty
@@ -52,11 +52,19 @@ gh run download "$RUN_ID" --repo user1303836/ableton-mcp-beyond \
   --pattern 'candidate-verification-*' --dir "$EVIDENCE_DIR"
 ```
 
-Compare the intended commit to the run and metadata, and compare the tarball's
-SHA-256 to `candidate-metadata.json` before installation. The checked-out
-source verifier is `apps/mcp-server/scripts/verify-candidate.mjs`; run it from
-`apps/mcp-server` with absolute tarball and metadata paths. It verifies bytes
-and provenance, not publisher identity or new Live certification. If expired,
+Compare the run's `headSha` to the intended PR head, then retain the actual
+checkout commit and parents from the run. Pull-request CI tests GitHub's
+**synthetic merge commit**: `candidate-metadata.json.gitSha` and the manifest's
+`source.commit` identify that tested commit, not necessarily `headSha`. Bind its
+parents to the intended head/base; a main push normally uses the same SHA.
+Compare the tarball's SHA-256 to the metadata before installation.
+
+To rerun `apps/mcp-server/scripts/verify-candidate.mjs`, use an isolated source
+checkout at the **metadata's tested SHA**, run `npm ci && npm run build` from
+`apps/mcp-server`, then pass absolute tarball and metadata paths to the verifier.
+It deliberately rejects a different checkout, even an equivalent-looking PR
+head; do not override `GITHUB_SHA` to bypass that check. This verifies bytes and
+provenance, not publisher identity or new Live certification. If expired,
 request a newly verified candidate; do not rely on a dead download link or run
 an unpublished package name via `npx`. Public publication/signing and a durable
 beta release channel still require an explicit owner decision.
