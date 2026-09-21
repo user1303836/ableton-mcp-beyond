@@ -26,7 +26,7 @@
  *
  * The estimate never forces a single answer: it reports ranked candidates
  * with scores, an explicit confidence classification, and an ambiguity flag
- * when the top candidates are statistically indistinguishable.
+ * when the top candidates fall within heuristic margins (not calibrated probabilities).
  */
 
 export interface KeyEstimateNote {
@@ -75,7 +75,7 @@ const MODE_PARENT_OFFSETS: ReadonlyArray<{ readonly mode: string; readonly offse
 ];
 
 const ALGORITHM_ID = "krumhansl-schmuckler-1982+modes(duration*velocity/127,tonal-center-tiebreak)";
-/** Top candidates closer than this margin are statistically indistinguishable. */
+/** Top candidates closer than this heuristic margin remain ambiguous. */
 const AMBIGUITY_MARGIN = 0.05;
 /** Tonal-center evidence closer than this is indistinguishable. */
 const TONIC_EVIDENCE_MARGIN = 0.01;
@@ -116,9 +116,13 @@ export function estimateKey(notes: readonly KeyEstimateNote[]): KeyEstimate {
   let totalDurationBeats = 0;
   let firstNote: { readonly pitchClass: number; readonly weight: number; readonly start: number } | null = null;
   let lastNote: { readonly pitchClass: number; readonly weight: number; readonly end: number } | null = null;
-  for (const note of notes) {
+  // Canonical accumulation and boundary selection prevent caller order from
+  // changing floating-point sums or tied first/last-note weights.
+  const ordered = [...notes].sort((a, b) => a.start - b.start || a.pitch - b.pitch || a.duration - b.duration || (a.velocity ?? 127) - (b.velocity ?? 127));
+  for (const note of ordered) {
+    if (!Number.isFinite(note.start) || note.start < 0 || note.start > 1_000_000) continue;
     if (!Number.isInteger(note.pitch) || note.pitch < 0 || note.pitch > 127) continue;
-    if (typeof note.duration !== "number" || !Number.isFinite(note.duration) || note.duration <= 0) continue;
+    if (typeof note.duration !== "number" || !Number.isFinite(note.duration) || note.duration <= 0 || note.duration > 1_000_000) continue;
     const velocity = typeof note.velocity === "number" && Number.isFinite(note.velocity) ? Math.min(Math.max(note.velocity, 0), 127) / 127 : 1;
     const weight = note.duration * velocity;
     weights[note.pitch % 12]! += weight;
@@ -150,7 +154,7 @@ export function estimateKey(notes: readonly KeyEstimateNote[]): KeyEstimate {
         scored.push({ key: `${NOTE_NAMES[tonic]} ${mode}`, tonic, mode, score: pearson(weights, profileFor(parent, MAJOR_PROFILE)), tonicEvidence: tonalEvidence(tonic) });
       }
     }
-    scored.sort((a, b) => b.score - a.score || b.tonicEvidence - a.tonicEvidence || a.key.localeCompare(b.key));
+    scored.sort((a, b) => b.score - a.score || b.tonicEvidence - a.tonicEvidence || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   }
 
   const candidates = scored.slice(0, MAX_CANDIDATES).map((candidate) => ({ ...candidate, score: Number(candidate.score.toFixed(6)), tonicEvidence: Number(candidate.tonicEvidence.toFixed(6)) }));

@@ -43,6 +43,16 @@ test("estimates are deterministic and order-independent", () => {
   assert.deepEqual(estimateKey(shuffled), baseline);
 });
 
+test("duplicate boundary notes with different weights are order-independent", () => {
+  const notes = [
+    { pitch: 60, start: 0, duration: 0.25, velocity: 30 },
+    { pitch: 60, start: 0, duration: 2, velocity: 127 },
+    { pitch: 64, start: 1, duration: 0.5, velocity: 64 },
+    { pitch: 67, start: 2, duration: 1, velocity: 100 },
+  ];
+  assert.deepEqual(estimateKey(notes), estimateKey([...notes].reverse()));
+});
+
 test("velocity is a documented secondary weight and omission equals full velocity", () => {
   const pitches = C_MAJOR_MELODY;
   const withoutVelocity = estimateKey(melody(pitches));

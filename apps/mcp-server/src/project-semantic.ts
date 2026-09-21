@@ -164,9 +164,10 @@ function dynamicScalar(profile: SemanticPrivacyProfile, kind: string, value: unk
   return typeof value === "string" ? dynamicString(profile, kind, value, strictAlias) : safeScalar(value);
 }
 
-function nameFor(profile: SemanticPrivacyProfile, kind: string, value: unknown): string {
+export function semanticProjectName(profile: SemanticPrivacyProfile, kind: string, value: unknown): string {
   return dynamicString(profile, kind, value, true);
 }
+const nameFor = semanticProjectName;
 
 function pathLocator(profile: SemanticPrivacyProfile, raw: string, resolvedPath: string | undefined, projectPath: string | undefined): string {
   const pathBase = basename(raw.replaceAll("\\", "/")) || "unnamed";

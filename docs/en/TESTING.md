@@ -59,6 +59,15 @@ choices, capture fences/watchdog/emergency/cleanup, and bridge teardown. The
 package verifier starts the installed production bridge and checks
 authenticated fake Set, scene, track, child-slot, and playback discovery.
 
+The offline-Set/MIDI regressions exercise malformed XML, comments/CDATA,
+child-value timing, unknown length refusal, source-byte evidence, root/symlink
+media boundaries, optional MIDI privacy and note-revision ordering, pre-expansion
+note limits, chord registers/bassline boundaries, and order-independent key
+ranking. Property-authority probes replace a Set/track identity while preserving
+its reference and values before/after apply and undo, and ensure uncertain undo
+cannot resume forward apply. These synthetic fixtures do not certify arbitrary
+Set versions, listening quality, or behavior in a running Live instance.
+
 CI builds one clean local unpublished tarball on Ubuntu 24.04, runs
 `package:verify` before upload, repeats the pack from a fresh detached local
 clone plus fresh `npm ci` and compares bytes, records the exact Git SHA and

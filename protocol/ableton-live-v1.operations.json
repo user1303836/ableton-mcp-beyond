@@ -10743,6 +10743,16 @@
    "request": {
     "type": "object",
     "properties": {
+     "setRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+     },
+     "expectedObjectIdentity": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+     },
      "signatureNumerator": {
       "type": "integer",
       "minimum": 1,
@@ -10776,6 +10786,8 @@
      }
     },
     "required": [
+     "setRef",
+     "expectedObjectIdentity",
      "expectedStateRevision"
     ],
     "additionalProperties": false

@@ -1170,6 +1170,7 @@ export class DeterministicLiveSimulator implements LiveAdapter {
         return { ...state, revision: simulatorRevision(state) };
       }
       case "song.set": {
+        if (args.setRef !== this.state.set.ref || args.expectedObjectIdentity !== this.state.set.objectIdentity) throw new Error("Set identity changed since preview");
         const song = this.state.song!;
         const settingsState = () => ({ signatureNumerator: song.signatureNumerator ?? null, signatureDenominator: song.signatureDenominator ?? null, swingAmount: song.swingAmount ?? null, clipTriggerQuantization: song.clipTriggerQuantization?.value ?? null, midiRecordingQuantization: song.midiRecordingQuantization?.value ?? null });
         if (args.expectedStateRevision !== simulatorRevision(settingsState())) throw new Error("song settings state changed since preview");

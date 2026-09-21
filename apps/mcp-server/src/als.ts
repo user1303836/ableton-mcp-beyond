@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
-import { basename, resolve, sep } from "node:path";
-import { decodeXmlAttribute, projectSourceEvidence, readSetSource, type SetSourceRead } from "./project.js";
-import { createSemanticProjectSnapshot, type SemanticPrivacyProfile, type SemanticProjectArtifact } from "./project-semantic.js";
+import { lstatSync } from "node:fs";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { decodeXmlAttribute, readSetSource, type ProjectSourceEvidence, type SetSourceRead } from "./project.js";
+import { createSemanticProjectSnapshot, semanticProjectName, type SemanticPrivacyProfile, type SemanticProjectArtifact } from "./project-semantic.js";
 import type { Clip, Device, Note, Track } from "./live.js";
 import type { LiveSnapshot } from "./live.js";
 
@@ -35,6 +35,7 @@ const MAX_XML_ATTRIBUTES = 64;
 const MAX_XML_TEXT = 1024 * 1024;
 
 function decodeXmlText(value: string): string {
+  if (/&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)/.test(value)) throw new Error("Live Set XML contains an unsupported entity");
   return decodeXmlAttribute(value);
 }
 
@@ -49,38 +50,63 @@ export function parseAlsXml(xml: string): AlsXmlNode {
   const stack: Draft[] = [];
   let root: AlsXmlNode | null = null;
   let cursor = 0;
-  const pushText = (raw: string): void => {
+  const pushText = (raw: string, cdata = false): void => {
     if (raw.trim().length === 0) return;
-    if (raw.length > MAX_XML_TEXT) throw new Error("Live Set XML text node exceeds the bounded size");
     const parent = stack[stack.length - 1];
-    if (!parent) return;
-    parent.text = `${parent.text}${decodeXmlText(raw)}`;
+    if (!parent) throw new Error("Live Set XML is malformed (text outside the root)");
+    if (raw.length + parent.text.length > MAX_XML_TEXT) throw new Error("Live Set XML text node exceeds the bounded size");
+    parent.text += cdata ? raw : decodeXmlText(raw);
   };
-  const tagPattern = /<(\/?)([A-Za-z_][A-Za-z0-9_.-]*)((?:\s+[A-Za-z_][A-Za-z0-9_.-]*="[^"]*")*)\s*(\/?)>/g;
-  let match: RegExpExecArray | null;
-  while ((match = tagPattern.exec(xml)) !== null) {
-    if (match.index > cursor) pushText(xml.slice(cursor, match.index));
+  // Sticky matching consumes every byte. A global search would silently skip
+  // malformed markup and treat tags embedded in comments as real content.
+  const tagPattern = /<(\/?)([A-Za-z_][A-Za-z0-9_.-]*)((?:\s+[A-Za-z_][A-Za-z0-9_.-]*\s*=\s*(?:"[^"<]*"|'[^'<]*'))*)\s*(\/?)>/y;
+  while (cursor < xml.length) {
+    if (xml[cursor] !== "<") {
+      const end = xml.indexOf("<", cursor);
+      pushText(xml.slice(cursor, end < 0 ? xml.length : end));
+      cursor = end < 0 ? xml.length : end; continue;
+    }
+    if (xml.startsWith("<!--", cursor)) {
+      const end = xml.indexOf("-->", cursor + 4);
+      if (end < 0 || xml.slice(cursor + 4, end).includes("--")) throw new Error("Live Set XML is malformed (comment)");
+      cursor = end + 3; continue;
+    }
+    if (xml.startsWith("<![CDATA[", cursor)) {
+      const end = xml.indexOf("]]>", cursor + 9);
+      if (end < 0) throw new Error("Live Set XML is malformed (CDATA)");
+      pushText(xml.slice(cursor + 9, end), true); cursor = end + 3; continue;
+    }
+    if (xml.startsWith("<?xml ", cursor) && !root && stack.length === 0 && xml.slice(0, cursor).trim() === "") {
+      const end = xml.indexOf("?>", cursor + 6);
+      if (end < 0) throw new Error("Live Set XML is malformed (declaration)");
+      cursor = end + 2; continue;
+    }
+    tagPattern.lastIndex = cursor;
+    const match = tagPattern.exec(xml);
+    if (!match) throw new Error("Live Set XML is malformed or contains unsupported markup");
     cursor = tagPattern.lastIndex;
     const [, closing, tag, rawAttrs, selfClosing] = match as unknown as [string, string, string, string, string];
     if (closing === "/") {
+      if (rawAttrs.trim() || selfClosing) throw new Error("Live Set XML is malformed (closing tag)");
       const node = stack.pop();
       if (!node || node.tag !== tag) throw new Error(`Live Set XML is malformed (unexpected </${tag}>)`);
-      const finished = node as AlsXmlNode;
       const parent = stack[stack.length - 1];
-      if (parent) parent.children.push(finished);
-      else if (root === null) root = finished;
+      if (parent) parent.children.push(node);
+      else if (root === null) root = node;
       else throw new Error("Live Set XML has multiple roots");
       continue;
     }
     if (nodes >= MAX_XML_NODES) throw new Error("Live Set XML exceeds the bounded node count");
     nodes += 1;
-    if (stack.length >= MAX_XML_DEPTH && selfClosing !== "/") throw new Error("Live Set XML exceeds the bounded depth");
-    const attrs: Record<string, string> = {};
-    const attrPairs = rawAttrs.match(/[A-Za-z_][A-Za-z0-9_.-]*="[^"]*"/g) ?? [];
-    if (attrPairs.length > MAX_XML_ATTRIBUTES) throw new Error("Live Set XML element exceeds the bounded attribute count");
-    for (const pair of attrPairs) {
-      const separator = pair.indexOf("=");
-      attrs[pair.slice(0, separator)] = decodeXmlAttribute(pair.slice(separator + 2, -1));
+    if (stack.length >= MAX_XML_DEPTH) throw new Error("Live Set XML exceeds the bounded depth");
+    const attrs: Record<string, string> = Object.create(null);
+    const pairs = [...rawAttrs.matchAll(/([A-Za-z_][A-Za-z0-9_.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)];
+    if (pairs.length > MAX_XML_ATTRIBUTES) throw new Error("Live Set XML element exceeds the bounded attribute count");
+    for (const pair of pairs) {
+      const name = pair[1]!; const value = pair[2] ?? pair[3]!;
+      if (Object.hasOwn(attrs, name)) throw new Error("Live Set XML is malformed (duplicate attribute)");
+      if (value.length > MAX_XML_TEXT) throw new Error("Live Set XML attribute exceeds the bounded size");
+      attrs[name] = decodeXmlText(value);
     }
     const node: AlsXmlNode = { tag, attrs, children: [], text: "" };
     if (selfClosing === "/") {
@@ -88,11 +114,8 @@ export function parseAlsXml(xml: string): AlsXmlNode {
       if (parent) parent.children.push(node);
       else if (root === null) root = node;
       else throw new Error("Live Set XML has multiple roots");
-    } else {
-      stack.push(node);
-    }
+    } else stack.push(node);
   }
-  if (xml.slice(cursor).trim().length > 0) pushText(xml.slice(cursor));
   if (stack.length > 0) throw new Error("Live Set XML is malformed (unclosed elements)");
   if (root === null) throw new Error("Live Set XML has no root element");
   return root;
@@ -106,7 +129,7 @@ export interface AlsClipModel {
   readonly name: string;
   readonly kind: "midi" | "audio";
   readonly start: number;
-  readonly length: number;
+  readonly length: number | null;
   readonly loopStart: number | null;
   readonly loopEnd: number | null;
   readonly looping: boolean | null;
@@ -153,6 +176,13 @@ function childValue(node: AlsXmlNode, tag: string): string | null {
   const child = node.children.find((candidate) => candidate.tag === tag);
   const value = child?.attrs.Value ?? child?.text;
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function childNumber(node: AlsXmlNode, tag: string): number | null {
+  const raw = childValue(node, tag);
+  if (raw === null || raw.trim() === "") return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
 }
 
 function descendants(node: AlsXmlNode, tag: string, into: AlsXmlNode[] = []): AlsXmlNode[] {
@@ -202,21 +232,26 @@ function parseNoteEvent(event: AlsXmlNode, keyTrack: AlsXmlNode): Note | null {
 function parseClip(clip: AlsXmlNode, lane: "session" | "arrangement", sceneIndex: number | null, parseNotes: string[]): AlsClipModel {
   const isMidi = clip.tag === "MidiClip";
   const name = childValue(clip, "Name") ?? "";
-  const start = attrNumber(clip, "Time") ?? 0;
-  const length = attrNumber(clip, "Length") ?? attrNumber(clip, "CurrentEnd") ?? 0;
+  const start = attrNumber(clip, "Time") ?? childNumber(clip, "CurrentStart") ?? 0;
+  const currentStart = childNumber(clip, "CurrentStart") ?? start;
+  const currentEnd = childNumber(clip, "CurrentEnd") ?? attrNumber(clip, "CurrentEnd");
+  const measuredLength = attrNumber(clip, "Length") ?? childNumber(clip, "Length") ?? (currentEnd === null ? null : currentEnd - currentStart);
+  const length = measuredLength !== null && measuredLength >= 0 ? measuredLength : null;
+  if (length === null) parseNotes.push("clip length is unavailable in this XML shape");
   const notes: Note[] = [];
   if (isMidi) {
     let dropped = 0;
     for (const keyTrack of descendants(clip, "KeyTrack")) {
-      const noteEvents = descendants(keyTrack, "NoteEvent");
-      if (noteEvents.length > 10_000) { dropped += noteEvents.length - 10_000; noteEvents.length = 10_000; }
+      const noteEvents = [...descendants(keyTrack, "MidiNoteEvent"), ...descendants(keyTrack, "NoteEvent")];
+      const remaining = Math.max(0, 10_000 - notes.length);
+      if (noteEvents.length > remaining) { dropped += noteEvents.length - remaining; noteEvents.length = remaining; }
       for (const event of noteEvents) {
         const note = parseNoteEvent(event, keyTrack);
         if (note === null) dropped += 1;
         else notes.push(note);
       }
     }
-    if (dropped > 0) parseNotes.push(`clip "${name}": ${dropped} malformed or overflow note event(s) dropped`);
+    if (dropped > 0) parseNotes.push(`${dropped} malformed or overflow note event(s) dropped from a clip`);
   }
   const sampleRef = descendants(clip, "FileRef")[0];
   const samplePath = sampleRef ? childValue(sampleRef, "Path") ?? childValue(sampleRef, "RelativePath") : null;
@@ -226,10 +261,10 @@ function parseClip(clip: AlsXmlNode, lane: "session" | "arrangement", sceneIndex
   const warpingRaw = childValue(clip, "IsWarped") ?? childValue(clip, "Warping");
   return {
     name, kind: isMidi ? "midi" : "audio", start, length,
-    loopStart: loopNode ? attrNumber(loopNode, "LoopStart") : null,
-    loopEnd: loopNode ? attrNumber(loopNode, "LoopEnd") : null,
+    loopStart: loopNode ? childNumber(loopNode, "LoopStart") ?? attrNumber(loopNode, "LoopStart") : null,
+    loopEnd: loopNode ? childNumber(loopNode, "LoopEnd") ?? attrNumber(loopNode, "LoopEnd") : null,
     looping: loopOn === null ? null : loopOn === "true" || loopOn === "1",
-    muted: clip.attrs.Disabled === undefined ? null : clip.attrs.Disabled === "true",
+    muted: childValue(clip, "Disabled") === null && clip.attrs.Disabled === undefined ? null : (childValue(clip, "Disabled") ?? clip.attrs.Disabled) === "true",
     warping: warpingRaw === null ? null : warpingRaw === "true" || warpingRaw === "1",
     samplePath,
     sampleLengthBeats: attrNumber(clip, "SampleLength") ?? null,
@@ -253,7 +288,7 @@ export function modelFromAlsXml(root: AlsXmlNode, fallbackName: string): AlsMode
   const tracksContainer = descendants(liveSet, "Tracks")[0];
   const trackElements = [...(tracksContainer?.children ?? []), ...liveSet.children.filter((child) => child.tag === "MasterTrack" || child.tag === "MainTrack")];
   for (const element of trackElements) {
-    const kind = TRACK_TAGS[element.tag];
+    const kind = Object.hasOwn(TRACK_TAGS, element.tag) ? TRACK_TAGS[element.tag] : undefined;
     if (kind === undefined) continue;
     const nameNode = element.children.find((child) => child.tag === "Name") ?? element;
     const name = childValue(nameNode, "EffectiveName") ?? childValue(nameNode, "UserName") ?? "";
@@ -292,13 +327,15 @@ export function modelFromAlsXml(root: AlsXmlNode, fallbackName: string): AlsMode
 
   const locators: AlsModel["locators"] = [];
   for (const locator of descendants(liveSet, "Locator").slice(0, 1024)) {
-    const time = attrNumber(locator, "Time");
+    const time = childNumber(locator, "Time") ?? attrNumber(locator, "Time");
     if (time === null || time < 0) continue;
     locators.push({ time, name: childValue(locator, "Name") ?? "" });
   }
   locators.sort((a, b) => a.time - b.time);
 
-  const tempoNode = descendants(liveSet, "Tempo")[0];
+  const mainTrack = liveSet.children.find((child) => child.tag === "MasterTrack" || child.tag === "MainTrack");
+  const mainMixer = mainTrack && descendants(mainTrack, "Mixer")[0];
+  const tempoNode = mainMixer ? mainMixer.children.find((child) => child.tag === "Tempo") : liveSet.children.find((child) => child.tag === "Tempo");
   const tempoManual = tempoNode ? attrNumber(tempoNode.children.find((child) => child.tag === "Manual") ?? tempoNode, "Value") : null;
   return {
     setName: fallbackName,
@@ -314,14 +351,23 @@ export function modelFromAlsXml(root: AlsXmlNode, fallbackName: string): AlsMode
  * Live-only surfaces are recorded as explicitly unavailable; nothing is
  * fabricated. */
 export function createOfflineAlsArtifact(source: SetSourceRead, model: AlsModel, options: { profile?: SemanticPrivacyProfile; exporterVersion: string; maxRecords?: number }): SemanticProjectArtifact {
+  // The v1 semantic clip schema requires a measured length. Do not turn an
+  // unsupported XML timing shape into a fabricated zero-length clip.
+  if (model.tracks.some((track) => track.clips.some((clip) => clip.length === null))) throw new Error("offline clip length is unavailable; semantic export refused");
   const tracks: Track[] = model.tracks.map((track, trackIndex) => ({
     ref: `offline:track:${trackIndex}` as Track["ref"],
     name: track.name,
     kind: track.kind,
-    volume: track.volume ?? 0, pan: track.pan ?? 0,
+    volume: track.volume, pan: track.pan,
     mute: null, solo: null, armed: null,
     clips: track.clips.filter((clip) => clip.lane === "session").map((clip, clipIndex) => alsClipToSnapshotClip(trackIndex, clipIndex, clip)),
-    clipSlots: [],
+    clipSlots: track.clips.filter((clip) => clip.lane === "session").map((clip, clipIndex) => ({
+      ref: `offline:slot:${trackIndex}:${clip.sceneIndex ?? clipIndex}`,
+      parentRef: `offline:track:${trackIndex}`,
+      sceneIndex: clip.sceneIndex ?? clipIndex,
+      clipRef: alsClipToSnapshotClip(trackIndex, clipIndex, clip).ref,
+      empty: false,
+    })),
     devices: track.devices.map((device, deviceIndex) => ({
       ref: `offline:device:${trackIndex}:${deviceIndex}`,
       name: device.name, className: device.className, kind: "device", enabled: null, parameters: [],
@@ -343,8 +389,9 @@ export function createOfflineAlsArtifact(source: SetSourceRead, model: AlsModel,
     maxRecords: options.maxRecords,
     live: { protocol: "als-file/v1", adapter: "offline-file", provenance: "unknown" },
     sourceKind: "offline-file",
-    sourceEvidence: projectSourceEvidence(source.path),
+    sourceEvidence: offlineSourceEvidence(source, model),
     extraUnavailable: [
+      { field: "media-existence", reason: "offline reads do not probe referenced media; lint checks metadata only under its allowed root", sourceName: "offline-parse" },
       { field: "live-playback", reason: "playback, armed/monitoring, meters, and performance state exist only in a running Live and are absent from the file", sourceName: "offline-parse" },
       { field: "take-lanes", reason: "take-lane and comp structure is not reconstructed by the offline parser", sourceName: "offline-parse" },
       { field: "groove-pool", reason: "groove pool contents are not reconstructed by the offline parser", sourceName: "offline-parse" },
@@ -355,11 +402,29 @@ export function createOfflineAlsArtifact(source: SetSourceRead, model: AlsModel,
   return artifact;
 }
 
+/** Evidence describes these already-read bytes only. Never reopen the Set or
+ * probe arbitrary paths embedded in an offline document while exporting it. */
+function offlineSourceEvidence(source: SetSourceRead, model: AlsModel): ProjectSourceEvidence {
+  const paths = new Set<string>(); let complete = model.parseNotes.length === 0;
+  outer: for (const track of model.tracks) for (const clip of track.clips) {
+    if (!clip.samplePath || paths.has(clip.samplePath)) continue;
+    if (paths.size >= 4096) { complete = false; break outer; }
+    paths.add(clip.samplePath);
+  }
+  const references = [...paths].map((value) => ({ value, resolution: "unresolved" as const }));
+  return {
+    manifest: { path: source.path, size: source.size, mtimeMs: source.mtimeMs, sha256: source.sha256, tracks: model.tracks.length, scenes: model.scenes.length, mediaRefs: references.length },
+    ableton: { creator: model.creator, majorVersion: model.majorVersion, minorVersion: model.minorVersion },
+    references,
+    referenceBounds: { observed: references.length, observedKind: complete ? "exact" : "lower-bound", included: references.length, omitted: complete ? 0 : 1, complete },
+  };
+}
+
 function alsClipToSnapshotClip(trackIndex: number, clipIndex: number, clip: AlsClipModel): Clip {
   return {
     ref: `offline:clip:${trackIndex}:${clip.lane}:${clip.sceneIndex ?? clipIndex}:${clip.start}` as Clip["ref"],
     name: clip.name, kind: clip.kind, start: clip.start, length: clip.length,
-    notes: clip.notes, warp: clip.warping ?? false, takes: [], automation: [],
+    notes: clip.notes, warp: clip.warping, takes: [], automation: [],
     loopStart: clip.loopStart, loopEnd: clip.loopEnd, looping: clip.looping, muted: clip.muted,
     filePath: clip.samplePath, sampleLength: clip.sampleLengthBeats,
   } as unknown as Clip;
@@ -377,7 +442,7 @@ export interface AlsLintFinding {
 /** Bounded structural lint over the parsed model. Findings only — lint never
  * fixes. Media existence is checked (metadata only, bytes never read) and only
  * for references inside the operator-authorized root. */
-export function lintAlsModel(model: AlsModel, options: { allowedRoot?: string; maxFindings?: number } = {}): { findings: AlsLintFinding[]; truncated: boolean } {
+export function lintAlsModel(model: AlsModel, options: { allowedRoot?: string; setDirectory?: string; maxFindings?: number } = {}): { findings: AlsLintFinding[]; truncated: boolean } {
   const findings: AlsLintFinding[] = [];
   const truncated = { value: false };
   const push = (finding: AlsLintFinding): void => {
@@ -398,26 +463,44 @@ export function lintAlsModel(model: AlsModel, options: { allowedRoot?: string; m
       if (lastLocatorTime !== null && clip.lane === "arrangement" && clip.start > lastLocatorTime) push({ severity: "info", check: "clip-beyond-last-locator", message: `clip "${clip.name}" starts at ${clip.start} beats, beyond the last locator at ${lastLocatorTime}`, object: { kind: "clip", name: clip.name, index: clipIndex } });
       if (clip.kind === "audio" && clip.warping === false && clip.sampleLengthBeats !== null && clip.sampleLengthBeats > 60) push({ severity: "warning", check: "unwarped-long-sample", message: `audio clip "${clip.name}" is not warped over a ${clip.sampleLengthBeats}-beat sample`, object: { kind: "clip", name: clip.name, index: clipIndex } });
       if (clip.samplePath && mediaRoot !== undefined && mediaRootPrefix !== undefined) {
-        const candidate = resolve(clip.samplePath);
+        if (clip.samplePath.includes("\0") || /^[\\/]{2}/.test(clip.samplePath) || (!isAbsolute(clip.samplePath) && /^[A-Za-z]:[\\/]/.test(clip.samplePath))) return;
+        const candidate = resolve(options.setDirectory ?? mediaRoot, clip.samplePath);
         const within = candidate === mediaRoot || candidate.startsWith(mediaRootPrefix);
-        if (within && !existsSync(candidate)) push({ severity: "error", check: "missing-sample-reference", message: `referenced sample is missing: ${basename(candidate)}`, object: { kind: "clip", name: clip.name, index: clipIndex } });
+        if (within && mediaExistsWithoutLinks(mediaRoot, candidate) === false) push({ severity: "error", check: "missing-sample-reference", message: `referenced sample is missing: ${basename(candidate)}`, object: { kind: "clip", name: clip.name, index: clipIndex } });
       }
     });
   });
   return { findings, truncated: truncated.value };
 }
 
+/** Walk only authorized ancestors with lstat; a symlink/junction is unknown,
+ * never permission to inspect its target. The local OS account is trusted. */
+function mediaExistsWithoutLinks(root: string, candidate: string): boolean | undefined {
+  let current = root;
+  const components = relative(root, candidate).split(sep).filter(Boolean);
+  for (let index = -1; index < components.length; index += 1) {
+    if (index >= 0) current = join(current, components[index]!);
+    try {
+      const stats = lstatSync(current);
+      if (stats.isSymbolicLink() || (index < components.length - 1 && !stats.isDirectory())) return undefined;
+    } catch (cause) {
+      return (cause as NodeJS.ErrnoException).code === "ENOENT" ? false : undefined;
+    }
+  }
+  return true;
+}
+
 /** MIDI note sets per clip in the canonical note schema, keyed by a stable
  * offline coordinate. Feeds key estimation and diff without a bridge. */
-export function extractAlsMidi(model: AlsModel): Array<{ track: string; trackIndex: number; clip: string; lane: string; sceneIndex: number | null; start: number; notes: Note[]; notesRevision: string }> {
+export function extractAlsMidi(model: AlsModel, profile: SemanticPrivacyProfile = "collaboration"): Array<{ track: string; trackIndex: number; clip: string; lane: string; sceneIndex: number | null; start: number; notes: Note[]; notesRevision: string }> {
   const rows: Array<{ track: string; trackIndex: number; clip: string; lane: string; sceneIndex: number | null; start: number; notes: Note[]; notesRevision: string }> = [];
   model.tracks.forEach((track, trackIndex) => {
     for (const clip of track.clips) {
       if (clip.kind !== "midi") continue;
       rows.push({
-        track: track.name, trackIndex, clip: clip.name, lane: clip.lane, sceneIndex: clip.sceneIndex, start: clip.start,
+        track: semanticProjectName(profile, "track", track.name), trackIndex, clip: semanticProjectName(profile, "clip", clip.name), lane: clip.lane, sceneIndex: clip.sceneIndex, start: clip.start,
         notes: clip.notes,
-        notesRevision: createHash("sha256").update(JSON.stringify(clip.notes.map((note) => [note.pitch, note.start, note.duration, note.velocity]))).digest("hex"),
+        notesRevision: createHash("sha256").update(JSON.stringify(clip.notes.map((note) => JSON.stringify([note.pitch, note.start, note.duration, note.velocity, note.channel, note.mute, note.probability, note.velocityDeviation, note.releaseVelocity])).sort())).digest("hex"),
       });
     }
   });

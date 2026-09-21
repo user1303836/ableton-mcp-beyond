@@ -169,6 +169,22 @@ test("bassline templates follow chord roots deterministically", () => {
   assert.throws(() => applyMidiTransform([], { type: "bassline", params: { pattern: "walking", chords: [] } }), /1-32/);
 });
 
+test("generators refuse oversized work before allocation and keep bass notes inside each chord", () => {
+  assert.throws(() => applyMidiTransform([], { type: "bassline", params: { pattern: "walking", chords: Array(32).fill("C"), chordDuration: 1024, stepBeats: 1 / 1024 } }), /bounded 2048-note limit/);
+  assert.throws(() => applyMidiTransform([], { type: "euclidean", params: { pulses: 64, steps: 64, bars: 64, pitch: 36 } }), /bounded 2048-note limit/);
+  assert.throws(() => bjorklund(1, 1_000_000_000), /invalid/);
+  const outcome = applyMidiTransform([], { type: "bassline", params: { pattern: "octave", chords: ["C", "F"], chordDuration: 1, stepBeats: 0.6 } });
+  assert.deepEqual(outcome.notes.map((row) => [row.start, row.duration]), [[0, 0.6], [0.6, 0.4], [1, 0.6], [1.6, 0.4]]);
+  assert.equal(outcome.notes.at(-1)!.start + outcome.notes.at(-1)!.duration, 2);
+});
+
+test("chord and bass octaves share C4=60 and voice leading preserves the first register", () => {
+  for (const voiceLeading of [0, 1]) {
+    const outcome = applyMidiTransform([], { type: "chord-progression", params: { symbols: ["C", "F"], octave: 4, voiceLeading } });
+    assert.deepEqual(outcome.notes.filter((row) => row.start === 0).map((row) => row.pitch), [60, 64, 67]);
+  }
+});
+
 test("motif transforms invert, reverse, and scale rhythm exactly", () => {
   const source = [note(62, 0, 1, 100, 1), note(64, 1, 1, 110, 2), note(60, 2, 2, 90, 3)];
   const inverted = applyMidiTransform(source, { type: "motif-invert", params: { axis: 60 } }, 4);

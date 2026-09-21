@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { gzipSync } from "node:zlib";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -75,6 +75,56 @@ test("the XML reader rejects hostile documents and stays bounded", () => {
   assert.throws(() => parseAlsXml(doc(`${"<x a=\"1\">".repeat(100)}`)), /depth|malformed/);
   const deep = parseAlsXml(doc(`<MidiTrack Id="0"><Name><EffectiveName Value="T"/></Name></MidiTrack>`));
   assert.equal(deep.children[0]!.tag, "LiveSet");
+});
+
+test("XML consumes all markup and never interprets comments or CDATA as elements", () => {
+  const root = parseAlsXml(`<Ableton><!-- <MidiTrack/> --><LiveSet><![CDATA[<MidiTrack/>]]></LiveSet></Ableton>`);
+  assert.equal(root.children.length, 1);
+  assert.equal(root.children[0]!.children.length, 0);
+  assert.equal(root.children[0]!.text, "<MidiTrack/>");
+  assert.equal(parseAlsXml(`<Ableton a = 'one &amp; two'/>`).attrs.a, "one & two");
+  for (const xml of [
+    `<Ableton><Broken a=unquoted/></Ableton>`, `<Ableton><X a="1" a="2"/></Ableton>`,
+    `<Ableton><X></X unexpected="1"></Ableton>`, `<Ableton/ >garbage`,
+    `<Ableton><!-- unclosed</Ableton>`, `<Ableton><X a="&unknown;"/></Ableton>`,
+    `<Ableton/><Unclosed>`, `<Ableton><![CDATA[unclosed</Ableton>`,
+  ]) assert.throws(() => parseAlsXml(xml), /malformed|unsupported|unclosed/);
+  assert.throws(() => parseAlsXml(`<Ableton>${"x".repeat(600_000)}<X/>${"y".repeat(600_000)}</Ableton>`), /text node/);
+  assert.throws(() => parseAlsXml(`<Ableton a="${"x".repeat(1_048_577)}"/>`), /attribute exceeds/);
+});
+
+test("offline extraction recognizes child-value timing, MidiNoteEvent and the main-track tempo", () => {
+  const xml = fixtureXml()
+    .replaceAll("NoteEvent ", "MidiNoteEvent ")
+    .replace(`<MidiClip Id="0" Time="0" Length="4" Disabled="false">`, `<MidiClip Id="0" Time="0"><CurrentStart Value="0"/><CurrentEnd Value="4"/><Disabled Value="true"/><Loop><LoopStart Value="1"/><LoopEnd Value="3"/><LoopOn Value="true"/></Loop>`)
+    .replace(`<Locator Id="1" Time="16">`, `<Locator Id="1"><Time Value="16"/>`)
+    .replace(`<Scene Id="0"><Name Value="Scene 1"/><Tempo><Manual Value="120"/>`, `<Scene Id="0"><Name Value="Scene 1"/><Tempo><Manual Value="97"/>`);
+  const model = modelFromAlsXml(parseAlsXml(xml), "Child values");
+  const clip = model.tracks[0]!.clips[0]!;
+  assert.equal(clip.notes.length, 8);
+  assert.equal(clip.length, 4); assert.equal(clip.loopStart, 1); assert.equal(clip.loopEnd, 3); assert.equal(clip.looping, true); assert.equal(clip.muted, true);
+  assert.equal(model.tempo, 120, "scene tempo must not masquerade as global tempo");
+  assert.equal(model.scenes[0]!.tempo, 97);
+  assert.equal(model.locators[1]!.time, 16);
+});
+
+test("offline artifact binds already-read bytes, refuses missing lengths and preserves Session coordinates", () => {
+  const directory = tempDir();
+  try {
+    const xml = fixtureXml().replace(`<ClipSlots>`, `<ClipSlots><ClipSlot Id="empty"><ClipSlot/></ClipSlot>`);
+    const path = writeFixture(directory, "Snapshot.als", xml);
+    const { source, model } = readAlsModel(path);
+    writeFileSync(path, "the path no longer contains the bytes we parsed");
+    const artifact = createOfflineAlsArtifact(source, model, { exporterVersion: "test" });
+    assert.equal(artifact.provenance.setFileSha256, source.sha256);
+    const clip = artifact.records.find((row) => row.kind === "clip" && row.name === "Kick Loop")!;
+    assert.equal(clip.data.length, 4);
+    assert.equal((clip.data.location as Record<string, unknown>).sceneOrder, 1);
+    const unknown = modelFromAlsXml(parseAlsXml(xml.replace(`Time="0" Length="4"`, `Time="0"`)), "Unknown timing");
+    assert.equal(unknown.tracks[0]!.clips[0]!.length, null);
+    assert.throws(() => createOfflineAlsArtifact(source, unknown, { exporterVersion: "test" }), /clip length is unavailable/);
+    assert.ok(artifact.records.filter((row) => row.kind === "dependency" && row.data.category === "media").every((row) => row.data.availability === "unknown"), "offline reads do not inspect referenced paths");
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test("offline parse reconstructs tracks, clips, canonical notes, scenes, and locators", () => {
@@ -193,6 +243,18 @@ test("lint does not probe a sibling path that only shares the allowed-root prefi
   }
 });
 
+test("lint does not follow a directory symlink out of the allowed root", (t) => {
+  const directory = tempDir();
+  try {
+    const allowedRoot = join(directory, "allowed"); const outside = join(directory, "outside");
+    mkdirSync(allowedRoot); mkdirSync(outside);
+    try { symlinkSync(outside, join(allowedRoot, "linked"), process.platform === "win32" ? "junction" : "dir"); }
+    catch (cause) { if ((cause as NodeJS.ErrnoException).code === "EPERM") { t.skip("symlink/junction creation is unavailable"); return; } throw cause; }
+    const { model } = readAlsModel(writeFixture(allowedRoot, "Symlink.als", fixtureXml({ mediaPath: join(allowedRoot, "linked", "private.wav") })));
+    assert.equal(lintAlsModel(model, { allowedRoot }).findings.some((finding) => finding.check === "missing-sample-reference"), false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 function failClosedHost() {
   const host = new McpHost();
   host.handle({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "test", version: "1" } } });
@@ -215,6 +277,13 @@ test("als_read, als_lint, and als_diff work on a fail-closed host with owner aut
     const readWithNotes = JSON.parse((await call("als_read", { path: before, allowedRoot: directory, includeNotes: true }) as never as { result: { content: [{ text: string }] } }).result.content[0].text);
     assert.equal(readWithNotes.midi.clips.length, 2);
     assert.equal(readWithNotes.midi.clips[0].notes.length, 8);
+    const strict = JSON.parse((await call("als_read", { path: before, allowedRoot: directory, profile: "strict", includeNotes: true }) as any).result.content[0].text);
+    assert.equal(JSON.stringify(strict).includes("Drums"), false, "strict names are also protected in the optional MIDI payload");
+    assert.equal(JSON.stringify(strict).includes("Kick Loop"), false);
+    const project = join(directory, "project"); mkdirSync(project);
+    const relative = writeFixture(project, "Relative.als", fixtureXml({ mediaPath: "Samples/missing.wav" }));
+    const relativeLint = JSON.parse((await call("als_lint", { path: relative, allowedRoot: directory }) as any).result.content[0].text);
+    assert.ok(relativeLint.findings.some((finding: any) => finding.check === "missing-sample-reference"));
     const lint = JSON.parse((await call("als_lint", { path: after, allowedRoot: directory }) as never as { result: { content: [{ text: string }] } }).result.content[0].text);
     assert.ok(lint.summary.total > 0);
     const diff = JSON.parse((await call("als_diff", { before: { als: { path: before, allowedRoot: directory } }, after: { als: { path: after, allowedRoot: directory } } }) as never as { result: { content: [{ text: string }] } }).result.content[0].text);

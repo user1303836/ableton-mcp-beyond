@@ -439,7 +439,7 @@ function newNote(pitch: number, start: number, duration: number, velocity: numbe
  * possible. The raw bucket construction is normalized so the first pulse
  * lands on step 0 (the canonical representation of each rhythm). */
 export function bjorklund(pulses: number, steps: number): boolean[] {
-  if (!Number.isInteger(pulses) || !Number.isInteger(steps) || pulses < 0 || steps < 1 || pulses > steps) throw new RangeError("euclidean pulses/steps are invalid");
+  if (!Number.isInteger(pulses) || !Number.isInteger(steps) || pulses < 0 || steps < 1 || steps > 64 || pulses > steps) throw new RangeError("euclidean pulses/steps are invalid");
   if (pulses === 0) return new Array(steps).fill(false);
   if (pulses === steps) return new Array(steps).fill(true);
   const pattern: boolean[] = [];
@@ -477,6 +477,7 @@ function euclideanRhythm(_notes: readonly Note[], params: Readonly<Record<string
   const stepLength = finiteParam(params, "stepLength", 1 / 1024, 16, 0.25);
   const noteLength = finiteParam(params, "noteLength", 1 / 1024, 64, Math.min(0.9 * stepLength, stepLength));
   const bars = integerParam(params, "bars", 1, 64, 1);
+  if (pulses * bars > MIDI_TRANSFORM_MAX_NOTES) throw new RangeError(`euclidean would exceed the bounded ${MIDI_TRANSFORM_MAX_NOTES}-note limit`);
   const pattern = bjorklund(pulses, steps);
   const shift = ((rotation % steps) + steps) % steps;
   const result: Note[] = [];
@@ -605,7 +606,7 @@ function voicingCandidates(chord: ChordSpec, style: string): VoicedChord[] {
   const candidates: VoicedChord[] = [];
   const tones = chord.intervals.length;
   for (let inversion = 0; inversion < tones; inversion += 1) {
-    for (let octave = 1; octave <= 6; octave += 1) {
+    for (let octave = 0; octave <= 10; octave += 1) {
       const bassPc = chord.intervals[inversion]!;
       const bassPitch = 12 * octave + ((chord.rootPc + bassPc) % 12);
       const rotated = chord.intervals.slice(inversion).map((interval) => interval - bassPc).concat(chord.intervals.slice(0, inversion).map((interval) => interval + 12 - bassPc));
@@ -645,13 +646,8 @@ function chordProgression(_notes: readonly Note[], params: Readonly<Record<strin
   for (const chord of chords) {
     let placed: VoicedChord;
     if (!voiceLeading || previous === null) {
-      placed = styleVoicing(chord, 12 * octave + chord.rootPc, voicingStyle);
-      if (voiceLeading && previous === null) {
-        // Voice-led sessions still anchor the first chord to the requested register.
-        const candidates = voicingCandidates(chord, voicingStyle);
-        const anchor = candidates.filter((candidate) => Math.abs(candidate[0]! - placed[0]!) <= 12);
-        if (anchor.length > 0) placed = anchor.sort((a, b) => (a[0]! - placed[0]!) - (b[0]! - placed[0]!))[0]!;
-      }
+      placed = styleVoicing(chord, 12 * (octave + 1) + chord.rootPc, voicingStyle);
+      if (placed.some((pitch) => pitch < 0 || pitch > 127)) throw new RangeError("requested chord octave and voicing exceed the MIDI pitch range");
     } else {
       const candidates = voicingCandidates(chord, voicingStyle);
       if (candidates.length === 0) throw new RangeError(`no voicing of ${chord.name} fits the MIDI pitch range`);
@@ -757,10 +753,11 @@ function bassline(_notes: readonly Note[], params: Readonly<Record<string, unkno
   const velocity = integerParam(params, "velocity", 1, 127, 85);
   const octave = integerParam(params, "octave", 0, 6, 2);
   const startBeat = finiteParam(params, "startBeat", 0, 1000000, 0);
+  const steps = Math.max(1, Math.ceil(chordDuration / stepBeats));
+  if (steps * chords.length > MIDI_TRANSFORM_MAX_NOTES) throw new RangeError(`bassline would exceed the bounded ${MIDI_TRANSFORM_MAX_NOTES}-note limit; increase stepBeats or shorten the progression`);
   const result: Note[] = [];
   chords.forEach((chord, chordIndex) => {
     const rootPitch = 12 * (octave + 1) + chord.rootPc;
-    const steps = Math.max(1, Math.round(chordDuration / stepBeats));
     const nextRoot = chordIndex + 1 < chords.length ? 12 * (octave + 1) + chords[chordIndex + 1]!.rootPc : rootPitch + 12;
     for (let step = 0; step < steps; step += 1) {
       let pitch: number;
@@ -775,7 +772,7 @@ function bassline(_notes: readonly Note[], params: Readonly<Record<string, unkno
         else pitch = rootPitch + chord.intervals[step % chord.intervals.length]!;
       }
       if (pitch < 0 || pitch > 127) continue;
-      result.push(newNote(pitch, startBeat + chordIndex * chordDuration + step * stepBeats, stepBeats, velocity));
+      result.push(newNote(pitch, startBeat + chordIndex * chordDuration + step * stepBeats, Math.min(stepBeats, chordDuration - step * stepBeats), velocity));
     }
   });
   return { notes: result, generative: true, assumptions: [`${pattern} bassline over ${chords.length} chord(s) from ${source}: ${chords.map((chord) => chord.name).join(" - ")}`, `${stepBeats}-beat steps at octave ${octave}; walking lines approach each next root chromatically from below; input notes are replaced`] };

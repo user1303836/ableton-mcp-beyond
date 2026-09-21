@@ -845,7 +845,7 @@ const toolDescriptors = [
   {
     name: "live_key_estimate",
     description: "Estimate the musical key of a MIDI clip (or an explicit note set) as ranked candidates with correlation scores, an explicit confidence classification, and an ambiguity flag — never a forced single answer. Read-only and deterministic.",
-    inputSchema: { type: "object", properties: { clipRef: { type: "string", minLength: 1, maxLength: 256 }, notes: { type: "array", maxItems: 4096, items: { type: "object", properties: { pitch: { type: "integer", minimum: 0, maximum: 127 }, start: { type: "number", minimum: 0 }, duration: { type: "number", exclusiveMinimum: 0 }, velocity: { type: "integer", minimum: 0, maximum: 127 } }, required: ["pitch", "start", "duration"], additionalProperties: false } }, expectedNotesRevision: { type: "string", minLength: 64, maxLength: 64, pattern: "^[0-9a-f]{64}$" } }, additionalProperties: false },
+    inputSchema: { type: "object", properties: { clipRef: { type: "string", minLength: 1, maxLength: 256 }, notes: { type: "array", maxItems: 4096, items: { type: "object", properties: { pitch: { type: "integer", minimum: 0, maximum: 127 }, start: { type: "number", minimum: 0, maximum: 1000000 }, duration: { type: "number", exclusiveMinimum: 0, maximum: 1000000 }, velocity: { type: "integer", minimum: 0, maximum: 127 } }, required: ["pitch", "start", "duration"], additionalProperties: false } }, expectedNotesRevision: { type: "string", minLength: 64, maxLength: 64, pattern: "^[0-9a-f]{64}$" } }, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
   },
   {

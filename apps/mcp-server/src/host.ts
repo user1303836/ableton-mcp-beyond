@@ -2086,15 +2086,15 @@ export class McpHost {
       const page = pageSemanticProjectSnapshot(artifact, { ...(params.limit !== undefined ? { limit: params.limit as number } : {}), ...(params.cursor !== undefined ? { cursor: params.cursor as string } : {}) });
       let midi: unknown;
       if (params.includeNotes === true) {
-        const rows = extractAlsMidi(model);
-        let budget = 4096; let truncated = false;
-        const boundedRows = rows.map((row) => {
+        const rows = extractAlsMidi(model, artifact.policy.profile);
+        let budget = 4096; let truncated = rows.length > 256;
+        const boundedRows = rows.slice(0, 256).map((row) => {
           if (budget <= 0) { truncated = true; return { ...row, notes: [] }; }
           const kept = row.notes.slice(0, budget); budget -= kept.length;
           if (kept.length < row.notes.length) truncated = true;
           return { ...row, notes: kept };
         }).filter((row, index) => index === 0 || row.notes.length > 0 || !truncated);
-        midi = { clips: boundedRows, truncated, noteBudget: 4096 };
+        midi = { clips: boundedRows, truncated, noteBudget: 4096, clipBudget: 256 };
       }
       return this.successText(id, { page, provenance: "offline-file", ...(midi !== undefined ? { midi } : {}) });
     } catch (cause) { return this.adapterToolError(id, cause, "Offline .als reading requires one owner-authorized regular file under the allowed root; sections that cannot be reconstructed offline are marked unavailable."); }
@@ -2105,7 +2105,7 @@ export class McpHost {
     try {
       const authority = this.alsFileAuthority(params.path, params.allowedRoot);
       const { model } = readAlsModel(authority.canonicalPath);
-      const { findings, truncated } = lintAlsModel(model, { allowedRoot: authority.canonicalRoot });
+      const { findings, truncated } = lintAlsModel(model, { allowedRoot: authority.canonicalRoot, setDirectory: dirname(authority.canonicalPath) });
       const bySeverity: Record<string, number> = {};
       const byCheck: Record<string, number> = {};
       for (const finding of findings) { bySeverity[finding.severity] = (bySeverity[finding.severity] ?? 0) + 1; byCheck[finding.check] = (byCheck[finding.check] ?? 0) + 1; }
@@ -4575,7 +4575,7 @@ export class McpHost {
     const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
     if (!transaction || transaction.kind !== "track-set" || (transaction.state === "previewed" && transaction.expiresAt <= Date.now())) return this.transactionError(id, "Unknown or expired track-properties transaction");
     if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
-    const reconciliation = transaction.state === "uncertain" && transaction.applyKey === params.idempotencyKey;
+    const reconciliation = transaction.state === "uncertain" && transaction.undoKey === undefined && transaction.applyKey === params.idempotencyKey;
     if (transaction.state !== "previewed" && !reconciliation) return this.transactionError(id, "Transaction is no longer applicable");
     if (signal?.aborted) return null;
     try {
@@ -4590,7 +4590,7 @@ export class McpHost {
       const result = await adapter.invokeAsync({ operation: "track.set", args: transaction.payload }, context) as { changed?: unknown; revision?: unknown };
       if (result.changed !== true) throw new Error("track properties change was not confirmed");
       const verified = ((await adapter.snapshotAsync(context)).tracks as unknown as JsonObject[]).find((candidate) => candidate.ref === transaction.payload.ref);
-      if (!verified) throw new Error("edited track disappeared after apply");
+      if (!verified || verified.objectIdentity !== transaction.payload.expectedObjectIdentity) throw new Error("edited track identity changed after apply");
       if ((verified as unknown as JsonObject).colorIndex !== transaction.payload.colorIndex) throw new Error("track properties postcondition was not confirmed");
       transaction.applyKey = params.idempotencyKey as string;
       transaction.state = "applied";
@@ -4632,7 +4632,8 @@ export class McpHost {
       if (Object.keys(proposed).some((field) => settings[field] === null)) return this.transactionError(id, "one or more requested song settings are unavailable on this shape");
       const prior: Record<string, unknown> = {};
       for (const field of Object.keys(proposed)) prior[field] = settings[field];
-      const payload: Record<string, unknown> = { ...proposed, expectedStateRevision: this.songSettingsRevision(song) };
+      if (!isNonEmptyString(snapshot.set.objectIdentity, 256)) throw new Error("song settings require exact Set identity");
+      const payload: Record<string, unknown> = { ...proposed, setRef: snapshot.set.ref, expectedObjectIdentity: snapshot.set.objectIdentity, expectedStateRevision: this.songSettingsRevision(song) };
       const fence = JSON.stringify({ state: fields.map((field) => settings[field]) });
       const transaction: ClipLifecycleTransaction = { id: `songset_${randomBytes(18).toString("base64url")}`, epoch: status.epoch as number, kind: "song-set", fence, payload, prior, expiresAt: Date.now() + TRANSACTION_TTL_MS, state: "previewed" };
       this.retainBoundedTransaction(this.clipLifecycleTransactions, transaction, "song settings edit");
@@ -4645,7 +4646,7 @@ export class McpHost {
     const transaction = this.clipLifecycleTransactions.get(params.transactionId as string);
     if (!transaction || transaction.kind !== "song-set" || (transaction.state === "previewed" && transaction.expiresAt <= Date.now())) return this.transactionError(id, "Unknown or expired song-settings transaction");
     if (transaction.state === "applied" && transaction.applyKey === params.idempotencyKey) return this.successText(id, { transactionId: transaction.id, state: "applied", idempotent: true });
-    const reconciliation = transaction.state === "uncertain" && transaction.applyKey === params.idempotencyKey;
+    const reconciliation = transaction.state === "uncertain" && transaction.undoKey === undefined && transaction.applyKey === params.idempotencyKey;
     if (transaction.state !== "previewed" && !reconciliation) return this.transactionError(id, "Transaction is no longer applicable");
     if (signal?.aborted) return null;
     try {
@@ -4655,6 +4656,7 @@ export class McpHost {
       const adapter = this.asyncAdapter();
       const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
       const snapshot = await adapter.snapshotAsync(context);
+      if (snapshot.set.ref !== transaction.payload.setRef || snapshot.set.objectIdentity !== transaction.payload.expectedObjectIdentity) throw new Error("song settings Set identity changed since preview");
       const fields = ["signatureNumerator", "signatureDenominator", "swingAmount", "clipTriggerQuantization", "midiRecordingQuantization"];
       if (!reconciliation) { const song = await adapter.invokeAsync({ operation: "song.read", args: { setRef: snapshot.set.ref } }, context) as JsonObject;
         const settings = this.songSettingsFields(song);
@@ -4662,6 +4664,8 @@ export class McpHost {
       transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
       const result = await adapter.invokeAsync({ operation: "song.set", args: transaction.payload }, context) as { changed?: unknown; revision?: unknown };
       if (result.changed !== true) throw new Error("song settings change was not confirmed");
+      const after = await adapter.snapshotAsync(context);
+      if (after.set.ref !== transaction.payload.setRef || after.set.objectIdentity !== transaction.payload.expectedObjectIdentity) throw new Error("song settings Set identity changed after apply");
       const verified = this.songSettingsFields(await adapter.invokeAsync({ operation: "song.read", args: { setRef: snapshot.set.ref } }, context) as JsonObject);
       for (const field of fields) if (transaction.payload[field] !== undefined && verified[field] !== transaction.payload[field]) throw new Error("song settings postcondition was not confirmed");
       transaction.applyKey = params.idempotencyKey as string;
@@ -4679,8 +4683,8 @@ export class McpHost {
       for (const entry of params.notes) {
         if (!isObject(entry) || !hasOnly(entry, ["pitch", "start", "duration", "velocity"])) return error(id, -32602, "note objects may only carry pitch, start, duration, and velocity");
         if (!Number.isInteger(entry.pitch) || (entry.pitch as number) < 0 || (entry.pitch as number) > 127) return error(id, -32602, "note pitch must be an integer in 0..127");
-        if (typeof entry.start !== "number" || !Number.isFinite(entry.start) || entry.start < 0) return error(id, -32602, "note start must be a finite non-negative number");
-        if (typeof entry.duration !== "number" || !Number.isFinite(entry.duration) || entry.duration <= 0) return error(id, -32602, "note duration must be a finite positive number");
+        if (typeof entry.start !== "number" || !Number.isFinite(entry.start) || entry.start < 0 || entry.start > 1_000_000) return error(id, -32602, "note start must be finite in 0..1000000 beats");
+        if (typeof entry.duration !== "number" || !Number.isFinite(entry.duration) || entry.duration <= 0 || entry.duration > 1_000_000) return error(id, -32602, "note duration must be finite in 0..1000000 beats, exclusive of zero");
         if (entry.velocity !== undefined && (!Number.isInteger(entry.velocity) || (entry.velocity as number) < 0 || (entry.velocity as number) > 127)) return error(id, -32602, "note velocity must be an integer in 0..127");
         notes.push({ pitch: entry.pitch as number, start: entry.start, duration: entry.duration, ...(entry.velocity !== undefined ? { velocity: entry.velocity as number } : {}) });
       }
@@ -6967,13 +6971,13 @@ export class McpHost {
         this.beginUndoRecovery(trackset, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== trackset.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
         const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; trackset.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(trackset, adapter, context);
         const snapshot = await adapter.snapshotAsync(context); const track = (snapshot.tracks as unknown as JsonObject[]).find((candidate) => candidate.ref === trackset.payload.ref);
-        if (!track || !isNonEmptyString(track.objectIdentity, 256)) throw new Error("track identity is unavailable");
+        if (!track || track.objectIdentity !== trackset.payload.expectedObjectIdentity) throw new Error("track identity changed after apply; undo refused");
         if (!reconciliation && (track.colorIndex ?? null) !== trackset.payload.colorIndex) return this.transactionError(id, "track changed after apply; undo refused");
         trackset.state = "undoing";
         const result = await this.invokeUndoRecovery(trackset, adapter, "track.set", { ref: trackset.payload.ref, ...(trackset.prior as Record<string, unknown>), expectedObjectIdentity: track.objectIdentity, expectedStateRevision: this.trackPropertiesStateRevision(track) }, context) as JsonObject;
         if (result.changed !== true) throw new Error("track restoration was not confirmed");
         const restored = ((await adapter.snapshotAsync(context)).tracks as unknown as JsonObject[]).find((candidate) => candidate.ref === trackset.payload.ref);
-        if (!restored) throw new Error("track disappeared after undo");
+        if (!restored || restored.objectIdentity !== trackset.payload.expectedObjectIdentity) throw new Error("track identity changed after undo");
         for (const [field, value] of Object.entries(trackset.prior)) if ((restored as unknown as JsonObject)[field] !== value) throw new Error("track exact prior state was not restored");
         trackset.state = "undone"; return this.successText(id, { transactionId: trackset.id, state: "undone", idempotent: false });
       } catch (cause) { trackset.state = "uncertain"; return this.adapterToolError(id, cause, "Track-properties undo is uncertain; perform fresh discovery."); }
@@ -6987,11 +6991,15 @@ export class McpHost {
       try {
         this.beginUndoRecovery(songset, params.idempotencyKey as string); const status = this.requireConnected("session.read"); if (status.epoch !== songset.epoch) return this.transactionError(id, "Live connection epoch changed; undo refused");
         const adapter = this.asyncAdapter(); const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string }; songset.undoKey = params.idempotencyKey as string; if (reconciliation) await this.replayUndoRecovery(songset, adapter, context);
-        const snapshot = await adapter.snapshotAsync(context); const rawSong = await adapter.invokeAsync({ operation: "song.read", args: { setRef: snapshot.set.ref } }, context) as JsonObject; const song = this.songSettingsFields(rawSong);
-        if (!reconciliation) { for (const [field, value] of Object.entries(songset.payload)) { if (field === "expectedStateRevision") continue; if (song[field] !== value) return this.transactionError(id, "song settings changed after apply; undo refused"); } }
+        const snapshot = await adapter.snapshotAsync(context);
+        if (snapshot.set.ref !== songset.payload.setRef || snapshot.set.objectIdentity !== songset.payload.expectedObjectIdentity) throw new Error("song settings Set identity changed after apply; undo refused");
+        const rawSong = await adapter.invokeAsync({ operation: "song.read", args: { setRef: snapshot.set.ref } }, context) as JsonObject; const song = this.songSettingsFields(rawSong);
+        if (!reconciliation) { for (const [field, value] of Object.entries(songset.payload)) { if (["setRef", "expectedObjectIdentity", "expectedStateRevision"].includes(field)) continue; if (song[field] !== value) return this.transactionError(id, "song settings changed after apply; undo refused"); } }
         songset.state = "undoing";
-        const result = await this.invokeUndoRecovery(songset, adapter, "song.set", { ...(songset.prior as Record<string, unknown>), expectedStateRevision: this.songSettingsRevision(rawSong) }, context) as JsonObject;
+        const result = await this.invokeUndoRecovery(songset, adapter, "song.set", { ...(songset.prior as Record<string, unknown>), setRef: songset.payload.setRef, expectedObjectIdentity: songset.payload.expectedObjectIdentity, expectedStateRevision: this.songSettingsRevision(rawSong) }, context) as JsonObject;
         if (result.changed !== true) throw new Error("song settings restoration was not confirmed");
+        const after = await adapter.snapshotAsync(context);
+        if (after.set.ref !== songset.payload.setRef || after.set.objectIdentity !== songset.payload.expectedObjectIdentity) throw new Error("song settings Set identity changed after undo");
         const restored = this.songSettingsFields(await adapter.invokeAsync({ operation: "song.read", args: { setRef: snapshot.set.ref } }, context) as JsonObject);
         for (const [field, value] of Object.entries(songset.prior)) if (restored[field] !== value) throw new Error("song settings exact prior state was not restored");
         songset.state = "undone"; return this.successText(id, { transactionId: songset.id, state: "undone", idempotent: false });

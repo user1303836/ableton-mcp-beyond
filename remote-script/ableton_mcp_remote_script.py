@@ -4829,7 +4829,8 @@ class LiveObjectMapper:
                 "midiRecordingQuantization": enum_or_none(self._read_attr(self.song, "midi_recording_quantization"))}
 
     def _song_set(self, args: dict[str, Any]) -> dict[str, Any]:
-        if set(args) - set(self._SONG_SET_FIELDS) - {"expectedStateRevision"}: raise ValueError("song settings fields are invalid")
+        if set(args) - set(self._SONG_SET_FIELDS) - {"setRef", "expectedObjectIdentity", "expectedStateRevision"}: raise ValueError("song settings fields are invalid")
+        if args.get("setRef") != self.refs.put("set", self.song, "song") or not isinstance(args.get("expectedObjectIdentity"), str) or not hmac.compare_digest(self._capture_object_identity(self.song), args["expectedObjectIdentity"]): raise ValueError("song settings Set identity changed since preview")
         state_revision = hashlib.sha256(self._bounded_canonical(self._song_settings_state()).encode("utf-8")).hexdigest()
         if not isinstance(args.get("expectedStateRevision"), str) or not hmac.compare_digest(state_revision, args["expectedStateRevision"]): raise ValueError("song settings state changed since preview")
         proposals = []
