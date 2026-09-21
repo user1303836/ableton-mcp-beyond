@@ -11,7 +11,7 @@ MCP クライアントから Ableton MCP Beyond をインストール・設定�
 
 ## インストールと起動
 
-サポートされるランタイム: Node.js 22 / 24 / 25。Node 21、23、26、27、
+サポートされるランタイム: Node.js 22 / 24（Node 24 LTS 推奨）。Node 21、23、25、26、27、
 未列挙/将来のメジャーはサポートされません。ソースチェックアウトから:
 
 ```sh
@@ -24,8 +24,16 @@ node dist/src/cli.js --config /absolute/path/bridge-config.json
 
 受け付ける CLI オプションは `--config PATH` 1 つのみです。シークレット、
 エンドポイント、アダプター、ケイパビリティを MCP 引数やクライアント
-メタデータから選択することはできません。プロトコル `2025-11-25` で
-JSON-RPC を初期化し、続けて `notifications/initialized` を送信してください。
+メタデータから選択することはできません。旧 `2025-11-25` は従来どおり
+`initialize` と `notifications/initialized` を使います。新 `2026-07-28` は初期化不要で、各要求の `params._meta` に
+`io.modelcontextprotocol/protocolVersion: "2026-07-28"` と
+`io.modelcontextprotocol/clientCapabilities: {}` が必須です。`server/discover` は任意です。
+結果は `resultType: "complete"` を含み、JSON ツール結果はテキストに加えて `structuredContent` を返します。
+探索 / リソースのキャッシュは private、`ttlMs: 0` です。状態・ポリシー変更後は再取得してください。
+探索後に旧初期化を選ぶことはできますが、それ以外はプロセス内で方式を混在させません。
+新方式は MCP push、MRTR、Tasks を広告しません。`live_subscribe` / `live_unsubscribe` は旧方式のみで、snapshot や `live_observe_poll` を使います。
+クライアントのメタデータは承認ではありません。トランザクション ID と正確な冪等キーを適用 / アンドゥ回復に保持してください。
+キャンセル / 再起動後に新プレビューで不確定な書込みを繰り返してはいけません。ハンドルはプロセス内限定で期限があり、再起動後は新たな探索と明示的回復が必要です。新しい実 Live 認証を意味しません。
 
 tarball によるインストールは、[DELIVERY.md](DELIVERY.md) のレシート駆動
 `ableton-mcp-lifecycle` フローで、インストール、アクティベーション、

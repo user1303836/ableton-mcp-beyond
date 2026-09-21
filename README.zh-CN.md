@@ -16,8 +16,8 @@
 <p align="center">
   <a href="https://github.com/user1303836/ableton-mcp-beyond/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/user1303836/ableton-mcp-beyond/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT 许可证" /></a>
-  <a href="apps/mcp-server/package.json"><img src="https://img.shields.io/badge/node-22%20%7C%2024%20%7C%2025-339933?style=flat-square" alt="Node 22 | 24 | 25" /></a>
-  <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blue?style=flat-square" alt="MCP 协议 2025-11-25" /></a>
+  <a href="apps/mcp-server/package.json"><img src="https://img.shields.io/badge/node-22%20%7C%2024-339933?style=flat-square" alt="Node 22 | 24" /></a>
+  <a href="docs/zh-CN/USER_GUIDE.md"><img src="https://img.shields.io/badge/MCP-2026--07--28%20%2B%20legacy-blue?style=flat-square" alt="MCP 2026-07-28 与旧版 2025-11-25" /></a>
   <a href="docs/en/SUPPORT_MATRIX.md"><img src="https://img.shields.io/badge/Ableton%20Live-12-555555?style=flat-square" alt="Ableton Live 12" /></a>
 </p>
 
@@ -34,7 +34,7 @@
 
 ## 快速上手
 
-需要 Node.js 22、24 或 25。桥接需要 Ableton Live 12;宿主、测试与演示无需 Live 即可运行。
+需要 Node.js 22 或 24，推荐 Node 24 LTS。Node 25 已终止维护，不再支持；Node 26 尚未验证。桥接需要 Ableton Live 12;宿主、测试与演示无需 Live 即可运行。
 
 ```sh
 cd apps/mcp-server
@@ -53,7 +53,7 @@ npm run setup -- --output /abs/path/bridge-config.json \
 node dist/src/install-remote-script.js --destination '/abs/.../Remote Scripts/AbletonMcpBridge' --dry-run
 ```
 
-重启 Live,然后验证:`npm run diagnostics -- --config /abs/path/bridge-config.json`。
+bridge 示例要求已有仅所有者可访问的 secret；`--dry-run` **不会安装**。已验证候选请使用 [DELIVERY.md](docs/zh-CN/DELIVERY.md) 的 plan / apply / activate 流程，包括手动重启 Live 和选择 Control Surface，再检查 `npm run diagnostics -- --config /abs/path/bridge-config.json` 的内容。退出码 0 不等于真实 Live 就绪。单一引导 onboarding (#66) 仍未完成。
 完整教程:[docs/zh-CN/USER_GUIDE.md](docs/zh-CN/USER_GUIDE.md)。
 
 ## 安全模型
@@ -62,11 +62,15 @@ node dist/src/install-remote-script.js --destination '/abs/.../Remote Scripts/Ab
 
 部署的信任边界是由所有者控制的本地 OS 账户和 MCP 客户端审批策略。服务器内的确认并不能证明人类通过独立于模型的渠道给予了同意。请勿自动批准发声、录音、路由、捕获或实时工具。
 
+## Toolkit 方向
+
+保留 MCP，推进结构化观察 → 选择 → 受保护执行 → 独立验证。模型是可选客户端：Jev 式类型化选择不等于视觉或同意，无限制桌面代理也不继承 MCP 安全性。紧凑 task discovery、共享权限的 GUI 导出试点与保留 bounce 都是后续工作，**不是已交付集成**。参见[扩展边界与评估门槛](docs/zh-CN/EXTENSION_SURFACES.md)。
+
 ## 兼容性
 
 | 平台 | 状态 |
 |---|---|
-| Node.js 22 / 24 / 25 | 支持的契约;必须取得当前精确 SHA 的完整矩阵成功结果 |
+| Node.js 22 / 24 | 支持的契约;必须取得当前精确 SHA 的完整矩阵成功结果 |
 | macOS + Live 12 | 在 12.4.5b8 beta 上的历史真实 Live 证据([证据](docs/evidence/));发布前需对精确候选重新运行验证 |
 | Windows 宿主 | 已配置 CI 契约;仍需当前精确 SHA 的结果;Windows 11 + Live 尚未认证 |
 | Linux / Live 11 或更早 | 不支持 |

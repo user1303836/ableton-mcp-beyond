@@ -89,7 +89,7 @@
 
 | 域 | 公共 API / 规范操作 | 实现与安全 | 主要测试 | 平台/生产证据 | 文档与协商限制 |
 |---|---|---|---|---|---|
-| MCP 传输与宿主 | initialize、tools/resources/prompts、stdio JSON-RPC | `host.ts`、`stdio.ts`、`framing.ts`;R/G;有界帧、工作、速率、取消、排序 | `host.test.ts`、`stdio.test.ts`、`framing.test.ts`、属性/基准 | 已配置 Node 22/24/25 宿主矩阵;打包 fake-Live 旅程;需要精确 SHA 结果 | `DEVELOPER_GUIDE.md`、`OPERATIONS.md`;无通用变更工具 |
+| MCP 传输与宿主 | initialize、tools/resources/prompts、stdio JSON-RPC | `host.ts`、`stdio.ts`、`framing.ts`;R/G;有界帧、工作、速率、取消、排序 | `host.test.ts`、`stdio.test.ts`、`framing.test.ts`、属性/基准 | 已配置 Node 22/24 宿主矩阵;打包 fake-Live 旅程;需要精确 SHA 结果 | `DEVELOPER_GUIDE.md`、`OPERATIONS.md`;无通用变更工具 |
 | 工具发现与部署策略 | 能力感知的 `tools/list`、`notifications/tools/list_changed`、策略配置档 | `tool-catalog.ts` 声明式目录(每个工具的 schema、注解、精确能力/操作/来源前置条件与策略类别);R;tools/list 只显示当前可执行且被策略允许的工具;`read-only`、`edit-no-audio`、`performance`、`full` 配置档加 allow/deny 覆盖;策略在派发时及撤销派发时按名称强制;连接/断开/epoch/操作/策略变化时发出 list-changed 通知,并通过专用内部状态通道(绝非公共事件流)在适配器刷新/重连/会话中断线时发出;`live_status` 执行有界刷新/重连,使同 epoch 断线不会死锁发现;`performance` 配置档保留受护栏撤销/恢复,事务绝不搁浅 | `tool-catalog.test.ts`、宿主测试 | 宿主级契约(无需 Live);测量工件 `scripts/report-tool-surface.mjs` 报告各配置档的工具数与 schema token 成本,不作改进断言 | `USER_GUIDE.md`;已协商限制(save/open)位于能力资源中,绝不进入可调用发现 |
 | 规范 Live 契约 | `ableton-live/v1`、操作注册表、清单/哈希 | `registry.ts`、`live.ts`、Python 映射器;R/G/A/RT;严格模式与单一规范摘要 | `registry.test.ts`、Python 契约测试、包/候选验证器 | 历史 macOS 真实 Live 协商使用旧注册表摘要;需要当前摘要精确候选证明 | `DEVELOPER_GUIDE.md`、`LIVE_SAFETY.md`;不支持的形态保持不可用 |
 | 认证桥接 | status/snapshot/discover/get 及用途专用操作 | `remote-adapter.ts`、Python 监听器;回环质询、HMAC、epoch/序列/截止时间栅栏 | `registry.test.ts`、`live.test.ts`、打包旅程 | 打包 fake-Live 与 macOS 真实 Live | `OPERATIONS.md`、`RECOVERY.md`;无远程网络模式 |
@@ -153,7 +153,7 @@
 | 发布产物 | 与允许列表严格精确匹配的 MIT npm tarball、发布清单(载荷以 `release-manifest.json` 枚举为准)、载荷角色/哈希、许可证字节相等 | `package:verify`、候选与 Python 绑定器、全新克隆字节比对 | 仅精确 SHA 本地未发布 tarball | `DELIVERY.md`;npm `private: true`、未签名、未公证、未发布 |
 | 安装/激活 | `ableton-mcp-lifecycle` 回执/日志/锁;D/FS | 生命周期单元 + 已安装候选矩阵;激活需要真实 Live 与完整回执绑定包 | macOS 15 与 Windows Server 2025 宿主契约,以精确 SHA CI 为条件 | Windows Live/Windows 11 激活未认证;`DELIVERY.md` |
 | 升级/修复/回滚/卸载 | 精确更新产物、隔离/保留清理、精确前代、仅所有者清除 | 生命周期单元、候选 OS 矩阵(含 Windows ACL/联接点/占用文件用例) | 在托管精确 SHA 结果前仅为宿主契约 | 无原生安装器;操作者必须停止/重启 Live |
-| Node/OS 兼容性 | Node 22/24/25;Ubuntu 24.04、macOS 15、Windows Server 2025 工作流 | 完整 Node 测试加精确已安装候选;Python 3.11 映射器 | 有条件;见当前检查结果 | Linux 无 Live 声明;Windows 11 不从 Server 继承 |
+| Node/OS 兼容性 | Node 22/24;Ubuntu 24.04、macOS 15、Windows Server 2025 工作流 | 完整 Node 测试加精确已安装候选;Python 3.11 映射器 | 有条件;见当前检查结果 | Linux 无 Live 声明;Windows 11 不从 Server 继承 |
 | 键盘操作 | 服务器 stdio 与生命周期 CLI 仅需键盘/stdin;有序文本状态 | 打包旅程与候选 CLI 测试 | 服务器拥有的文本边界 | 第三方客户端、终端与 Live 拥有自己的焦点行为 |
 | 屏幕阅读器 | 无服务器拥有的可视 UI;语义文本与非颜色状态 | 仅契约检查,非 VoiceOver/Narrator 交互证据 | **未认证** | VoiceOver、Narrator、Live、插件与 MCP 客户端行为需要单独的交互式平台证据;`USER_JOURNEYS.md`、`SUPPORT_MATRIX.md` |
 | 签名/发布 | 显式不可用诊断与策略 | 包/候选策略断言 | 不适用于当前本地未发布渠道 | MIT 权利独立;需要授权身份与单独的发布决定 |

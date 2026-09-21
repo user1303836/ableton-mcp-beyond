@@ -15,8 +15,8 @@
 <p align="center">
   <a href="https://github.com/user1303836/ableton-mcp-beyond/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/user1303836/ableton-mcp-beyond/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT license" /></a>
-  <a href="apps/mcp-server/package.json"><img src="https://img.shields.io/badge/node-22%20%7C%2024%20%7C%2025-339933?style=flat-square" alt="Node 22 | 24 | 25" /></a>
-  <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blue?style=flat-square" alt="MCP protocol 2025-11-25" /></a>
+  <a href="apps/mcp-server/package.json"><img src="https://img.shields.io/badge/node-22%20%7C%2024-339933?style=flat-square" alt="Node 22 | 24" /></a>
+  <a href="docs/en/USER_GUIDE.md"><img src="https://img.shields.io/badge/MCP-2026--07--28%20%2B%20legacy-blue?style=flat-square" alt="MCP 2026-07-28 and legacy 2025-11-25" /></a>
   <a href="docs/en/SUPPORT_MATRIX.md"><img src="https://img.shields.io/badge/Ableton%20Live-12-555555?style=flat-square" alt="Ableton Live 12" /></a>
 </p>
 
@@ -33,7 +33,7 @@
 
 ## Quick start
 
-Requires Node.js 22, 24, or 25. Ableton Live 12 for the bridge; the host, tests, and demo run without it.
+Requires Node.js 22 or 24; Node 24 LTS is recommended. Node 25 is EOL and unsupported; Node 26 is not yet validated. Ableton Live 12 for the bridge; the host, tests, and demo run without it.
 
 ```sh
 cd apps/mcp-server
@@ -52,7 +52,7 @@ npm run setup -- --output /abs/path/bridge-config.json \
 node dist/src/install-remote-script.js --destination '/abs/.../Remote Scripts/AbletonMcpBridge' --dry-run
 ```
 
-Restart Live, then verify: `npm run diagnostics -- --config /abs/path/bridge-config.json`.
+The bridge example requires an existing owner-only secret; `--dry-run` does **not** install anything. For verified candidates, use the plan/apply/activate sequence in [DELIVERY.md](docs/en/DELIVERY.md), including manual Live restart and Control Surface selection, then inspect `npm run diagnostics -- --config /abs/path/bridge-config.json`. Exit code 0 alone is not real-Live readiness. The single guided onboarding command (#66) remains unfinished.
 Full walkthrough: [docs/en/USER_GUIDE.md](docs/en/USER_GUIDE.md).
 
 ## Safety model
@@ -61,11 +61,15 @@ Every mutation follows **discover → preview → confirm → apply → verify �
 
 The deployment trusts an owner-controlled local OS account and the MCP client's approval policy. Server confirmations are not proof of human consent through a channel independent of the model. Do not auto-approve audible, recording, routing, capture, or realtime tools.
 
+## Toolkit direction
+
+Keep MCP while evolving the structured observation → selection → guarded execution → independent verification toolkit. Models remain optional clients: Jev-style typed choices are not vision or consent, and unrestricted desktop agents do not inherit MCP safety. Compact task discovery, a shared-authority GUI export pilot and retained bounce are follow-ups, **not shipped integrations**. See [extension boundaries and evaluation gates](docs/en/EXTENSION_SURFACES.md).
+
 ## Compatibility
 
 | Surface | Status |
 |---|---|
-| Node.js 22 / 24 / 25 | Supported contract; a green exact-current-SHA matrix is required |
+| Node.js 22 / 24 | Supported contract; a green exact-current-SHA matrix is required |
 | macOS + Live 12 | Historical real-Live evidence on 12.4.5b8 beta ([evidence](docs/evidence/)); exact-candidate rerun required before release |
 | Windows host | CI contract configured; current exact-SHA result required; Windows 11 + Live not certified |
 | Linux / Live 11 or earlier | Unsupported |

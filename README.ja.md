@@ -16,8 +16,8 @@
 <p align="center">
   <a href="https://github.com/user1303836/ableton-mcp-beyond/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/user1303836/ableton-mcp-beyond/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT ライセンス" /></a>
-  <a href="apps/mcp-server/package.json"><img src="https://img.shields.io/badge/node-22%20%7C%2024%20%7C%2025-339933?style=flat-square" alt="Node 22 | 24 | 25" /></a>
-  <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blue?style=flat-square" alt="MCP プロトコル 2025-11-25" /></a>
+  <a href="apps/mcp-server/package.json"><img src="https://img.shields.io/badge/node-22%20%7C%2024-339933?style=flat-square" alt="Node 22 | 24" /></a>
+  <a href="docs/ja/USER_GUIDE.md"><img src="https://img.shields.io/badge/MCP-2026--07--28%20%2B%20legacy-blue?style=flat-square" alt="MCP 2026-07-28 / 旧 2025-11-25" /></a>
   <a href="docs/en/SUPPORT_MATRIX.md"><img src="https://img.shields.io/badge/Ableton%20Live-12-555555?style=flat-square" alt="Ableton Live 12" /></a>
 </p>
 
@@ -34,7 +34,7 @@
 
 ## クイックスタート
 
-Node.js 22 / 24 / 25 が必要です。ブリッジには Ableton Live 12 が必要ですが、ホスト・テスト・デモは Live なしで動きます。
+Node.js 22 / 24 が必要です（Node 24 LTS 推奨）。Node 25 は EOL のため非対応で、Node 26 は未検証です。ブリッジには Ableton Live 12 が必要ですが、ホスト・テスト・デモは Live なしで動きます。
 
 ```sh
 cd apps/mcp-server
@@ -53,7 +53,7 @@ npm run setup -- --output /abs/path/bridge-config.json \
 node dist/src/install-remote-script.js --destination '/abs/.../Remote Scripts/AbletonMcpBridge' --dry-run
 ```
 
-Live を再起動し、検証します: `npm run diagnostics -- --config /abs/path/bridge-config.json`。
+bridge の例は既存の所有者専用 secret が必要で、`--dry-run` はインストールしません。検証済み候補では [DELIVERY.md](docs/ja/DELIVERY.md) の plan / apply / activate 手順、手動 Live 再起動、Control Surface 選択に従い、`npm run diagnostics -- --config /abs/path/bridge-config.json` の内容を確認します。終了コード 0 だけでは実 Live readiness になりません。単一のガイド付き onboarding (#66) は未完了です。
 完全な手順: [docs/ja/USER_GUIDE.md](docs/ja/USER_GUIDE.md)。
 
 ## 安全モデル
@@ -62,11 +62,15 @@ Live を再起動し、検証します: `npm run diagnostics -- --config /abs/pa
 
 このデプロイメントは、オーナーが管理するローカル OS アカウントと MCP クライアントの承認ポリシーを信頼境界とします。サーバーの確認は、人間がモデルとは別経路で同意した証明ではありません。可聴操作、録音、ルーティング、キャプチャ、リアルタイム操作を自動承認しないでください。
 
+## Toolkit の方向性
+
+MCP を維持し、構造化観測 → 選択 → 保護された実行 → 独立検証を進めます。モデルは任意の client です。Jev 型の選択は vision や同意ではなく、無制限 desktop agent は MCP の安全性を継承しません。簡潔な task discovery、共通権限の GUI export pilot、保持 bounce は後続作業で、**出荷済み統合ではありません**。[拡張境界と評価 gate](docs/ja/EXTENSION_SURFACES.md) を参照してください。
+
 ## 互換性
 
 | 環境 | ステータス |
 |---|---|
-| Node.js 22 / 24 / 25 | サポート対象。現在の正確な SHA のマトリクス成功が必要 |
+| Node.js 22 / 24 | サポート対象。現在の正確な SHA のマトリクス成功が必要 |
 | macOS + Live 12 | 12.4.5b8 beta での過去の実 Live エビデンス([エビデンス](docs/evidence/))。リリース前に最終候補での再実行が必要 |
 | Windows ホスト | CI 契約を設定済み。現在の正確な SHA の結果が必要。Windows 11 + Live は未認証 |
 | Linux / Live 11 以前 | 非対応 |

@@ -9,16 +9,22 @@
 
 | 平台 | 版本 / 架构 | 状态 | 证据 |
 |---|---|---|---|
-| Node.js | 22.x、24.x、25.x | 仅当精确 SHA 矩阵为绿时,该候选才具有受支持的宿主/软件包契约 | [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml);来自其他 SHA 的配置或结果不是证据 |
-| Node.js | 21.x、23.x、26.x、27.x 或任何未列出的/未来主版本 | 不受支持的发布运行时 | 需要显式的完整矩阵与规范策略更新 |
+| Node.js | 22.x、24.x | 仅当精确 SHA 矩阵为绿时,该候选才具有受支持的宿主/软件包契约 | [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml);来自其他 SHA 的配置或结果不是证据 |
+| Node.js | 21.x、23.x、25.x、26.x、27.x 或任何未列出的/未来主版本 | 不受支持的发布运行时 | 需要显式的完整矩阵与规范策略更新 |
 | macOS 宿主 | GitHub `macos-15`;本地 macOS arm64 环境 | 仅当精确 SHA 任务通过时支持宿主/软件包契约 | Node/软件包/生命周期门禁;需要单独的本地 Live 证据 |
 | Windows 宿主 | GitHub Windows Server 2025 x64(`windows-2025`) | 仅当精确 SHA 任务通过时支持宿主/软件包契约 | Node/软件包/生命周期/ACL/联接点/占用文件门禁;不是 Windows 11 或 Live 证据 |
 | Windows 桌面 | Windows 11 x64 | 过程已记录,未认证 | 需要精确候选宿主加 Live 证据;不得继承 Server 状态 |
 | Linux 宿主 | Ubuntu 24.04 x64(`ubuntu-24.04`) | 仅支持宿主契约 | Node/软件包门禁;无 Live 声明 |
 
-软件包引擎范围为 `>=22 <23 || >=24 <25 || >=25 <26`;精确发布可以使用
-Node 22、24 或 25。稳定版 Node 23、预发布版与未列出的主版本都会故障关闭。
+推荐 Node 24 LTS。Node 25 已于 2026-06-01 终止维护；Node 26 尚未验证。
+软件包引擎范围为 `>=22 <23 || >=24 <25`；精确发布可使用 Node 22 或 24。
+稳定版 Node 23、25、预发布版与未列出的主版本都会故障关闭。
 操作系统供应商生命周期变化需要矩阵更新,而不是隐式支持。
+
+## MCP 连接模式
+
+stdio 支持旧 `2025-11-25` initialize 与新 `2026-07-28` 逐请求元数据 / 发现。新版仅提供 complete 结果及 private / TTL 0 缓存，不声明主动 push、MRTR、Tasks 或 HTTP。
+进程内恢复限制见 [USER_GUIDE.md](USER_GUIDE.md)。协议检查不是特定客户端 / 模型或新增真实 Live 环境的认证。
 
 ## Ableton Live
 

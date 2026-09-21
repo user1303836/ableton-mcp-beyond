@@ -18,7 +18,7 @@ export interface StdioOptions {
   readonly shouldStop?: () => boolean;
 }
 
-type JsonRecord = { method?: unknown; id?: unknown; params?: unknown };
+type JsonRecord = { jsonrpc?: unknown; method?: unknown; id?: unknown; params?: unknown };
 
 function requestKey(value: unknown): string | undefined {
   if (typeof value === "string" && value.length > 0 && value.length <= 128) return `string:${value}`;
@@ -29,8 +29,11 @@ function requestKey(value: unknown): string | undefined {
 function cancellationTarget(record: string): string | undefined {
   try {
     const value = JSON.parse(record) as JsonRecord;
-    if (value.method !== "notifications/cancelled" || !value.params || typeof value.params !== "object" || Array.isArray(value.params)) return undefined;
-    return requestKey((value.params as Record<string, unknown>).requestId);
+    if (value.jsonrpc !== "2.0" || value.id !== undefined || value.method !== "notifications/cancelled" || !value.params || typeof value.params !== "object" || Array.isArray(value.params)) return undefined;
+    if (Object.keys(value).some((key) => !["jsonrpc", "method", "params"].includes(key))) return undefined;
+    const params = value.params as Record<string, unknown>;
+    if (Object.keys(params).some((key) => !["requestId", "reason", "_meta"].includes(key)) || params.reason !== undefined && typeof params.reason !== "string" || params._meta !== undefined && (params._meta === null || typeof params._meta !== "object" || Array.isArray(params._meta))) return undefined;
+    return requestKey(params.requestId);
   } catch {
     return undefined;
   }
@@ -53,7 +56,7 @@ export async function serveStdio(input: Readable, output: Writable, handler: Rec
   const maxQueuedWrites = maxPending * 4;
   const framer = new NdjsonFramer();
   const controllers = new Map<string, AbortController>();
-  const pending = new Map<number, { id: string | number; task: Promise<string | null> }>();
+  const pending = new Map<number, { id: string | number; task: Promise<string | null>; controller?: AbortController }>();
   let nextSequence = 0;
   let nextWrite = 0;
   let active = 0;
@@ -104,10 +107,15 @@ export async function serveStdio(input: Readable, output: Writable, handler: Rec
   };
   let queuedWrites = 0;
   let writeTail: Promise<void> = Promise.resolve();
-  const write = (value: string): Promise<void> => {
+  const write = (value: string, beginWrite?: () => boolean): Promise<void> => {
     if (queuedWrites >= maxQueuedWrites) throw new Error("bounded output queue is saturated");
     queuedWrites += 1;
-    const result = writeTail.then(() => writeRaw(value)).finally(() => { queuedWrites -= 1; });
+    const result = writeTail.then(() => {
+      // This is the emission boundary, not merely admission to the write queue.
+      // Do not yield between the final ownership/cancellation check and writeRaw.
+      if (beginWrite && !beginWrite()) return;
+      return writeRaw(value);
+    }).finally(() => { queuedWrites -= 1; });
     writeTail = result.catch(() => undefined);
     return result;
   };
@@ -174,20 +182,37 @@ export async function serveStdio(input: Readable, output: Writable, handler: Rec
           const result = await (handler.length >= 2 ? (handler as (record: string, context: RecordContext) => string | null | Promise<string | null>)(event.value, { requestId: id, signal: controller.signal }) : handler(event.value));
           return controller.signal.aborted ? null : result;
         } catch {
-          return JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32603, message: "Internal error" } });
+          return controller.signal.aborted ? null : JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32603, message: "Internal error" } });
         } finally {
           release();
-          if (controllers.get(key) === controller) controllers.delete(key);
         }
       })();
-      pending.set(sequence, { id, task });
+      pending.set(sequence, { id, task, controller });
     }
     const flush = async (): Promise<void> => {
       while (pending.has(nextWrite)) {
         const current = pending.get(nextWrite)!;
         const result = await current.task;
         pending.delete(nextWrite++);
-        if (!closed && result !== null) await write(result);
+        const retireController = (): void => {
+          const key = requestKey(current.id)!;
+          // A client may already have reused this ID while the old write's
+          // callback/drain is pending; never remove that newer controller.
+          if (current.controller && controllers.get(key) === current.controller) controllers.delete(key);
+        };
+        try {
+          if (!closed && result !== null && !current.controller?.signal.aborted) await write(result, () => {
+            // An earlier write (including a busy reply) can delay emission long
+            // after the handler completes. Cancellation still owns that window.
+            if (closed || current.controller?.signal.aborted) return false;
+            // Retire before output.write can synchronously expose the response.
+            // Callback completion/backpressure must not delay sequential reuse.
+            retireController();
+            return true;
+          });
+        } finally {
+          retireController();
+        }
       }
     };
     const scheduleFlush = (): void => {

@@ -16,6 +16,7 @@ import {
   compareSemanticStrings,
   createSemanticProjectSnapshot,
   pageSemanticProjectSnapshot,
+  semanticProjectName,
   validateSemanticProjectArtifact,
   type SemanticProjectPage,
   type SemanticPrivacyProfile,
@@ -99,6 +100,42 @@ test("privacy profiles never export absolute paths and strict aliases names", ()
       if (profile === "collaboration") assert.equal(output.includes("Secret Set"), true);
     }
     assert.deepEqual(readFileSync(set), gzipSync(Buffer.from(`<Ableton Creator="Ableton Live 12" MajorVersion="5" MinorVersion="12.1"><AudioTrack/><FileRef><Path Value="${media}"/></FileRef></Ableton>`)));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("name-retaining profiles distinguish musical separators from actual path shapes", () => {
+  for (const profile of ["strict", "collaboration", "local"] as const) {
+    for (const name of ["Verse / Chorus", "A / B / C", 'Intro = "Verse"']) {
+      const snapshot = new DeterministicLiveSimulator().snapshot(); snapshot.tracks[0]!.name = name; snapshot.scenes[0]!.name = name;
+      const artifact = createSemanticProjectSnapshot(snapshot, options(profile));
+      for (const kind of ["track", "scene"]) {
+        const exported = artifact.records.find((record) => record.kind === kind)!.name;
+        if (profile === "strict") assert.notEqual(exported, name); else assert.equal(exported, name);
+      }
+      validateSemanticProjectArtifact(artifact);
+    }
+    for (const path of ["/Users/alice/private.wav", " / private/file.wav", "render /Users/alice/private.wav", "render=/ private.wav", 'read " / private/file.wav"', "C:\\Users\\alice\\private.wav", "\\\\corp\\share", "\\\\?\\C:\\private.wav", "file:///private/file.wav"]) {
+      assert.match(semanticProjectName(profile, "track", path), /^track-[a-f0-9]{20}$/, path);
+    }
+  }
+});
+
+test("media locators screen authority-like basenames before the final audit", () => {
+  const root = mkdtempSync(join(tmpdir(), "semantic-locator-"));
+  try {
+    const set = join(root, "Set.als"); writeFileSync(set, gzipSync(Buffer.from("<Ableton><LiveSet/></Ableton>")));
+    for (const profile of ["strict", "collaboration", "local"] as const) for (const name of ["REUSABLE-TOKEN.wav", "bearer ABCDEFGH.wav", "Kick = Snare.wav", 'Kick "take".wav']) {
+      const snapshot = new DeterministicLiveSimulator().snapshot(); snapshot.tracks[0]!.clips[0]!.filePath = join(root, "Samples", name);
+      const artifact = createSemanticProjectSnapshot(snapshot, { ...options(profile), projectPath: set });
+      const dependency = artifact.records.find((record) => record.kind === "dependency" && record.data.evidence === "live-clip")!;
+      if (profile === "strict" || /REUSABLE|bearer/.test(name)) assert.match(String(dependency.data.locator), /^path-[a-f0-9]{20}$/);
+      else assert.equal(dependency.data.locator, profile === "local" ? `Samples/${name}` : name);
+      validateSemanticProjectArtifact(artifact); assert.equal(canonicalSemanticJson(artifact).includes(root), false);
+    }
+    // A slash is a directory separator, not a literal basename character.
+    const snapshot = new DeterministicLiveSimulator().snapshot(); snapshot.tracks[0]!.clips[0]!.filePath = "Kicks / Snares.wav";
+    const artifact = createSemanticProjectSnapshot(snapshot, options());
+    assert.ok(artifact.records.some((record) => record.kind === "dependency" && record.data.locator === " Snares.wav"));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

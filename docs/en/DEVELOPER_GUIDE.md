@@ -6,7 +6,8 @@ Source, schemas, and tests are authoritative. Documentation must not promote a c
 
 ## Layout
 
-- `apps/mcp-server/src/host.ts`: MCP lifecycle, strict tool schemas, async dispatch, transaction state, and recovery errors.
+- `apps/mcp-server/src/mcp-protocol.ts`: dual-era MCP wire metadata, response/cache semantics and structured-result adaptation; no Live authority.
+- `apps/mcp-server/src/host.ts`: MCP dispatch, strict tool schemas, transaction state, and recovery errors.
 - `apps/mcp-server/src/live.ts`: Live types, registry-derived identifiers/hash, unavailable adapter, simulator, and the synchronous plus Promise-based adapter contracts currently used by tests and process-backed callers.
 - `apps/mcp-server/src/registry.ts`: canonical registry loading, bounded schema validation, and derived operation identifiers/hash.
 - `apps/mcp-server/src/tool-catalog.ts`: the single declarative tool catalog — schemas, annotations, exact capability/operation/provenance prerequisites, and deployment policy classes — behind capability-aware `tools/list`, the capability resource, list-changed notifications, and the server-side dispatch gate.
@@ -15,9 +16,46 @@ Source, schemas, and tests are authoritative. Documentation must not promote a c
 - `apps/mcp-server/src/transactions/`: bounded MIDI transaction and async discovery helpers.
 - `apps/mcp-server/src/analysis.ts`: bounded PCM decoding and privacy-preserving analysis.
 - `apps/mcp-server/src/delivery.ts`: configuration, secret validation, packaging, installation, and diagnostics.
-- `protocol/ableton-live-v1.operations.json`: canonical version-1 operation registry. Its canonical registry hash is `a8a73b3157bd771b112b822164d4e9bec57f2a47078727ec157f83593af6f48a` for the current contract.
+- `protocol/ableton-live-v1.operations.json`: canonical version-1 operation registry. The canonical hash is generated from this file and recorded in `docs/evidence/capability-manifest.json`; prose is not a separate hash authority.
 - `remote-script/AbletonMcpBridge/__init__.py`: one-argument Control Surface entrypoint and fail-closed reference loading.
 - `remote-script/ableton_mcp_remote_script.py`: authenticated transport, bounded main-thread dispatch, epoch-scoped references, shape-dependent operation advertisement, hierarchical discovery, structure, MIDI, locator, and published device-parameter mapping.
+
+## MCP stdio compatibility
+
+`2025-11-25` retains initialize/initialized and its existing wire shape.
+`2026-07-28` validates per-request `params._meta` version and client capabilities,
+works without discovery, and implements `server/discover`. Unknown versions
+return `-32022` with requested/supported versions. Missing/malformed modern
+metadata returns `-32602`; client identity/capabilities never grant Live access.
+Metadata is bounded to 128 keys (256 characters/key); it is not retained as
+context for later requests. Unknown optional capabilities confer no behavior.
+
+All modern successful RPC results include `resultType: "complete"` and server
+identity. Cacheable discovery/list/read results use private scope and zero TTL.
+Tool descriptor ordering stays deterministic for an unchanged executable set.
+Existing redacted JSON text is also returned in `structuredContent`, after
+coalesced replay flags are finalized. Obsolete modern error codes are normalized.
+MCP request IDs may be reused after completion, but not concurrently; they never
+replace transaction IDs or application idempotency keys.
+
+Discovery is era-neutral; otherwise each stdio process uses either a completed
+legacy handshake or modern request metadata, not both. There is no HTTP/OAuth,
+MRTR, Tasks, logging or modern `subscriptions/listen` implementation advertised.
+Legacy push tools are excluded from modern discovery/capabilities/dispatch;
+explicit snapshot and observe/poll paths remain. Modern processes emit no
+unsolicited Live/list-change notifications. Cancellation retains ownership until
+response flush, suppresses cancelled replies (including handler rejection), and
+leaves musical recovery/uncertainty in the transaction engine unchanged.
+
+Application handles are explicit, bounded, expiring and process-local. Protocol
+statelessness does not provide cross-process transaction recovery or permission
+to replay a musical write after restart. Source contracts:
+[versioning](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning),
+[stdio](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio),
+[discovery](https://modelcontextprotocol.io/specification/2026-07-28/server/discover),
+[caching](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/caching),
+[metadata/schema](https://modelcontextprotocol.io/specification/2026-07-28/schema).
+See `mcp-protocol.test.ts` plus the unchanged legacy host/stdio/transaction gates.
 
 ## Contract rules
 

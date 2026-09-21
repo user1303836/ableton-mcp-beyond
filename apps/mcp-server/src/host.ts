@@ -27,7 +27,11 @@ import type { AsyncLiveAdapter } from "./live.js";
 import { PACKAGE_VERSION } from "./delivery.js";
 import { DEFAULT_TOOL_POLICY, TOOL_POLICY_PROFILES, liveMutationAvailable, parseToolPolicySpec, resolveToolVisibility, toolCatalogEntry, toolPolicyFromEnv, visibleToolDescriptors, type ToolPolicySpec, type ToolVisibilityRow } from "./tool-catalog.js";
 
-export const PROTOCOL_VERSION = "2025-11-25";
+import { LEGACY_PROTOCOL_VERSION, MODERN_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS, MODERN_UNAVAILABLE_TOOLS, prepareMcpRequest, formatMcpResponse, type ProtocolEra } from "./mcp-protocol.js";
+
+/** Kept as the legacy initialize version for existing embedded callers. */
+export const PROTOCOL_VERSION = LEGACY_PROTOCOL_VERSION;
+export { MODERN_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS };
 export const MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
 const MAX_TRACKED_REQUEST_IDS = 4096;
 const MAX_TOOL_CALLS_PER_MINUTE = 120;
@@ -375,6 +379,8 @@ class BoundedTransactionMap<T extends { expiresAt: number; state: string }> exte
 export class McpHost {
   private initialized = false;
   private initializedNotification = false;
+  private protocolEra: ProtocolEra | undefined;
+  private readonly modernInFlightIds = new Set<string>();
   private shuttingDown = false;
   private readonly seenIds = new Set<string>();
   private readonly idOrder: string[] = [];
@@ -478,27 +484,51 @@ export class McpHost {
     }
   }
 
-  /** Promise-based request entrypoint for process-backed adapters. The legacy
-   * handle() remains for deterministic in-process callers. */
+  private prepareWire(input: unknown): ReturnType<typeof prepareMcpRequest> & { key?: string } {
+    const wire = prepareMcpRequest(input, this.protocolEra);
+    if (wire.error || !wire.modern || !isObject(input) || this.requestId(input.id) === null) return wire;
+    const key = `${typeof input.id}:${String(input.id)}`;
+    if (this.modernInFlightIds.has(key)) return { ...wire, error: error(this.requestId(input.id), -32600, "Duplicate in-flight request identifier") };
+    this.modernInFlightIds.add(key);
+    // Discovery is an era-neutral probe; a dual-era client may still select
+    // legacy initialize afterwards. Other modern calls select this process's
+    // wire binding, not client capabilities or any musical edit authority.
+    if (input.method !== "server/discover") this.protocolEra = "modern";
+    return { ...wire, key };
+  }
+
+  /** Promise-based wire boundary; transaction execution is protocol-independent. */
   public async handleAsync(input: unknown, signal?: AbortSignal): Promise<JsonObject | null> {
     if (signal?.aborted) return null;
+    const wire = this.prepareWire(input);
+    if (wire.error) return wire.error;
+    try {
+      const result = await this.handleAsyncCore(wire.input, signal, wire.modern);
+      return signal?.aborted ? null : formatMcpResponse(result, wire.input, wire.modern, { name: "ableton-mcp-host", version: SERVER_VERSION });
+    } finally { if (wire.key) this.modernInFlightIds.delete(wire.key); }
+  }
+
+  private async handleAsyncCore(input: unknown, signal: AbortSignal | undefined, modern: boolean): Promise<JsonObject | null> {
+    if (signal?.aborted) return null;
     // JSON-RPC notifications are never answered on either request path.
-    if (isObject(input) && input.id === undefined) return this.handle(input);
-    if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handle(input);
+    if (isObject(input) && input.id === undefined) return this.handleCore(input, modern);
+    if (!isObject(input) || input.method !== "tools/call" || !isObject(input.params) || typeof input.params.name !== "string") return this.handleCore(input, modern);
     const name = input.params.name;
     const toolArguments = input.params.arguments;
-    if (!["live_status", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_midi_transform_preview", "live_midi_transform_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_snapshot_export", "live_project_snapshot_diff", "als_read", "als_lint", "als_diff", "live_project_backup_preview", "live_project_backup_apply", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_key_estimate", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_song_settings_preview", "live_song_settings_apply", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_track_properties_preview", "live_track_properties_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_chain_preview", "live_chain_apply", "live_drum_pad_preview", "live_drum_pad_apply", "live_rack_preview", "live_rack_apply", "live_rack_view_preview", "live_rack_view_apply", "live_device_specialized_preview", "live_device_specialized_apply", "live_looper_preview", "live_looper_apply", "live_simpler_preview", "live_simpler_apply", "live_observe_subscribe", "live_observe_poll", "live_observe_unsubscribe", "live_browser_roots", "live_browser_inspect", "live_arrangement_automation_read", "live_take_lane_read", "live_comp_read", "live_warp_marker_read", "live_application_dialog_preview", "live_application_dialog_apply", "live_batch_preview", "live_batch_apply", "live_device_state_save", "live_device_state_recall_preview", "live_device_state_recall_apply", "live_library_search"].includes(name)) return this.handle(input);
+    if (!["live_status", "audio_analyze", "audio_compare_reference", "audio_diagnose_live_context", "live_audio_capture_preview", "live_audio_capture_apply", "live_audio_capture_status", "live_audio_capture_emergency_stop", "live_session_structure_preview", "live_session_structure_apply", "live_object_rename_preview", "live_object_rename_apply", "live_snapshot", "live_discover", "live_device_parameter_preview", "live_device_parameter_apply", "live_midi_clip_preview", "live_midi_clip_apply", "live_midi_transform_preview", "live_midi_transform_apply", "live_arrangement_section_preview", "live_arrangement_section_apply", "live_tempo_preview", "live_tempo_apply", "live_undo", "live_recovery_finalize", "live_session_audition_preview", "live_session_audition_apply", "live_session_audition_stop", "live_session_emergency_stop", "live_transport_preview", "live_transport_apply", "live_clip_launch_preview", "live_clip_launch_apply", "live_clip_launch_stop", "live_capture_midi_preview", "live_capture_midi_apply", "live_scene_capture_preview", "live_scene_capture_apply", "live_note_update_preview", "live_note_update_apply", "live_note_delete_preview", "live_note_delete_apply", "live_clip_duplicate_preview", "live_clip_duplicate_apply", "live_arrangement_clip_preview", "live_arrangement_clip_apply", "live_clip_move_preview", "live_clip_move_apply", "live_audio_clip_preview", "live_audio_clip_apply", "live_mixer_preview", "live_mixer_apply", "live_automation_preview", "live_automation_apply", "live_browser_search", "live_browser_load_preview", "live_browser_load_apply", "live_device_preview", "live_device_apply", "live_routing_preview", "live_routing_apply", "live_recording_preview", "live_recording_apply", "live_subscribe", "live_unsubscribe", "live_project_info", "live_project_snapshot_export", "live_project_snapshot_diff", "als_read", "als_lint", "als_diff", "live_project_backup_preview", "live_project_backup_apply", "live_realtime_arm_preview", "live_realtime_arm_apply", "live_realtime_disarm", "live_realtime_stats", "live_view_preview", "live_view_apply", "live_locator_jump_preview", "live_locator_jump_apply", "live_clip_properties_preview", "live_clip_properties_apply", "live_audio_import_preview", "live_audio_import_apply", "live_warp_marker_preview", "live_warp_marker_apply", "live_clip_action_preview", "live_clip_action_apply", "live_note_edit_preview", "live_note_edit_apply", "live_note_read", "live_key_estimate", "live_tuning_preview", "live_tuning_apply", "live_groove_preview", "live_groove_apply", "live_scene_preview", "live_scene_apply", "live_scene_fire_preview", "live_scene_fire_apply", "live_song_state", "live_song_settings_preview", "live_song_settings_apply", "live_transport_action_preview", "live_transport_action_apply", "live_track_structure_preview", "live_track_structure_apply", "live_device_delete_preview", "live_device_delete_apply", "live_track_view_preview", "live_track_view_apply", "live_track_properties_preview", "live_track_properties_apply", "live_selection_preview", "live_selection_apply", "live_clip_view_preview", "live_clip_view_apply", "live_device_view_preview", "live_device_view_apply", "live_performance_read", "live_mixer_extended_preview", "live_mixer_extended_apply", "live_chain_mixer_preview", "live_chain_mixer_apply", "live_device_io_preview", "live_device_io_apply", "live_device_advanced_preview", "live_device_advanced_apply", "live_chain_preview", "live_chain_apply", "live_drum_pad_preview", "live_drum_pad_apply", "live_rack_preview", "live_rack_apply", "live_rack_view_preview", "live_rack_view_apply", "live_device_specialized_preview", "live_device_specialized_apply", "live_looper_preview", "live_looper_apply", "live_simpler_preview", "live_simpler_apply", "live_observe_subscribe", "live_observe_poll", "live_observe_unsubscribe", "live_browser_roots", "live_browser_inspect", "live_arrangement_automation_read", "live_take_lane_read", "live_comp_read", "live_warp_marker_read", "live_application_dialog_preview", "live_application_dialog_apply", "live_batch_preview", "live_batch_apply", "live_device_state_save", "live_device_state_recall_preview", "live_device_state_recall_apply", "live_library_search"].includes(name)) return this.handleCore(input, modern);
     // Reuse the synchronous validator and request bookkeeping, then execute the
     // adapter operation asynchronously. Invalid requests never reach Live.
     const id = this.requestId(input.id);
     if (id === null || input.jsonrpc !== "2.0" || !hasOnly(input, ["jsonrpc", "id", "method", "params", "_meta"])) return error(null, -32600, "Invalid Request");
-    const key = `${typeof id}:${String(id)}`;
-    if (this.seenIds.has(key)) return error(id, -32600, "Duplicate request identifier");
-    this.seenIds.add(key); this.idOrder.push(key);
-    if (this.idOrder.length > MAX_TRACKED_REQUEST_IDS) { const expired = this.idOrder.shift(); if (expired !== undefined) this.seenIds.delete(expired); }
+    if (!modern) {
+      const key = `${typeof id}:${String(id)}`;
+      if (this.seenIds.has(key)) return error(id, -32600, "Duplicate request identifier");
+      this.seenIds.add(key); this.idOrder.push(key);
+      if (this.idOrder.length > MAX_TRACKED_REQUEST_IDS) { const expired = this.idOrder.shift(); if (expired !== undefined) this.seenIds.delete(expired); }
+    }
     if (this.shuttingDown) return error(id, -32600, "Server is shutting down");
-    if (!this.initialized) return error(id, -32002, "Server has not been initialized");
-    if (!this.initializedNotification && name !== "live_status") return error(id, -32002, "Server has not received initialized notification");
+    if (!modern && !this.initialized) return error(id, -32002, "Server has not been initialized");
+    if (!modern && !this.initializedNotification && name !== "live_status") return error(id, -32002, "Server has not received initialized notification");
     this.noteToolListChanged();
     if (!this.toolCallable(name)) return this.toolGateError(id, name);
     try {
@@ -2006,6 +2036,7 @@ export class McpHost {
   }
 
   private onLiveEvent(event: LiveEvent): void {
+    if (this.protocolEra !== "legacy") return;
     const line = JSON.stringify({ jsonrpc: "2.0", method: "notifications/live_event", params: event });
     if (this.eventQueue.length >= 256) this.eventOverflow = Math.min(Number.MAX_SAFE_INTEGER, this.eventOverflow + 1);
     else this.eventQueue.push(line);
@@ -2032,7 +2063,8 @@ export class McpHost {
   }
 
   private toolVisibilityRows(): readonly ToolVisibilityRow[] {
-    return resolveToolVisibility(this.safeAdapterStatus(), this.toolPolicy);
+    const rows = resolveToolVisibility(this.safeAdapterStatus(), this.toolPolicy);
+    return this.protocolEra === "modern" ? rows.map((row) => MODERN_UNAVAILABLE_TOOLS.has(row.entry.name) ? { ...row, executable: false, visible: false } : row) : rows;
   }
 
   /** Server-side dispatch gate: a tool is callable only when it is currently visible in tools/list. */
@@ -5418,20 +5450,24 @@ export class McpHost {
   }
 
   private chainRow(snapshot: LiveSnapshot, chainRef: LiveRef): { device: JsonObject; chain: JsonObject } {
-    const walk = (devices: JsonObject[]): JsonObject | undefined => {
+    const walk = (devices: JsonObject[]): { device: JsonObject; chain: JsonObject } | undefined => {
       for (const device of devices) {
         const chains = ((device.chains as unknown[]) ?? []).filter(isObject);
         const found = chains.find((chain) => chain.ref === chainRef);
-        if (found) return found;
+        if (found) return { device, chain: found };
         for (const chain of chains) { const nested = walk(((chain.devices as unknown[]) ?? []).filter(isObject)); if (nested) return nested; }
-        for (const pad of ((device.drumPads as unknown[]) ?? []).filter(isObject)) { for (const chain of ((pad.chains as unknown[]) ?? []).filter(isObject)) { const nested = walk(((chain.devices as unknown[]) ?? []).filter(isObject)); if (nested) return nested; } }
+        for (const pad of ((device.drumPads as unknown[]) ?? []).filter(isObject)) {
+          for (const chain of ((pad.chains as unknown[]) ?? []).filter(isObject)) {
+            if (chain.ref === chainRef) return { device, chain };
+            const nested = walk(((chain.devices as unknown[]) ?? []).filter(isObject)); if (nested) return nested;
+          }
+        }
       }
       return undefined;
     };
     for (const track of snapshot.tracks as unknown as JsonObject[]) {
-      const devices = ((track.devices as unknown[]) ?? []).filter(isObject);
-      const found = walk(devices);
-      if (found) return { device: devices[0]!, chain: found };
+      const found = walk(((track.devices as unknown[]) ?? []).filter(isObject));
+      if (found) return found;
     }
     throw new Error("chain reference is not authoritative");
   }
@@ -8020,6 +8056,13 @@ export class McpHost {
   }
 
   public handle(input: unknown): JsonObject | null {
+    const wire = this.prepareWire(input);
+    if (wire.error) return wire.error;
+    try { return formatMcpResponse(this.handleCore(wire.input, wire.modern), wire.input, wire.modern, { name: "ableton-mcp-host", version: SERVER_VERSION }); }
+    finally { if (wire.key) this.modernInFlightIds.delete(wire.key); }
+  }
+
+  private handleCore(input: unknown, modern: boolean): JsonObject | null {
     if (!isObject(input) || input.jsonrpc !== "2.0" || !hasOnly(input, ["jsonrpc", "id", "method", "params", "_meta"])) {
       return error(null, -32600, "Invalid Request");
     }
@@ -8037,13 +8080,15 @@ export class McpHost {
       return null;
     }
     if (!this.isId(id)) return error(null, -32600, "Invalid Request");
-    const key = `${typeof id}:${String(id)}`;
-    if (this.seenIds.has(key)) return error(id, -32600, "Duplicate request identifier");
-    this.seenIds.add(key);
-    this.idOrder.push(key);
-    if (this.idOrder.length > MAX_TRACKED_REQUEST_IDS) {
-      const expired = this.idOrder.shift();
-      if (expired !== undefined) this.seenIds.delete(expired);
+    if (!modern) {
+      const key = `${typeof id}:${String(id)}`;
+      if (this.seenIds.has(key)) return error(id, -32600, "Duplicate request identifier");
+      this.seenIds.add(key);
+      this.idOrder.push(key);
+      if (this.idOrder.length > MAX_TRACKED_REQUEST_IDS) {
+        const expired = this.idOrder.shift();
+        if (expired !== undefined) this.seenIds.delete(expired);
+      }
     }
     if (this.shuttingDown && input.method !== "exit") return error(id, -32600, "Server is shutting down");
 
@@ -8060,13 +8105,14 @@ export class McpHost {
     // transport terminates after the response flushes; new work is refused by
     // the shutdown guard above from then on.
     if (input.method === "exit") { this.shuttingDown = true; return response(id, {}); }
-    if (!this.initialized && input.method !== "initialize") {
+    if (!modern && !this.initialized && input.method !== "initialize") {
       return error(id, -32002, "Server has not been initialized");
     }
-    if (!this.initializedNotification && input.method !== "initialize" && input.method !== "ping") {
+    if (!modern && !this.initializedNotification && input.method !== "initialize" && input.method !== "ping") {
       return error(id, -32002, "Server has not received initialized notification");
     }
     switch (input.method) {
+      case "server/discover": return modern && this.utilityParams(input.params) ? response(id, { supportedVersions: [...SUPPORTED_PROTOCOL_VERSIONS], capabilities: { tools: {}, resources: {}, prompts: {} }, instructions: "Preview and explicitly confirm edits; preserve transaction IDs and exact idempotency keys for recovery. RPC retries are not permission to repeat writes. Application handles are process-local and expire. Modern stdio has no push subscriptions; use snapshot or observe/poll. Discovery permits a later legacy initialize; otherwise do not mix eras in one process." }) : error(id, -32602, "Invalid server/discover parameters");
       case "initialize": return this.initialize(id, input.params);
       case "ping": return this.utilityParams(input.params) ? response(id, {}) : error(id, -32602, "Invalid ping parameters");
       case "tools/list": return this.utilityParams(input.params) ? (this.noteToolListChanged(), response(id, { tools: visibleToolDescriptors(this.safeAdapterStatus(), this.toolPolicy) })) : error(id, -32602, "Invalid tools/list parameters");
@@ -8097,6 +8143,7 @@ export class McpHost {
       return error(id, -32602, "Invalid initialize parameters");
     }
     this.initialized = true;
+    this.protocolEra = "legacy";
     return response(id, {
       protocolVersion: PROTOCOL_VERSION,
       capabilities: { tools: { listChanged: true }, resources: {}, prompts: {} },

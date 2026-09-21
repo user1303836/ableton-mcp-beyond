@@ -9,7 +9,7 @@ project reference document is context, not an API specification.
 
 ## Local development
 
-Use Node.js 22, 24, or 25. Node 21, 23, 26, 27, prereleases, and all
+Use Node.js 22 or 24 (Node 24 LTS recommended). Node 21, 23, 25, 26, 27, prereleases, and all
 unlisted/future majors are unsupported until they pass the complete
 exact-candidate matrix and the canonical policy is updated:
 

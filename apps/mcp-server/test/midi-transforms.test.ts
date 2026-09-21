@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { execFileSync } from "node:child_process";
 import type { Note } from "../src/live.js";
-import { GENERATIVE_TRANSFORMS, MIDI_TRANSFORM_TYPES, UPDATE_ONLY_TRANSFORMS, applyMidiTransform, diffNotes, midiExpressionProbe, noteContentDigest, seededRandom, stableNoteOrder } from "../src/midi-transforms.js";
+import { GENERATIVE_TRANSFORMS, MIDI_TRANSFORM_TYPES, UPDATE_ONLY_TRANSFORMS, applyMidiTransform, diffNotes, midiExpressionProbe, noteContentDigest, noteIdentityDigest, seededRandom, stableNoteOrder } from "../src/midi-transforms.js";
 
 function note(pitch: number, start: number, duration: number, velocity = 100, id?: number): Note {
   return { pitch, start, duration, velocity, channel: 1, ...(id !== undefined ? { id } : {}) };
@@ -121,6 +122,23 @@ test("rotate permutes pitches in stable order and preserves rhythm and ids", () 
   assert.deepEqual(result.notes.map((item) => [item.id, item.pitch]), [[10, 67], [11, 60], [12, 64]]);
   assert.deepEqual(result.notes.map((item) => item.start), [0, 0.5, 1]);
   assert.equal(result.generative, false);
+});
+
+test("rotate preserves the pitch multiset and every other field across duplicate occurrences", () => {
+  const duplicate = note(60, 0, 1);
+  assert.deepEqual(applyMidiTransform([duplicate, duplicate, note(65, 0, 1)], { type: "rotate", params: { steps: 1 } }).notes.map((item) => item.pitch), [65, 60, 60]);
+  const next = random(77);
+  const withoutPitch = ({ pitch: _pitch, ...rest }: Note) => rest;
+  for (let iteration = 0; iteration < 256; iteration += 1) {
+    const source = randomNotes(next, Math.floor(next() * 64), 16).map(({ id: _id, ...item }) => item);
+    if (source.length) source.push(source[0]!, { ...source[0]! });
+    const before = structuredClone(source);
+    const result = applyMidiTransform(source, { type: "rotate", params: { steps: Math.floor(next() * 1025) - 512 } });
+    assert.deepEqual(result.notes.map((item) => item.pitch).sort((a, b) => a - b), source.map((item) => item.pitch).sort((a, b) => a - b));
+    assert.deepEqual(result.notes.map(withoutPitch), source.map(withoutPitch));
+    assert.deepEqual(source, before);
+    assert.equal(new Set(result.notes).size, result.notes.length);
+  }
 });
 
 test("repeat subdivides exactly with bounded decay and drops source ids", () => {
@@ -267,6 +285,21 @@ test("quantize target=both moves the original start and end independently", () =
   const result = applyMidiTransform(source, { type: "quantize", params: { grid: 0.25, amount: 1, target: "both" } }, 4);
   assert.equal(result.notes[0]!.start, 0);
   assert.ok(Math.abs(result.notes[0]!.duration - 0.5) < 1e-9, "end quantizes from the original end, not the moved start");
+});
+
+test("note digests use code-unit ordering across locale-sensitive fixtures and preserve ASCII pins", () => {
+  const ascii = [note(60, 0, 1, 100, 10), note(64, 1, 0.5, 100, 11)];
+  assert.equal(noteContentDigest(ascii as unknown as Record<string, unknown>[]), "a4949f3ee78c75fdb5d9fc83f129f05acbb96a1752da657d14bab608443d55ab");
+  assert.equal(noteIdentityDigest(ascii as unknown as Record<string, unknown>[]), "7c91ece7f0f2da8b5d0c1cff7e69d514846beffdaa8cf0bcb0e60f7f8b039b48");
+  const fixture = ascii.map((item, index) => ({ ...item, annotation: index === 0 ? "ä" : "z" }));
+  // Explicitly control collation as well as LC_ALL, including platforms whose
+  // default ICU locale is selected by OS settings rather than the environment.
+  const script = `import {noteContentDigest,noteIdentityDigest} from ${JSON.stringify(new URL("../src/midi-transforms.js", import.meta.url).href)}; const collator=new Intl.Collator(process.env.LC_ALL.slice(0,2)); String.prototype.localeCompare=function(value){return collator.compare(String(this),value);}; const notes=${JSON.stringify(fixture)}; console.log(JSON.stringify({content:noteContentDigest(notes),identity:noteIdentityDigest(notes),collation:collator.compare("ä","z")}));`;
+  const results = ["en_US.UTF-8", "sv_SE.UTF-8"].map((locale) => JSON.parse(execFileSync(process.execPath, ["--input-type=module", "--eval", script], { encoding: "utf8", env: { ...process.env, LANG: locale, LC_ALL: locale } })));
+  assert.notEqual(Math.sign(results[0].collation), Math.sign(results[1].collation), "fixture actually distinguishes the selected collations");
+  assert.equal(results[0].content, results[1].content); assert.equal(results[0].identity, results[1].identity);
+  assert.equal(noteContentDigest(fixture), noteContentDigest([...fixture].reverse()));
+  assert.equal(noteIdentityDigest(fixture), noteIdentityDigest([...fixture].reverse()));
 });
 
 test("note content digests stay valid at the full 2048-note transform bound", () => {

@@ -622,6 +622,7 @@ test("subscription validation rejects event types without a producer", async () 
 
 test("bounds server event flushing across slow output and contains emitter failure", async () => {
   const host = new McpHost(new DeterministicLiveSimulator());
+  ready(host); // Push is a selected legacy binding, never pre-negotiation output.
   let calls = 0; let rejectFirst: ((cause: Error) => void) | undefined;
   host.setEventEmitter(async () => {
     calls += 1;
@@ -1622,6 +1623,24 @@ test("device insert, enable, move, and transaction-owned cleanup use exact fenci
   const enableUndone = JSON.parse(((await call(82, "live_undo", { transactionId: enable.transactionId, confirmation: "undo", idempotencyKey: "dev-enable-undo" })) as any).result.content[0].text); assert.equal(enableUndone.state, "undone");
   const insertUndone = JSON.parse(((await call(83, "live_undo", { transactionId: insert.transactionId, confirmation: "undo", idempotencyKey: "dev-insert-undo" })) as any).result.content[0].text); assert.equal(insertUndone.state, "undone");
   assert.equal((simulator as any).state.tracks[0].devices.some((d: any) => d.name === "Echo"), false);
+});
+
+test("chain rows retain the true owning rack through track siblings and drum pads", () => {
+  const snapshot = new DeterministicLiveSimulator().snapshot();
+  const leaf = { ref: "chain:leaf", devices: [] };
+  const nestedRack = { ref: "device:nested", chains: [leaf] };
+  const inner = { ref: "chain:inner", devices: [nestedRack] };
+  const padLeaf = { ref: "chain:pad-leaf", devices: [] };
+  const padRack = { ref: "device:pad-rack", chains: [padLeaf] };
+  const padChain = { ref: "chain:pad", devices: [padRack] };
+  const outerRack = { ref: "device:outer", chains: [inner], drumPads: [{ ref: "pad:0", chains: [padChain] }] };
+  (snapshot.tracks[0] as any).devices = [snapshot.tracks[0]!.devices[0], outerRack];
+  const host = new McpHost();
+  for (const [chain, owner] of [[inner, outerRack], [leaf, nestedRack], [padChain, outerRack], [padLeaf, padRack]] as const) {
+    const row = (host as any).chainRow(snapshot, chain.ref);
+    assert.equal(row.chain, chain); assert.equal(row.device, owner);
+  }
+  assert.throws(() => (host as any).chainRow(snapshot, "chain:absent"), /not authoritative/);
 });
 
 test("nested device mutations refuse reparenting after preview", async () => {

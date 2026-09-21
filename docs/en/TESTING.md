@@ -2,6 +2,46 @@
 
 English · [简体中文](../zh-CN/TESTING.md) · [日本語](../ja/TESTING.md)
 
+## MCP compatibility evidence
+
+`mcp-protocol.test.ts` covers modern discovery/inline metadata, version refusal,
+legacy fallback, sequential ID reuse vs in-flight rejection, private zero-TTL
+results, structured/coalesced replay flags, unchanged confirmation/policy and
+lost-reply ledger recovery, absent push, and cancellation through ordered flush.
+Transport regressions exercise immediate ID reuse from the exported `serve()`
+response-data handler (numeric/string IDs and success/error replies), plus
+cancellation after a completed success/error reply enters the serialized output
+queue behind a backpressured busy response. ID retirement and the final abort
+check occur at emission, not queue admission or write-callback completion;
+old-response cleanup cannot remove a reused ID's new cancellation owner. Both
+callback-only delay and drain backpressure are covered in `stdio.test.ts`.
+`verify-package.mjs` independently starts installed legacy and modern processes.
+These are host/fake-Live checks, not third-party-client or fresh Live certification.
+
+## Transform invariants
+
+Rotation property tests include exact id-less duplicates and repeated object
+references: pitch multiplicity, input ordering and every non-pitch field survive.
+This fixes the pure helper; the MCP mutation path still requires stable note IDs.
+Note digests use UTF-16 code-unit ordering, never ICU collation; subprocess tests
+vary English/Swedish locales with a collation-sensitive fixture and retain
+representative ASCII digest pins.
+
+## Hierarchy invariants
+
+Chain lookup tests retain the actual containing device through later track
+siblings, nested racks, pad-only chains and racks inside pads. The owner-field
+bug was latent in current callers; tests do not claim a demonstrated Live edit.
+
+## Semantic privacy invariants
+
+Ordinary `Verse / Chorus` names survive name-retaining profiles; root, quoted,
+assigned, embedded unspaced absolute, drive, network, device and URI path shapes
+remain screened. Media basenames/project-relative locators pass the same screen
+before the final audit. Portable authority-like names such as
+`REUSABLE-TOKEN.wav` reproduce the old abort; a literal slash cannot be a single
+basename on supported filesystems and is not claimed as reproduced evidence.
+
 ## Deterministic gates
 
 Run serially from `apps/mcp-server`:
@@ -71,7 +111,7 @@ Set versions, listening quality, or behavior in a running Live instance.
 CI builds one clean local unpublished tarball on Ubuntu 24.04, runs
 `package:verify` before upload, repeats the pack from a fresh detached local
 clone plus fresh `npm ci` and compares bytes, records the exact Git SHA and
-tarball SHA-256, then installs that same artifact in every Node 22/24/25 Ubuntu
+tarball SHA-256, then installs that same artifact in every Node 22/24 Ubuntu
 24.04, macOS 15, and Windows Server 2025 job. Each candidate job verifies strict
 inventory/hashes and exercises lifecycle plan/install, unavailable activation,
 idempotent repair, unowned rollback refusal, and uninstall; Windows additionally

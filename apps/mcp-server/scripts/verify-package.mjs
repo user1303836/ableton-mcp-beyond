@@ -73,7 +73,7 @@ try {
   for (const required of ["dist/src/cli.js", "dist/src/setup.js", "dist/src/migrate.js", "dist/src/diagnostics.js", "dist/src/install-remote-script.js", "dist/src/lifecycle-cli.js", "remote-script/AbletonMcpBridge/__init__.py", "remote-script/AbletonMcpBridge/ableton_mcp_remote_script.py", "remote-script/AbletonMcpBridge/ableton-live-v1.operations.json", "remote-script/AbletonMcpBridge/manifest.json", "release-docs/USER_GUIDE.md", "release-docs/OPERATIONS.md", "release-docs/RECOVERY.md", "release-docs/DISTRIBUTION_POLICY.md", "release-docs/SUPPORT_MATRIX.md", "release-manifest.json", "LICENSE.md", "package.json"]) {
     if (!names.includes(required)) throw new Error(`package is missing ${required}`);
   }
-  const runtimeModules = ["als", "analysis-job-worker", "analysis-runner", "analysis", "key-estimation", "audio-diagnosis", "audio-file", "audio-standards", "bridge/remote-adapter", "cli", "delivery", "diagnostics", "framing", "host", "index", "install-remote-script", "journeys", "lifecycle-cli", "lifecycle", "live", "loopback", "migrate", "platform", "project", "project-semantic", "project-semantic-diff", "reference-analysis", "registry", "setup", "stdio", "tool-catalog", "midi-transforms", "transactions/session-midi", "transactions/batch", "transactions/device-state", "sqlite-reader", "library-search"];
+  const runtimeModules = ["als", "analysis-job-worker", "analysis-runner", "analysis", "key-estimation", "audio-diagnosis", "audio-file", "audio-standards", "bridge/remote-adapter", "cli", "delivery", "diagnostics", "framing", "host", "index", "install-remote-script", "journeys", "lifecycle-cli", "lifecycle", "live", "loopback", "migrate", "platform", "project", "project-semantic", "project-semantic-diff", "reference-analysis", "registry", "setup", "stdio", "tool-catalog", "midi-transforms", "mcp-protocol", "transactions/session-midi", "transactions/batch", "transactions/device-state", "sqlite-reader", "library-search"];
   const expectedNames = ["package.json", "LICENSE.md", "release-manifest.json", ...runtimeModules.flatMap((module) => [`dist/src/${module}.js`, `dist/src/${module}.d.ts`]), ...["README.md", "USER_GUIDE.md", "USER_JOURNEYS.md", "OPERATIONS.md", "RECOVERY.md", "LIVE_SAFETY.md", "AUDIO_INTELLIGENCE.md", "REALTIME_CONTROL.md", "DELIVERY.md", "DEVELOPER_GUIDE.md", "TESTING.md", "IMPLEMENTATION_STATUS.md", "DISTRIBUTION_POLICY.md", "SUPPORT_MATRIX.md", "CAPABILITY_MATRIX.md"].map((name) => `release-docs/${name}`), "remote-script/README.md", "remote-script/AbletonMcpBridge/__init__.py", "remote-script/AbletonMcpBridge/ableton_mcp_remote_script.py", "remote-script/AbletonMcpBridge/ableton-live-v1.operations.json", "remote-script/AbletonMcpBridge/manifest.json"].sort();
   if (JSON.stringify([...names].sort()) !== JSON.stringify(expectedNames)) throw new Error("package inventory differs from the independent explicit allowlist");
   const allowed = (name) => expectedNames.includes(name);
@@ -88,8 +88,8 @@ try {
   });
   const installedPackageDirectory = join(installDirectory, "node_modules", "@ableton-mcp", "mcp-server");
   const installedManifest = JSON.parse(readFileSync(join(installedPackageDirectory, "package.json"), "utf8"));
-  const canonicalNodeMajors = [22, 24, 25];
-  const canonicalNodeRange = ">=22 <23 || >=24 <25 || >=25 <26";
+  const canonicalNodeMajors = [22, 24];
+  const canonicalNodeRange = ">=22 <23 || >=24 <25";
   if (installedManifest.private !== true || installedManifest.license !== "MIT" || installedManifest.engines?.node !== canonicalNodeRange || JSON.stringify(installedManifest.abletonMcpSupport?.nodeMajors) !== JSON.stringify(canonicalNodeMajors) || installedManifest.bin?.["ableton-mcp-server"] !== "./dist/src/cli.js" || installedManifest.bin?.["ableton-mcp-lifecycle"] !== "./dist/src/lifecycle-cli.js") throw new Error("installed package policy, Node support, or executable map is invalid");
   const releaseManifest = JSON.parse(readFileSync(join(installedPackageDirectory, "release-manifest.json"), "utf8"));
   if (releaseManifest.schema !== "ableton-mcp-release/v2" || typeof releaseManifest.source?.commit !== "string" || !/^[a-f0-9]{40}$/.test(releaseManifest.source.commit) || typeof releaseManifest.source?.dirty !== "boolean" || releaseManifest.package?.name !== installedManifest.name || releaseManifest.package?.version !== installedManifest.version || releaseManifest.package?.license !== "MIT" || releaseManifest.package?.private !== true || releaseManifest.distribution?.channel !== "local-npm-tarball" || releaseManifest.distribution?.published !== false || releaseManifest.distribution?.signed !== false || releaseManifest.distribution?.notarized !== false || releaseManifest.distribution?.integrityIsIdentityProof !== false || releaseManifest.roles?.["LICENSE.md"] !== "license" || releaseManifest.build?.nodeRange !== canonicalNodeRange || JSON.stringify(releaseManifest.build?.nodeMajors) !== JSON.stringify(canonicalNodeMajors) || releaseManifest.algorithm !== "sha256" || !/^[a-f0-9]{64}$/.test(releaseManifest.build?.builder?.packageLockSha256 ?? "") || !/^[a-f0-9]{64}$/.test(releaseManifest.build?.builder?.workflowSha256 ?? "") || !releaseManifest.build?.builder?.node || !releaseManifest.build?.builder?.npm || !releaseManifest.build?.builder?.typescript) throw new Error("installed release manifest policy is invalid");
@@ -123,7 +123,16 @@ try {
   const ping = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "ping" });
   const output = execFileSync(process.execPath, [executable], { cwd: installDirectory, input: `${initialize}\n${initialized}\n${ping}\n`, encoding: "utf8" });
   const responses = output.trim().split("\n").map((line) => JSON.parse(line));
-  if (responses.length !== 2 || responses[0]?.id !== 1 || responses[1]?.id !== 2) throw new Error("installed executable failed the protocol smoke test");
+  if (responses.length !== 2 || responses[0]?.id !== 1 || responses[0]?.result?.protocolVersion !== "2025-11-25" || responses[1]?.id !== 2 || !responses[1]?.result || responses.some((frame) => frame.error)) throw new Error("installed executable failed the legacy protocol smoke test");
+  const modernMeta = { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {} };
+  const modernRequests = [
+    { jsonrpc: "2.0", id: 1, method: "server/discover", params: { _meta: modernMeta } },
+    { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "server_status", arguments: {}, _meta: modernMeta } },
+    { jsonrpc: "2.0", id: 3, method: "tools/list", params: { _meta: modernMeta } },
+  ];
+  const modernOutput = execFileSync(process.execPath, [executable], { cwd: installDirectory, input: modernRequests.map((frame) => JSON.stringify(frame)).join("\n") + "\n", encoding: "utf8" });
+  const modernResponses = modernOutput.trim().split("\n").map((line) => JSON.parse(line));
+  if (modernResponses.length !== 3 || modernResponses.some((frame, index) => frame.id !== index + 1 || frame.error || frame.result?.resultType !== "complete") || modernResponses[0]?.result?.ttlMs !== 0 || modernResponses[0]?.result?.cacheScope !== "private" || modernResponses[1]?.result?.structuredContent?.host !== "ready" || !modernResponses[2]?.result?.tools?.length || modernResponses[2].result.tools.some((tool) => ["live_subscribe", "live_unsubscribe"].includes(tool.name))) throw new Error("installed executable failed the modern protocol smoke test");
   const configPath = join(temporaryDirectory, "client-config.json");
   execFileSync(process.execPath, [join(installedPackageDirectory, "dist", "src", "setup.js"), "--output", configPath], { encoding: "utf8" });
   const config = JSON.parse(readFileSync(configPath, "utf8"));
@@ -278,7 +287,7 @@ finally: bridge.disconnect()
     terminateChildProcess(bridgeProcess);
     try { bridgeProcess.unref(); } catch {}
   }
-  console.log(JSON.stringify({ artifact: basename(artifact), files: names.length, installed: true, protocolSmoke: true, setupSmoke: true, migrationSmoke: true, diagnosticsSmoke: true, installedLiveLoaderSmoke: true, authenticatedBridgeSmoke: true, discoverySmoke: true, lifecycleSmoke: true, strictArtifactAllowlist: true, releaseManifestVerified: true, platform: process.platform, arch: process.arch }));
+  console.log(JSON.stringify({ artifact: basename(artifact), files: names.length, installed: true, protocolSmoke: true, modernProtocolSmoke: true, setupSmoke: true, migrationSmoke: true, diagnosticsSmoke: true, installedLiveLoaderSmoke: true, authenticatedBridgeSmoke: true, discoverySmoke: true, lifecycleSmoke: true, strictArtifactAllowlist: true, releaseManifestVerified: true, platform: process.platform, arch: process.arch }));
 } finally {
   terminateChildProcess(bridgeProcess);
   removeTemporaryDirectory(temporaryDirectory);

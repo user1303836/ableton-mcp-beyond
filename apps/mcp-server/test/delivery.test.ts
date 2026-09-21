@@ -98,7 +98,7 @@ test("diagnostics report local readiness separately from unavailable external ev
   assert.deepEqual(report.diagnosticErrors, []);
   assert.equal(report.entrypoint.path.replaceAll("\\", "/").endsWith("dist/src/cli.js"), true);
   assert.equal(report.platformSupported, true);
-  assert.deepEqual(report.supportedNodeMajors, [22, 24, 25]);
+  assert.deepEqual(report.supportedNodeMajors, [22, 24]);
   assert.equal(report.nodeSupported, true);
   assert.equal(report.compatibilityError, null);
 });
@@ -111,13 +111,13 @@ test("compatibility is explicit for the portable Node runtime", () => {
 });
 
 test("canonical Node policy agrees for stable major fixtures 21 through 27", () => {
-  const expected = new Map([[21, false], [22, true], [23, false], [24, true], [25, true], [26, false], [27, false]]);
+  const expected = new Map([[21, false], [22, true], [23, false], [24, true], [25, false], [26, false], [27, false]]);
   for (const [major, supported] of expected) assert.equal(supportedNodeMajor(`${major}.0.0`), supported, `Node ${major}`);
-  assert.deepEqual(SUPPORTED_NODE_MAJORS, [22, 24, 25]);
-  assert.equal(NODE_ENGINE_RANGE, ">=22 <23 || >=24 <25 || >=25 <26");
+  assert.deepEqual(SUPPORTED_NODE_MAJORS, [22, 24]);
+  assert.equal(NODE_ENGINE_RANGE, ">=22 <23 || >=24 <25");
   for (const prerelease of ["22.0.0-rc.1", "24.0.0-nightly.1", "25.1.0-pre"]) assert.equal(supportedNodeMajor(prerelease), false, prerelease);
   for (const malformed of ["v22.0.0", "22", "22.0", "not-a-version"]) assert.equal(supportedNodeMajor(malformed), false, malformed);
-  assert.equal(unsupportedNodeMessage("23.4.0"), "Unsupported Node.js 23.4.0. Supported major versions: 22, 24, 25. Install one of those versions and retry.");
+  assert.equal(unsupportedNodeMessage("23.4.0"), "Unsupported Node.js 23.4.0. Supported major versions: 22, 24. Install one of those versions and retry.");
   assert.equal(unsupportedNodeMessage("24.1.0"), null);
   const packageJson = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
   assert.deepEqual(packageJson.abletonMcpSupport.nodeMajors, SUPPORTED_NODE_MAJORS);

@@ -7,10 +7,37 @@ Live UI 功能。每一项都有显式处置:已在别处实现、已记录设�
 已记录原因的推迟,或拒绝。这些都不是桥接缺陷;它们是具有不同权限
 要求的能力层级。
 
+## 模型无关的执行与验证 toolkit
+
+MCP 保留为受支持的适配器，而非特定模型依赖。现有协议边界、类型化 Live discovery、事务与验证是基础；这不意味着已交付独立通用 executor SDK 或紧凑 task API。
+
+- **观察：** 有界结构化状态、协商能力、部署策略，以及当前 ref / identity / revision。面向任务的紧凑发现仍属 #55 后续工作，不是增加原始工具数量。
+- **选择：** 规划与推理位于可选客户端或 harness。LLM、人类或结构化 selector 提议操作与目标后，仍须确定性检查兼容性和新鲜权限。Jev 是类型化选择候选，**不是截图理解模型**。类型、概率、confidence 与 MCP 客户端元数据都不证明语义正确或同意。尚未测量 Ableton 专用的 Jev 延迟、校准或成功率。
+- **执行：** 所有接口保留认证、策略、精确身份和修订、preview、显式批准、过期与幂等。批准须来自部署的可信客户端 / 操作者边界；服务器 boolean 并非独立的人类同意证明。batch 是带受保护补偿的顺序执行，不是原子提交。
+- **验证 / 恢复：** 独立检查后置条件和所有权。丢失响应须以精确执行账本对账，仅值相同不够。保留不确定性与受控恢复，而非取消 / 重启后自动重试。音频测量证明技术事实，不证明音乐质量。
+
+Jev 背景：[TypeSafe 介绍](https://typesafe.ai/blog/introducing-system-one-models-and-jev)、[类型化决策](https://docs.typesafe.ai/)、[confidence](https://docs.typesafe.ai/confidence)。厂商性能主张不是本项目证据。托管推理是可选的，需显式数据共享，也不是音频线程或采样精确控制器。
+
+## 受保护 GUI 试点（仅设计，未实现）
+
+精确 MIDI、routing 和参数仍优先确定性 API。首个 GUI 实验仅填补一个有价值缺口：将显式选定范围导出到**新建且获批准的 WAV 路径**，再检验实际文件。不要增加无限制 click / type / shell 工具，或承诺广泛插件、comp、freeze / flatten、Save As 自动化。
+
+试点必须共享 API 的批准 / 策略 / 执行边界，绑定 Live 应用窗口及 Set 身份，串行化协作 writer，并检测人类 / controller 干扰；这不是桌面独占控制。优先实测 accessibility，焦点 / 布局 / 对话框变化后重新观察，未知对话框即停止，保留紧急停止，且不自动重试不确定的文件写入。验证文件身份、格式、时长及相关 LOM 状态；模型的 DONE 或文件存在本身都不够。屏幕 / 文件 / track 文本为不可信数据，尽量减少外传。
+
+**独立且无限制的桌面代理可绕过 MCP 防护。** 后端安全主张不覆盖这种安排，GUI 设计不能暗自继承保证或把模型置信度当权限。保留输出的实时 bounce (#52) 是另一套 routing / recording / 文件所有权流程；现有分析 capture 会删除临时音频，并非保留 bounce 或离线导出。
+
+在共同制作任务上比较 MCP-only、GUI-only 与 hybrid，匹配 planner、预算、起始 Set 与成功条件；新增能力覆盖单独报告。重复测量已验证完成、意外更改、p50 / p95 时间、实际模型成本、批准 / 人工救援、陈旧状态、响应丢失、焦点 / 对话框中断与恢复。selector 比较固定 executor / action space；人类音乐质量偏好单独报告。当前没有已认证的模型或 GUI 评估。
+
+## 公共 Ableton Extensions 研究（推迟）
+
+[公开公告](https://www.ableton.com/en/blog/introducing-extensions-sdk/) 与 [公开文档](https://ableton.github.io/extensions-sdk/) 支持有界 API 缺口研究，而非替换后端。截至 2026-09-21，Suite-beta、一次性上下文菜单流程并不证明持久 MCP transport、Standard / Intro / Lite 支持、完整 LOM 同等性或 export / comp API。实现前须重新检查公开版本与 edition 限制。
+保留 Remote Script 后端与受保护本地 `extensions-sdk-1.0.0-beta.0` 禁区：不得打开、复制或引用该材料。本次维护不包含 SDK 集成或 GUI 实现。
+
+顺序：利用已交付 batch 基础，改进 task discovery (#55) 与引导设置 (#66)，验证一个受保护导出试点，再评估保留 bounce / audio feedback (#52)。simulator、打包 fake-Live、host CI 不等于精确候选的真实 Live、第三方客户端、GUI、模型或聆听验证。参见 [DELIVERY.md](DELIVERY.md) 和 [TESTING.md](TESTING.md)。
+
 ## Max for Live
 
-桥接的 Remote Script 面现已覆盖宿主所需的全部文档化 Live Object Model
-领域。剩余的仅 Max 面及其处置:
+已交付 Remote Script 覆盖记录于 [CAPABILITY_MATRIX.md](CAPABILITY_MATRIX.md)，并不声称覆盖当前或 beta 的每个 Live API。剩余的仅 Max 面及其处置:
 
 | 面 | 处置 |
 |---|---|
