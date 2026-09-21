@@ -323,6 +323,21 @@ are. Source, schemas, and tests are the final authority.
 - Offline Set inspection/diff and root-bounded findings-only lint: complete bounded XML consumption, child-value timing and MIDI events, explicit unknowns, privacy-aware MIDI extraction, and source evidence from the same read bytes. Malformed documents and semantic clips without measured lengths fail closed. No claim of exhaustive Live-version file-format coverage.
 - Bounded generative MIDI with C4 = 60, retained first-chord register and chord-boundary bassline durations; order-independent key-estimation evidence with heuristic confidence. Track-color and song-settings mutations retain exact target identity through apply/readback/undo and distinguish uncertain undo from forward recovery. Covered by host/simulator and fake-Live contracts, not new real-Live certification.
 
+## Maintenance and toolkit follow-ups
+
+Candidate bytes and their verification reports request 90-day CI retention;
+[DELIVERY.md](DELIVERY.md) explains exact-run retrieval, archiving and staged
+diagnostics. This is not publication or durable hosting, and #66's guided,
+resumable onboarding remains open. Node 22/24 and both implemented MCP eras do
+not certify a particular third-party client or current Live installation.
+
+The model-independent direction keeps MCP, exact typed execution and independent
+verification. Compact task discovery (#55), optional Jev-style selectors, a
+shared-authority GUI export pilot, public-only Extensions feasibility and
+retained bounce (#52) remain follow-ups, not shipped model/GUI/SDK integrations.
+[EXTENSION_SURFACES.md](EXTENSION_SURFACES.md) records authority and evaluation
+gates, including the protected local SDK exclusion and separate listening evidence.
+
 ## Evidence boundary
 
 Tracked evidence under [`../evidence/`](../evidence/) distinguishes

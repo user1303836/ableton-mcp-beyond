@@ -238,6 +238,12 @@
 - 离线 Set 检查 / diff 与根目录内仅报告的 lint：完整有界 XML 校验、子元素时间值与 MIDI 事件、明确未知值、遵守隐私的 MIDI 提取、从同次读取的字节生成来源证据。拒绝畸形文档和长度未知的语义剪辑，不宣称覆盖全部 Live 版本格式。
 - 有界 MIDI 生成采用 C4 = 60，保留首个和弦音区，贝斯时长不越过和弦边界；调性估计顺序无关且置信度为启发式。轨道颜色与歌曲设置在应用 / 回读 / 撤销中保持精确身份，将不确定撤销与正向恢复分开。依据为宿主 / 模拟器 / fake-Live 契约测试，不是新增真实 Live 认证。
 
+## 维护与 toolkit 后续工作
+
+候选及验证报告向 CI 请求 90 天保留期；[DELIVERY.md](DELIVERY.md) 说明精确 run 获取、归档与分阶段诊断。这不是公开发布或永久托管，#66 的可恢复引导 onboarding 仍未完成。Node 22/24 与两代已实现 MCP 协议并不认证某个第三方客户端或当前 Live 安装。
+
+模型无关方向保留 MCP、精确类型化执行与独立验证。紧凑 task discovery (#55)、可选 Jev 式 selector、共享权限 GUI 导出试点、仅公共资料的 Extensions 可行性研究、保留 bounce (#52) 仍是后续工作，并非已交付 model / GUI / SDK 集成。[EXTENSION_SURFACES.md](EXTENSION_SURFACES.md) 记录权限与评估门槛，包括受保护本地 SDK 禁区及独立聆听证据。
+
 ## 证据边界
 
 [`../evidence/`](../evidence/) 下受跟踪的证据区分确定性 fake-Live、

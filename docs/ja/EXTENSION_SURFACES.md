@@ -8,11 +8,37 @@
 理由で延期、または辞退。これらはブリッジの欠陥ではなく、異なる権限
 要件を持つケイパビリティ層です。
 
+## モデル非依存の実行・検証 toolkit
+
+MCP は維持するアダプターであり、特定モデルへの依存ではありません。既存の protocol 境界、型付き discovery、transaction と検証が基盤です。独立した汎用 executor SDK や簡潔な task API を出荷したという意味ではありません。
+
+- **観測:** 有界の構造化状態、交渉済み capability、deployment policy、現在の ref / identity / revision を提供します。task 単位の簡潔な discovery は #55 の後続作業で、raw tool 数の拡大ではありません。
+- **選択:** 推論は任意の client / harness に置きます。LLM、人間、構造化 selector が操作と対象を提案しても、決定論的に互換性と新鮮な権限を再検証します。Jev は型付き選択の候補で、**スクリーンショット解釈モデルではありません**。型、確率、confidence、MCP client metadata は正しさや同意を証明しません。Ableton 固有の速度・較正・成功率は未測定です。
+- **実行:** どの interface でも認証、policy、正確な identity / revision、preview、明示的承認、expiry、idempotency を保持します。承認は信頼された client / operator 境界から必要で、サーバーの boolean だけでは独立した人間の同意証明になりません。batch は保護された補償付き逐次実行であり atomic commit ではありません。
+- **検証・回復:** postcondition と所有権を独立に確認します。応答喪失は正確な実行台帳で照合し、値の一致だけでは不十分です。cancel / restart 後の自動再試行ではなく、不確定性と所有対象の回復を保持します。音声測定は技術的事実で、音楽的な良さの証明ではありません。
+
+Jev の背景: [TypeSafe 紹介](https://typesafe.ai/blog/introducing-system-one-models-and-jev)、[型付き判断](https://docs.typesafe.ai/)、[confidence](https://docs.typesafe.ai/confidence)。vendor の性能主張は本プロジェクトの証拠ではありません。hosted inference は任意・明示的データ共有で、audio thread / sample-accurate 制御ではありません。
+
+## 保護された GUI pilot（設計のみ、未実装）
+
+正確な MIDI、routing、parameter は決定論的 API を優先します。最初の実験は、明示的に選択した範囲を**新しい承認済み WAV パス**へ export し、実ファイルを検証する 1 つの不足機能に限定します。無制限 click / type / shell tool や、広範な plug-in、comp、freeze / flatten、Save As 自動化を追加しません。
+
+API と同じ承認・policy・実行境界で、Live app / window と Set identity を束縛します。協調する writer を直列化し、人間や他 controller の干渉を検出します。desktop の排他的所有は主張しません。実測した accessibility を優先し、focus / layout / dialog 変更後は再観測、不明 dialog では停止します。緊急停止を保持し、不確定なファイル書き込みは自動再試行しません。ファイル identity / format / duration と関連 LOM 状態で検証し、DONE やファイルの存在だけを成功としません。画面・ファイル・track の文字列は非信頼データで、外部送信を最小化します。
+
+**独立した無制限 desktop agent は MCP の保護を迂回できます。** backend の安全保証をその構成へ流用したり、confidence を権限にしてはいけません。保持型 real-time bounce (#52) は別の routing / recording / file 所有ワークフローです。現在の分析 capture は一時音声を削除し、保持 bounce / offline export ではありません。
+
+共通の producer task で MCP-only / GUI-only / hybrid を比較し、planner、budget、開始 Set、成功条件を揃えます。追加の capability coverage は別に報告します。繰り返し実行で、検証済み完了、意図しない変更、p50 / p95 時間、実モデル費用、承認・救済、stale state、応答喪失、focus / dialog 中断、回復を測定します。selector 比較は同じ executor / action space を使用し、人間の音楽的評価は別にします。モデル / GUI の認証済み評価はありません。
+
+## 公開 Ableton Extensions の調査（延期）
+
+[公開発表](https://www.ableton.com/en/blog/introducing-extensions-sdk/) と [公開ドキュメント](https://ableton.github.io/extensions-sdk/) は限定的 API-gap 調査の根拠で、backend 置換の根拠ではありません。2026-09-21 時点の Suite-beta / 単発 context-menu workflow は、永続 MCP transport、Standard / Intro / Lite 対応、全 LOM 同等性、export / comp API を証明しません。実装前に公開版・edition 制約を再確認します。
+Remote Script を保持し、保護されたローカル `extensions-sdk-1.0.0-beta.0` を開く・コピーする・引用することは禁止のままです。今回の maintenance は SDK 統合や GUI 実装を含みません。
+
+順序: 出荷済み batch 基盤の活用、task discovery (#55) と guided onboarding (#66)、1 つの保護された export pilot、保持 bounce / audio feedback (#52) の評価。simulator、packaged fake-Live、host CI は、正確な候補の実 Live、第三者 client、GUI、モデル、聴取検証と区別します。[DELIVERY.md](DELIVERY.md) / [TESTING.md](TESTING.md) を参照してください。
+
 ## Max for Live
 
-ブリッジの Remote Script サーフェスは、ホストが必要とする文書化された
-Live Object Model の全領域をカバーしました。残る Max 専用サーフェスと
-そのディスポジション:
+出荷済み Remote Script の範囲は [CAPABILITY_MATRIX.md](CAPABILITY_MATRIX.md) に記録します。現在 / beta の全 Live API を網羅したという主張ではありません。残る Max 専用サーフェスとそのディスポジション:
 
 | サーフェス | ディスポジション |
 |---|---|

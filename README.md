@@ -52,7 +52,7 @@ npm run setup -- --output /abs/path/bridge-config.json \
 node dist/src/install-remote-script.js --destination '/abs/.../Remote Scripts/AbletonMcpBridge' --dry-run
 ```
 
-Restart Live, then verify: `npm run diagnostics -- --config /abs/path/bridge-config.json`.
+The bridge example requires an existing owner-only secret; `--dry-run` does **not** install anything. For verified candidates, use the plan/apply/activate sequence in [DELIVERY.md](docs/en/DELIVERY.md), including manual Live restart and Control Surface selection, then inspect `npm run diagnostics -- --config /abs/path/bridge-config.json`. Exit code 0 alone is not real-Live readiness. The single guided onboarding command (#66) remains unfinished.
 Full walkthrough: [docs/en/USER_GUIDE.md](docs/en/USER_GUIDE.md).
 
 ## Safety model
@@ -60,6 +60,10 @@ Full walkthrough: [docs/en/USER_GUIDE.md](docs/en/USER_GUIDE.md).
 Every mutation follows **discover → preview → confirm → apply → verify → undo**. Idempotency keys, epoch fencing, and an execution ledger make lost acknowledgements safe to reconcile; arbitrary deletes are refused. Without an explicit bridge config the server is fail-closed — it cannot read or touch Live. See [docs/en/LIVE_SAFETY.md](docs/en/LIVE_SAFETY.md).
 
 The deployment trusts an owner-controlled local OS account and the MCP client's approval policy. Server confirmations are not proof of human consent through a channel independent of the model. Do not auto-approve audible, recording, routing, capture, or realtime tools.
+
+## Toolkit direction
+
+Keep MCP while evolving the structured observation → selection → guarded execution → independent verification toolkit. Models remain optional clients: Jev-style typed choices are not vision or consent, and unrestricted desktop agents do not inherit MCP safety. Compact task discovery, a shared-authority GUI export pilot and retained bounce are follow-ups, **not shipped integrations**. See [extension boundaries and evaluation gates](docs/en/EXTENSION_SURFACES.md).
 
 ## Compatibility
 

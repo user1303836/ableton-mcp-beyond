@@ -330,6 +330,12 @@
 - オフライン Set 検査 / diff と root 内の報告専用 lint：XML 全体の有界検証、子要素の時間値・MIDI イベント、不明値の明示、プライバシー対応 MIDI 抽出、読取済みバイトからのソース証拠。不正文書や長さ不明のセマンティッククリップは拒否します。全 Live バージョンの形式対応は主張しません。
 - 有界 MIDI 生成は C4 = 60、最初のコードの音域、コード境界で終わるベースを保持します。調推定は順序非依存で信頼度はヒューリスティックです。トラック色・曲設定は適用 / 読戻し / アンドゥまで同一性を保持し、不確定アンドゥを前向き回復と区別します。ホスト / シミュレーター / fake-Live 契約で検証し、新たな実 Live 認証は主張しません。
 
+## Maintenance と toolkit の後続作業
+
+候補と検証レポートは CI に 90 日保持を要求します。[DELIVERY.md](DELIVERY.md) は正確な run の取得・保存と段階別診断を説明します。公開や永続 hosting ではなく、#66 の再開可能な guided onboarding は未完了です。Node 22/24 と実装済みの 2 つの MCP 方式は、特定の第三者 client や現在の Live 環境の認証ではありません。
+
+モデル非依存方針は MCP、正確な型付き実行、独立検証を維持します。簡潔な task discovery (#55)、任意の Jev 型 selector、共通権限の GUI export pilot、公開 Extensions の実現性調査、保持 bounce (#52) は後続作業で、model / GUI / SDK 統合の出荷ではありません。[EXTENSION_SURFACES.md](EXTENSION_SURFACES.md) に権限・評価 gate、保護されたローカル SDK の除外、独立した聴取検証を記録しています。
+
 ## エビデンスの境界
 
 [`../evidence/`](../evidence/) の下の追跡されたエビデンスは、決定論的

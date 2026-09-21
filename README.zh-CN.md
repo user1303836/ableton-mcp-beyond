@@ -53,7 +53,7 @@ npm run setup -- --output /abs/path/bridge-config.json \
 node dist/src/install-remote-script.js --destination '/abs/.../Remote Scripts/AbletonMcpBridge' --dry-run
 ```
 
-重启 Live,然后验证:`npm run diagnostics -- --config /abs/path/bridge-config.json`。
+bridge 示例要求已有仅所有者可访问的 secret；`--dry-run` **不会安装**。已验证候选请使用 [DELIVERY.md](docs/zh-CN/DELIVERY.md) 的 plan / apply / activate 流程，包括手动重启 Live 和选择 Control Surface，再检查 `npm run diagnostics -- --config /abs/path/bridge-config.json` 的内容。退出码 0 不等于真实 Live 就绪。单一引导 onboarding (#66) 仍未完成。
 完整教程:[docs/zh-CN/USER_GUIDE.md](docs/zh-CN/USER_GUIDE.md)。
 
 ## 安全模型
@@ -61,6 +61,10 @@ node dist/src/install-remote-script.js --destination '/abs/.../Remote Scripts/Ab
 每项变更都遵循 **发现 → 预览 → 确认 → 应用 → 验证 → 撤销** 的流程。幂等键、epoch 隔离与执行账本,使丢失的确认也能安全地对账;任意删除一律被拒绝。未经显式桥接配置,服务器处于故障关闭状态 —— 无法读取或改动 Live。参见 [docs/zh-CN/LIVE_SAFETY.md](docs/zh-CN/LIVE_SAFETY.md)。
 
 部署的信任边界是由所有者控制的本地 OS 账户和 MCP 客户端审批策略。服务器内的确认并不能证明人类通过独立于模型的渠道给予了同意。请勿自动批准发声、录音、路由、捕获或实时工具。
+
+## Toolkit 方向
+
+保留 MCP，推进结构化观察 → 选择 → 受保护执行 → 独立验证。模型是可选客户端：Jev 式类型化选择不等于视觉或同意，无限制桌面代理也不继承 MCP 安全性。紧凑 task discovery、共享权限的 GUI 导出试点与保留 bounce 都是后续工作，**不是已交付集成**。参见[扩展边界与评估门槛](docs/zh-CN/EXTENSION_SURFACES.md)。
 
 ## 兼容性
 
