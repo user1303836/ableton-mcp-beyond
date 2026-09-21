@@ -120,6 +120,22 @@ for real-Live, security, recovery, or platform evidence.
 
 The benchmark warms the declared maximum PCM input and reports repeated latency measurements. `audio:oracle` generates temporary PCM, compares BS.1770/EBU and true-peak outputs to FFmpeg `ebur128`, and removes the owner-only temporary tree; it commits no third-party audio. Latency, output size, bounded-memory, DSP-oracle, package, and real-Live evidence are distinct concerns; none substitutes for another.
 
+## Compound recovery and library-reader regressions
+
+`compound-recovery.test.ts` uses an explicit simulator execution ledger to test
+lost apply, compensation, and undo replies; exact argument/key retention;
+post-acknowledgement readback failures; rejection of externally matching values
+and substituted identities; and creation-time fingerprint fencing. It does not
+stand in for a production bridge or real-Live run. `batch.test.ts` also covers
+policy changes between preview/apply/undo and during awaited snapshots.
+`device-state.test.ts` covers duplicate sibling paths, refusal of output symlinks
+before writes, and quantization that never exceeds parameter bounds.
+
+`sqlite-reader.test.ts` checks signed 48-/64-bit integer decoding, precision
+refusal, negative row IDs, reserved-page-aware bounds, unsupported text encodings, and
+malformed b-tree/page bounds. Library search remains UTF-8-only, read-only and
+fail-closed for unsupported file layouts or uncheckpointed WAL.
+
 ## What passing means
 
 Passing proves deterministic repository behavior and package contracts. It does not prove a real Control Surface loaded in Ableton Live, a supported Live API shape, visible Set state, audible or realtime behavior, platform installer runtime, accessibility, hardware, signing, notarization, or release publication.
