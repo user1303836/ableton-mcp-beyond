@@ -265,14 +265,14 @@ function staccato(notes: readonly Note[], params: Readonly<Record<string, unknow
 
 function rotate(notes: readonly Note[], params: Readonly<Record<string, unknown>>): MidiTransformOutcome {
   const steps = integerParam(params, "steps", -512, 512);
-  const ordered = stableNoteOrder(notes);
-  if (ordered.length === 0) return { notes: cloneNotes(notes), generative: false, assumptions: ["empty clip"] };
+  const result = cloneNotes(notes);
+  const ordered = stableNoteOrder(result);
+  if (ordered.length === 0) return { notes: result, generative: false, assumptions: ["empty clip"] };
   const pitches = ordered.map((note) => note.pitch);
   const shift = ((steps % ordered.length) + ordered.length) % ordered.length;
-  const rotated = pitches.map((_, index) => pitches[(((index - shift) % ordered.length) + ordered.length) % ordered.length]!);
-  const byKey = new Map(ordered.map((note, index) => [`${note.start}|${note.pitch}|${note.id ?? -1}|${note.channel}`, rotated[index]!] as const));
-  const result = cloneNotes(notes);
-  for (const note of result) note.pitch = byKey.get(`${note.start}|${note.pitch}|${note.id ?? -1}|${note.channel}`) ?? note.pitch;
+  // Assign distinct cloned occurrences positionally, not through a content key:
+  // id-less duplicates (even repeated input object references) are distinct notes.
+  for (let index = 0; index < ordered.length; index += 1) ordered[index]!.pitch = pitches[(index - shift + ordered.length) % ordered.length]!;
   return { notes: result, generative: false, assumptions: [`pitches rotated by ${shift} positions in stable note order; rhythm unchanged`] };
 }
 

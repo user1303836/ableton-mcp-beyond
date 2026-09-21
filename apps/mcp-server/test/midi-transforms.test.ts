@@ -123,6 +123,23 @@ test("rotate permutes pitches in stable order and preserves rhythm and ids", () 
   assert.equal(result.generative, false);
 });
 
+test("rotate preserves the pitch multiset and every other field across duplicate occurrences", () => {
+  const duplicate = note(60, 0, 1);
+  assert.deepEqual(applyMidiTransform([duplicate, duplicate, note(65, 0, 1)], { type: "rotate", params: { steps: 1 } }).notes.map((item) => item.pitch), [65, 60, 60]);
+  const next = random(77);
+  const withoutPitch = ({ pitch: _pitch, ...rest }: Note) => rest;
+  for (let iteration = 0; iteration < 256; iteration += 1) {
+    const source = randomNotes(next, Math.floor(next() * 64), 16).map(({ id: _id, ...item }) => item);
+    if (source.length) source.push(source[0]!, { ...source[0]! });
+    const before = structuredClone(source);
+    const result = applyMidiTransform(source, { type: "rotate", params: { steps: Math.floor(next() * 1025) - 512 } });
+    assert.deepEqual(result.notes.map((item) => item.pitch).sort((a, b) => a - b), source.map((item) => item.pitch).sort((a, b) => a - b));
+    assert.deepEqual(result.notes.map(withoutPitch), source.map(withoutPitch));
+    assert.deepEqual(source, before);
+    assert.equal(new Set(result.notes).size, result.notes.length);
+  }
+});
+
 test("repeat subdivides exactly with bounded decay and drops source ids", () => {
   const source = [note(60, 0, 1, 100, 7)];
   const result = applyMidiTransform(source, { type: "repeat", params: { times: 4, decay: 0.5 } });

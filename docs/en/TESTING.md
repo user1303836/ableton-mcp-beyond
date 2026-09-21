@@ -11,6 +11,12 @@ lost-reply ledger recovery, absent push, and cancellation through ordered flush.
 `verify-package.mjs` independently starts installed legacy and modern processes.
 These are host/fake-Live checks, not third-party-client or fresh Live certification.
 
+## Transform invariants
+
+Rotation property tests include exact id-less duplicates and repeated object
+references: pitch multiplicity, input ordering and every non-pitch field survive.
+This fixes the pure helper; the MCP mutation path still requires stable note IDs.
+
 ## Deterministic gates
 
 Run serially from `apps/mcp-server`:
