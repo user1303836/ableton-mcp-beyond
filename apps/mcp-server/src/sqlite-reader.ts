@@ -50,13 +50,13 @@ function readVarint(buffer: Uint8Array, offset: number): { value: number; bytes:
  *  values beyond Number.MAX_SAFE_INTEGER fail closed rather than losing precision). */
 function toSafeInteger(value: number): number {
   if (!Number.isSafeInteger(value)) throw new Error("sqlite integer exceeds the safe JavaScript range");
-  // Reinterpret unsigned accumulator as signed 64-bit when the sign bit is set.
-  return value >= 2 ** 63 ? value - 2 ** 64 : value;
+  return value;
 }
 
 export class SqliteReader {
   private readonly pages: Uint8Array;
   readonly pageSize: number;
+  private readonly usableSize: number;
   readonly pageCount: number;
   readonly walMode: boolean;
   private readonly tables = new Map<string, SqliteTable>();
@@ -75,6 +75,9 @@ export class SqliteReader {
     if (writeVersion !== 1 && writeVersion !== 2) throw new Error("sqlite file-format write version is unsupported");
     if (readVersion !== 1 && readVersion !== 2) throw new Error("sqlite file-format read version is unsupported");
     this.walMode = readVersion === 2;
+    this.usableSize = this.pageSize - view.getUint8(20);
+    if (this.usableSize < 480) throw new Error("sqlite reserved bytes leave an invalid usable page size");
+    if (view.getUint32(56) !== 1) throw new Error("sqlite text encoding is unsupported; UTF-8 is required");
     this.pageCount = view.getUint32(28);
     if (this.pageCount < 1 || this.pageCount > MAX_PAGES) throw new Error("sqlite page count is invalid");
     const expected = this.pageCount * this.pageSize;
@@ -95,12 +98,16 @@ export class SqliteReader {
   /** Parse one b-tree cell's record payload, following the overflow chain. */
   private readCellPayload(page: number, cellOffset: number): { payload: Uint8Array; rowId: number } {
     const base = this.pageOffset(page);
-    const usable = this.pageSize;
+    const usable = this.usableSize;
+    const pageBytes = this.pages.subarray(base, base + usable);
     let cursor = base + cellOffset;
-    const payloadLength = readVarint(this.pages, cursor);
+    const payloadLength = readVarint(pageBytes, cursor - base);
     cursor += payloadLength.bytes;
-    const rowId = readVarint(this.pages, cursor);
+    const rowIdStart = cursor;
+    const rowId = readVarint(pageBytes, cursor - base);
     cursor += rowId.bytes;
+    let signedRowId = 0n;
+    for (let index = 0; index < rowId.bytes; index += 1) signedRowId = index === 8 ? signedRowId * 256n + BigInt(this.pages[rowIdStart + index]!) : signedRowId * 128n + BigInt(this.pages[rowIdStart + index]! & 0x7f);
     const length = payloadLength.value;
     if (length > MAX_PAYLOAD_BYTES) throw new Error("sqlite cell payload exceeds its bound");
     // SQLite file-format table leaf rule: payloads up to maxLocal stay inline;
@@ -118,11 +125,12 @@ export class SqliteReader {
     let remaining = length - local;
     if (remaining > 0) {
       const view = new DataView(this.pages.buffer, this.pages.byteOffset, this.pages.byteLength);
+      if (cursor + local + 4 > base + usable) throw new Error("sqlite overflow pointer overruns its page");
       let overflowPage = view.getUint32(cursor + local);
-      let guard = 0;
+      const seen = new Set<number>([page]);
       while (remaining > 0) {
-        if (overflowPage === 0 || guard > this.pageCount) throw new Error("sqlite overflow chain is malformed");
-        guard += 1;
+        if (overflowPage === 0 || seen.has(overflowPage)) throw new Error("sqlite overflow chain is malformed");
+        seen.add(overflowPage);
         const overflowBase = this.pageOffset(overflowPage);
         const next = view.getUint32(overflowBase);
         const take = Math.min(remaining, usable - 4);
@@ -130,11 +138,12 @@ export class SqliteReader {
         remaining -= take;
         overflowPage = next;
       }
+      if (overflowPage !== 0) throw new Error("sqlite overflow chain has trailing pages");
     }
     const payload = new Uint8Array(length);
     let written = 0;
     for (const chunk of chunks) { payload.set(chunk, written); written += chunk.length; }
-    return { payload, rowId: toSafeInteger(rowId.value) };
+    return { payload, rowId: toSafeInteger(Number(BigInt.asIntN(64, signedRowId))) };
   }
 
   private decodeRecord(payload: Uint8Array): SqliteRow {
@@ -147,6 +156,7 @@ export class SqliteReader {
       cursor += serial.bytes;
       serialTypes.push(serial.value);
     }
+    if (cursor !== headerLength.value) throw new Error("sqlite serial type overruns the record header");
     const row: SqliteRow = [];
     const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
     let body = headerLength.value;
@@ -160,8 +170,8 @@ export class SqliteReader {
         case 2: take(2); row.push(view.getInt16(body)); body += 2; break;
         case 3: take(3); { const value = (payload[body]! << 16) | (payload[body + 1]! << 8) | payload[body + 2]!; row.push(value >= 2 ** 23 ? value - 2 ** 24 : value); body += 3; break; }
         case 4: take(4); row.push(view.getInt32(body)); body += 4; break;
-        case 5: take(6); { const high = view.getInt32(body); const low = view.getUint32(body + 2); const value = high * 2 ** 32 + low; row.push(toSafeInteger(value < 0 ? value + 2 ** 64 : value)); body += 6; break; }
-        case 6: take(8); { const high = view.getInt32(body); const low = view.getUint32(body + 4); const value = high * 2 ** 32 + low; row.push(toSafeInteger(value < 0 ? value + 2 ** 64 : value)); body += 8; break; }
+        case 5: take(6); { const high = view.getInt16(body); const low = view.getUint32(body + 2); row.push(toSafeInteger(high * 2 ** 32 + low)); body += 6; break; }
+        case 6: take(8); row.push(toSafeInteger(Number(view.getBigInt64(body)))); body += 8; break;
         case 7: take(8); row.push(view.getFloat64(body)); body += 8; break;
         case 8: row.push(0); break;
         case 9: row.push(1); break;
@@ -181,7 +191,10 @@ export class SqliteReader {
 
   private walkTableBtree(rootPage: number, visit: (row: SqliteRow, rowId: number) => void, maxRows: number): number {
     let visited = 0;
+    const seenPages = new Set<number>();
     const walkPage = (page: number, depth: number): void => {
+      if (seenPages.has(page)) throw new Error("sqlite b-tree contains a repeated page");
+      seenPages.add(page);
       if (depth > MAX_BTREE_DEPTH) throw new Error("sqlite b-tree depth exceeds its bound");
       const base = this.pageOffset(page);
       const headerOffset = page === 1 ? 100 : 0;
@@ -190,9 +203,16 @@ export class SqliteReader {
       const cellCount = view.getUint16(base + headerOffset + 3);
       if (cellCount > MAX_CELLS_PER_PAGE) throw new Error("sqlite page cell count exceeds its bound");
       const pointerArray = base + headerOffset + (type === 0x05 ? 12 : 8);
+      if (pointerArray + cellCount * 2 > base + this.usableSize) throw new Error("sqlite cell pointer array overruns its page");
+      const seenCells = new Set<number>();
+      const cellAt = (index: number): number => {
+        const offset = view.getUint16(pointerArray + index * 2);
+        if (offset < pointerArray - base + cellCount * 2 || offset + (type === 0x05 ? 5 : 2) > this.usableSize || seenCells.has(offset)) throw new Error("sqlite cell pointer is invalid or repeated");
+        seenCells.add(offset); return offset;
+      };
       if (type === 0x05) {
         for (let index = 0; index < cellCount; index += 1) {
-          const cellOffset = view.getUint16(pointerArray + index * 2);
+          const cellOffset = cellAt(index);
           const childPage = view.getUint32(base + cellOffset);
           walkPage(childPage, depth + 1);
           // interior cells carry a key (varint rowid) that separates subtrees; no payload to visit
@@ -202,7 +222,7 @@ export class SqliteReader {
       } else if (type === 0x0d) {
         for (let index = 0; index < cellCount; index += 1) {
           if (visited >= maxRows) throw new Error(`sqlite table scan exceeds its ${maxRows}-row bound`);
-          const cellOffset = view.getUint16(pointerArray + index * 2);
+          const cellOffset = cellAt(index);
           const { payload, rowId } = this.readCellPayload(page, cellOffset);
           visit(this.decodeRecord(payload), rowId);
           visited += 1;

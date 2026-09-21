@@ -58,20 +58,26 @@ are. Source, schemas, and tests are the final authority.
   `track.create`, `routing.arm`) in one preview/apply/undo cycle with
   per-operation policy enforcement, one mutation per exact target, checkpoint
   fencing, exact rollback of completed steps on mid-batch refusal, and
-  lost-acknowledgement reconciliation via recorded per-step checkpoints.
+  lost-acknowledgement reconciliation via retained exact dispatch arguments and
+  execution-ledger results, followed by fresh identity/state verification.
+  Matching values alone are not execution evidence. Policy is rechecked at
+  apply/undo and before each step; execution is sequential, not atomic.
   Device parameter-state snapshots (`live_device_state_save`,
   `live_device_state_recall_preview/apply`) save named schema-versioned,
   digest-verified snapshot files to owner-scoped directories and recall or
   morph them onto class-and-layout-fenced targets with per-parameter
   dispositions, deterministic float64 quantization rounding, per-step revision
-  fencing, exact rollback, and exact pre-recall undo. Batch and device-state
+  fencing, guarded rollback, and guarded pre-recall undo. Apply, compensation,
+  and undo retain distinct recovery checkpoints; failed verification or recovery
+  remains uncertain. Indexed nested paths disambiguate same-named siblings;
+  output symlinks are refused before writes. Batch and device-state
   mutations reuse existing negotiated registry operations only; they are
   verified at the host and simulator levels, and exact-candidate real-Live
   proof is pending.
 - Opt-in read-only Live library database search (`live_library_search`):
   owner-allowlisted `Live-files-*.db`/`Live-plugins-*.db` opened read-only
-  with a dependency-free SQLite reader (no writes ever, no journals,
-  uncheckpointed WAL refused), fail-closed schema-version gating (files
+  with a dependency-free UTF-8 SQLite reader (no writes ever, no journals,
+  reserved-page-aware bounds; uncheckpointed WAL and unsafe integer precision refused), fail-closed schema-version gating (files
   database 12300, plug-ins database 1, shape-probed first-hand on the Live
   12.4.5 macOS install), tag/kind/source/sort queries with bounded
   revision-paged results, plug-in inventory with vendor/format filters, path

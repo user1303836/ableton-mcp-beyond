@@ -403,7 +403,12 @@ export class McpHost {
 
   public constructor(private readonly adapter: LiveAdapter = new UnavailableLiveAdapter(), options: { toolPolicy?: ToolPolicySpec | unknown; importStagingDir?: string } = {}) {
     this.midiTransactions = new SessionMidiTransactionManager(adapter);
-    this.batchTransactions = new BatchTransactionManager(adapter);
+    this.batchTransactions = new BatchTransactionManager(adapter, (kinds) => {
+      for (const kind of kinds) {
+        const ownerTool = BATCH_OPERATION_POLICY_TOOLS[kind];
+        if (!this.policyAllowsTool(ownerTool)) throw new Error(`transaction batch contains an operation denied by the deployment policy (${ownerTool})`);
+      }
+    });
     this.deviceStateTransactions = new DeviceStateTransactionManager(adapter);
     this.toolPolicy = options.toolPolicy === undefined ? DEFAULT_TOOL_POLICY : parseToolPolicySpec(options.toolPolicy);
     this.importStagingDirOption = options.importStagingDir;

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { McpHost, PROTOCOL_VERSION } from "../src/host.js";
 import { DeterministicLiveSimulator } from "../src/live.js";
+import { installExecutionLedger } from "./helpers/execution-ledger.js";
 
 const initialize = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "test", version: "1" } } };
 const initialized = { jsonrpc: "2.0", method: "notifications/initialized" };
@@ -39,7 +40,7 @@ test("batch preview/apply executes an ordered multi-kind batch in one transactio
     { kind: "track.rename", trackRef: "track:track-1", name: "Drum Bus" },
   ] }));
   assert.equal(preview.operations.length, 3);
-  assert.equal(preview.impact, "applies-atomic-batch");
+  assert.equal(preview.impact, "applies-sequential-batch-with-guarded-compensation");
   assert.equal(preview.operations[0].prior.volume, 0.85);
   assert.equal(preview.operations[1].prior.value, parameter.value);
   assert.equal(preview.operations[2].prior.name, "Drums");
@@ -110,15 +111,9 @@ test("a clean mid-batch refusal rolls completed steps back to their exact prior 
 
 test("a lost acknowledgement reconciles against recorded per-step checkpoints", async () => {
   const { simulator, call, parse, parseError } = connectedHost();
-  let dispatches = 0;
-  const original = simulator.invokeAsync.bind(simulator);
-  simulator.invokeAsync = async (invocation: any) => {
-    if (invocation.operation !== "mixer.set") return original(invocation);
-    dispatches += 1;
-    const result = await original(invocation);
-    if (dispatches === 1) throw new Error("remote adapter request state uncertain after dispatch timeout");
-    return result;
-  };
+  const ledger = installExecutionLedger(simulator, (_invocation, execution) => {
+    if (execution === 1) throw new Error("remote adapter request state uncertain after dispatch timeout");
+  });
   const preview = await parse(call("live_batch_preview", { operations: [
     { kind: "mixer.set", trackRef: "track:track-1", volume: 0.4 },
     { kind: "track.rename", trackRef: "track:track-1", name: "Reconciled" },
@@ -130,7 +125,9 @@ test("a lost acknowledgement reconciles against recorded per-step checkpoints", 
   assert.equal(track.name, "Drums", "the rename never dispatched");
   const reconciled = await parse(call("live_batch_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "batch-lost-ack" }));
   assert.equal(reconciled.state, "applied");
-  assert.equal(dispatches, 1, "the completed mixer step was not re-dispatched");
+  assert.equal(ledger.executions, 2, "mixer and rename each executed once");
+  assert.equal(ledger.replays, 1, "the original mixer dispatch was reconciled through the ledger");
+  assert.deepEqual(ledger.calls[0]!.invocation, ledger.calls[1]!.invocation, "retry preserves exact original authority arguments");
   assert.equal(track.name, "Reconciled", "the remaining step completed during reconciliation");
   assert.equal(reconciled.operations[0].replayed, true, "the checkpointed step reports replay provenance");
   assert.equal(reconciled.operations[1].name, "Reconciled");
@@ -149,6 +146,27 @@ test("batch policy denial at preview refuses the whole batch before any write", 
     { kind: "device.parameter.set", deviceRef: "device:any", parameterRef: "parameter:any", value: 1 },
   ] }));
   assert.equal(mixed.toolError !== undefined, true, "device.parameter.set is outside the performance profile, so the batch preview must fail");
+});
+
+test("batch rechecks contained-operation policy at apply and undo, including after awaited snapshots", async () => {
+  const { host, simulator, call, parse, parseError } = connectedHost();
+  const preview = await parse(call("live_batch_preview", { operations: [{ kind: "mixer.set", trackRef: "track:track-1", volume: 0.3 }] }));
+  host.setToolPolicy({ profile: "full", deny: ["live_mixer_apply"] });
+  assert.ok((await parseError(call("live_batch_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "policy-apply" }))).toolError);
+  assert.equal((simulator as any).state.tracks[0].mixer.volume, 0.85);
+  host.setToolPolicy({ profile: "full" });
+  assert.equal((await parse(call("live_batch_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "policy-apply" }))).state, "applied");
+  host.setToolPolicy({ profile: "full", deny: ["live_mixer_apply"] });
+  assert.ok((await parseError(call("live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "policy-undo" }))).toolError);
+  assert.equal((simulator as any).state.tracks[0].mixer.volume, 0.3);
+  host.setToolPolicy({ profile: "full" });
+  assert.equal((await parse(call("live_undo", { transactionId: preview.transactionId, confirmation: "undo", idempotencyKey: "policy-undo" }))).state, "undone");
+
+  const second = await parse(call("live_batch_preview", { operations: [{ kind: "mixer.set", trackRef: "track:track-1", volume: 0.1 }] }));
+  const snapshot = simulator.snapshotAsync.bind(simulator);
+  simulator.snapshotAsync = async () => { host.setToolPolicy({ profile: "full", deny: ["live_mixer_apply"] }); return snapshot(); };
+  assert.ok((await parseError(call("live_batch_apply", { transactionId: second.transactionId, confirmation: "apply", idempotencyKey: "policy-race" }))).toolError);
+  assert.equal((simulator as any).state.tracks[0].mixer.volume, 0.85);
 });
 
 test("batch validation: cap, allowlist, duplicate targets, and unknown operation kinds", async () => {

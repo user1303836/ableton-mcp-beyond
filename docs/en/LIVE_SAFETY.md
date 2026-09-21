@@ -98,6 +98,27 @@ semantic evidence, retains ambiguity and truncation limits, and always reports
 `mergeProposed=false`. It never edits `.als` or treats opaque plug-in/Max state
 as portable.
 
+## Compound batches and device-state recall
+
+Batch and device-state mutations are sequential, not all-or-nothing Live-wide
+commits. Each step retains its exact dispatch arguments and acknowledged result.
+A lost reply is reconciled against the execution ledger using the original
+transaction/key/arguments, followed by fresh identity and postcondition checks;
+matching values alone never establish execution or ownership. Apply, compensation,
+and undo have separate retained checkpoints. An uncertain compensation resumes
+compensation, never forward application. A reply followed by a failed readback
+remains uncertain and does not authorize a second write with refreshed revisions.
+
+Batch deployment policy applies to every contained operation at preview, apply,
+and undo, including before each step. Created-track cleanup additionally compares
+the creation-time fingerprint returned by the adapter; later edits never become
+owned deletion state. Clean pre-dispatch refusals may compensate completed steps,
+but failed verification or compensation retains recovery-protected uncertainty.
+Host checkpoints are in memory: do not restart the host or replace the key to
+resolve uncertainty. After inspection, explicit recovery finalization retires the
+record without claiming to restore Live state. Exact-candidate real-Live validation
+of these compound paths remains pending; simulator ledger tests are not that proof.
+
 ## Imported media staging
 
 Audio import (`live_audio_import_*`) and Simpler sample replacement

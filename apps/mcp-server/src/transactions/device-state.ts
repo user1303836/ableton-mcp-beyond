@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { AsyncLiveAdapter, LiveAdapter, LiveOperationContext, LiveSnapshot, LiveStatus } from "../live.js";
-import { canonical, fingerprint, flattenDeviceRows, isNonEmptyString, isObject, parameterAuthority, parameterRevision, parameterTarget } from "./batch.js";
+import { canonical, fingerprint, flattenDeviceRows, invokeCheckpoint, isNonEmptyString, isObject, parameterAuthority, parameterRevision, parameterTarget, type MutationCheckpoint } from "./batch.js";
 
 /**
  * Device/rack parameter-state snapshots: save a device's (or rack subtree's)
@@ -185,8 +185,8 @@ export function morphValue(from: number, to: number, amount: number, min: number
   const raw = from + (to - from) * amount;
   if (quantization > 0) {
     const steps = Math.round((raw - min) / quantization);
-    const maxSteps = Math.round((max - min) / quantization);
-    return min + Math.min(Math.max(steps, 0), maxSteps) * quantization;
+    const maxSteps = Math.floor((max - min) / quantization + 1e-9);
+    return Math.min(max, min + Math.min(Math.max(steps, 0), maxSteps) * quantization);
   }
   return Math.min(Math.max(raw, min), max);
 }
@@ -252,7 +252,7 @@ export function planDeviceStateRecall(snapshot: LiveSnapshot, file: DeviceStateF
   return { deviceRef: targetDeviceRef, identity, layoutFingerprint: targetFingerprint, dispositions, applicable, skipped: dispositions.length - applicable };
 }
 
-interface DeviceStateStep {
+interface DeviceStateStep extends MutationCheckpoint {
   parameterRef: string;
   deviceRef: string;
   path: string;
@@ -273,7 +273,8 @@ export interface DeviceStateRecord {
   mode: "recall" | "morph";
   amount?: number;
   steps: DeviceStateStep[];
-  undoSteps?: Array<{ completed: boolean }>;
+  undoSteps?: Array<MutationCheckpoint & { completed: boolean }>;
+  recoveryMode?: "apply" | "compensate" | "undo";
   applyKey?: string;
   undoKey?: string;
   failedIndex?: number;
@@ -336,13 +337,6 @@ export class DeviceStateTransactionManager {
     return { ref: step.parameterRef, value, expectedRevision, expectedObjectIdentity: authority.parameterIdentity, expectedOwnerRef: authority.ownerRef, expectedOwnerIdentity: authority.ownerIdentity, expectedTrackRef: authority.trackRef, expectedTrackIdentity: authority.trackIdentity, expectedSiblings: clone(authority.siblings) };
   }
 
-  private stepPostconditionPresent(snapshot: LiveSnapshot, step: DeviceStateStep): boolean {
-    try {
-      const target = parameterTarget(snapshot, step.deviceRef, step.parameterRef);
-      return target.parameter.value === step.proposedValue && parameterRevision(target.parameter) > step.priorRevision;
-    } catch { return false; }
-  }
-
   private async revertAsync(adapter: AsyncLiveAdapter, context: LiveOperationContext | undefined, record: DeviceStateRecord, mode: "rollback" | "undo"): Promise<number> {
     record.undoSteps ??= record.steps.map(() => ({ completed: false }));
     let reverted = 0;
@@ -350,14 +344,19 @@ export class DeviceStateTransactionManager {
       const step = record.steps[index]!;
       if (mode === "rollback" && !step.completed) continue;
       if (record.undoSteps[index]?.completed) continue;
-      const snapshot = await adapter.snapshotAsync(context);
-      const target = parameterTarget(snapshot, step.deviceRef, step.parameterRef);
-      const authority = parameterAuthority(snapshot, step.parameterRef);
-      if (target.parameter.value !== step.proposedValue || fingerprint(authority) !== step.authorityDigest) throw new Error(`device state ${mode} step ${index} (${step.path}) parameter value or identity changed after apply`);
-      await adapter.invokeAsync({ operation: "device.parameter.set", args: this.stepArgs(snapshot, step, step.priorValue, parameterRevision(target.parameter)) }, context);
-      const verified = parameterTarget(await adapter.snapshotAsync(context), step.deviceRef, step.parameterRef);
-      if (verified.parameter.value !== step.priorValue) throw new Error(`device state ${mode} step ${index} (${step.path}) prior-value restoration was not confirmed`);
-      record.undoSteps[index] = { completed: true };
+      const checkpoint = record.undoSteps[index]!;
+      if (!checkpoint.invocation) {
+        const snapshot = await adapter.snapshotAsync(context);
+        const target = parameterTarget(snapshot, step.deviceRef, step.parameterRef);
+        const authority = parameterAuthority(snapshot, step.parameterRef);
+        if (target.parameter.value !== step.proposedValue || fingerprint(authority) !== step.authorityDigest) throw new Error(`device state ${mode} step ${index} (${step.path}) parameter value or identity changed after apply`);
+        checkpoint.invocation = { operation: "device.parameter.set", args: this.stepArgs(snapshot, step, step.priorValue, parameterRevision(target.parameter)) };
+      }
+      await invokeCheckpoint(adapter, checkpoint, context);
+      const verifiedSnapshot = await adapter.snapshotAsync(context);
+      const verified = parameterTarget(verifiedSnapshot, step.deviceRef, step.parameterRef);
+      if (verified.parameter.value !== step.priorValue || fingerprint(parameterAuthority(verifiedSnapshot, step.parameterRef)) !== step.authorityDigest) throw new Error(`device state ${mode} step ${index} (${step.path}) prior-value restoration identity or value was not confirmed`);
+      checkpoint.completed = true;
       reverted += 1;
     }
     return reverted;
@@ -369,43 +368,50 @@ export class DeviceStateTransactionManager {
     if (existing) { if (existing.transactionId !== transactionId) throw new Error("idempotency key conflicts with another transaction"); return { ...clone(existing.result as object), idempotent: true }; }
     const record = this.records.get(transactionId);
     if (!record || (record.state === "previewed" && record.expiresAt <= Date.now())) throw new Error("device state preview expired; preview again");
-    const reconciliation = record.state === "uncertain" && record.applyKey === idempotencyKey;
+    context = { deadlineMs: Date.now() + 5_000, ...context, transactionId, idempotencyKey };
+    const reconciliation = record.state === "uncertain" && record.recoveryMode !== "undo" && record.applyKey === idempotencyKey;
     if (record.state === "uncertain" && !reconciliation) throw new Error("device state is uncertain; reconcile with the exact original idempotency key");
     if (record.state !== "previewed" && !reconciliation) throw new Error("device state transaction is no longer applicable");
     const adapter = this.asyncAdapter();
     if (reconciliation) await adapter.snapshotAsync(context);
     const status = this.require();
     if (status.epoch !== record.epoch) throw new Error("Live connection epoch changed; preview again");
-    record.state = "applying"; record.applyKey = idempotencyKey;
+    if (reconciliation && record.recoveryMode === "compensate") {
+      try {
+        await this.revertAsync(adapter, context, record, "rollback");
+        return this.compensated(record, idempotencyKey);
+      } catch (cause) { record.state = "uncertain"; throw cause; }
+    }
+    record.state = "applying"; record.recoveryMode = "apply"; record.applyKey = idempotencyKey;
     const results: unknown[] = record.steps.map((step, index) => step.completed && isObject(step.result) ? clone(step.result) : { index, path: step.path, replayed: step.completed });
     try {
       for (let index = 0; index < record.steps.length; index += 1) {
         const step = record.steps[index]!;
         if (step.completed) continue;
-        const snapshot = await adapter.snapshotAsync(context);
-        if (reconciliation && this.stepPostconditionPresent(snapshot, step)) {
-          const replayed = { index, path: step.path, replayed: true, note: "the exact step postcondition was already present at reconciliation; the recorded checkpoint was completed without re-dispatch" };
-          step.completed = true; step.result = replayed; results[index] = replayed;
-          continue;
+        const replayed = step.invocation !== undefined;
+        if (!step.invocation) {
+          const snapshot = await adapter.snapshotAsync(context);
+          const target = parameterTarget(snapshot, step.deviceRef, step.parameterRef);
+          const authority = parameterAuthority(snapshot, step.parameterRef);
+          if (target.parameter.value !== step.priorValue || parameterRevision(target.parameter) !== step.priorRevision || fingerprint(authority) !== step.authorityDigest) throw new Error(`device state step ${index} (${step.path}) parameter identity, value, or revision changed since preview`);
+          step.invocation = { operation: "device.parameter.set", args: this.stepArgs(snapshot, step, step.proposedValue, step.priorRevision) };
         }
-        const target = parameterTarget(snapshot, step.deviceRef, step.parameterRef);
-        const authority = parameterAuthority(snapshot, step.parameterRef);
-        if (target.parameter.value !== step.priorValue || parameterRevision(target.parameter) !== step.priorRevision || fingerprint(authority) !== step.authorityDigest) throw new Error(`device state step ${index} (${step.path}) parameter identity, value, or revision changed since preview`);
-        await adapter.invokeAsync({ operation: "device.parameter.set", args: this.stepArgs(snapshot, step, step.proposedValue, step.priorRevision) }, context);
-        const verified = parameterTarget(await adapter.snapshotAsync(context), step.deviceRef, step.parameterRef);
-        if (verified.parameter.value !== step.proposedValue || parameterRevision(verified.parameter) <= step.priorRevision) throw new Error(`device state step ${index} (${step.path}) postcondition was not confirmed`);
-        step.completed = true; step.result = { index, path: step.path, value: verified.parameter.value, revision: parameterRevision(verified.parameter) };
+        await invokeCheckpoint(adapter, step, context);
+        const verifiedSnapshot = await adapter.snapshotAsync(context);
+        const verified = parameterTarget(verifiedSnapshot, step.deviceRef, step.parameterRef);
+        if (verified.parameter.value !== step.proposedValue || parameterRevision(verified.parameter) <= step.priorRevision || fingerprint(parameterAuthority(verifiedSnapshot, step.parameterRef)) !== step.authorityDigest) throw new Error(`device state step ${index} (${step.path}) identity or postcondition was not confirmed`);
+        step.completed = true; step.result = { index, path: step.path, value: verified.parameter.value, revision: parameterRevision(verified.parameter), ...(replayed ? { replayed: true } : {}) };
         results[index] = step.result;
       }
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
-      if (/uncertain|disconnect|timeout|cancellation/i.test(message)) { record.state = "uncertain"; throw cause; }
+      if (record.steps.some((step) => step.invocation && !step.completed) || /uncertain|disconnect|timeout|cancel/i.test(message)) { record.state = "uncertain"; throw cause; }
       record.failedIndex = record.steps.findIndex((step) => !step.completed);
       record.failureReason = message.length > 160 ? `${message.slice(0, 157)}...` : message;
+      record.recoveryMode = "compensate";
       try {
-        const reverted = await this.revertAsync(adapter, context, record, "rollback");
-        record.state = "undone";
-        return { transactionId, state: "compensated", failedIndex: record.failedIndex, reason: record.failureReason, rolledBack: reverted, idempotent: false };
+        await this.revertAsync(adapter, context, record, "rollback");
+        return this.compensated(record, idempotencyKey);
       } catch (compensationCause) {
         record.state = "uncertain";
         throw new Error(`device state recall failed at step ${record.failedIndex} and exact rollback failed; reconcile with the exact original idempotency key (${compensationCause instanceof Error ? compensationCause.message : String(compensationCause)})`);
@@ -417,16 +423,26 @@ export class DeviceStateTransactionManager {
     return result;
   }
 
+  private compensated(record: DeviceStateRecord, idempotencyKey: string): unknown {
+    record.state = "undone";
+    const result = { transactionId: record.transactionId, state: "compensated", failedIndex: record.failedIndex, reason: record.failureReason, rolledBack: record.undoSteps?.filter((step) => step.completed).length ?? 0, idempotent: false };
+    this.idempotency.set(idempotencyKey, { transactionId: record.transactionId, result: clone(result) });
+    return result;
+  }
+
   async undoAsync(transactionId: string, confirmation: unknown, idempotencyKey: string, context?: LiveOperationContext): Promise<unknown> {
     if (confirmation !== "undo") throw new Error("confirmation=undo is required");
     const record = this.records.get(transactionId);
     if (record?.state === "undone" && record.undoKey === idempotencyKey) return { transactionId, state: "undone", idempotent: true };
     if (!record) throw new Error("Only an applied or exact-key uncertain device-state transaction can be undone");
-    const reconciliation = record.state === "uncertain" && record.undoKey === idempotencyKey;
+    context = { deadlineMs: Date.now() + 5_000, ...context, transactionId, idempotencyKey };
+    const reconciliation = record.state === "uncertain" && record.recoveryMode === "undo" && record.undoKey === idempotencyKey;
     if (!reconciliation && record.state !== "applied") throw new Error("Only an applied or exact-key uncertain device-state transaction can be undone");
-    const adapter = this.asyncAdapter(); const status = this.require();
+    const adapter = this.asyncAdapter();
+    if (reconciliation) await adapter.snapshotAsync(context);
+    const status = this.require();
     if (status.epoch !== record.epoch) throw new Error("Live connection epoch changed; undo refused");
-    record.state = "undoing"; record.undoKey = idempotencyKey;
+    record.state = "undoing"; record.recoveryMode = "undo"; record.undoKey = idempotencyKey;
     try {
       const reverted = await this.revertAsync(adapter, context, record, "undo");
       record.state = "undone";

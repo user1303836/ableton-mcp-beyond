@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { McpHost, PROTOCOL_VERSION } from "../src/host.js";
 import { DeterministicLiveSimulator } from "../src/live.js";
+import { morphValue } from "../src/transactions/device-state.js";
 
 const initialize = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "test", version: "1" } } };
 const initialized = { jsonrpc: "2.0", method: "notifications/initialized" };
@@ -248,6 +249,12 @@ test("morph interpolates deterministically with documented quantization rounding
   const undone = await parse(call("live_undo", { transactionId: liveMorph.transactionId, confirmation: "undo", idempotencyKey: "morph-live-undo" }));
   assert.equal(undone.state, "undone");
   assert.equal(parameter.value, 0.4);
+});
+
+test("morph never rounds beyond a maximum that is not on the quantization grid", () => {
+  assert.equal(morphValue(0, 1, 1, 0, 1, 0.6), 0.6);
+  assert.equal(morphValue(-1, 0, 1, -1, 0, 0.6), -0.4);
+  assert.equal(morphValue(0, 1, 0.3, 0, 1, 0.6), 0.6, "half steps still round up");
 });
 
 test("snapshot file validation is fail-closed: digest tampering, schema, overwrite, and path rules", async (t) => {
