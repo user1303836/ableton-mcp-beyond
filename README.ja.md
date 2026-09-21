@@ -16,7 +16,7 @@
 <p align="center">
   <a href="https://github.com/user1303836/ableton-mcp-beyond/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/user1303836/ableton-mcp-beyond/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT ライセンス" /></a>
-  <a href="apps/mcp-server/package.json"><img src="https://img.shields.io/badge/node-22%20%7C%2024%20%7C%2025-339933?style=flat-square" alt="Node 22 | 24 | 25" /></a>
+  <a href="apps/mcp-server/package.json"><img src="https://img.shields.io/badge/node-22%20%7C%2024-339933?style=flat-square" alt="Node 22 | 24" /></a>
   <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blue?style=flat-square" alt="MCP プロトコル 2025-11-25" /></a>
   <a href="docs/en/SUPPORT_MATRIX.md"><img src="https://img.shields.io/badge/Ableton%20Live-12-555555?style=flat-square" alt="Ableton Live 12" /></a>
 </p>
@@ -34,7 +34,7 @@
 
 ## クイックスタート
 
-Node.js 22 / 24 / 25 が必要です。ブリッジには Ableton Live 12 が必要ですが、ホスト・テスト・デモは Live なしで動きます。
+Node.js 22 / 24 が必要です（Node 24 LTS 推奨）。Node 25 は EOL のため非対応で、Node 26 は未検証です。ブリッジには Ableton Live 12 が必要ですが、ホスト・テスト・デモは Live なしで動きます。
 
 ```sh
 cd apps/mcp-server
@@ -66,7 +66,7 @@ Live を再起動し、検証します: `npm run diagnostics -- --config /abs/pa
 
 | 環境 | ステータス |
 |---|---|
-| Node.js 22 / 24 / 25 | サポート対象。現在の正確な SHA のマトリクス成功が必要 |
+| Node.js 22 / 24 | サポート対象。現在の正確な SHA のマトリクス成功が必要 |
 | macOS + Live 12 | 12.4.5b8 beta での過去の実 Live エビデンス([エビデンス](docs/evidence/))。リリース前に最終候補での再実行が必要 |
 | Windows ホスト | CI 契約を設定済み。現在の正確な SHA の結果が必要。Windows 11 + Live は未認証 |
 | Linux / Live 11 以前 | 非対応 |

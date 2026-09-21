@@ -9,7 +9,7 @@ const repositoryRoot = resolve(packageRoot, "../..");
 const packageJson = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8"));
 const majors = packageJson.abletonMcpSupport?.nodeMajors;
 if (!Array.isArray(majors) || majors.length === 0 || majors.some((major) => !Number.isSafeInteger(major) || major < 1) || new Set(majors).size !== majors.length || !majors.every((major, index) => index === 0 || major > majors[index - 1])) throw new Error("abletonMcpSupport.nodeMajors must be a nonempty ascending unique integer list");
-const expectedMajors = [22, 24, 25];
+const expectedMajors = [22, 24];
 if (JSON.stringify(majors) !== JSON.stringify(expectedMajors)) throw new Error(`canonical Node policy must remain ${expectedMajors.join(", ")} until the complete matrix changes`);
 const expectedEngine = majors.map((major) => `>=${major} <${major + 1}`).join(" || ");
 if (packageJson.engines?.node !== expectedEngine) throw new Error(`package engines.node must be the canonical disjoint range: ${expectedEngine}`);
@@ -46,15 +46,15 @@ for (const name of ["README.md", "README.ja.md", "README.zh-CN.md"]) {
   if (!value.includes(badgePath) || !value.includes(badgeAlt)) throw new Error(`${name} Node badge disagrees with canonical package policy`);
 }
 const documentChecks = new Map([
-  ["docs/en/SUPPORT_MATRIX.md", "22.x, 24.x, 25.x"],
-  ["docs/en/DELIVERY.md", "Node 22, 24, and 25"],
-  ["docs/en/USER_GUIDE.md", "Node.js 22, 24, and 25"],
-  ["docs/en/TESTING.md", "Node 22/24/25"],
-  ["docs/en/IMPLEMENTATION_STATUS.md", "Node 22/24/25"],
-  ["docs/en/CAPABILITY_MATRIX.md", "Node 22/24/25"],
-  ["docs/zh-CN/SUPPORT_MATRIX.md", "22.x、24.x、25.x"],
-  ["docs/ja/SUPPORT_MATRIX.md", "22.x、24.x、25.x"],
-  ["DEVELOPMENT.md", "Node.js 22, 24, or 25"],
+  ["docs/en/SUPPORT_MATRIX.md", "22.x, 24.x"],
+  ["docs/en/DELIVERY.md", "Node 22 and 24"],
+  ["docs/en/USER_GUIDE.md", "Node.js 22 and 24"],
+  ["docs/en/TESTING.md", "Node 22/24"],
+  ["docs/en/IMPLEMENTATION_STATUS.md", "Node 22/24"],
+  ["docs/en/CAPABILITY_MATRIX.md", "Node 22/24"],
+  ["docs/zh-CN/SUPPORT_MATRIX.md", "22.x、24.x"],
+  ["docs/ja/SUPPORT_MATRIX.md", "22.x、24.x"],
+  ["DEVELOPMENT.md", "Node.js 22 or 24"],
 ]);
 for (const [name, marker] of documentChecks) if (!readFileSync(resolve(repositoryRoot, name), "utf8").includes(marker)) throw new Error(`${name} lacks canonical Node policy marker: ${marker}`);
 console.error(JSON.stringify({ schema: "ableton-mcp-node-policy/v1", supportedNodeMajors: majors, engine: expectedEngine, fixtures: "21-27", ciMatrixVerified: true, documentationVerified: true }));

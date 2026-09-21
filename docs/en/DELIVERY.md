@@ -32,7 +32,12 @@ trademark rights or imply signing, certification, affiliation, or endorsement.
 
 ## Supported matrix
 
-Node 22, 24, and 25 are explicit supported majors. Linux, macOS, and Windows
+Node 22 and 24 are explicit supported majors; prefer Node 24 LTS. Node 25 is EOL,
+and Node 26 is not yet validated. Older receipt-bound Node-25-policy artifacts
+remain verifiable for status, repair, and exact rollback, but cannot be fresh
+install/upgrade candidates. Version 1.0.2 permits an explicit upgrade from 1.0.1;
+this does not publish a package or weaken artifact/receipt checks.
+Linux, macOS, and Windows
 host/package contracts run in CI. Live certification is separate and is never
 inferred from a host test; see [SUPPORT_MATRIX.md](SUPPORT_MATRIX.md).
 

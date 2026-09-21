@@ -9,15 +9,18 @@ certification. A green host cell is never promoted to a Live cell.
 
 | Surface | Version / architecture | Status | Evidence |
 |---|---|---|---|
-| Node.js | 22.x, 24.x, 25.x | Supported host/package contract only for a candidate whose exact-SHA matrix is green | [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml); configuration or a result from another SHA is not evidence |
-| Node.js | 21.x, 23.x, 26.x, 27.x, or any other unlisted/future major | Unsupported release runtime | Requires an explicit complete matrix and canonical policy update |
+| Node.js | 22.x, 24.x | Supported host/package contract only for a candidate whose exact-SHA matrix is green | [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml); configuration or a result from another SHA is not evidence |
+| Node.js | 21.x, 23.x, 25.x, 26.x, 27.x, or any other unlisted/future major | Unsupported release runtime | Requires an explicit complete matrix and canonical policy update |
 | macOS host | GitHub `macos-15`; local macOS arm64 environment | Supported host/package contract only when the exact-SHA jobs pass | Node/package/lifecycle gates; separate local Live evidence is required |
 | Windows host | GitHub Windows Server 2025 x64 (`windows-2025`) | Supported host/package contract only when the exact-SHA jobs pass | Node/package/lifecycle/ACL/junction/held-file gates; not Windows 11 or Live evidence |
 | Windows desktop | Windows 11 x64 | Procedure documented, not certified | Requires exact-candidate host plus Live evidence; must not inherit Server status |
 | Linux host | Ubuntu 24.04 x64 (`ubuntu-24.04`) | Supported host contract only | Node/package gates; no Live claim |
 
-The package engine range is `>=22 <23 || >=24 <25 || >=25 <26`; an exact
-release may use Node 22, 24, or 25. Stable Node 23, prereleases, and unlisted
+Node 24 LTS is recommended. Node 25 reached end of life on June 1, 2026
+([official schedule](https://github.com/nodejs/Release/blob/main/schedule.json));
+Node 26 is not yet validated here. The package engine range is
+`>=22 <23 || >=24 <25`; an exact release may use Node 22 or 24.
+Stable Node 23/25, prereleases, and unlisted
 majors fail closed. OS vendor lifecycle changes require a matrix update rather
 than implicit support.
 

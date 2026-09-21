@@ -27,7 +27,10 @@ JavaScript 与声明、带注册表与清单的 Remote Script、发布清单与�
 
 ## 支持矩阵
 
-Node 22、24、25 是显式支持的主版本。Linux、macOS 与 Windows 的宿主/
+Node 22、24 是显式支持的主版本，推荐 Node 24 LTS。Node 25 已终止维护，Node 26 尚未验证。
+旧 Node-25 策略的制品仍可用于收据绑定的状态验证、修复和精确回滚，但不能作为新安装 / 升级候选。
+1.0.2 允许从 1.0.1 显式升级；这不表示发布软件包或放松制品 / 收据校验。
+Linux、macOS 与 Windows 的宿主/
 软件包契约在 CI 运行。Live 认证是独立的,绝不从宿主测试推断;见
 [SUPPORT_MATRIX.md](SUPPORT_MATRIX.md)。
 

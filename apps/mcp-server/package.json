@@ -1,13 +1,12 @@
 {
   "name": "@ableton-mcp/mcp-server",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "license": "MIT",
   "abletonMcpSupport": {
     "nodeMajors": [
       22,
-      24,
-      25
+      24
     ]
   },
   "main": "./dist/src/index.js",
@@ -34,7 +33,7 @@
     "LICENSE.md"
   ],
   "engines": {
-    "node": ">=22 <23 || >=24 <25 || >=25 <26"
+    "node": ">=22 <23 || >=24 <25"
   },
   "type": "module",
   "scripts": {

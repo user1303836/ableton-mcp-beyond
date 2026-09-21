@@ -10,7 +10,7 @@ secret, protocol, operation-registry hash, and status negotiation succeed.
 
 ## Install and start
 
-Supported runtimes: Node.js 22, 24, and 25. Node 21, 23, 26, 27, and
+Supported runtimes: Node.js 22 and 24 (Node 24 LTS recommended). Node 21, 23, 25, 26, 27, and
 unlisted/future majors are unsupported. From a source checkout:
 
 ```sh

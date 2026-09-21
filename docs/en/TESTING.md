@@ -71,7 +71,7 @@ Set versions, listening quality, or behavior in a running Live instance.
 CI builds one clean local unpublished tarball on Ubuntu 24.04, runs
 `package:verify` before upload, repeats the pack from a fresh detached local
 clone plus fresh `npm ci` and compares bytes, records the exact Git SHA and
-tarball SHA-256, then installs that same artifact in every Node 22/24/25 Ubuntu
+tarball SHA-256, then installs that same artifact in every Node 22/24 Ubuntu
 24.04, macOS 15, and Windows Server 2025 job. Each candidate job verifies strict
 inventory/hashes and exercises lifecycle plan/install, unavailable activation,
 idempotent repair, unowned rollback refusal, and uninstall; Windows additionally

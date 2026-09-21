@@ -54,7 +54,7 @@ Python 测试覆盖:零依赖的 Control Surface 入口、规范注册表加载�
 
 CI 在 Ubuntu 24.04 上构建一个干净的本地未发布 tarball,上传前运行
 `package:verify`,再从全新分离的本地克隆加全新 `npm ci` 重复打包并
-比对字节,记录精确 Git SHA 与 tarball SHA-256,然后在每个 Node 22/24/25
+比对字节,记录精确 Git SHA 与 tarball SHA-256,然后在每个 Node 22/24
 的 Ubuntu 24.04、macOS 15 与 Windows Server 2025 任务中安装同一产物。
 每个候选任务验证严格清单/哈希,并演练生命周期计划/安装、不可用激活、
 幂等修复、非自有回滚拒绝与卸载;Windows 还测试原生 ACL 修复、联接点

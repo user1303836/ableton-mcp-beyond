@@ -281,7 +281,7 @@ are. Source, schemas, and tests are the final authority.
   and clean-SHA/toolchain/lock/workflow provenance. Package `private: true`
   prevents accidental npm publication without changing MIT rights. The release
   workflow requires fresh-clone byte reproducibility and shares one exact
-  candidate across Node 22/24/25 on Ubuntu 24.04, macOS 15, and Windows Server
+  candidate across Node 22/24 on Ubuntu 24.04, macOS 15, and Windows Server
   2025.
 - Receipt-driven install, truthful manual activation, strict newer-version
   upgrade, exact rollback, receipt-bound repair/quarantine, retained cleanup,

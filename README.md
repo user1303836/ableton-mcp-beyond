@@ -15,7 +15,7 @@
 <p align="center">
   <a href="https://github.com/user1303836/ableton-mcp-beyond/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/user1303836/ableton-mcp-beyond/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT license" /></a>
-  <a href="apps/mcp-server/package.json"><img src="https://img.shields.io/badge/node-22%20%7C%2024%20%7C%2025-339933?style=flat-square" alt="Node 22 | 24 | 25" /></a>
+  <a href="apps/mcp-server/package.json"><img src="https://img.shields.io/badge/node-22%20%7C%2024-339933?style=flat-square" alt="Node 22 | 24" /></a>
   <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blue?style=flat-square" alt="MCP protocol 2025-11-25" /></a>
   <a href="docs/en/SUPPORT_MATRIX.md"><img src="https://img.shields.io/badge/Ableton%20Live-12-555555?style=flat-square" alt="Ableton Live 12" /></a>
 </p>
@@ -33,7 +33,7 @@
 
 ## Quick start
 
-Requires Node.js 22, 24, or 25. Ableton Live 12 for the bridge; the host, tests, and demo run without it.
+Requires Node.js 22 or 24; Node 24 LTS is recommended. Node 25 is EOL and unsupported; Node 26 is not yet validated. Ableton Live 12 for the bridge; the host, tests, and demo run without it.
 
 ```sh
 cd apps/mcp-server
@@ -65,7 +65,7 @@ The deployment trusts an owner-controlled local OS account and the MCP client's 
 
 | Surface | Status |
 |---|---|
-| Node.js 22 / 24 / 25 | Supported contract; a green exact-current-SHA matrix is required |
+| Node.js 22 / 24 | Supported contract; a green exact-current-SHA matrix is required |
 | macOS + Live 12 | Historical real-Live evidence on 12.4.5b8 beta ([evidence](docs/evidence/)); exact-candidate rerun required before release |
 | Windows host | CI contract configured; current exact-SHA result required; Windows 11 + Live not certified |
 | Linux / Live 11 or earlier | Unsupported |
