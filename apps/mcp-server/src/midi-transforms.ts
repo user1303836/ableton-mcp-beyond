@@ -918,6 +918,9 @@ function noteSetDigest(notes: readonly Record<string, unknown>[], includeIds: bo
     const { id: _id, ...content } = note;
     return content;
   });
-  rows.sort((a, b) => canonical(a, 0).localeCompare(canonical(b, 0)));
+  rows.sort((a, b) => {
+    const left = canonical(a, 0); const right = canonical(b, 0);
+    return left < right ? -1 : left > right ? 1 : 0;
+  });
   return createHash("sha256").update(canonical(rows, 0)).digest("hex");
 }

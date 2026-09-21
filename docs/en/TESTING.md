@@ -16,6 +16,9 @@ These are host/fake-Live checks, not third-party-client or fresh Live certificat
 Rotation property tests include exact id-less duplicates and repeated object
 references: pitch multiplicity, input ordering and every non-pitch field survive.
 This fixes the pure helper; the MCP mutation path still requires stable note IDs.
+Note digests use UTF-16 code-unit ordering, never ICU collation; subprocess tests
+vary English/Swedish locales with a collation-sensitive fixture and retain
+representative ASCII digest pins.
 
 ## Deterministic gates
 
