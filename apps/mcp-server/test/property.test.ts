@@ -25,6 +25,9 @@ test("analysis preserves safety and boundedness invariants across generated PCM"
     assert.ok(result.peak >= 0 && result.peak <= 1);
     assert.ok(result.rms >= 0 && result.rms <= 1);
     assert.ok(result.clipping.ratio >= 0 && result.clipping.ratio <= 1);
+    assert.equal(result.clipping.ratio, result.clipping.count / result.sampleCount);
+    assert.equal(result.reconstructedOvers.applicable, false);
+    assert.deepEqual({ count: result.reconstructedOvers.count, ratio: result.reconstructedOvers.ratio }, { count: 0, ratio: 0 });
   }
 });
 
@@ -50,6 +53,8 @@ test("channel aggregation and stereo correlation remain finite and bounded", () 
       assert.ok(Number.isFinite(detail.rms) && detail.rms >= 0 && detail.rms <= 1);
       assert.ok(Number.isFinite(detail.dcOffset) && detail.dcOffset >= -1 && detail.dcOffset <= 1);
       assert.ok(detail.clipping.ratio >= 0 && detail.clipping.ratio <= 1);
+      assert.equal(detail.reconstructedOvers.applicable, false);
+      assert.equal(detail.reconstructedOvers.count, 0);
     }
     const correlation = result.stereo.phaseCorrelation;
     assert.ok(correlation === null || (Number.isFinite(correlation) && correlation >= -1 && correlation <= 1));

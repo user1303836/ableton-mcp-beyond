@@ -6,7 +6,7 @@ import { analyzeStandardsAudio, type ConventionalChannelLabel, type StandardsAud
  * retains or returns audio data; callers receive aggregate measurements only.
  */
 
-export const ANALYSIS_VERSION = "pcm-analysis/v2";
+export const ANALYSIS_VERSION = "pcm-analysis/v3";
 export const MAX_ANALYSIS_SAMPLES = 10_000_000;
 export const MAX_ANALYSIS_SECONDS = 600;
 export const MAX_ANALYSIS_CHANNELS = 32;
@@ -31,6 +31,17 @@ export interface AudioRemediation {
   action: string;
   reversible: true;
   changesAudio: false;
+}
+
+export interface BoundaryCount {
+  count: number;
+  ratio: number;
+}
+
+export interface ReconstructedOvers extends BoundaryCount {
+  threshold: 1;
+  applicable: boolean;
+  reason?: string;
 }
 
 export interface WaveformEnvelope {
@@ -58,13 +69,14 @@ export interface PcmAnalysis {
   peakDbfs: number;
   rms: number;
   rmsDbfs: number;
-  channelsDetail: Array<{ channel: number; peak: number; peakDbfs: number; rms: number; rmsDbfs: number; dcOffset: number; clipping: { count: number; ratio: number } }>;
+  channelsDetail: Array<{ channel: number; peak: number; peakDbfs: number; rms: number; rmsDbfs: number; dcOffset: number; clipping: BoundaryCount; reconstructedOvers: ReconstructedOvers }>;
   stereo: { phaseCorrelation: number | null; reason?: string };
   /** @deprecated Compatibility-only RMS proxy. Use standardsAudio.loudness. */
   loudness: { rmsLoudnessProxyDb: number; integratedLufsEstimate: number; method: "rms-derived-proxy"; standardsCompliant: false; deprecatedIntegratedLufsEstimate: true };
   standardsAudio: StandardsAudioAnalysis;
   dynamics: { crestFactorDb: number; dynamicRangeDb: number; silenceRatio: number };
-  clipping: { count: number; ratio: number };
+  clipping: BoundaryCount;
+  reconstructedOvers: ReconstructedOvers;
   spectral: { centroidHz: number; dominantFrequencyHz: number; analyzedFrames: number; fftSize: number };
   waveform: { bins: WaveformEnvelope[]; binCount: number; channelAggregation: "per-channel"; lossy: true };
   timeFrequency: {
@@ -181,7 +193,7 @@ function waveform(samples: Float64Array, channels: number, sampleRate: number): 
     const start = Math.floor((bin * frames) / binCount);
     const end = Math.max(start + 1, Math.floor(((bin + 1) * frames) / binCount));
     const details = Array.from({ length: channels }, (_, channel) => {
-      let min = 1; let max = -1; let squares = 0; let count = 0;
+      let min = Number.POSITIVE_INFINITY; let max = Number.NEGATIVE_INFINITY; let squares = 0; let count = 0;
       for (let frame = start; frame < Math.min(end, frames); frame += 1) {
         const value = samples[frame * channels + channel] ?? 0;
         min = Math.min(min, value); max = Math.max(max, value); squares += value * value; count += 1;
@@ -241,13 +253,17 @@ function transients(samples: Float64Array, sampleRate: number, maximum: number):
   return { peakCount, densityPerSecond: peakCount / (samples.length / sampleRate), threshold, strongest: strongestIndex < 0 ? null : { sampleIndex: strongestIndex, timeSeconds: strongestIndex / sampleRate, amplitude: strongestAmplitude } };
 }
 
-function remediation(analysis: Pick<PcmAnalysis, "peakDbfs" | "clipping" | "loudness" | "dynamics">): AudioRemediation[] {
+function remediation(analysis: Pick<PcmAnalysis, "peakDbfs" | "clipping" | "reconstructedOvers" | "loudness" | "dynamics">): AudioRemediation[] {
   const result: AudioRemediation[] = [];
   if (analysis.clipping.count > 0) {
-    result.push({ id: "reduce-clipping", severity: "warning", reason: "Samples reach the normalized full-scale boundary.", action: "Preview a reversible gain reduction or limiter adjustment before applying it.", reversible: true, changesAudio: false });
+    result.push({ id: "reduce-clipping", severity: "warning", reason: "Source samples reach the normalized full-scale boundary.", action: "Preview a reversible gain reduction or limiter adjustment before applying it.", reversible: true, changesAudio: false });
+  }
+  if (analysis.reconstructedOvers.count > 0) {
+    result.push({ id: "inspect-reconstructed-overs", severity: "info", reason: "Band-limited reconstruction exceeded 0 dBFS; this does not prove source sample clipping.", action: "Inspect source-domain clipping, true peak, and headroom separately before changing audio.", reversible: true, changesAudio: false });
   }
   if (analysis.peakDbfs > -1) {
-    result.push({ id: "leave-headroom", severity: "warning", reason: "Peak level is within 1 dB of full scale.", action: "Preview at least 1 dB of headroom; do not change the Live set automatically.", reversible: true, changesAudio: false });
+    const reason = analysis.reconstructedOvers.applicable ? "Reconstructed peak is within 1 dB of or above full scale; this does not prove source clipping." : "Source sample peak is within 1 dB of full scale.";
+    result.push({ id: "leave-headroom", severity: "warning", reason, action: "Preview at least 1 dB of headroom; do not change the Live set automatically.", reversible: true, changesAudio: false });
   }
   if (analysis.loudness.integratedLufsEstimate > -9) {
     result.push({ id: "check-loudness", severity: "info", reason: "The compatibility RMS proxy is high; inspect the standardsAudio loudness result before making a delivery judgement.", action: "Compare the standards-based result against the delivery target and audition at a safe monitoring level.", reversible: true, changesAudio: false });
@@ -258,7 +274,9 @@ function remediation(analysis: Pick<PcmAnalysis, "peakDbfs" | "clipping" | "loud
   return result;
 }
 
-function analyzePcmInternal(input: PcmAnalysisInput, amplitudeLimit: number): PcmAnalysis {
+type AnalysisSampleKind = "normalized-source" | "band-limited-reconstruction";
+
+function analyzePcmInternal(input: PcmAnalysisInput, sampleKind: AnalysisSampleKind, amplitudeLimit: 1 | 4): PcmAnalysis {
   const channels = input.channels ?? 1;
   const frameSize = input.frameSize ?? 2048;
   finite(input.sampleRate, "sampleRate");
@@ -276,6 +294,7 @@ function analyzePcmInternal(input: PcmAnalysisInput, amplitudeLimit: number): Pc
   let peak = 0;
   let monoPeak = 0;
   let clippingCount = 0;
+  let reconstructedOverCount = 0;
   let silenceCount = 0;
   const histogram = new Uint32Array(2048);
   // Copy caller-owned storage once. This both bounds the trust boundary and
@@ -290,6 +309,7 @@ function analyzePcmInternal(input: PcmAnalysisInput, amplitudeLimit: number): Pc
   const channelSums = new Float64Array(channels);
   const channelPeaks = new Float64Array(channels);
   const channelClips = new Uint32Array(channels);
+  const channelReconstructedOvers = new Uint32Array(channels);
   for (let i = 0; i < sampleCount; i += 1) {
     const sample = input.samples[i] ?? 0;
     finite(sample, `samples[${i}]`);
@@ -298,15 +318,17 @@ function analyzePcmInternal(input: PcmAnalysisInput, amplitudeLimit: number): Pc
     const magnitude = Math.abs(sample);
     monoPeak = Math.max(monoPeak, magnitude);
     const channel = i % channels;
-    const bucket = Math.min(histogram.length - 1, Math.floor(magnitude * histogram.length));
+    const bucket = Math.min(histogram.length - 1, Math.floor((magnitude / amplitudeLimit) * histogram.length));
     histogram[bucket] = (histogram[bucket] ?? 0) + 1;
     sumSquares += sample * sample;
     channelSquares[channel] = (channelSquares[channel] ?? 0) + sample * sample;
     channelSums[channel] = (channelSums[channel] ?? 0) + sample;
     channelPeaks[channel] = Math.max(channelPeaks[channel] ?? 0, magnitude);
-    if (magnitude >= 0.999999) channelClips[channel] = (channelClips[channel] ?? 0) + 1;
+    if (sampleKind === "normalized-source" && magnitude >= 0.999999) channelClips[channel] = (channelClips[channel] ?? 0) + 1;
+    if (sampleKind === "band-limited-reconstruction" && magnitude > 1) channelReconstructedOvers[channel] = (channelReconstructedOvers[channel] ?? 0) + 1;
     peak = Math.max(peak, magnitude);
-    if (magnitude >= 0.999999) clippingCount += 1;
+    if (sampleKind === "normalized-source" && magnitude >= 0.999999) clippingCount += 1;
+    if (sampleKind === "band-limited-reconstruction" && magnitude > 1) reconstructedOverCount += 1;
     if (magnitude < 0.0001) silenceCount += 1;
     if (channels > 1) {
       if (i % channels === 0) monoSamples[i / channels] = sample;
@@ -319,7 +341,9 @@ function analyzePcmInternal(input: PcmAnalysisInput, amplitudeLimit: number): Pc
     const channelRms = Math.sqrt((channelSquares[channel] ?? 0) / frames);
     const channelPeak = channelPeaks[channel] ?? 0;
     const clipCount = channelClips[channel] ?? 0;
-    return { channel, peak: channelPeak, peakDbfs: db(channelPeak), rms: channelRms, rmsDbfs: db(channelRms), dcOffset: (channelSums[channel] ?? 0) / frames, clipping: { count: clipCount, ratio: clipCount / frames } };
+    const reconstructedOverChannelCount = channelReconstructedOvers[channel] ?? 0;
+    const reconstructedOvers: ReconstructedOvers = { count: reconstructedOverChannelCount, ratio: reconstructedOverChannelCount / frames, threshold: 1, applicable: sampleKind === "band-limited-reconstruction", ...(sampleKind === "normalized-source" ? { reason: "input contains normalized source samples, not band-limited reconstruction" } : {}) };
+    return { channel, peak: channelPeak, peakDbfs: db(channelPeak), rms: channelRms, rmsDbfs: db(channelRms), dcOffset: (channelSums[channel] ?? 0) / frames, clipping: { count: clipCount, ratio: clipCount / frames }, reconstructedOvers };
   });
   let phaseCorrelation: number | null = null;
   let correlationReason: string | undefined;
@@ -333,9 +357,9 @@ function analyzePcmInternal(input: PcmAnalysisInput, amplitudeLimit: number): Pc
     let seen = 0;
     for (let bucket = 0; bucket < histogram.length; bucket += 1) {
       seen += histogram[bucket] ?? 0;
-      if (seen > target) return bucket / histogram.length;
+      if (seen > target) return (bucket / histogram.length) * amplitudeLimit;
     }
-    return 1;
+    return amplitudeLimit;
   };
   const p10 = quantile(0.1);
   const p95 = quantile(0.95);
@@ -356,6 +380,7 @@ function analyzePcmInternal(input: PcmAnalysisInput, amplitudeLimit: number): Pc
     standardsAudio: analyzeStandardsAudio({ samples: normalizedSamples, sampleRate: input.sampleRate, channels, ...(input.channelLayout ? { channelLayout: input.channelLayout } : {}) }),
     dynamics: { crestFactorDb: db(peak / Math.max(rms, EPSILON)), dynamicRangeDb, silenceRatio: silenceCount / sampleCount },
     clipping: { count: clippingCount, ratio: clippingCount / sampleCount },
+    reconstructedOvers: { count: reconstructedOverCount, ratio: reconstructedOverCount / sampleCount, threshold: 1, applicable: sampleKind === "band-limited-reconstruction", ...(sampleKind === "normalized-source" ? { reason: "input contains normalized source samples, not band-limited reconstruction" } : {}) },
     spectral: analyzeSpectrum(monoSamples, input.sampleRate, frameSize),
     waveform: waveform(normalizedSamples, channels, input.sampleRate),
     timeFrequency: timeFrequency(normalizedSamples, channels, input.sampleRate, frameSize),
@@ -370,13 +395,13 @@ function analyzePcmInternal(input: PcmAnalysisInput, amplitudeLimit: number): Pc
 }
 
 export function analyzePcm(input: PcmAnalysisInput): PcmAnalysis {
-  return analyzePcmInternal(input, 1);
+  return analyzePcmInternal(input, "normalized-source", 1);
 }
 
 /** Package-internal path for a band-limited resampler whose reconstructed
  * inter-sample values can truthfully exceed normalized sample full scale. */
 export function analyzeReconstructedPcm(input: PcmAnalysisInput): PcmAnalysis {
-  return analyzePcmInternal(input, 4);
+  return analyzePcmInternal(input, "band-limited-reconstruction", 4);
 }
 
 export function decodeFloat32Le(base64: string): Float32Array {

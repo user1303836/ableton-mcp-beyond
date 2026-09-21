@@ -64,10 +64,54 @@ test("stdio output failure closes authority and contains writable callback error
   let emit: ((value: string) => Promise<void>) | undefined;
   let calls = 0;
   const done = serveStdio(input, output, () => { calls += 1; return "must-not-run"; }, { notifier: (registered) => { emit = registered; } });
-  const terminated = assert.rejects(done, /Premature close|output/);
+  const terminated = assert.rejects(done, /injected output failure|Premature close|output/);
   await assert.rejects(emit!("event"), /injected output failure/);
   await terminated;
   assert.equal(calls, 0);
+  assert.equal(input.destroyed, true);
+  assert.equal(output.destroyed, true);
+});
+
+test("stdio treats callback-only writable errors as authoritative output failure", async () => {
+  const input = new PassThrough();
+  const output = new Writable({ write(_chunk, _encoding, callback) { callback(); } });
+  output.write = ((_chunk: unknown, callback: (cause?: Error | null) => void): boolean => {
+    queueMicrotask(() => callback(new Error("callback-only failure")));
+    return true;
+  }) as typeof output.write;
+  let emit: ((value: string) => Promise<void>) | undefined;
+  const done = serveStdio(input, output, () => "must-not-run", { notifier: (registered) => { emit = registered; } });
+  const terminated = assert.rejects(done, /callback-only failure|Premature close/);
+  await assert.rejects(emit!("event"), /callback-only failure/);
+  await terminated;
+  assert.equal(input.destroyed, true);
+  assert.equal(output.destroyed, true);
+});
+
+test("stdio fail-closes when a framing response saturates the output queue", async () => {
+  const input = new PassThrough();
+  const output = new Writable({ write(_chunk, _encoding, _callback) { /* hold the first write indefinitely */ } });
+  let emit: ((value: string) => Promise<void>) | undefined;
+  const done = serveStdio(input, output, () => null, { maxInFlight: 1, notifier: (registered) => { emit = registered; } });
+  const queued = Array.from({ length: 16 }, (_, index) => emit!(`queued-${index}`).catch(() => undefined));
+  input.end(Buffer.from([0xff, 0x0a]));
+  await assert.rejects(done, /bounded output queue is saturated/);
+  await Promise.all(queued);
+  assert.equal(input.destroyed, true);
+  assert.equal(output.destroyed, true);
+});
+
+test("stdio fail-closes when a notification error response saturates the output queue", async () => {
+  const input = new PassThrough();
+  const output = new Writable({ write(_chunk, _encoding, _callback) { /* hold the first write indefinitely */ } });
+  let emit: ((value: string) => Promise<void>) | undefined;
+  let calls = 0;
+  const done = serveStdio(input, output, () => { calls += 1; throw new Error("notification failure"); }, { maxInFlight: 1, notifier: (registered) => { emit = registered; } });
+  const queued = Array.from({ length: 16 }, (_, index) => emit!(`queued-${index}`).catch(() => undefined));
+  input.end('{"jsonrpc":"2.0","method":"notification"}\n');
+  await assert.rejects(done, /bounded output queue is saturated/);
+  await Promise.all(queued);
+  assert.equal(calls, 1);
   assert.equal(input.destroyed, true);
   assert.equal(output.destroyed, true);
 });

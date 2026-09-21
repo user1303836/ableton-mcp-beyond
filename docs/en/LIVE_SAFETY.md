@@ -98,6 +98,29 @@ semantic evidence, retains ambiguity and truncation limits, and always reports
 `mergeProposed=false`. It never edits `.als` or treats opaque plug-in/Max state
 as portable.
 
+## Imported media staging
+
+Audio import (`live_audio_import_*`) and Simpler sample replacement
+(`live_simpler_*`) stage a verified, read-only copy of the authorized source
+file in a persistent, owner-controlled managed directory:
+`~/.config/ableton-mcp/import-staging` on Linux/macOS and
+`%APPDATA%\ableton-mcp\import-staging` on Windows (override with the
+`ABLETON_MCP_IMPORT_STAGING_DIR` environment variable, which must be an
+absolute path). The directory is created owner-only (`0o700`) and its ownership
+is verified before use; staged files are written non-writable and are the only
+bytes Live is ever offered, so a rename-swap in the allowed source directory
+cannot substitute unauthorized content.
+
+Live references imported audio in place: after a successful apply, the staged
+copy *is* the created clip's or Simpler's media, held in the managed directory
+until the user collects files into the project or deletes the clip. Staged
+copies are therefore released only on paths with no consumer — preview
+failure, transaction expiry, eviction or recovery finalization, pre-dispatch
+apply refusals, failed apply, and undo (after the created clip is deleted or
+the original sample restored) — never on apply success, host shutdown, or
+wall-clock age. Operators may prune the managed directory manually once the
+referencing clips are gone.
+
 ## Audible Session actions
 
 Scene/clip launch requires explicit output-safety evidence, exact eligible

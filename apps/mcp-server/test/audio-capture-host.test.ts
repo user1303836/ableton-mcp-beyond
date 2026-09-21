@@ -73,7 +73,7 @@ test("runs one confirmed capture through analysis, diagnosis, and zero-residual 
   const applied = await host.handleAsync({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "live_audio_capture_apply", arguments: { transactionId: plan.transactionId, confirmation: plan.confirmation, idempotencyKey: "capture-apply-1" } } });
   assert.equal((applied as any).result.isError, false);
   const result = JSON.parse((applied as any).result.content[0].text);
-  assert.equal(result.provenance, "real-live"); assert.equal(result.analysis.version, "pcm-analysis/v2"); assert.equal(result.diagnosis.source.relationshipToLive, "verified-by-capture-lifecycle");
+  assert.equal(result.provenance, "real-live"); assert.equal(result.analysis.version, "pcm-analysis/v3"); assert.equal(result.diagnosis.source.relationshipToLive, "verified-by-capture-lifecycle");
   assert.deepEqual(result.cleanup, { captureStopped: true, transportStopped: true, routingRestored: true, armRestored: true, monitoringRestored: true, liveClipDeleted: true, rawFileUnlinked: true, rawAudioRetained: false });
   assert.equal(result.media.rawPathReturned, false); assert.doesNotMatch(JSON.stringify(result), new RegExp(mediaPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   await assert.rejects(access(mediaPath));

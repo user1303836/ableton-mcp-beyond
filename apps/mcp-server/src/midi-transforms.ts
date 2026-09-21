@@ -357,6 +357,18 @@ function arpeggiate(notes: readonly Note[], params: Readonly<Record<string, unkn
     groups.set(key, group);
   }
   const result: Note[] = [];
+  // Bound the prospective output before generating anything: rate may be as
+  // small as 1/1024 beats while note durations are unbounded, so
+  // floor(span / rate) per onset group can otherwise attempt effectively
+  // unbounded note generation and hang or OOM the host inside one tool call.
+  let prospective = 0;
+  for (const [key, group] of groups) {
+    if (group.length < 2) { prospective += group.length; continue; }
+    const start = key * epsilon;
+    const span = Math.max(...group.map((note) => note.start + note.duration)) - start;
+    prospective += Math.max(1, Math.floor(span / rate));
+    if (prospective > MIDI_TRANSFORM_MAX_NOTES) throw new RangeError(`arpeggiate would generate more than the bounded ${MIDI_TRANSFORM_MAX_NOTES}-note limit at rate ${rate}; increase the rate or shorten the onset-group span`);
+  }
   for (const [key, group] of [...groups.entries()].sort((a, b) => a[0] - b[0])) {
     if (group.length < 2) { result.push(...group.map((note) => ({ ...note }))); continue; }
     const start = key * epsilon;
