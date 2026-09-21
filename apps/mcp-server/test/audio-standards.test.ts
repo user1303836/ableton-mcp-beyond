@@ -143,9 +143,9 @@ test("snapshots mutable direct ArrayLike input once", () => {
   assert.ok(Number.isFinite(result.loudness.integratedLufs));
 });
 
-test("pcm-analysis/v2 retains the named compatibility proxy but exposes standards separately", () => {
+test("pcm-analysis/v3 retains the named compatibility proxy but exposes standards separately", () => {
   const result = analyzePcm({ samples: fadedTone(1, 0.1), sampleRate: SAMPLE_RATE, channels: 2 });
-  assert.equal(result.version, "pcm-analysis/v2");
+  assert.equal(result.version, "pcm-analysis/v3");
   assert.equal(result.loudness.method, "rms-derived-proxy");
   assert.equal(result.loudness.standardsCompliant, false);
   assert.equal(result.standardsAudio.loudness.standardsCompliant, true);

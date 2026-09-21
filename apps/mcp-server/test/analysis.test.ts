@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { analyzePcm, decodeFloat32Le, MAX_ANALYSIS_CHANNELS, MAX_ANALYSIS_SAMPLES, MAX_ANALYSIS_SECONDS, MAX_FFT_SIZE, MAX_SPECTRAL_FRAMES, MAX_TIME_FREQUENCY_BANDS, MAX_TIME_FREQUENCY_FRAMES, MAX_WAVEFORM_BINS } from "../src/analysis.js";
+import { analyzePcm, analyzeReconstructedPcm, decodeFloat32Le, MAX_ANALYSIS_CHANNELS, MAX_ANALYSIS_SAMPLES, MAX_ANALYSIS_SECONDS, MAX_FFT_SIZE, MAX_SPECTRAL_FRAMES, MAX_TIME_FREQUENCY_BANDS, MAX_TIME_FREQUENCY_FRAMES, MAX_WAVEFORM_BINS } from "../src/analysis.js";
 import { dcFixture, impulseFixture, silenceFixture, sineFixture, stereoFixture, sweepFixture } from "./fixtures.js";
 
 test("deterministically analyzes a fixture without exposing audio", () => {
@@ -19,10 +19,27 @@ test("deterministically analyzes a fixture without exposing audio", () => {
 
 test("reports clipping and bounded reversible remediation", () => {
   const result = analyzePcm({ samples: Float32Array.from([0, 1, -1, 0.5]), sampleRate: 44100 });
-  assert.equal(result.clipping.count, 2);
+  assert.deepEqual(result.clipping, { count: 2, ratio: 0.5 });
+  assert.equal(result.reconstructedOvers.applicable, false);
+  assert.equal(result.reconstructedOvers.count, 0);
+  assert.equal(result.channelsDetail[0]!.reconstructedOvers.applicable, false);
   assert.ok(result.remediation.some((item) => item.id === "reduce-clipping"));
+  assert.ok(!result.remediation.some((item) => item.id === "inspect-reconstructed-overs"));
   assert.ok(result.remediation.every((item) => item.reversible && !item.changesAudio));
   assert.equal(result.performance.maxSamples, MAX_ANALYSIS_SAMPLES);
+});
+
+test("separates reconstructed overs and preserves their dynamics histogram", () => {
+  const samples = Float64Array.from({ length: 100 }, (_, index) => index < 90 ? 0.5 : (index % 2 === 0 ? 1.25 : -1.25));
+  const result = analyzeReconstructedPcm({ samples, sampleRate: 48_000 });
+  assert.deepEqual(result.clipping, { count: 0, ratio: 0 });
+  assert.deepEqual(result.reconstructedOvers, { count: 10, ratio: 0.1, threshold: 1, applicable: true });
+  assert.equal(result.channelsDetail[0]!.clipping.count, 0);
+  assert.equal(result.channelsDetail[0]!.reconstructedOvers.count, 10);
+  assert.ok(!result.remediation.some((item) => item.id === "reduce-clipping"));
+  assert.ok(result.remediation.some((item) => item.id === "inspect-reconstructed-overs"));
+  const expectedDynamicRangeDb = 20 * Math.log10(1.25 / 0.5);
+  assert.ok(Math.abs(result.dynamics.dynamicRangeDb - expectedDynamicRangeDb) < 0.01, `unexpected reconstructed dynamic range ${result.dynamics.dynamicRangeDb}`);
 });
 
 test("rejects unsafe and malformed input", () => {

@@ -208,6 +208,11 @@ const AUDITION_TTL_MS = 30_000;
 // state propagates asynchronously at quantization boundaries; the deadline
 // must cover snapshot + dispatch + polled verification.
 const AUDITION_DEADLINE_MS = 15_000;
+// Mirrors the Remote Script's _LOCATOR_JUMP_CONFIRMATION_TOLERANCE_BEATS: a
+// momentary jump can land a few milliseconds off the cue-point time, so the
+// host confirms within the same absolute beat tolerance instead of exact
+// float equality (a gross mismatch still refuses).
+const LOCATOR_JUMP_CONFIRMATION_TOLERANCE_BEATS = 1e-3;
 // Structure ownership checks can require multiple complete real-Live snapshots
 // around one create/delete. Each step receives a fresh protocol-bounded window.
 const STRUCTURE_STEP_DEADLINE_MS = 45_000;
@@ -3053,7 +3058,7 @@ export class McpHost {
         ? await adapter.invokeAsync({ operation: "locator.jump-to", args: { ref: transaction.payload.ref, expectedObjectIdentity: transaction.payload.expectedObjectIdentity, expectedCollectionRevision: transaction.payload.expectedCollectionRevision } }, context) as Record<string, unknown>
         : await adapter.invokeAsync({ operation: "locator.jump", args: { direction: transaction.payload.direction } }, context) as Record<string, unknown>;
       if (typeof result.position !== "number" || !Number.isFinite(result.position) || result.position < 0) throw new Error("locator jump was not confirmed");
-      if (transaction.payload.jumpTo === true && Math.abs(result.position - ((transaction.prior as { target: number }).target)) > 1e-6) throw new Error("locator jump did not land on the exact cue");
+      if (transaction.payload.jumpTo === true && Math.abs(result.position - ((transaction.prior as { target: number }).target)) > LOCATOR_JUMP_CONFIRMATION_TOLERANCE_BEATS) throw new Error("locator jump did not land on the cue within tolerance");
       transaction.applyKey = params.idempotencyKey as string;
       transaction.state = "applied";
       return this.successText(id, { transactionId: transaction.id, state: "applied", result, idempotent: false });
@@ -4901,8 +4906,10 @@ export class McpHost {
       const adapter = this.asyncAdapter();
       const read = await adapter.invokeAsync({ operation: "application.dialog", args: { action: "read" } }, { deadlineMs: Date.now() + AUDITION_DEADLINE_MS }) as { buttonCount?: unknown; message?: unknown; openDialogCount?: unknown; done?: unknown };
       const dialogState = { buttonCount: read.buttonCount ?? null, message: read.message ?? null, openDialogCount: read.openDialogCount ?? null };
-      if (params.button === undefined) return this.successText(id, { ...dialogState, done: true });
-      if (typeof dialogState.buttonCount !== "number" || typeof dialogState.openDialogCount !== "number") throw new Error("the current dialog shape is not observable; guarded presses are refused");
+      const done = read.done === undefined ? true : read.done === true;
+      if (params.button === undefined) return this.successText(id, { ...dialogState, done });
+      if (!done) return this.adapterToolError(id, new Error("dialog observation is incomplete; guarded presses are refused"), "Wait for a complete dialog observation before requesting a guarded press.");
+      if (typeof dialogState.buttonCount !== "number" || typeof dialogState.openDialogCount !== "number") throw new Error("dialog shape is not observable; guarded presses are refused");
       if ((params.button as number) >= dialogState.buttonCount) return error(id, -32602, "button is not present in the current dialog");
       const payload: Record<string, unknown> = { action: "press", button: params.button, expectedMessage: dialogState.message, expectedButtonCount: dialogState.buttonCount, expectedOpenDialogCount: dialogState.openDialogCount };
       const fence = JSON.stringify({ button: params.button, ...dialogState });
@@ -4926,7 +4933,9 @@ export class McpHost {
       if (status.epoch !== transaction.epoch) return this.transactionError(id, "Live connection epoch changed; preview again");
       const adapter = this.asyncAdapter();
       const context = { signal, deadlineMs: Date.now() + AUDITION_DEADLINE_MS, idempotencyKey: params.idempotencyKey as string, transactionId: params.transactionId as string };
-      const read = await adapter.invokeAsync({ operation: "application.dialog", args: { action: "read" } }, context) as { buttonCount?: unknown; message?: unknown; openDialogCount?: unknown };
+      const read = await adapter.invokeAsync({ operation: "application.dialog", args: { action: "read" } }, context) as { buttonCount?: unknown; message?: unknown; openDialogCount?: unknown; done?: unknown };
+      const done = read.done === undefined ? true : read.done === true;
+      if (!done) return this.adapterToolError(id, new Error("dialog observation is incomplete; the press was refused"), "Wait for a complete dialog observation, then request a fresh preview.");
       if (JSON.stringify({ button: transaction.payload.button, buttonCount: read.buttonCount ?? null, message: read.message ?? null, openDialogCount: read.openDialogCount ?? null }) !== transaction.fence) return this.transactionError(id, "dialog state changed since preview; the press was refused");
       transaction.state = "applying"; transaction.applyKey = params.idempotencyKey as string;
       const result = await adapter.invokeAsync({ operation: "application.dialog", args: transaction.payload }, context) as { done?: unknown; buttonCount?: unknown; message?: unknown; openDialogCount?: unknown };
@@ -8140,7 +8149,7 @@ export class McpHost {
   private successText(id: RequestId, value: unknown): JsonObject { return response(id, { content: [{ type: "text", text: JSON.stringify(value) }], isError: false }); }
   private adapterToolError(id: RequestId, cause: unknown, remediation: string): JsonObject {
     const raw = cause instanceof Error ? cause.message : "adapter request failed";
-    const reason = /^(live-|MIDI |Session |Tempo |note-|note |automation |clip-|device-|routing |mixer |rename |Arrangement |Only an applied|confirmation=|transaction|observe |file |filePath |staged |browser |probe |warp |notes |roman-numeral |drum-pattern |adapter request)/i.test(raw) && raw.length <= 160 ? raw : "adapter request failed";
+    const reason = /^(live-|MIDI |Session |Tempo |note-|note |automation |clip-|device-|routing |mixer |rename |Arrangement |Only an applied|confirmation=|transaction|observe |file |filePath |staged |browser |dialog |probe |warp |notes |roman-numeral |drum-pattern |adapter request)/i.test(raw) && raw.length <= 160 ? raw : "adapter request failed";
     return response(id, { content: [{ type: "text", text: JSON.stringify({ reason, remediation }) }], isError: true });
   }
 

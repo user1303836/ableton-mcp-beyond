@@ -927,6 +927,68 @@ class ControlSurfaceTests(unittest.TestCase):
             self.assertFalse(token.claim())
         self.assertEqual(token.state, "cancelled")
 
+    def test_mutation_pending_count_is_released_when_submit_fails(self):
+        bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(FakeSong()); bridge._executed_mutations = {}; bridge._pending_mutations = {}; bridge._retired_mutation_keys = {}; bridge._finalized_transactions = set(); bridge._executed_lock = threading.Lock()
+        class FailingMutationQueue:
+            def submit(self, action, deadline_ms=None, on_cancel=None):
+                if on_cancel is not None: raise RuntimeError("injected submit failure")
+                return action()
+        bridge.queue = FailingMutationQueue(); holder = {}; parameter = bridge.mapper.snapshot()["tracks"][0]["devices"][0]["parameters"][0]
+        request = {"operation": "device.parameter.set", "transactionId": "transaction-submit-failure", "args": {"ref": parameter["ref"], "value": 0.75, "expectedRevision": parameter["revision"], **self.parameter_authority(bridge.mapper, parameter["ref"])}}
+        preflight = bridge._dispatch_with_holder("preflight", request, holder); prepared = bridge._dispatch_with_holder("prepare", {**request, "preflightToken": preflight["preflightToken"], "confirmation": preflight["confirmation"], "idempotencyKey": "submit-failure-key"}, holder)
+        with self.assertRaisesRegex(RuntimeError, "injected submit failure"):
+            bridge._dispatch_with_holder("invoke", {**request, "authorityToken": prepared["authorityToken"]}, holder)
+        self.assertEqual(bridge._pending_mutations, {}); self.assertEqual(bridge._executed_mutations, {}); self.assertEqual(bridge.mapper._resolve_parameter(parameter["ref"]).value, 0.5)
+
+    def test_post_dispatch_claim_survives_its_deadline_and_releases_only_its_own_retry_count(self):
+        bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(FakeSong()); bridge._executed_mutations = {}; bridge._pending_mutations = {}; bridge._retired_mutation_keys = {}; bridge._finalized_transactions = set(); bridge._executed_lock = threading.Lock()
+        clock = [1000.0]
+        class ControlledMutationQueue:
+            def __init__(self): self.actions = []; self.cancellations = []
+            def submit(self, action, deadline_ms=None, on_cancel=None):
+                if on_cancel is None: return action()
+                self.actions.append(action); self.cancellations.append(on_cancel)
+                if len(self.actions) == 1:
+                    clock[0] = (deadline_ms + 1) / 1000
+                    raise remote_module._DispatchUncertainError("Live main-thread operation state uncertain after dispatch")
+                return {"queued": True}
+        bridge.queue = ControlledMutationQueue(); holder = {}; parameter = bridge.mapper.snapshot()["tracks"][0]["devices"][0]["parameters"][0]
+        request = {"operation": "device.parameter.set", "transactionId": "transaction-post-dispatch", "args": {"ref": parameter["ref"], "value": 0.75, "expectedRevision": parameter["revision"], **self.parameter_authority(bridge.mapper, parameter["ref"])}}
+        def prepare():
+            preflight = bridge._dispatch_with_holder("preflight", request, holder)
+            return bridge._dispatch_with_holder("prepare", {**request, "preflightToken": preflight["preflightToken"], "confirmation": preflight["confirmation"], "idempotencyKey": "post-dispatch-key"}, holder)
+        with patch("ableton_mcp_remote_script.time.time", side_effect=lambda: clock[0]):
+            first = prepare(); retry = prepare(); first_deadline = int(clock[0] * 1000) + 100
+            with self.assertRaisesRegex(RuntimeError, "state uncertain after dispatch"):
+                bridge._dispatch_with_holder("invoke", {**request, "deadlineMs": first_deadline, "authorityToken": first["authorityToken"]}, holder)
+            self.assertGreater(int(clock[0] * 1000), first_deadline)
+            self.assertEqual(bridge._pending_mutations["post-dispatch-key"]["count"], 1)
+            self.assertEqual(bridge._dispatch_with_holder("invoke", {**request, "deadlineMs": int(clock[0] * 1000) + 5000, "authorityToken": retry["authorityToken"]}, holder), {"queued": True})
+            self.assertEqual(bridge._pending_mutations["post-dispatch-key"]["count"], 2)
+            self.assertEqual(bridge.queue.actions[0]()["value"], 0.75)
+            self.assertEqual(bridge._pending_mutations["post-dispatch-key"]["count"], 1)
+            bridge.queue.cancellations[1](TimeoutError("retry cancelled before dispatch"))
+        self.assertEqual(bridge._pending_mutations, {}); self.assertEqual(bridge.mapper._resolve_parameter(parameter["ref"]).value, 0.75)
+
+    def test_mutation_pending_release_is_idempotent_per_queued_invocation(self):
+        bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(FakeSong()); bridge._executed_mutations = {}; bridge._pending_mutations = {}; bridge._retired_mutation_keys = {}; bridge._finalized_transactions = set(); bridge._executed_lock = threading.Lock()
+        class CaptureMutationQueue:
+            def __init__(self): self.cancellations = []
+            def submit(self, action, deadline_ms=None, on_cancel=None):
+                if on_cancel is None: return action()
+                self.cancellations.append(on_cancel); return {"queued": True}
+        bridge.queue = CaptureMutationQueue(); holder = {}; parameter = bridge.mapper.snapshot()["tracks"][0]["devices"][0]["parameters"][0]
+        request = {"operation": "device.parameter.set", "transactionId": "transaction-double-cancel", "args": {"ref": parameter["ref"], "value": 0.75, "expectedRevision": parameter["revision"], **self.parameter_authority(bridge.mapper, parameter["ref"])}}
+        for _ in range(2):
+            preflight = bridge._dispatch_with_holder("preflight", request, holder); prepared = bridge._dispatch_with_holder("prepare", {**request, "preflightToken": preflight["preflightToken"], "confirmation": preflight["confirmation"], "idempotencyKey": "double-cancel-key"}, holder)
+            self.assertEqual(bridge._dispatch_with_holder("invoke", {**request, "authorityToken": prepared["authorityToken"]}, holder), {"queued": True})
+        self.assertEqual(bridge._pending_mutations["double-cancel-key"]["count"], 2)
+        cancelled = TimeoutError("injected pre-dispatch cancellation")
+        bridge.queue.cancellations[0](cancelled); bridge.queue.cancellations[0](cancelled)
+        self.assertEqual(bridge._pending_mutations["double-cancel-key"]["count"], 1)
+        bridge.queue.cancellations[1](cancelled)
+        self.assertEqual(bridge._pending_mutations, {}); self.assertEqual(bridge._executed_mutations, {}); self.assertEqual(bridge.mapper._resolve_parameter(parameter["ref"]).value, 0.5)
+
     def test_retirement_is_a_live_thread_barrier_for_earlier_mutations(self):
         bridge = object.__new__(AbletonMcpBridge); bridge.queue = _MainThreadQueue(); bridge._executed_mutations = {}; bridge._executed_lock = threading.Lock(); events = []
         def applied():
@@ -943,7 +1005,7 @@ class ControlSurfaceTests(unittest.TestCase):
     def test_retirement_fences_prior_key_but_allows_same_transaction_undo_key(self):
         bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(FakeSong()); bridge._executed_mutations = {}; bridge._pending_mutations = {}; bridge._retired_mutation_keys = {}; bridge._executed_lock = threading.Lock()
         class ImmediateQueue:
-            def submit(self, action, deadline_ms=None): return action()
+            def submit(self, action, deadline_ms=None, on_cancel=None): return action()
         bridge.queue = ImmediateQueue(); holder = {}; transaction_id = "transaction-apply-undo"
         def set_value(value, key):
             parameter = bridge.mapper.snapshot()["tracks"][0]["devices"][0]["parameters"][0]; request = {"operation": "device.parameter.set", "transactionId": transaction_id, "args": {"ref": parameter["ref"], "value": value, "expectedRevision": parameter["revision"], **self.parameter_authority(bridge.mapper, parameter["ref"])}}
@@ -956,7 +1018,7 @@ class ControlSurfaceTests(unittest.TestCase):
     def test_terminal_retirement_atomically_requires_safety_and_fences_prepared_authority(self):
         bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(FakeSong()); bridge._executed_mutations = {}; bridge._pending_mutations = {}; bridge._retired_mutation_keys = {}; bridge._finalized_transactions = set(); bridge._executed_lock = threading.Lock()
         class ImmediateQueue:
-            def submit(self, action, deadline_ms=None): return action()
+            def submit(self, action, deadline_ms=None, on_cancel=None): return action()
         class SafeRealtime:
             def stats(self): return {"armed": False, "pending": 0}
         bridge.queue = ImmediateQueue(); bridge._realtime = SafeRealtime(); holder = {}; transaction_id = "transaction-terminal-finalize"; parameter = bridge.mapper.snapshot()["tracks"][0]["devices"][0]["parameters"][0]
@@ -978,7 +1040,7 @@ class ControlSurfaceTests(unittest.TestCase):
         bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(FakeSong()); bridge._executed_mutations = {}; bridge._pending_mutations = {}; bridge._retired_mutation_keys = {}; bridge._executed_lock = threading.Lock()
         class DelayedMutationQueue:
             def __init__(self): self.delay = False; self.entered = threading.Event(); self.release = threading.Event()
-            def submit(self, action, deadline_ms=None):
+            def submit(self, action, deadline_ms=None, on_cancel=None):
                 if self.delay and threading.current_thread().name == "delayed-mutation": self.entered.set(); self.release.wait(1)
                 return action()
         bridge.queue = DelayedMutationQueue(); holder = {}; parameter = bridge.mapper.snapshot()["tracks"][0]["devices"][0]["parameters"][0]
@@ -1006,7 +1068,7 @@ class ControlSurfaceTests(unittest.TestCase):
     def test_mutation_preflight_is_unpredictable_one_use_and_fences_external_state(self):
         bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(FakeSong())
         class ImmediateQueue:
-            def submit(self, action, deadline_ms=None): return action()
+            def submit(self, action, deadline_ms=None, on_cancel=None): return action()
         bridge.queue = ImmediateQueue(); bridge._executed_mutations = {}; bridge._executed_lock = threading.Lock(); holder = {}
         parameter = bridge.mapper.snapshot()["tracks"][0]["devices"][0]["parameters"][0]
         request = {"operation": "device.parameter.set", "transactionId": "transaction-preflight", "args": {"ref": parameter["ref"], "value": 0.75, "expectedRevision": parameter["revision"], **self.parameter_authority(bridge.mapper, parameter["ref"])}}
@@ -1039,7 +1101,7 @@ class ControlSurfaceTests(unittest.TestCase):
         song = FakeSong(); song.is_playing = True; song.current_song_time = 1.0
         bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(song)
         class ImmediateQueue:
-            def submit(self, action, deadline_ms=None): return action()
+            def submit(self, action, deadline_ms=None, on_cancel=None): return action()
         bridge.queue = ImmediateQueue(); bridge._executed_mutations = {}; bridge._executed_lock = threading.Lock(); holder = {}
         request = {"operation": "locator.add", "transactionId": "transaction-position", "args": {"name": "Position Fence", "position": 8.0}}
         preflight = bridge._dispatch_with_holder("preflight", request, holder); song.current_song_time = 3.5
@@ -1052,7 +1114,7 @@ class ControlSurfaceTests(unittest.TestCase):
         song = FakeSong(); song.is_playing = True
         bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(song)
         class ImmediateQueue:
-            def submit(self, action, deadline_ms=None): return action()
+            def submit(self, action, deadline_ms=None, on_cancel=None): return action()
         bridge.queue = ImmediateQueue(); bridge._executed_mutations = {}; bridge._executed_lock = threading.Lock(); holder = {}
         bridge.mapper._capture_state = {"captureId": "capture-test", "startedAt": 1000, "state": "active", "sourceSlotRef": "source-slot", "destinationSlotRef": "destination-slot", "destinationTrackRef": "destination-track"}
         request = {"operation": "audio.capture.stop", "transactionId": "transaction-capture-stop", "args": {"captureId": "capture-test", "token": "t" * 24}}
@@ -1067,7 +1129,7 @@ class ControlSurfaceTests(unittest.TestCase):
         song = FakeSong(); song.tracks[0].clip_slots[0].clip = FakeClip(4.0)
         bridge = object.__new__(AbletonMcpBridge); bridge.mapper = LiveObjectMapper(song)
         class ImmediateQueue:
-            def submit(self, action, deadline_ms=None): return action()
+            def submit(self, action, deadline_ms=None, on_cancel=None): return action()
         bridge.queue = ImmediateQueue(); bridge._executed_mutations = {}; bridge._executed_lock = threading.Lock(); holder = {}
         clip = bridge.mapper.snapshot()["tracks"][0]["clips"][0]; owned_clip = song.tracks[0].clip_slots[0].clip
         bridge.mapper._capture_state = {"captureId": "capture-test", "state": "captured", "sourceSlotRef": "source-slot", "destinationSlotRef": "destination-slot", "clipRef": clip["ref"], "_destinationSlot": song.tracks[0].clip_slots[0], "_ownedClip": owned_clip, "_ownedClipIdentity": bridge.mapper._capture_object_identity(owned_clip), "residual": []}
@@ -1134,6 +1196,27 @@ class ControlSurfaceTests(unittest.TestCase):
         bridge.mapper = LiveObjectMapper(ListenerSong())
         result = bridge._subscribe_main({"args": {"types": ["transport", "object"]}}, holder)
         self.assertTrue(result["subscribed"]); holder["subscription"].close()
+
+    def test_subscription_mid_registration_failure_leaves_no_registered_callbacks(self):
+        class PartialListenerSong(FakeSong):
+            def __init__(self): super().__init__(); self.listeners = {name: [] for name in ("is_playing", "record_mode", "session_record", "tracks", "scenes")}
+            def _add(self, name, callback): self.listeners[name].append(callback)
+            def _remove(self, name, callback): self.listeners[name].remove(callback)
+            def add_is_playing_listener(self, callback): self._add("is_playing", callback)
+            def remove_is_playing_listener(self, callback): self._remove("is_playing", callback)
+            def add_record_mode_listener(self, callback): self._add("record_mode", callback)
+            def remove_record_mode_listener(self, callback): self._remove("record_mode", callback)
+            def add_session_record_listener(self, callback): self._add("session_record", callback)
+            def remove_session_record_listener(self, callback): self._remove("session_record", callback)
+            def add_tracks_listener(self, callback): self._add("tracks", callback)
+            def remove_tracks_listener(self, callback): self._remove("tracks", callback)
+            def add_scenes_listener(self, callback): raise RuntimeError("listener registration rejected")
+            def remove_scenes_listener(self, callback): self._remove("scenes", callback)
+
+        song = PartialListenerSong(); mapper = LiveObjectMapper(song)
+        with self.assertRaisesRegex(RuntimeError, "listener registration rejected"):
+            _Subscription(mapper, {"transport", "object"})
+        self.assertTrue(all(callbacks == [] for callbacks in song.listeners.values()))
 
     def test_subscription_coalescing_preserves_continuity_without_false_overflow(self):
         mapper = LiveObjectMapper(FakeSong()); subscription = _Subscription(mapper, {"object"})
@@ -1829,16 +1912,19 @@ class ControlSurfaceTests(unittest.TestCase):
         work = _MainThreadQueue()
         mutations = []
         errors = []
+        cancellations = []
         import threading
-        worker = threading.Thread(target=lambda: self._capture_queue_error(work, mutations, errors))
+        worker = threading.Thread(target=lambda: self._capture_queue_error(work, mutations, errors, cancellations))
         worker.start(); worker.join(1)
         self.assertEqual(errors, ["Live main-thread operation timed out before dispatch"])
+        self.assertEqual(cancellations, ["Live main-thread operation timed out before dispatch"])
         self.assertEqual(work.drain(), 1)
+        self.assertEqual(cancellations, ["Live main-thread operation timed out before dispatch"])
         self.assertEqual(mutations, [])
 
     @staticmethod
-    def _capture_queue_error(work, mutations, errors):
-        try: work.submit(lambda: mutations.append("mutated"), timeout=0.01)
+    def _capture_queue_error(work, mutations, errors, cancellations):
+        try: work.submit(lambda: mutations.append("mutated"), timeout=0.01, on_cancel=lambda error: cancellations.append(str(error)))
         except TimeoutError as error: errors.append(str(error))
 
     def test_nonblocking_main_thread_callback_reports_predispatch_expiry(self):
@@ -1874,6 +1960,24 @@ class ControlSurfaceTests(unittest.TestCase):
         bridge.disconnect()
         self.assertTrue(bridge._stop.is_set())
         self.assertEqual(len(bridge._clients), 0)
+
+    def test_bridge_accept_loop_polls_timeouts_but_terminates_on_hard_errors(self):
+        class FailingServer:
+            def __init__(self): self.timeout = None; self.calls = 0
+            def settimeout(self, timeout): self.timeout = timeout
+            def accept(self):
+                self.calls += 1
+                if self.calls == 1: raise remote_module.socket.timeout()
+                raise OSError("injected persistent accept failure")
+
+        bridge = object.__new__(AbletonMcpBridge)
+        bridge._server = FailingServer(); bridge._stop = threading.Event(); bridge._clients = set(); bridge._workers = set()
+        with patch("ableton_mcp_remote_script._debug_trace") as trace:
+            bridge._accept()
+        self.assertEqual(bridge._server.timeout, 0.2)
+        self.assertEqual(bridge._server.calls, 2)
+        trace.assert_called_once_with("bridge-accept-failure")
+        self.assertIn("bridge-accept-failure", remote_module._DIAGNOSTIC_EVENTS)
 
     def test_disconnect_releases_waiting_main_thread_work(self):
         bridge = AbletonMcpBridge(FakeInstance(), {"host": "127.0.0.1", "port": 45679, "secret": "0123456789abcdef0123456789abcdef"})
@@ -3067,6 +3171,34 @@ class TakeLaneExpansionTests(unittest.TestCase):
         self.assertEqual(len(track.take_lanes), 2)
         with self.assertRaisesRegex(ValueError, "collection changed"): mapper.invoke("take-lane.create", args)
 
+    def test_take_lane_create_confirms_by_identity_diff_when_creator_returns_none(self):
+        song, track, lane, existing, mapper = self._mapper_with_lanes()
+        # list.append returns None, matching Live shapes whose creator has no
+        # documented return value; confirmation must come from the identity-diff.
+        track.create_take_lane = lambda: track.take_lanes.append(FakeTakeLane(f"Take {len(track.take_lanes) + 1}"))
+        track_row = mapper.snapshot()["tracks"][0]
+        args = {"trackRef": track_row["ref"], "name": "Take 2", "expectedTrackIdentity": track_row["objectIdentity"], "expectedTakeLaneCollectionRevision": mapper._take_lane_collection_revision(track, 0)}
+        result = mapper.invoke("take-lane.create", args)
+        self.assertEqual((result["name"], result["index"]), ("Take 2", 1)); validate_operation_payload("take-lane.create", "result", result)
+        self.assertEqual(len(track.take_lanes), 2)
+
+    def test_take_lane_clip_create_confirms_by_identity_diff_when_creator_returns_none(self):
+        _, track, lane, existing, mapper = self._mapper_with_lanes()
+        lane_row = mapper.snapshot()["tracks"][0]["takeLanes"][0]
+        def create_midi_clip(position, length):
+            clip = FakeClip(length); clip.start_time = position; clip.is_take_lane_clip = True
+            lane.arrangement_clips.append(clip)  # append returns None: the undocumented-return shape
+        def create_audio_clip(file_path, position):
+            clip = FakeClip(4.0); clip.is_audio_clip = True; clip.start_time = position; clip.file_path = file_path; clip.is_take_lane_clip = True
+            lane.arrangement_clips.append(clip)
+        lane.create_midi_clip = create_midi_clip; lane.create_audio_clip = create_audio_clip
+        base = {"takeLaneRef": lane_row["ref"], "expectedTakeLaneIdentity": lane_row["objectIdentity"], "expectedCollectionRevision": mapper._take_lane_clip_collection_revision(lane, lane_row["ref"])}
+        result = mapper.invoke("take-lane.clip.create", {**base, "position": 8.0, "length": 4.0, "name": "New Take"})
+        self.assertEqual((result["name"], result["start"], result["length"]), ("New Take", 8.0, 4.0)); validate_operation_payload("take-lane.clip.create", "result", result)
+        audio = mapper.invoke("take-lane.audio-clip.create", {**base, "expectedCollectionRevision": mapper._take_lane_clip_collection_revision(lane, lane_row["ref"]), "filePath": "/tmp/demo.wav", "position": 16.0, "name": "Audio Take"})
+        self.assertEqual((audio["filePath"], audio["start"]), ("/tmp/demo.wav", 16.0)); validate_operation_payload("take-lane.audio-clip.create", "result", audio)
+        self.assertEqual(len(lane.arrangement_clips), 3)
+
     def test_take_lane_rename_with_rollback(self):
         _, track, lane, existing, mapper = self._mapper_with_lanes()
         lane_row = mapper.snapshot()["tracks"][0]["takeLanes"][0]
@@ -3433,6 +3565,20 @@ class SongTransportLinkTests(unittest.TestCase):
         without = LiveObjectMapper(FakeSong())
         self.assertFalse(without._operation_supported("locator.jump-to"))
 
+    def test_locator_jump_to_confirms_within_tolerance_and_refuses_gross_mismatch(self):
+        song = FakeArrangementSong()
+        song.cue_points = [FakeLocator(4.0, "A"), FakeLocator(16.0, "B")]
+        song.cue_points[0].jump = lambda: setattr(song, "current_song_time", 4.0 + 5e-4)
+        song.cue_points[1].jump = lambda: setattr(song, "current_song_time", 16.5)
+        mapper = LiveObjectMapper(song)
+        locators = mapper._locator_items()
+        def args_for(row):
+            return {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedCollectionRevision": hashlib.sha256(mapper._bounded_canonical(mapper._locator_items()).encode()).hexdigest()}
+        result = mapper.invoke("locator.jump-to", args_for(locators[0]))
+        self.assertAlmostEqual(result["position"], 4.0005, places=6); validate_operation_payload("locator.jump-to", "result", result)
+        with self.assertRaisesRegex(ValueError, "locator jump was not confirmed"):
+            mapper.invoke("locator.jump-to", args_for(locators[1]))
+
     def test_song_time_convert_documented_queries(self):
         song = FakeSong()
         song.get_beats_loop_start = lambda: 8.0
@@ -3538,6 +3684,36 @@ class TrackStructureExpansionTests(unittest.TestCase):
         deleted = mapper.invoke("track.delete-return", {"ref": result["ref"], "expectedObjectIdentity": result["objectIdentity"], "expectedStructureRevision": mapper._structure_revision()})
         self.assertEqual(deleted, {"deleted": result["ref"]}); self.assertEqual(len(song.return_tracks), 0)
 
+    def test_return_track_create_confirms_by_identity_diff_when_creator_returns_none(self):
+        song = FakeSong()
+        # list.append returns None, matching Live shapes whose creator has no
+        # documented return value; confirmation must come from the identity-diff.
+        song.create_return_track = lambda: song.return_tracks.append(FakeTrack())
+        song.delete_return_track = lambda index: song.return_tracks.pop(index)
+        mapper = LiveObjectMapper(song)
+        result = mapper.invoke("track.create-return", {"name": "Verb", "expectedStructureRevision": mapper._structure_revision()})
+        self.assertEqual((result["name"], result["index"]), ("Verb", 0)); validate_operation_payload("track.create-return", "result", result)
+        self.assertEqual(len(song.return_tracks), 1)
+
+    def test_return_track_create_rolls_back_exactly_on_post_creation_failure(self):
+        class NameRefusingTrack(FakeTrack):
+            @property
+            def name(self): return self._name
+            @name.setter
+            def name(self, value):
+                if value != "Boom": self._name = value  # silently refuses "Boom": the write is not confirmed
+        song = FakeSong()
+        keep = FakeTrack(); keep.name = "Keep"; song.return_tracks = [keep]
+        song.create_return_track = lambda: song.return_tracks.append(NameRefusingTrack())
+        song.delete_return_track = lambda index: song.return_tracks.pop(index)
+        mapper = LiveObjectMapper(song)
+        revision = mapper._structure_revision()
+        with self.assertRaisesRegex(ValueError, "return-track name was not confirmed"):
+            mapper.invoke("track.create-return", {"name": "Boom", "expectedStructureRevision": revision})
+        self.assertEqual([track.name for track in song.return_tracks], ["Keep"])
+        result = mapper.invoke("track.create-return", {"name": "Verb", "expectedStructureRevision": mapper._structure_revision()})
+        self.assertEqual((result["name"], result["index"]), ("Verb", 1)); self.assertEqual(len(song.return_tracks), 2)
+
     def test_track_and_scene_duplication(self):
         song = FakeSong()
         def duplicate_track(index):
@@ -3639,6 +3815,19 @@ class SelectionViewExpansionTests(unittest.TestCase):
         result = mapper.invoke("device.view.set", {"ref": device_row["ref"], "collapsed": True, "expectedObjectIdentity": device_row["objectIdentity"], "expectedStateRevision": collapsed_revision})
         self.assertTrue(result["changed"]); validate_operation_payload("device.view.set", "result", result)
         self.assertTrue(device.view.is_collapsed)
+
+    def test_clip_view_set_rejects_non_clip_refs_with_clean_authority_error(self):
+        song = FakeSong()
+        clip = FakeClip(4.0)
+        clip.view = type("ClipView", (), {"grid_quantization": 1, "grid_is_triplet": False})()
+        song.tracks[0].clip_slots[0].clip = clip
+        track = song.tracks[0]
+        track.view = type("TrackView", (), {"grid_quantization": 1, "grid_is_triplet": False})()
+        mapper = LiveObjectMapper(song)
+        track_row = mapper.snapshot()["tracks"][0]
+        with self.assertRaisesRegex(ValueError, "clip view authority is invalid"):
+            mapper.invoke("clip.view.set", {"ref": track_row["ref"], "gridQuantization": 4, "expectedObjectIdentity": track_row["objectIdentity"], "expectedStateRevision": "0" * 64})
+        self.assertEqual((track.view.grid_quantization, track.view.grid_is_triplet), (1, False))
 
     def test_application_dialog_read_and_guarded_press(self):
         class FakeApp:
@@ -4111,6 +4300,33 @@ class SpecializedDeviceTests(unittest.TestCase):
         self.assertTrue(result["changed"]); self.assertEqual((device.ir_attack_time, device.ir_decay_time), (25.0, 2400.0))
         with self.assertRaisesRegex(ValueError, "authority is invalid"): mapper.invoke("hybrid-reverb.set", {**identity_args, "time": 3000.0})
 
+    def test_hybrid_reverb_second_phase_failure_rolls_back_applied_ir_indices(self):
+        class AttackRefusingDevice(FakeDevice):
+            @property
+            def ir_attack_time(self): return self._ir_attack_time
+            @ir_attack_time.setter
+            def ir_attack_time(self, value):
+                if value != self._ir_attack_time: raise RuntimeError("attack write rejected")
+        device = AttackRefusingDevice(); device._ir_attack_time = 10.0
+        device.name = "Hybrid"; device.class_name = "HybridReverbDevice"
+        device.ir_category_list = [{"name": "Halls"}, {"name": "Plates"}]; device.ir_category_index = 0
+        device.ir_file_list = [{"name": "Hall A"}, {"name": "Hall B"}]; device.ir_file_index = 0
+        device.ir_decay_time = 1200.0; device.ir_size_factor = 50.0
+        song = FakeSong(); song.tracks[0].devices = [device]
+        mapper = LiveObjectMapper(song)
+        row = mapper.snapshot()["tracks"][0]["devices"][0]
+        specs = [("attack", "ir_attack_time"), ("decay", "ir_decay_time"), ("size", "ir_size_factor")]
+        def fences():
+            state = mapper._specialized_state(device, specs)
+            return {"ref": row["ref"], "expectedObjectIdentity": row["objectIdentity"], "expectedStateRevision": hashlib.sha256(mapper._bounded_canonical(state).encode()).hexdigest()}
+        combined = mapper.invoke("hybrid-reverb.set", {**fences(), "irCategory": "Plates", "decay": 2400.0})
+        self.assertTrue(combined["changed"]); validate_operation_payload("hybrid-reverb.set", "result", combined)
+        self.assertEqual((device.ir_category_index, device.ir_decay_time), (1, 2400.0))
+        with self.assertRaisesRegex(RuntimeError, "attack write rejected"):
+            mapper.invoke("hybrid-reverb.set", {**fences(), "irFile": "Hall B", "attack": 25.0})
+        self.assertEqual((device.ir_category_index, device.ir_file_index), (1, 0))
+        self.assertEqual((device.ir_attack_time, device.ir_decay_time, device.ir_size_factor), (10.0, 2400.0, 50.0))
+
     def test_looper_actions_and_properties(self):
         song = FakeSong()
         device = FakeDevice(); device.name = "Looper"; device.class_name = "LooperDevice"
@@ -4217,6 +4433,39 @@ class ObserverModelTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "quota is exhausted"):
             for _ in range(9):
                 mapper.invoke("observe.subscribe", {"topics": [{"kind": "transport"}], "minIntervalMs": 100})
+
+    def test_expired_subscriptions_are_swept_before_the_quota_check(self):
+        song = FakeSong(); mapper = LiveObjectMapper(song)
+        for _ in range(8):
+            mapper.invoke("observe.subscribe", {"topics": [{"kind": "transport"}], "minIntervalMs": 100})
+        with self.assertRaisesRegex(ValueError, "quota is exhausted"):
+            mapper.invoke("observe.subscribe", {"topics": [{"kind": "transport"}], "minIntervalMs": 100})
+        for subscription in mapper._observe_subscriptions.values():
+            subscription["expiresAtMs"] = 0
+        result = mapper.invoke("observe.subscribe", {"topics": [{"kind": "transport"}], "minIntervalMs": 100})
+        self.assertTrue(result["subscriptionId"].startswith("obs_")); validate_operation_payload("observe.subscribe", "result", result)
+        self.assertEqual(len(mapper._observe_subscriptions), 1)
+
+    def test_failing_topic_digest_does_not_renew_the_subscription(self):
+        song = FakeSong(); mapper = LiveObjectMapper(song)
+        track_ref = mapper.snapshot()["tracks"][0]["ref"]
+        result = mapper.invoke("observe.subscribe", {"topics": [{"kind": "track", "ref": track_ref}], "minIntervalMs": 100})
+        subscription = mapper._observe_subscriptions[result["subscriptionId"]]
+        mapper.refs.delete(track_ref)
+        before = subscription["expiresAtMs"]
+        with self.assertRaises(KeyError):
+            mapper.invoke("observe.poll", {"subscriptionId": result["subscriptionId"]})
+        self.assertEqual(subscription["expiresAtMs"], before)
+
+    def test_reconnect_clears_prior_epoch_subscriptions(self):
+        song = FakeSong(); mapper = LiveObjectMapper(song)
+        for _ in range(8):
+            mapper.invoke("observe.subscribe", {"topics": [{"kind": "transport"}], "minIntervalMs": 100})
+        self.assertEqual(len(mapper._observe_subscriptions), 8)
+        mapper.invoke("session.reconnect", {})
+        self.assertEqual(mapper._observe_subscriptions, {})
+        result = mapper.invoke("observe.subscribe", {"topics": [{"kind": "transport"}], "minIntervalMs": 100})
+        self.assertTrue(result["subscriptionId"].startswith("obs_"))
 
 
 class BrowserSurfaceTests(unittest.TestCase):

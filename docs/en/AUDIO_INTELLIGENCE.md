@@ -26,10 +26,13 @@ claim.
 
 ## Standards analysis
 
-`pcm-analysis/v2` adds `standardsAudio` while retaining the old
+`pcm-analysis/v3` retains `standardsAudio` and the old
 `loudness.rms-derived-proxy` field only as an explicitly deprecated
-compatibility value. Delivery or mastering decisions must use
-`standardsAudio`, not that proxy.
+compatibility value. It distinguishes normalized source samples that reach the
+full-scale boundary (`clipping`) from values above 0 dBFS created by
+band-limited comparison reconstruction (`reconstructedOvers`). Reconstruction
+overs do not prove source clipping. Delivery or mastering decisions must use
+`standardsAudio`, not the compatibility proxy.
 
 The standards result identifies:
 
@@ -109,6 +112,13 @@ lag. It:
    match value when both sources qualify;
 6. reports loudness, true/sample peak, RMS, crest, dynamic range, spectrum,
    and transient-density deltas without returning aligned PCM.
+
+`reference-analysis/v2` reports source-domain boundary counts under
+`resampling.*.sourceClipping`. For sources actually converted to 48 kHz, the
+nested analysis reports reconstruction values above 0 dBFS separately as
+`reconstructedOvers` and never mislabels them as source `clipping`. Its lossy
+amplitude histogram scales to the bounded reconstructed range so dynamics
+quantiles do not collapse every value above 1 into the final bin.
 
 Resampling is not time-stretching or tempo matching. A suggested level match
 changes no audio.

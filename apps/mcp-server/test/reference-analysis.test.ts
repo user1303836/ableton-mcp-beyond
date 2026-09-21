@@ -28,6 +28,25 @@ test("band-limited resampling preserves bounded tone frequency, level, and durat
   assert.deepEqual(result, resamplePcm({ samples, sampleRate: sourceRate, channels: 1 }));
 });
 
+test("reference comparison reports reconstruction overs without false clipping", () => {
+  const sourceRate = 44_100;
+  const samples = Float32Array.from({ length: sourceRate }, (_, frame) => frame < sourceRate / 2 ? 0.99 : -0.99);
+  const resampled = resamplePcm({ samples, sampleRate: sourceRate, channels: 1 });
+  assert.ok(Math.max(...resampled.map((value) => Math.abs(value))) > 1, "fixture must produce bounded sinc reconstruction overs");
+  const comparison = compareReferenceAudio({ project: { samples, sampleRate: sourceRate, channels: 1 }, reference: { samples, sampleRate: sourceRate, channels: 1 }, alignment: { mode: "disabled" } });
+  assert.equal(comparison.version, "reference-analysis/v2");
+  for (const [side, analysis] of [[comparison.resampling.project, comparison.project], [comparison.resampling.reference, comparison.reference]] as const) {
+    assert.deepEqual(side.sourceClipping, { count: 0, ratio: 0 });
+    assert.equal(analysis.version, "pcm-analysis/v3");
+    assert.deepEqual(analysis.clipping, { count: 0, ratio: 0 });
+    assert.equal(analysis.reconstructedOvers.applicable, true);
+    assert.ok(analysis.reconstructedOvers.count > 0);
+    assert.ok(!analysis.remediation.some((item) => item.id === "reduce-clipping"));
+    assert.ok(analysis.remediation.some((item) => item.id === "inspect-reconstructed-overs"));
+    assert.ok(Number.isFinite(analysis.dynamics.dynamicRangeDb));
+  }
+});
+
 test("resampling short alternating material remains bounded at both edges", () => {
   const samples = Float32Array.from({ length: 188 }, (_, index) => index % 2 === 0 ? 1 : -1);
   const resampled = resamplePcm({ samples, sampleRate: 32_000, channels: 1 });
@@ -35,6 +54,9 @@ test("resampling short alternating material remains bounded at both edges", () =
   assert.ok([...resampled].every((value) => Math.abs(value) <= 2), `unexpected reconstructed peak ${Math.max(...resampled.map(Math.abs))}`);
   const comparison = compareReferenceAudio({ project: { samples, sampleRate: 32_000, channels: 1 }, reference: { samples, sampleRate: 32_000, channels: 1 }, alignment: { mode: "disabled" } });
   assert.equal(comparison.alignment.available, true);
+  assert.deepEqual(comparison.resampling.project.sourceClipping, { count: samples.length, ratio: 1 });
+  assert.equal(comparison.project.clipping.count, 0);
+  assert.ok(!comparison.project.remediation.some((item) => item.id === "reduce-clipping"));
 });
 
 test("snapshots observable source length and values once", () => {
