@@ -318,6 +318,9 @@ are. Source, schemas, and tests are the final authority.
   mapper status carries a best-effort environment probe (Live version/edition,
   OS, API surface) for artifact-bound evidence.
 
+- Offline Set inspection/diff and root-bounded findings-only lint: complete bounded XML consumption, child-value timing and MIDI events, explicit unknowns, privacy-aware MIDI extraction, and source evidence from the same read bytes. Malformed documents and semantic clips without measured lengths fail closed. No claim of exhaustive Live-version file-format coverage.
+- Bounded generative MIDI with C4 = 60, retained first-chord register and chord-boundary bassline durations; order-independent key-estimation evidence with heuristic confidence. Track-color and song-settings mutations retain exact target identity through apply/readback/undo and distinguish uncertain undo from forward recovery. Covered by host/simulator and fake-Live contracts, not new real-Live certification.
+
 ## Evidence boundary
 
 Tracked evidence under [`../evidence/`](../evidence/) distinguishes

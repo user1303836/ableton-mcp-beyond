@@ -218,7 +218,7 @@ function clipAuthority(snapshot: LiveSnapshot, clipRef: string): Row {
   return { expectedObjectIdentity: located.clip.objectIdentity, expectedTrackRef: track.ref, expectedTrackIdentity: track.objectIdentity, expectedSlotRef: slot.ref, expectedSlotIdentity: slot.objectIdentity, expectedSceneRef: scene.ref, expectedSceneIdentity: scene.objectIdentity };
 }
 
-const CLIP_STATE_FIELDS = ["muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove"] as const;
+const CLIP_STATE_FIELDS = ["muted", "colorIndex", "looping", "loopStart", "loopEnd", "groove", "launchMode", "launchQuantization", "legato", "ramMode", "velocityAmount"] as const;
 
 function clipPropertiesMutationAuthority(snapshot: LiveSnapshot, clipRef: string): Row {
   const located = clipRow(snapshot, clipRef);

@@ -229,6 +229,19 @@ test("routing.arm expresses unarm-all as one batch with exact undo", async () =>
   assert.equal(state.tracks.every((track: any) => track.armed === true), true, "exact prior arm state restored");
 });
 
+for (const field of ["launchMode", "launchQuantization", "legato", "ramMode", "velocityAmount"]) {
+  test(`batch clip.set fences external ${field} edits introduced by the clip-properties surface`, async () => {
+    const { simulator, call, parse } = connectedHost();
+    const clip = (simulator as any).state.tracks[0].clips[0];
+    const preview = await parse(call("live_batch_preview", { operations: [{ kind: "clip.set", clipRef: clip.ref, muted: true }] }));
+    clip[field] = field === "legato" || field === "ramMode" ? true : field === "velocityAmount" ? 0.5 : 2;
+    const result = await parse(call("live_batch_apply", { transactionId: preview.transactionId, confirmation: "apply", idempotencyKey: "batch-clip-stale" }));
+    assert.equal(result.state, "compensated");
+    assert.equal(result.rolledBack, 0);
+    assert.equal(clip.muted, false);
+  });
+}
+
 test("batch clip.set edits clip properties with exact prior-state undo", async () => {
   const { simulator, call, parse } = connectedHost();
   const clip = (simulator as any).state.tracks[0].clips[0];
