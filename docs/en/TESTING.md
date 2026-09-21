@@ -20,6 +20,12 @@ Note digests use UTF-16 code-unit ordering, never ICU collation; subprocess test
 vary English/Swedish locales with a collation-sensitive fixture and retain
 representative ASCII digest pins.
 
+## Hierarchy invariants
+
+Chain lookup tests retain the actual containing device through later track
+siblings, nested racks, pad-only chains and racks inside pads. The owner-field
+bug was latent in current callers; tests do not claim a demonstrated Live edit.
+
 ## Deterministic gates
 
 Run serially from `apps/mcp-server`:

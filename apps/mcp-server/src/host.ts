@@ -5450,20 +5450,24 @@ export class McpHost {
   }
 
   private chainRow(snapshot: LiveSnapshot, chainRef: LiveRef): { device: JsonObject; chain: JsonObject } {
-    const walk = (devices: JsonObject[]): JsonObject | undefined => {
+    const walk = (devices: JsonObject[]): { device: JsonObject; chain: JsonObject } | undefined => {
       for (const device of devices) {
         const chains = ((device.chains as unknown[]) ?? []).filter(isObject);
         const found = chains.find((chain) => chain.ref === chainRef);
-        if (found) return found;
+        if (found) return { device, chain: found };
         for (const chain of chains) { const nested = walk(((chain.devices as unknown[]) ?? []).filter(isObject)); if (nested) return nested; }
-        for (const pad of ((device.drumPads as unknown[]) ?? []).filter(isObject)) { for (const chain of ((pad.chains as unknown[]) ?? []).filter(isObject)) { const nested = walk(((chain.devices as unknown[]) ?? []).filter(isObject)); if (nested) return nested; } }
+        for (const pad of ((device.drumPads as unknown[]) ?? []).filter(isObject)) {
+          for (const chain of ((pad.chains as unknown[]) ?? []).filter(isObject)) {
+            if (chain.ref === chainRef) return { device, chain };
+            const nested = walk(((chain.devices as unknown[]) ?? []).filter(isObject)); if (nested) return nested;
+          }
+        }
       }
       return undefined;
     };
     for (const track of snapshot.tracks as unknown as JsonObject[]) {
-      const devices = ((track.devices as unknown[]) ?? []).filter(isObject);
-      const found = walk(devices);
-      if (found) return { device: devices[0]!, chain: found };
+      const found = walk(((track.devices as unknown[]) ?? []).filter(isObject));
+      if (found) return found;
     }
     throw new Error("chain reference is not authoritative");
   }

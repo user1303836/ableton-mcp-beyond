@@ -1625,6 +1625,24 @@ test("device insert, enable, move, and transaction-owned cleanup use exact fenci
   assert.equal((simulator as any).state.tracks[0].devices.some((d: any) => d.name === "Echo"), false);
 });
 
+test("chain rows retain the true owning rack through track siblings and drum pads", () => {
+  const snapshot = new DeterministicLiveSimulator().snapshot();
+  const leaf = { ref: "chain:leaf", devices: [] };
+  const nestedRack = { ref: "device:nested", chains: [leaf] };
+  const inner = { ref: "chain:inner", devices: [nestedRack] };
+  const padLeaf = { ref: "chain:pad-leaf", devices: [] };
+  const padRack = { ref: "device:pad-rack", chains: [padLeaf] };
+  const padChain = { ref: "chain:pad", devices: [padRack] };
+  const outerRack = { ref: "device:outer", chains: [inner], drumPads: [{ ref: "pad:0", chains: [padChain] }] };
+  (snapshot.tracks[0] as any).devices = [snapshot.tracks[0]!.devices[0], outerRack];
+  const host = new McpHost();
+  for (const [chain, owner] of [[inner, outerRack], [leaf, nestedRack], [padChain, outerRack], [padLeaf, padRack]] as const) {
+    const row = (host as any).chainRow(snapshot, chain.ref);
+    assert.equal(row.chain, chain); assert.equal(row.device, owner);
+  }
+  assert.throws(() => (host as any).chainRow(snapshot, "chain:absent"), /not authoritative/);
+});
+
 test("nested device mutations refuse reparenting after preview", async () => {
   const simulator = new DeterministicLiveSimulator(); const state = (simulator as any).state; const track = state.tracks[0]; const nested = track.devices[0];
   const sibling = { ref: "device:sibling", parentRef: "chain:rack:0", objectIdentity: "simulator:device:sibling", name: "Sibling", kind: "device", parameters: [] };
