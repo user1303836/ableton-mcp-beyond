@@ -26,6 +26,15 @@ Chain lookup tests retain the actual containing device through later track
 siblings, nested racks, pad-only chains and racks inside pads. The owner-field
 bug was latent in current callers; tests do not claim a demonstrated Live edit.
 
+## Semantic privacy invariants
+
+Ordinary `Verse / Chorus` names survive name-retaining profiles; root, quoted,
+assigned, embedded unspaced absolute, drive, network, device and URI path shapes
+remain screened. Media basenames/project-relative locators pass the same screen
+before the final audit. Portable authority-like names such as
+`REUSABLE-TOKEN.wav` reproduce the old abort; a literal slash cannot be a single
+basename on supported filesystems and is not claimed as reproduced evidence.
+
 ## Deterministic gates
 
 Run serially from `apps/mcp-server`:

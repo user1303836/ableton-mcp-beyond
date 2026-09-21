@@ -136,7 +136,10 @@ function looksLikeNetworkOrDevicePath(value: string): boolean {
 }
 
 function looksLikeAbsolutePath(value: string): boolean {
-  return /(?:^|[\s"'(=])(?:\/|[A-Za-z]:[\\/]|\\\\)/i.test(value) || /[A-Za-z][A-Za-z0-9+.-]*:[\\/]{1,2}/i.test(value);
+  // A whitespace-delimited musical separator ("Verse / Chorus") is not a
+  // path. Keep leading roots, quoted/assigned paths, embedded /Users-style
+  // paths, drive/UNC/device paths and URIs conservatively screened.
+  return /^\s*[\\/]/.test(value) || /(?:^|[\s"'(=])(?:[A-Za-z]:[\\/]|\\\\)/i.test(value) || /["'(=]\s*\/|\s\/(?=\S)/.test(value) || /[A-Za-z][A-Za-z0-9+.-]*:[\\/]{1,2}/i.test(value);
 }
 
 function looksLikeAuthority(value: string): boolean {
@@ -175,9 +178,9 @@ function pathLocator(profile: SemanticPrivacyProfile, raw: string, resolvedPath:
   if (profile === "local" && resolvedPath && projectPath) {
     const projectDirectory = dirname(resolve(projectPath));
     const candidate = relative(projectDirectory, resolvedPath).replaceAll("\\", "/");
-    if (candidate && !candidate.startsWith("../") && candidate !== ".." && !isAbsolute(candidate)) return candidate;
+    if (candidate && !candidate.startsWith("../") && candidate !== ".." && !isAbsolute(candidate)) return dynamicString(profile, "path", candidate);
   }
-  return pathBase;
+  return dynamicString(profile, "path", pathBase);
 }
 
 function assertOnlyKeys(value: unknown, allowed: readonly string[], label: string): void {
