@@ -24,6 +24,14 @@ Stable Node 23/25, prereleases, and unlisted
 majors fail closed. OS vendor lifecycle changes require a matrix update rather
 than implicit support.
 
+## MCP binding
+
+Stdio supports legacy `2025-11-25` initialize and modern `2026-07-28` per-request
+metadata/discovery. Modern mode is complete-result only with private zero-TTL
+cache hints and no unsolicited push; it does not advertise MRTR, Tasks, or HTTP.
+See [USER_GUIDE.md](USER_GUIDE.md) for process-local recovery limits. Protocol
+checks do not certify a particular client/model or a new real-Live environment.
+
 ## Ableton Live
 
 | OS | Live version / edition | Status | Evidence / limitation |

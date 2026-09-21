@@ -7,7 +7,9 @@ are. Source, schemas, and tests are the final authority.
 
 ## Implemented and verified
 
-- Strict newline-delimited JSON-RPC MCP host (`2025-11-25`) with bounded
+- Dual-era newline-delimited JSON-RPC MCP host (legacy `2025-11-25`, modern
+  `2026-07-28`) with per-request modern metadata/discovery, structured JSON tool
+  results, private zero-TTL cache hints, and bounded
   framing/concurrency, ordered backpressure-aware output, cancellation,
   duplicate-ID rejection, redacted diagnostics, and a fail-closed default
   adapter.

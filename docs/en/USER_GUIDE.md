@@ -23,8 +23,30 @@ node dist/src/cli.js --config /absolute/path/bridge-config.json
 
 The only accepted CLI option is one `--config PATH`. Secrets, endpoints,
 adapters, and capabilities cannot be selected through MCP arguments or client
-metadata. Initialize JSON-RPC with protocol `2025-11-25`, then send
-`notifications/initialized`.
+metadata. Both MCP eras are supported:
+
+- Legacy `2025-11-25`: send `initialize`, then `notifications/initialized` as before.
+- Modern `2026-07-28`: no initialize handshake. Every request includes protocol
+  version and client capabilities in `params._meta`; discovery is optional:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}
+```
+
+Use the same metadata on `tools/list`, `tools/call`, resource and prompt requests.
+Results include `resultType: "complete"`; JSON tool results also include
+`structuredContent` alongside unchanged text. Discovery/resources are private
+and immediately stale (`ttlMs: 0`), so policy/Live changes require a fresh read.
+Discovery may be followed by legacy initialization, but otherwise use one era
+per process. Modern mode does not advertise MCP push subscriptions, MRTR, or
+Tasks: `live_subscribe` / `live_unsubscribe` remain legacy-only; use snapshots
+or `live_observe_poll` for explicit reads. Client metadata is never approval.
+
+Transaction IDs and exact idempotency keys remain application authority, not
+RPC IDs. Keep them for apply/undo recovery; do not replace an uncertain write
+with a new preview simply because a request was cancelled or the process
+restarted. Handles are process-local and expire; fresh discovery and explicit
+recovery are required after a restart. No new real-Live certification is implied.
 
 Tarball installations use the receipt-driven `ableton-mcp-lifecycle` flow in
 [DELIVERY.md](DELIVERY.md) for install, activation, upgrade, repair, rollback,

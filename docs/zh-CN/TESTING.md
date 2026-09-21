@@ -2,6 +2,12 @@
 
 [English](../en/TESTING.md) · 简体中文 · [日本語](../ja/TESTING.md)
 
+## MCP 兼容性证据
+
+`mcp-protocol.test.ts` 覆盖新版发现 / 每请求元数据 / 版本拒绝 / 旧版回退、ID 完成后复用与并发重复拒绝、private / TTL 0 及结构化重放标志。
+还覆盖不变的确认 / 策略 / 丢失应答后的账本恢复、无主动推送和排队应答取消。`verify-package.mjs` 分别启动已安装的旧版与新版进程。
+这些只是宿主 / fake-Live 证据，不是第三方客户端或新增真实 Live 认证。
+
 ## 确定性门禁
 
 从 `apps/mcp-server` 串行运行:

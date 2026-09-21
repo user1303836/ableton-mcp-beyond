@@ -622,6 +622,7 @@ test("subscription validation rejects event types without a producer", async () 
 
 test("bounds server event flushing across slow output and contains emitter failure", async () => {
   const host = new McpHost(new DeterministicLiveSimulator());
+  ready(host); // Push is a selected legacy binding, never pre-negotiation output.
   let calls = 0; let rejectFirst: ((cause: Error) => void) | undefined;
   host.setEventEmitter(async () => {
     calls += 1;

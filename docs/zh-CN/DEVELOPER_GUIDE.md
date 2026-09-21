@@ -24,14 +24,21 @@
 - `apps/mcp-server/src/transactions/`:有界 MIDI 事务与异步发现助手。
 - `apps/mcp-server/src/analysis.ts`:有界 PCM 解码与隐私保护分析。
 - `apps/mcp-server/src/delivery.ts`:配置、密钥验证、打包、安装与诊断。
-- `protocol/ableton-live-v1.operations.json`:规范版本 1 操作注册表。当前
-  契约的规范注册表哈希为
-  `a8a73b3157bd771b112b822164d4e9bec57f2a47078727ec157f83593af6f48a`。
+- `protocol/ableton-live-v1.operations.json`:规范版本 1 操作注册表。规范哈希由该文件生成，记录于 `docs/evidence/capability-manifest.json`；说明文字不是独立的哈希权威。
 - `remote-script/AbletonMcpBridge/__init__.py`:单参数 Control Surface
   入口与故障关闭的引用加载。
 - `remote-script/ableton_mcp_remote_script.py`:已认证传输、有界主线程
   分发、绑定 epoch 的引用、依形状宣告操作、层级发现、结构、MIDI、定位点
   与已发布设备参数映射。
+
+## MCP stdio 兼容性
+
+`mcp-protocol.ts` 只处理传输格式，不产生 Live 权限。旧 `2025-11-25` 保留 initialize/initialized；新 `2026-07-28` 每次请求都必须提供 `params._meta` 版本与客户端能力，`server/discover` 为可选。
+未知版本返回 `-32022`，畸形元数据返回 `-32602`。成功结果提供 `resultType: "complete"` 与服务器身份，JSON 工具结果增加 `structuredContent`。
+缓存为 private / `ttlMs: 0`。发现后可选择旧初始化，其他混用方式被拒绝。
+新版不声明 MCP push / MRTR / Tasks / HTTP，使用 snapshot / observe-poll。RPC ID 只可在完成后复用，不能替代事务 ID、幂等键或确认。
+取消所有权保持到应答写出，取消后的结果及异常应答均被抑制；应用恢复状态独立保留。
+句柄仅限本进程且会过期；重启不是重做不确定编辑的许可。完整契约与规范链接见[英文版](../en/DEVELOPER_GUIDE.md)和 `mcp-protocol.test.ts`。
 
 ## 契约规则
 

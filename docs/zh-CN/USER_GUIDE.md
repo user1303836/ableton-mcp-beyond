@@ -22,8 +22,16 @@ node dist/src/cli.js --config /absolute/path/bridge-config.json
 ```
 
 唯一接受的 CLI 选项是一个 `--config PATH`。密钥、端点、适配器与能力都
-**不能**通过 MCP 参数或客户端元数据选择。请用协议版本 `2025-11-25`
-初始化 JSON-RPC,然后发送 `notifications/initialized`。
+**不能**通过 MCP 参数或客户端元数据选择。旧版 `2025-11-25` 仍使用
+`initialize` 加 `notifications/initialized`。新版 `2026-07-28` 无需初始化：每次请求的 `params._meta` 必须包含
+`io.modelcontextprotocol/protocolVersion: "2026-07-28"` 和
+`io.modelcontextprotocol/clientCapabilities: {}`。`server/discover` 为可选探测。
+结果包含 `resultType: "complete"`；JSON 工具结果同时提供文本与 `structuredContent`。
+发现 / 资源缓存为 private、`ttlMs: 0`，状态或策略变化后应重新读取。
+发现后可选择旧版初始化，除此之外同一进程不混用两种方式。
+新版不声明 MCP push、MRTR 或 Tasks：`live_subscribe` / `live_unsubscribe` 仅用于旧版；新版可用 snapshot 或 `live_observe_poll` 显式读取。
+客户端元数据不是授权。保留事务 ID 与精确幂等键用于应用 / 撤销恢复，不能因为取消或进程重启就新建预览来重做不确定的写入。
+句柄仅存在于本进程且会过期；重启后需要重新发现并显式恢复。这不是新增真实 Live 认证。
 
 tarball 安装请使用 [DELIVERY.md](DELIVERY.md) 中基于回执(receipt)的
 `ableton-mcp-lifecycle` 流程进行安装、激活、升级、修复、回滚与卸载。

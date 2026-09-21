@@ -2,6 +2,15 @@
 
 English · [简体中文](../zh-CN/TESTING.md) · [日本語](../ja/TESTING.md)
 
+## MCP compatibility evidence
+
+`mcp-protocol.test.ts` covers modern discovery/inline metadata, version refusal,
+legacy fallback, sequential ID reuse vs in-flight rejection, private zero-TTL
+results, structured/coalesced replay flags, unchanged confirmation/policy and
+lost-reply ledger recovery, absent push, and cancellation through ordered flush.
+`verify-package.mjs` independently starts installed legacy and modern processes.
+These are host/fake-Live checks, not third-party-client or fresh Live certification.
+
 ## Deterministic gates
 
 Run serially from `apps/mcp-server`:

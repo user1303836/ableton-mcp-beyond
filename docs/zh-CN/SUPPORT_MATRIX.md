@@ -21,6 +21,11 @@
 稳定版 Node 23、25、预发布版与未列出的主版本都会故障关闭。
 操作系统供应商生命周期变化需要矩阵更新,而不是隐式支持。
 
+## MCP 连接模式
+
+stdio 支持旧 `2025-11-25` initialize 与新 `2026-07-28` 逐请求元数据 / 发现。新版仅提供 complete 结果及 private / TTL 0 缓存，不声明主动 push、MRTR、Tasks 或 HTTP。
+进程内恢复限制见 [USER_GUIDE.md](USER_GUIDE.md)。协议检查不是特定客户端 / 模型或新增真实 Live 环境的认证。
+
 ## Ableton Live
 
 | 操作系统 | Live 版本 / 版本层级 | 状态 | 证据 / 限制 |
