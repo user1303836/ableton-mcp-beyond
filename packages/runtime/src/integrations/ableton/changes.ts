@@ -530,7 +530,7 @@ export const CHANGES: readonly ChangeKind[] = [...BASE_CHANGES, ...MORE_CHANGES,
 }];
 
 export const UNDO_TOOL = "undo_change";
-export const UNDO_DESCRIPTION = "Undo one of your changes from this session: pass its change id (such as c3), or \"last\" for the latest one. It only works while nobody changed the same thing in Live since; if so, say what happened.";
+export const UNDO_DESCRIPTION = "Undo one of your changes from this session: pass its change id (such as c3), or \"last\" for the latest one. It only works while nobody changed the same thing in Live since; if so, say what happened. With final: true, when the undo is all that was asked, Kumi tells the producer and the answer ends there, with no reply from you.";
 
 /** Bridge tools only Kumi calls, behind its change tools: previews, applies and undo. */
 /** Stops clips, the transport and recording at once, whatever Live is doing: Kumi's stop when the ordinary one can't. */

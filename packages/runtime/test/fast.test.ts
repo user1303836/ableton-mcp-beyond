@@ -122,6 +122,47 @@ test("several parameters of a device in a plan are one change in one trip, and i
   } finally { await b.integration.close(); }
 });
 
+test("an undo that's all the producer asked for is said by Kumi, with no model reply after it", async () => {
+  const live = fakeLive();
+  const b = await opened({ version: PYTHON_BRIDGE, parameters: true, python: live.python });
+  try {
+    await tool(b.tools, "set_device_parameter").execute({ deviceRef: "device:1", parameter: "Ae Release", value: 0.6 }, signal());
+    const plain = await tool(b.tools, "undo_change").execute({ change: "last" }, signal());
+    assert.equal(plain.reply, undefined, "without final, the model says it");
+    await tool(b.tools, "set_device_parameter").execute({ deviceRef: "device:1", parameter: "Ae Release", value: 0.7 }, signal());
+    const final = await tool(b.tools, "undo_change").execute({ change: "last", final: true }, signal());
+    assert.equal(final.isError, false, final.text);
+    assert.equal(final.reply, "Undone: Operator · Ae Release 2.00 s → 7.00 s.");
+    // An undo that couldn't be done says so through the model, final or not.
+    const nothing = await tool(b.tools, "undo_change").execute({ change: "c999", final: true }, signal());
+    assert.equal(nothing.isError, true); assert.equal(nothing.reply, undefined);
+  } finally { await b.integration.close(); }
+});
+
+test("a plan carries on past a parameter its device doesn't have, and ends by listing it with the device's parameters", async () => {
+  const live = fakeLive();
+  const b = await opened({ version: PYTHON_BRIDGE, parameters: true, python: live.python });
+  try {
+    const plan = await tool(b.tools, "make_changes").execute({ final: true, steps: [
+      // A step of its own whose name the device doesn't have: set aside, not a stop.
+      { tool: "set_device_parameter", input: { deviceRef: "device:1", parameter: "Wobble", value: 0.5 } },
+      { tool: "set_tempo", input: { tempo: 125 } },
+      // Two on one device, one of them missed: the other is set.
+      { tool: "set_device_parameter", input: { deviceRef: "device:1", parameter: "Filter Freq", value: "800 Hz" } },
+      { tool: "set_device_parameter", input: { deviceRef: "device:1", parameter: "Voices", value: 1 } },
+    ] }, signal());
+    assert.equal(plan.isError, false, plan.text);
+    assert.equal(plan.reply, undefined, "with parameters left to fix, the model carries on, final or not");
+    const result = JSON.parse(plan.text) as { done: JsonObject[]; missed: JsonObject[]; parametersOnDevice: Record<string, string[]>; missedNote: string };
+    assert.equal(b.tempo, 125, "the steps after the miss ran");
+    assert.ok(Math.abs(20 * 1000 ** live.knob("Filter Freq").value - 800) < 8, "the one the device has was set");
+    assert.deepEqual(result.missed.map((miss) => [miss.steps, (miss.missed as JsonObject[]).map((item) => item.parameter)]), [["1", ["Wobble"]], ["3–4", ["Voices"]]]);
+    assert.deepEqual(Object.values(result.parametersOnDevice), [["Osc-A Level", "Filter Freq", "Ae Release", "Filter Type", "Spread"]], "each device's parameters, once");
+    assert.match(result.missedNote, /in one more make_changes/);
+    assert.deepEqual(b.records.map((record) => record.state), ["applied", "applied"], "the tempo and the parameter set; nothing for what was missed");
+  } finally { await b.integration.close(); }
+});
+
 test("undo leaves a parameter the producer moved since, and says which", async () => {
   const live = fakeLive();
   const b = await opened({ version: PYTHON_BRIDGE, parameters: true, fullControl: true, python: live.python });
@@ -167,7 +208,9 @@ test("a parameter the device doesn't have, or one Live greys out, changes nothin
   try {
     const missing = await tool(b.tools, "set_device_parameter").execute({ deviceRef: "device:1", parameter: "Wobble", value: 0.5 }, signal());
     assert.equal(missing.isError, true);
-    assert.match(missing.text, /no parameter called "Wobble"; its parameters include Osc-A Level, Filter Freq/);
+    // What was missed, and every parameter the device has, so one more call fixes it.
+    assert.deepEqual(JSON.parse(missing.text), { changed: null, missed: [{ parameter: "Wobble", why: "the device has no parameter by that name" }],
+      parametersOnDevice: ["Osc-A Level", "Filter Freq", "Ae Release", "Filter Type", "Spread"] });
     const greyed = await tool(b.tools, "set_device_parameter").execute({ deviceRef: "device:1", parameter: "Spread", value: 0.5 }, signal());
     assert.equal(greyed.isError, true);
     assert.match(greyed.text, /Spread is greyed out/);

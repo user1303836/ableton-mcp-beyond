@@ -69,6 +69,8 @@ const FIND_SAMPLES_SCHEMA: JsonObject = { type: "object", additionalProperties: 
 } };
 
 const MAX_CHANGES_PER_TURN = 5_000;
+/** Up to this many tracks, each turn's look at the Set includes their levels and pans. */
+const MIXER_TRACKS = 64;
 
 /** Any audio file on this computer by its path (absolute, or from ~), as a sample for a change. */
 function audioFileAt(path: string): Sample | undefined {
@@ -193,6 +195,8 @@ export function createAbletonIntegration(options: Options): Integration {
   let currentSet: string | undefined;
   /** The Set's tempo, for waits measured in beats. */
   let currentTempo: number | undefined;
+  /** How many tracks the Set had at the last look (past MIXER_TRACKS, the next look leaves out their mixers). */
+  let lastTrackCount = 0;
   /** Beats in a bar, from the time signature (4 in 4/4, 3 in 6/8). */
   let beatsPerBar = 4;
   /** While an audition runs: the ids of its own steps, kept out of HISTORY and undone after. */
@@ -562,6 +566,22 @@ export function createAbletonIntegration(options: Options): Integration {
     if (Buffer.byteLength(text) > 64 * 1024) return { text: "Result too large; narrow fields/parent/page.", isError: true };
     return { text, isError: false };
   }
+  /**
+   * The devices on a few tracks (by their place), read through the model's own path so their references
+   * are current for it: what it would otherwise spend a reply discovering. Undefined when any read fails.
+   */
+  async function devicesOf(trackIndexes: readonly number[], signal: AbortSignal): Promise<JsonObject | undefined> {
+    if (currentEpoch === undefined || !trackIndexes.length || trackIndexes.length > 4) return undefined;
+    const now: JsonObject = {};
+    for (const index of trackIndexes) {
+      const trackRef = `${currentEpoch}:track:${index}`;
+      const read = await invoke("live_discover", { kind: "device", parent: trackRef, fields: ["ref", "name", "className"] }, signal);
+      if (read.isError) return undefined;
+      const live = object(object(JSON.parse(read.text)).live);
+      now[shortRef(trackRef)] = { ...(known.get(trackRef)?.name ? { track: known.get(trackRef)!.name } : {}), devices: Array.isArray(live.items) ? live.items : [] };
+    }
+    return now;
+  }
   async function invoke(name: string, input: JsonObject, originalSignal: AbortSignal) {
     const signal = AbortSignal.any([originalSignal, lifetime.signal]);
     let reading = false;
@@ -819,7 +839,7 @@ export function createAbletonIntegration(options: Options): Integration {
    * named or its value is given as Live shows it. HISTORY gets the change as ever, and its undo puts
    * back only what's still where Kumi left it.
    */
-  async function fastParameters(kind: ChangeKind, input: JsonObject, signal: AbortSignal): Promise<{ text: string; isError: boolean }> {
+  async function fastParameters(kind: ChangeKind, input: JsonObject, signal: AbortSignal): Promise<{ text: string; isError: boolean; missed?: number }> {
     const deviceRef = typeof input.deviceRef === "string" ? input.deviceRef : undefined;
     if (!deviceRef) return { text: "Name the device (deviceRef) whose parameter this is.", isError: true };
     if (fastGeneration !== observationGeneration) { fastFound.clear(); fastGeneration = observationGeneration; }
@@ -835,6 +855,9 @@ export function createAbletonIntegration(options: Options): Integration {
     }
     const key = (step: (typeof steps)[number]) => step.ref ?? `${deviceRef}\u0000${step.name!.trim().toLowerCase()}`;
     const mapKey = (step: (typeof steps)[number], index?: number) => step.ref ?? `${deviceRef}\u0000#${index}`;
+    // A parameter the device doesn't have, or a value Kumi can't place, is set aside, not a reason to set none:
+    // the rest go to Live, and the model fixes only these, knowing the device's parameters.
+    const missed: { parameter: string; why: string }[] = []; const dropped = new Set<(typeof steps)[number]>(); let onDevice: string[] | undefined;
     // The first trip, for what Kumi doesn't know yet: a named parameter's place, Live's text across a range.
     const unknown = steps.filter((step) => (step.name && !step.ref && !fastFound.has(key(step))) || (step.text !== undefined && !displayMaps.has(mapKey(step, fastFound.get(key(step))?.index))));
     if (unknown.length) {
@@ -843,7 +866,11 @@ export function createAbletonIntegration(options: Options): Integration {
       const rows = Array.isArray(found.result) ? found.result.map((row) => object(row)) : [];
       for (const [index, step] of unknown.entries()) {
         const row = rows[index] ?? {};
-        if (Array.isArray(row.missing)) return { text: `The device has no parameter called ${JSON.stringify(step.name!.slice(0, 64))}; its parameters include ${row.missing.slice(0, 12).join(", ")}.`, isError: true };
+        if (Array.isArray(row.missing)) {
+          missed.push({ parameter: step.name!.slice(0, 64), why: "the device has no parameter by that name" }); dropped.add(step);
+          onDevice = row.missing.filter((name): name is string => typeof name === "string");
+          continue;
+        }
         if (typeof row.error === "string" || typeof row.name !== "string" || typeof row.min !== "number" || typeof row.max !== "number") {
           // The script says why in plain words (a device deleted in Live, references gone stale); anything else, as Live said it.
           const why = String(row.error ?? "Live didn't answer");
@@ -858,22 +885,26 @@ export function createAbletonIntegration(options: Options): Integration {
     // Each value as the parameter takes it, and where the parameter is.
     const targets: (FastTarget & { value: number })[] = [];
     for (const step of steps) {
+      if (dropped.has(step)) continue;
       const place = step.ref ? undefined : fastFound.get(key(step))!;
       const target: FastTarget = step.ref ? { ref: step.ref } : { device: deviceRef, index: place!.index, name: place!.name };
       let value = step.number;
       if (value === undefined) {
         const placed = valueForDisplay(displayMaps.get(mapKey(step, place?.index))!, step.text!);
-        if (typeof placed === "string") return { text: placed, isError: true };
+        if (typeof placed === "string") { missed.push({ parameter: place?.name ?? step.name ?? "a parameter", why: placed }); continue; }
         value = placed;
       }
       targets.push({ ...target, value });
     }
+    const misses = missed.length ? { missed, ...(onDevice ? { parametersOnDevice: onDevice } : {}) } : {};
+    // Nothing left to set: nothing changed, and the model learns why (a plan carries on past it).
+    if (!targets.length) return { text: JSON.stringify({ changed: null, ...misses }), isError: true, missed: missed.length };
     signal.throwIfAborted();
     changesThisTurn++;
     const set = await runFast(setScript(targets), AbortSignal.any([lifetime.signal, AbortSignal.timeout(changeTimeoutMs)]));
     if ("error" in set) {
-      if (!set.sent) return { text: `Live didn't change ${steps.length === 1 ? "it" : "them"}: ${set.error}`, isError: true };
-      remember(newRecord(kind, { title: `${steps.length === 1 ? steps[0]!.name ?? "A parameter" : `${steps.length} parameters`} (unconfirmed)` }, "unsure", now().getTime()), "");
+      if (!set.sent) return { text: `Live didn't change ${targets.length === 1 ? "it" : "them"}: ${set.error}`, isError: true };
+      remember(newRecord(kind, { title: `${targets.length === 1 ? ("name" in targets[0]! ? targets[0].name : "A parameter") : `${targets.length} parameters`} (unconfirmed)` }, "unsure", now().getTime()), "");
       return { text: "Live didn't confirm this change, so it may or may not have happened. Tell the producer to check Live; discover again before more changes.", isError: true };
     }
     const result = object(set.result);
@@ -889,8 +920,8 @@ export function createAbletonIntegration(options: Options): Integration {
     const entry = changes.get(record.id);
     if (entry) entry.revert = targets.map((target, index) => ({ ...(("ref" in target) ? { ref: target.ref } : { device: target.device, index: target.index }), name: rows[index]!.name, prior: rows[index]!.prior, applied: rows[index]!.value }));
     const reply = { changed: record.title, change: record.id, state: record.state, ...(summary.lines?.length ? { lines: summary.lines } : {}),
-      live: { parameters: rows.map((row) => ({ name: row.name, value: row.value, displayValue: row.display })) } };
-    return { text: JSON.stringify(reply), isError: false };
+      live: { parameters: rows.map((row) => ({ name: row.name, value: row.value, displayValue: row.display })) }, ...misses };
+    return { text: JSON.stringify(reply), isError: false, ...(missed.length ? { missed: missed.length } : {}) };
   }
   /** A fast change undone: its parameters put back, each only if it's still where Kumi left it. */
   async function fastRevert(revert: FastRevert[], signal: AbortSignal): Promise<{ back: number; moved: string[]; gone: string[] } | string> {
@@ -1119,6 +1150,15 @@ export function createAbletonIntegration(options: Options): Integration {
     signal.addEventListener("abort", nudge, { once: true });
     const made = new Map<string, string>();
     const done: JsonObject[] = [];
+    /**
+     * Parameters a step named that its device doesn't have (or values Kumi couldn't place): the plan carries on
+     * past them, and says them at the end with each device's parameters, so one more step fixes them all.
+     */
+    const missed: JsonObject[] = []; const parametersOn = new Map<string, unknown>();
+    const miss = (steps: string, deviceRef: unknown, reply: JsonObject) => {
+      missed.push({ steps, deviceRef: deviceRef ?? null, missed: reply.missed ?? null });
+      if (typeof deviceRef === "string" && reply.parametersOnDevice) parametersOn.set(deviceRef, reply.parametersOnDevice);
+    };
     /** Where the copy of the Set this plan kept first is, if it kept one. */
     let copy: string | undefined; let copyChecked = false;
     // Steps in a row on one device become one change, in one Live request, when the bridge can:
@@ -1210,7 +1250,8 @@ export function createAbletonIntegration(options: Options): Integration {
           const outcome = await change(batch.kind, batch.input(inputs), signal, confirmed);
           let reply: JsonObject = {};
           try { reply = JSON.parse(outcome.text) as JsonObject; } catch { reply = {}; }
-          if (outcome.isError) return stop(`${batch.what} ${step}–${step + run - 1}, as one change: ${outcome.text}`);
+          if (outcome.isError && !outcome.missed) return stop(`${batch.what} ${step}–${step + run - 1}, as one change: ${outcome.text}`);
+          if (outcome.missed) miss(`${step}–${step + run - 1}`, inputs[0]!.deviceRef, reply);
           const lines = Array.isArray(reply.lines) ? reply.lines : [];
           for (let offset = 0; offset < run; offset++) done.push({ step: step + offset, changed: typeof lines[offset] === "string" ? lines[offset] : reply.changed ?? null, change: reply.change ?? null });
           index += run;
@@ -1248,7 +1289,8 @@ export function createAbletonIntegration(options: Options): Integration {
         const outcome = await change(kind!, stepInput, signal, confirmed);
         let reply: JsonObject = {};
         try { reply = JSON.parse(outcome.text) as JsonObject; } catch { reply = {}; }
-        if (outcome.isError) return stop(typeof reply.changed === "string" ? `${reply.changed}: ${outcome.text}` : outcome.text);
+        if (outcome.isError && !outcome.missed) return stop(typeof reply.changed === "string" ? `${reply.changed}: ${outcome.text}` : outcome.text);
+        if (outcome.missed) miss(String(step), stepInput.deviceRef, reply);
         if (typeof item.as === "string" && typeof reply.ref === "string") made.set(item.as, reply.ref);
         done.push({ step, changed: reply.changed ?? null, change: reply.change ?? null, ...(typeof reply.ref === "string" ? { ref: reply.ref } : {}), ...(Array.isArray(reply.lines) ? { lines: reply.lines } : {}) });
         index++;
@@ -1297,14 +1339,18 @@ export function createAbletonIntegration(options: Options): Integration {
         const stopped = await settled;
         const kept = copy ? { copy, copyNote: "Before this, Kumi kept a copy of the Set as last saved, next to it. Tell the producer in a few words, with the file's name." } : {};
         await until(() => closed || abandoned);
+        // Parameters set aside along the way, with what each device has, for one more step to fix them all.
+        const misses = missed.length ? { missed, parametersOnDevice: Object.fromEntries(parametersOn),
+          missedNote: "These parameters weren't set (the rest of the plan was): name them as the device has them (parametersOnDevice), or give values it can take, in one more make_changes." } : {};
         if (stopped) {
           // A plan refused before anything happened says only why.
           if (!done.length && failure?.at === 0) return { text: failure.error, isError: true };
-          return { text: JSON.stringify({ done, stopped, ...(steps.length > stopped.step ? { skipped: steps.length - stopped.step } : {}), ...kept }), isError: true };
+          return { text: JSON.stringify({ done, stopped, ...(steps.length > stopped.step ? { skipped: steps.length - stopped.step } : {}), ...misses, ...kept }), isError: true };
         }
         if (!done.length) return { text: `Give 1 to ${MAX_CHANGES_PER_TURN} steps in all.`, isError: true };
-        const text = JSON.stringify({ done, ...kept });
-        if (!final) return { text, isError: false };
+        const text = JSON.stringify({ done, ...misses, ...kept });
+        // With parameters left to fix, the model carries on even when the plan was meant to be the last word.
+        if (!final || missed.length) return { text, isError: false };
         // The plan finished the request: Kumi says what changed, sparing the producer a model reply.
         // A line for each thing changed: a change of several parameters gives one for each.
         const lines = done.flatMap((item) => Array.isArray(item.lines) ? item.lines : [item.changed]).filter((line): line is string => typeof line === "string" && line.length > 0);
@@ -1315,7 +1361,7 @@ export function createAbletonIntegration(options: Options): Integration {
   }
 
   /** `settled`: an earlier change in the same plan just confirmed Live's epoch, so it isn't read again. */
-  async function change(kind: ChangeKind, named: JsonObject, originalSignal: AbortSignal, settled = false): Promise<{ text: string; isError: boolean }> {
+  async function change(kind: ChangeKind, named: JsonObject, originalSignal: AbortSignal, settled = false): Promise<{ text: string; isError: boolean; missed?: number }> {
     const signal = AbortSignal.any([originalSignal, lifetime.signal]);
     const input = lengthen(named) as JsonObject;
     const lease = observationGeneration;
@@ -1417,12 +1463,16 @@ export function createAbletonIntegration(options: Options): Integration {
       // parameter and chain references (and their short names) are retired.
       const shifted = DEVICE_SHIFTS.has(kind.tool);
       if (shifted || kind.restructures) fastFound.clear();
+      // The devices of the tracks involved as they are now, with references the model can use at once: one
+      // read of Live's (a display tick) instead of a model call to discover them.
+      let devicesNow: JsonObject | undefined;
       if (shifted) {
         const tracks = new Set([args.deviceRef, args.ref, args.targetTrackRef, args.targetChainRef].filter((value): value is string => typeof value === "string")
           .map((ref) => trackIndexOf(ref)).filter((index): index is number => index !== undefined));
         for (const ref of new Set([...refs.keys(), ...shortRefs.keys()])) {
           if (/:(?:device|parameter|chain|drum_pad):/.test(ref) && !/:mixer:/.test(ref) && tracks.has(trackIndexOf(ref) ?? -1)) retire(ref);
         }
+        devicesNow = await devicesOf([...tracks], signal).catch(() => undefined);
       }
       // What the change made (a new track, a loaded device) is usable at once, without discovering it.
       const produced = kind.produces?.(result);
@@ -1433,7 +1483,9 @@ export function createAbletonIntegration(options: Options): Integration {
       const reply = { changed: record.title, change: record.id, state: record.state, ...(produced ? { ref: shortRef(produced.ref) } : {}), ...(lines?.length ? { lines } : {}),
         ...(kind.restructures ? { note: kind.tool === "add_tracks_and_scenes" ? "Tracks and scenes after the new ones moved (return tracks among them): discover those again; earlier references still work, and the new ones in live.created are current."
           : "Track and scene positions moved; discover again before using earlier references (the new ones in live.created are current)." } : {}),
-        ...(shifted ? { note: "Devices on the tracks involved moved along their chains: discover them (and their parameters) again before using earlier references." } : {}) };
+        ...(shifted ? devicesNow
+          ? { devicesNow, note: "Devices on the tracks involved moved along their chains: devicesNow has each track's devices as they are now, with current references; earlier device references on those tracks are retired (discover inside racks again)." }
+          : { note: "Devices on the tracks involved moved along their chains: discover them (and their parameters) again before using earlier references." } : {}) };
       const full = JSON.stringify({ ...reply, live: shorten(result) });
       return { text: Buffer.byteLength(full) <= 16 * 1024 ? full : JSON.stringify(reply), isError: record.state !== "applied" && !permanent };
     } catch (error) {
@@ -3090,8 +3142,14 @@ async function clipFile(named: string, originalSignal: AbortSignal): Promise<str
       name: kind.tool, description: kind.description, inputSchema: kind.inputSchema ?? tools!.tool(kind.preview)!.inputSchema as JsonObject,
       execute: async (input, signal) => { const outcome = await act(kind, input, signal); return { text: outcome.text, isError: outcome.isError }; } }));
     const undo: KernelTool[] = tools!.has("live_undo") ? [{ name: UNDO_TOOL, description: UNDO_DESCRIPTION,
-      inputSchema: { type: "object", properties: { change: { type: "string", minLength: 1, maxLength: 32, description: "A change id such as c3, or \"last\"" } }, required: ["change"], additionalProperties: false },
-      execute: async (input, signal) => { const outcome = await undoChange(typeof input.change === "string" ? input.change : "last", signal); return { text: outcome.text, isError: outcome.isError }; } }] : [];
+      inputSchema: { type: "object", properties: { change: { type: "string", minLength: 1, maxLength: 32, description: "A change id such as c3, or \"last\"" },
+        final: { type: "boolean", description: "true when the undo completes the request: Kumi tells the producer, and the answer ends there" } }, required: ["change"], additionalProperties: false },
+      execute: async (input, signal) => {
+        const outcome = await undoChange(typeof input.change === "string" ? input.change : "last", signal);
+        // An undo that finishes the request is said by Kumi, sparing the producer a model reply.
+        const title = outcome.record?.title;
+        return { text: outcome.text, isError: outcome.isError, ...(input.final === true && !outcome.isError && title ? { reply: `Undone: ${title}.` } : {}) };
+      } }] : [];
     const sampleSearch: KernelTool = { name: FIND_SAMPLES, description: FIND_SAMPLES_DESCRIPTION, inputSchema: FIND_SAMPLES_SCHEMA,
       execute: async (input, signal) => {
         const named = Array.isArray(input.folders) ? input.folders.filter((folder): folder is string => typeof folder === "string") : [];
@@ -3321,7 +3379,9 @@ async function clipFile(named: string, originalSignal: AbortSignal): Promise<str
         // of one tick each, and the Set can't change between them; each carries the epoch, checked
         // against the status's.
         const setArgs = discoveryArgs({ kind: "set", fields: [...FIELDS.set!, "filePath"] });
-        const trackArgs = discoveryArgs({ kind: "track", fields: ["name", "kind", "mediaKind", "groupTrackRef"], limit: pageLimit(), budget: wholeBudget() });
+        // Each track's level and pan as Live shows them, so "a bit quieter" needs no read first (a model call
+        // saved); left out on a big Set, where reading every mixer would slow every turn's look at it.
+        const trackArgs = discoveryArgs({ kind: "track", fields: ["name", "kind", "mediaKind", "groupTrackRef", ...(lastTrackCount <= MIXER_TRACKS ? ["mixer"] : [])], limit: pageLimit(), budget: wholeBudget() });
         const deviceArgs = discoveryArgs({ kind: "device", fields: ["parentRef", "name", "className", "chainList"], limit: pageLimit(), budget: wholeBudget() });
         const settle = <T>(work: Promise<T>): Promise<{ value: T } | { error: unknown }> => work.then((value) => ({ value }), (error: unknown) => ({ error }));
         const song = tools!.has("live_song_state") ? settle(tools!.call("live_song_state", {}, signal, { host: true }).then(payload)) : Promise.resolve(undefined);
@@ -3361,8 +3421,13 @@ async function clipFile(named: string, originalSignal: AbortSignal): Promise<str
           if (!tracksRead.value.isError) {
             const trackPage = discoveryPayload(tracksRead.value, "track", epoch);
             registerRows("track", trackPage.items, trackArgs, trackPage.nextCursor);
-            trackList = trackPage.items.map((item) => ({ ref: typeof item.ref === "string" ? shortRef(item.ref) : null, name: typeof item.name === "string" ? item.name.slice(0, 120) : null, type: item.kind === "group" ? "group" : item.mediaKind ?? item.kind ?? null,
-              ...(typeof item.groupTrackRef === "string" ? { group: shortRef(item.groupTrackRef) } : {}) }));
+            trackList = trackPage.items.map((item) => {
+              const mixer = object(item.mixer ?? {});
+              return { ref: typeof item.ref === "string" ? shortRef(item.ref) : null, name: typeof item.name === "string" ? item.name.slice(0, 120) : null, type: item.kind === "group" ? "group" : item.mediaKind ?? item.kind ?? null,
+                ...(typeof item.groupTrackRef === "string" ? { group: shortRef(item.groupTrackRef) } : {}),
+                ...(typeof mixer.volumeDisplay === "string" ? { volume: mixer.volumeDisplay.slice(0, 24) } : {}), ...(typeof mixer.panDisplay === "string" ? { pan: mixer.panDisplay.slice(0, 24) } : {}) };
+            });
+            lastTrackCount = trackPage.items.length + (trackPage.nextCursor ? MIXER_TRACKS : 0);
             moreTracks = Boolean(trackPage.nextCursor) || trackPage.truncated === true;
             // And the devices on them, so a request about a track's sound goes straight to its parameters.
             try {

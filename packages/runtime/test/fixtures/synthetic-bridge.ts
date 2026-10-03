@@ -138,7 +138,9 @@ export function bridge(options: Options = {}) {
           ? tracks.map((track, index) => {
             // In a big Set, every fourth track (from the third) is a group holding the three after it.
             const big = index - 2; const group = options.bigSet && big >= 0 ? (big % 4 === 0 ? undefined : `7:track:${index - (big % 4)}`) : undefined;
-            return { ref: `7:track:${index}`, parentRef: set.ref, name: track.name, color: track.color, armed: track.armed === true, isFrozen: track.frozen === true, ...(options.bigSet && big >= 0 && big % 4 === 0 ? { kind: "group" } : {}), ...(group ? { groupTrackRef: group } : {}) };
+            // A mixer as the bridge shows it, when it's asked for.
+            const mixer = Array.isArray(args.fields) && args.fields.includes("mixer") ? { mixer: { volume: 0.85, pan: index % 2 ? -0.5 : 0, volumeDisplay: "0.0 dB", panDisplay: index % 2 ? "25L" : "C" } } : {};
+            return { ref: `7:track:${index}`, parentRef: set.ref, name: track.name, color: track.color, armed: track.armed === true, isFrozen: track.frozen === true, ...(options.bigSet && big >= 0 && big % 4 === 0 ? { kind: "group" } : {}), ...(group ? { groupTrackRef: group } : {}), ...mixer };
           })
           : args.kind === "selection" ? [{ ref: "7:selection:0", selectedTrackRef: "7:track:0" }]
           : args.kind === "main-track" ? [{ ref: "7:main_track:0", parentRef: set.ref, name: "Main", kind: "main", mixer: { volume: main.volume } }]

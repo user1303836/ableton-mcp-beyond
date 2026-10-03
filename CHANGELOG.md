@@ -3,6 +3,26 @@
 Kumi's releases. The Ableton bridge (`apps/mcp-server`) is versioned on its own;
 each Kumi release names the bridge it ships with.
 
+## Unreleased
+
+Kumi gets to the answer in fewer model replies, which are most of a request's time (each takes
+several seconds).
+
+- Building a chain: devices are loaded and their parameters set by name in one plan, with values as
+  Live shows them, without reading the parameters first. A parameter name a device doesn't have, or a
+  value it can't take, no longer stops the plan: the rest runs, and the result lists what was missed
+  with every parameter each device has, so one more plan fixes them all.
+- Each turn's look at the Set has every track's level and pan (on a Set of up to 64 tracks), so
+  "make the bass a bit quieter" is one reply instead of two.
+- After a device is moved or deleted, the result lists its track's devices as they are now, instead
+  of asking the model to read them again.
+- Asking Kumi to undo something ends with Kumi's own reply ("Undone: …"), without a model reply after it.
+- `make_device` says where it wrote the device's file, so working on the device later starts there
+  instead of searching for it.
+- The change eval (`npm run eval:changes`) counts each case's model calls and its tools' time, takes
+  `EVAL_EFFORT`, and has every parameter of Live's Operator, Saturator and EQ Eight; its bridge tools
+  are up to date with the bridge's.
+
 ## 1.7.3 — 2026-10-03
 
 Kumi says plainly when a device it's working on was deleted in Live. Ships with bridge 1.0.73, as 1.7.0, 1.7.1 and 1.7.2 did.

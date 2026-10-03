@@ -190,7 +190,8 @@ export function deviceTool(options: DeviceToolOptions): KernelTool {
         signal.throwIfAborted();
       }
       const kumiControls = spec.type === "audio_effect" ? [MIX, OUTPUT] : spec.type === "instrument" ? [OUTPUT] : [];
-      return { text: JSON.stringify({ made: name, type: KIND_NAMES[spec.type], itemId, controls: [...spec.controls, ...kumiControls].map(describeControl),
+      // The file too, so a later look at it (or a change to it) doesn't start by searching for it.
+      return { text: JSON.stringify({ made: name, type: KIND_NAMES[spec.type], itemId, file, controls: [...spec.controls, ...kumiControls].map(describeControl),
         ...(spec.type === "instrument" ? { voices: spec.voices } : {}), checks: tested,
         ...(seen ? {} : { note: "Live's Browser hasn't listed it yet; load it in a moment." }),
         next: NEXT[spec.type] }) };

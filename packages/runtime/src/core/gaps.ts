@@ -12,7 +12,7 @@ import { KUMI_VERSION } from "../version.js";
 
 export const GAP_TOOL = "note_gap";
 /** When the model notes a gap, for the instructions whenever the tool is offered. */
-export const GAP_GUIDANCE = "When a request needs something Kumi's tools or Live's scripting don't offer, take the way round first (another tool, a plan of several, a recording, a device you make) and do it; then note the gap with note_gap and say in a sentence what you did instead.";
+export const GAP_GUIDANCE = "When a request needs something Kumi's tools or Live's scripting don't offer, take the way round first (another tool, a plan of several, a recording, a device you make) and do it; then note the gap with note_gap, in the same reply as your last plan, and say in a sentence what you did instead.";
 /** The log's size before it's cut to its latest entries. */
 const MAX_BYTES = 256 * 1024;
 const KEEP_LINES = 500;

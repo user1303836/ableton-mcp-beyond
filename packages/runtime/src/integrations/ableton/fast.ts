@@ -74,7 +74,8 @@ export function findScript(items: readonly ({ device: string; parameter: string;
     "            index = next((i for i, n in enumerate(names) if n == wanted), None)",
     "            if index is None: index = next((i for i, n in enumerate(names) if n.startswith(wanted)), None)",
     "            if index is None:",
-    "                out.append({'missing': [str(q.name) for q in ps][:24]})",
+    // All of them (an Operator has a couple of hundred): the model then names the right one in one go.
+    "                out.append({'missing': [str(q.name) for q in ps][:400]})",
     "                continue",
     "            p = ps[index]",
     "        row = {'name': str(p.name), 'min': float(p.min), 'max': float(p.max)}",

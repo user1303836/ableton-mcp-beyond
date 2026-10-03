@@ -200,6 +200,38 @@ test("moving a device retires its track's device references, so a later step can
   } finally { await b.integration.close(); }
 });
 
+test("moving a device says where its track's devices are now, with references the model can use at once", async () => {
+  const b = await opened({ racks: true, version: FIXED_BRIDGE });
+  try {
+    const devices = JSON.parse((await tool(b.tools, "live_discover").execute({ kind: "device", parent: "track:1" }, signal())).text) as { live: { items: JsonObject[] } };
+    const reverb = String(devices.live.items.find((row) => row.name === "Reverb")!.ref);
+    const moved = JSON.parse((await tool(b.tools, "move_device").execute({ deviceRef: reverb, index: 0 }, signal())).text) as { devicesNow?: Record<string, { track?: string; devices: JsonObject[] }>; note: string };
+    assert.match(moved.note, /devicesNow has each track's devices as they are now/);
+    const now = Object.values(moved.devicesNow ?? {});
+    assert.equal(now.length, 1);
+    assert.equal(now[0]!.track, "Fixture Bass");
+    // A reference from it works at once, with no discovery in between.
+    const rack = String(now[0]!.devices.find((row) => row.name === "Instrument Rack")!.ref);
+    const switched = await tool(b.tools, "switch_device").execute({ deviceRef: rack, enabled: false }, signal());
+    assert.equal(switched.isError, false, switched.text);
+  } finally { await b.integration.close(); }
+});
+
+test("each turn's look at the Set has every track's level and pan, and leaves them out on a big Set", async () => {
+  const b = await opened();
+  try {
+    const context = JSON.parse(b.observation.context) as { tracks: JsonObject[] };
+    assert.deepEqual(context.tracks.slice(0, 2).map((track) => [track.volume, track.pan]), [["0.0 dB", "C"], ["0.0 dB", "25L"]]);
+  } finally { await b.integration.close(); }
+  const big = await opened({ bigSet: 80 });
+  try {
+    const fields = () => big.requests.filter((request) => request.name === "live_discover" && request.args.kind === "track" && request.args.parent === undefined).map((request) => request.args.fields as string[]);
+    assert.ok(fields()[0]!.includes("mixer"), "the first look doesn't know the Set's size yet");
+    await big.integration.observe(signal());
+    assert.ok(!fields().at(-1)!.includes("mixer"), "past 64 tracks, the next look leaves the mixers out");
+  } finally { await big.integration.close(); }
+});
+
 test("recording starts after Kumi disarms any other armed track, each a change with its undo, and says which", async () => {
   const b = await opened({ transport: true, version: FIXED_BRIDGE });
   try {

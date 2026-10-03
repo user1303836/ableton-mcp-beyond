@@ -83,17 +83,27 @@ as few replies as it can.
   in order. A step names what it makes (`as: "rack"`) and later steps use it
   (`"@rack"`). `each` repeats a step over a list (`{"note": [36, 37, 38]}`). The
   plan stops at the first failure and says what was done and what was skipped.
+- **A wrong parameter name isn't a stop.** A device's parameters are set by name
+  in the same plan that loads it ("@op", "Osc-B Fine", "50 %"), with no read
+  first. A name the device doesn't have, or a value it can't take, is set aside:
+  the rest of the plan runs, and its result lists what was missed with every
+  parameter each device has, so one more plan fixes them all. With anything
+  missed, `final: true` doesn't end the answer.
 - **Changes start while the plan is written.** Each step runs as soon as it's
   complete, while the model writes the rest. NOW says "writing the plan", then
   shows each change as it lands.
 - **No extra reply.** With `final: true`, Kumi lists what changed itself when
-  every step is done, and the answer ends there.
+  every step is done, and the answer ends there. `undo_change` takes `final`
+  too, for an undo that's all you asked for.
 - **Batches.** Several pad loads on one rack, or several parameters on one
   device, become one change: one request to Live, one HISTORY row, one undo.
   Parameters are set the [shorter way](#how-a-change-works).
 - **Less to discover.** Each turn starts with the Set's tracks, devices and rack
   chains already listed, with references the model can use at once, and short
-  names for Live's long references (`track:5`).
+  names for Live's long references (`track:5`). On a Set of up to 64 tracks,
+  each track's level and pan are there too, so "a bit quieter" needs no read.
+  After a device is moved or deleted, the result lists its track's devices as
+  they are now. `make_device` says where it wrote the device's file.
 
 ## What Kumi can change
 

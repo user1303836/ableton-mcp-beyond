@@ -40,7 +40,8 @@ test("the observation of a 200-track Set stays small: the selected track keeps i
     assert.ok(Buffer.byteLength(b.observation.context) < 16 * 1024, `the observation is ${Buffer.byteLength(b.observation.context)} bytes`);
     assert.equal(context.folded, FOLDED_NOTE);
     assert.equal(context.tracks.length, 202, "all 202 tracks are listed");
-    assert.deepEqual(context.tracks[0], { ref: "track:1", name: "Fixture Bass", type: null }, "the selected track, in full");
+    // The first look doesn't know the Set is big yet, so it has the mixers; the folded lines leave them out.
+    assert.deepEqual(context.tracks[0], { ref: "track:1", name: "Fixture Bass", type: null, volume: "0.0 dB", pan: "C" }, "the selected track, in full");
     assert.equal(context.tracks[3], "track:4 Part 2 (in track:3) · Operator, EQ Eight +2");
     assert.match(String(context.tracks[2]), /^track:3 Bus 1 \(group\) · Operator/);
     // A track Kumi changes comes into focus next turn (one per name, however many share it).
@@ -50,6 +51,7 @@ test("the observation of a 200-track Set stays small: the selected track keeps i
     const tracks = (JSON.parse(next.context) as { tracks: Array<JsonObject | string> }).tracks;
     assert.equal(tracks.length, 202);
     assert.equal((tracks[5] as JsonObject).name, "Part 4", "the changed track, in full");
+    assert.equal((tracks[5] as JsonObject).volume, undefined, "past 64 tracks, later looks don't read the mixers");
     assert.equal(tracks.filter((row) => typeof row === "object").length, 2, "the selected track and the changed one");
   } finally { await b.integration.close(); }
 });

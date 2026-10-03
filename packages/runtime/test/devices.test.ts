@@ -142,6 +142,8 @@ test("make_device reads its guide on demand, makes a device where Live's Browser
   assert.equal(made.isError, undefined, made.text);
   const result = JSON.parse(made.text) as Record<string, unknown>;
   assert.equal(result.itemId, "user_library/Kumi/Lowest Note");
+  // Where it is too, so looking at it again needs no search.
+  assert.equal(result.file, join(folder, "Kumi", "Lowest Note.amxd"));
   assert.deepEqual(result.controls, ["Window (1–50 ms; 15)"]);
   assert.match(String(result.checks), /4 of 4/);
   assert.equal(result.note, undefined, "the Browser listed it");
