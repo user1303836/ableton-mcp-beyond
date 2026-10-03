@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
-import { setupBridge, type BridgeSetupIo, type Ran } from "../src/bridge-setup.js";
+import { systemProgram } from "@kumi/runtime";
+import { isLiveRunning, setupBridge, type BridgeSetupIo, type Ran } from "../src/bridge-setup.js";
 import { formerExtensionsDir, liveExtensionsDir, removeFormerExtension } from "../src/live-extension.js";
 
 /** A repository bridge at `bundled`, Live's Remote Scripts folder, and (with `installed`) a bridge installed there. */
@@ -273,4 +274,16 @@ test("on Windows, the extension Kumi 1.6.0 put in %APPDATA%\\Ableton, which Live
     assert.equal(removeFormerExtension(env, "win32"), true);
     assert.equal(existsSync(join(former, "kumi.kumi")), false); assert.equal(existsSync(join(former, "someone.else")), true);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("on Windows, whether Live is open is asked of Get-Process, which answers in a moment; tasklist only when PowerShell won't start", { skip: process.platform !== "win32" && "Windows only" }, async () => {
+  const asked: string[] = [];
+  const ran = (code: number, stdout: string): Ran => ({ code, stdout, stderr: "" });
+  const computer = (powershell: Ran, tasklist: Ran) => async (command: string) => { asked.push(command); return command === systemProgram("powershell") ? powershell : tasklist; };
+  assert.equal(await isLiveRunning(computer(ran(0, "1138176\r\n"), ran(0, ""))), true);
+  assert.equal(await isLiveRunning(computer(ran(0, ""), ran(0, "Ableton Live 12 Suite.exe  4242 Console  1  900,000 K"))), false, "Get-Process's answer stands");
+  assert.deepEqual(asked, [systemProgram("powershell"), systemProgram("powershell")], "tasklist isn't asked");
+  asked.length = 0;
+  assert.equal(await isLiveRunning(computer(ran(1, ""), ran(0, "Ableton Live 12 Suite.exe  4242 Console  1  900,000 K"))), true);
+  assert.deepEqual(asked, [systemProgram("powershell"), systemProgram("tasklist")]);
 });

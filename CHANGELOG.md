@@ -5,12 +5,17 @@ each Kumi release names the bridge it ships with.
 
 ## Unreleased
 
-Kumi's commands show they're working.
+Kumi's commands show they're working, and `kumi bridge` gets past its first line in moments on
+Windows.
 
 - `kumi bridge`, `kumi update`, `update --check`, `uninstall`, `doctor`, `report` and `login`
   show a small spinner after each step's line while it runs ("Updating Live's Remote Script and
   the bridge… ⠹"), so a step that takes a minute doesn't look stuck. The line stays once the
   step is done. Piped output, `KUMI_UI=plain` and `TERM=dumb` get the plain lines, as before.
+- On Windows, `kumi bridge` and `kumi update` sat on "Updating it takes a minute." for over a
+  minute on some computers before asking whether Live is closed: `tasklist`, which Kumi asked
+  whether Live was running, took 78 seconds on one. Kumi now asks PowerShell's `Get-Process`,
+  which answers in about a second, and falls back to `tasklist` only when PowerShell won't start.
 - Running from a checkout on Windows with Node 24, packing the bridge no longer prints Node's
   DEP0190 warning.
 

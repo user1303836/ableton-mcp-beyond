@@ -94,10 +94,18 @@ export function remoteScriptAnswers(configPath: string): Promise<boolean> {
   });
 }
 
-/** Whether Live is running: on macOS its process is "Live"; on Windows, "Ableton Live … .exe". */
+/**
+ * Whether Live is running: on macOS its process is "Live"; on Windows, "Ableton Live … .exe". Windows
+ * asks Get-Process, which answers in about a second; tasklist, used only when PowerShell won't start,
+ * took over a minute on one computer for the same answer, with nothing on screen meanwhile.
+ */
 export async function isLiveRunning(run: NonNullable<BridgeSetupIo["run"]>): Promise<boolean> {
   if (process.platform === "darwin") return (await run("pgrep", ["-x", "Live"])).code === 0;
-  if (process.platform === "win32") return /Ableton Live/i.test((await run(systemProgram("tasklist"), ["/FI", "IMAGENAME eq Ableton Live*", "/NH"])).stdout);
+  if (process.platform === "win32") {
+    const asked = await run(systemProgram("powershell"), ["-NoProfile", "-NonInteractive", "-Command", "Get-Process -Name 'Ableton Live*' -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Id"]);
+    if (asked.code === 0) return /\d/.test(asked.stdout);
+    return /Ableton Live/i.test((await run(systemProgram("tasklist"), ["/FI", "IMAGENAME eq Ableton Live*", "/NH"])).stdout);
+  }
   return false;
 }
 
