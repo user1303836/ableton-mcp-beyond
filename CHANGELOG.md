@@ -6,7 +6,9 @@ each Kumi release names the bridge it ships with.
 ## Unreleased
 
 Kumi gets to the answer in fewer model replies, which are most of a request's time (each takes
-several seconds).
+several seconds). Across the change eval's 22 requests with gpt-6.1-sol, model calls went from 84 to
+70 and the model's time from 658 to 481 seconds; building a sound from a tutorial went from 10 calls
+to 5–7, and "make the bass a bit quieter" from 2 to 1.
 
 - Building a chain: devices are loaded and their parameters set by name in one plan, with values as
   Live shows them, without reading the parameters first. A parameter name a device doesn't have, or a
