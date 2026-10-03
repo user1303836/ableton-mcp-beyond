@@ -312,7 +312,9 @@ const CASES = [
     check: ({ gaps, changes }) => gaps.length >= 1 && /freez/i.test(JSON.stringify(gaps)) && changes.length === 0 },
   // A tiny context budget, so earlier reads are cleared and the earliest exchanges dropped along the way.
   { name: "long conversation", budget: { clearAt: 4 * 1024, limit: 8 * 1024 },
-    prompts: ["List the tracks with their volumes.", "Make the bass a bit quieter.", "Rename Keys to Rhodes.", "Set the tempo to 126.", "List the tracks with their volumes again.", "What's the tempo now, and what's the third track called?"],
+    // Track levels come with each turn's look at the Set; an Operator's 195 parameters are a read big enough to clear.
+    prompts: ["List the tracks with their volumes.", "Make the bass a bit quieter.", "List every parameter of the Operator on the Bass, with its value.", "Rename Keys to Rhodes.", "Set the tempo to 126.",
+      "List the tracks with their volumes again.", "What's the tempo now, and what's the third track called?"],
     check: ({ state, last, conversation }) => state.tempo === 126 && state.tracks[2].name === "Rhodes" && state.tracks[1].volume < 0.85
       && /126/.test(last) && /Rhodes/.test(last) && /Kumi (cleared|removed)/.test(conversation) },
 ];
@@ -448,3 +450,6 @@ try {
   process.stderr.write(`eval: ${safeError(error)}\n`);
   process.exitCode = 1;
 }
+// Every case's session is closed, but something (a model client's keep-alive, say) can still hold the event loop;
+// the results are written, so the eval ends here rather than waiting on it.
+process.exit();
