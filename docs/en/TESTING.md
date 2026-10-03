@@ -99,11 +99,14 @@ run them.
 | Command (from the root) | Needs | What it does |
 | --- | --- | --- |
 | `npm run accept:live --workspace @kumi/app -- --set "<Set>"` | Live with a disposable copy of a Set open | Makes every kind of change Kumi can, undoes each with Kumi's undo, plays, bounces, listens and watches, and times reads of a big Set. No model. |
-| `npm run eval:changes --workspace @kumi/app [-- <case>]` | Your sign-in and model | How the model uses Kumi's tools, against a synthetic bridge with the real bridge's tool schemas. Never touches Live. |
+| `npm run eval:changes --workspace @kumi/app [-- <case>, <case>]` | Your sign-in and model | How the model uses Kumi's tools, against a synthetic bridge with the real bridge's tool schemas. Never touches Live. Each case says its time, its tools' share of it, and how many model calls it took; `EVAL_EFFORT` sets the model's reasoning effort, and `EVAL_TRACE=1` prints each call. |
 | `npm run probe:inference --workspace @kumi/app` | Your sign-in | One authenticated request with a harmless tool. Never touches Live. |
 
 After the bridge's tools change, run `node apps/kumi/scripts/make-bridge-tools.mjs`
-(with the bridge built) to refresh the schemas `eval:changes` uses.
+(with the bridge built) to refresh the schemas `eval:changes` uses. Its Operator,
+Saturator and EQ Eight have every parameter Live 12.4 gives them, read from Live
+into `apps/kumi/scripts/live-devices.json`, and it runs Kumi's own scripts for
+setting parameters as Live does.
 
 The bridge also has an operator-only capture check, `npm run audio:live-verify`
 in `apps/mcp-server`. It needs a bridge installed by the lifecycle and activated

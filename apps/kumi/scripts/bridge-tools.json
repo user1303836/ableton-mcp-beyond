@@ -18,15 +18,6 @@
   }
  },
  {
-  "name": "live_snapshot",
-  "description": "Read a bounded snapshot of the current Live Set through the configured adapter.",
-  "inputSchema": {
-   "type": "object",
-   "properties": {},
-   "additionalProperties": false
-  }
- },
- {
   "name": "live_discover",
   "description": "Read bounded, deterministic parent-scoped Live objects without changing Live state.",
   "inputSchema": {
@@ -1385,6 +1376,35 @@
   }
  },
  {
+  "name": "live_subscribe",
+  "description": "Subscribe to what changes in Live as it happens, sent as notifications/live_event (channel remote-script; each channel numbers its own events): transport (playing, recording), object (the track or scene list), selection (what's selected), name (a track, scene or clip's name or colour), mixer (a track's mute, solo, arm, volume, pan or a send), parameter (the selected device's parameters), structure (tracks, scenes, locators, a track's devices or clips), and reset (read Live again). A fader drag is one event per tick. Right-clicking something in Live and choosing Ask Kumi about this sends a pointed event (channel extension) without subscribing.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "types": {
+     "type": "array",
+     "maxItems": 8,
+     "uniqueItems": true,
+     "items": {
+      "type": "string",
+      "enum": [
+       "transport",
+       "object",
+       "reset",
+       "selection",
+       "name",
+       "mixer",
+       "parameter",
+       "structure"
+      ]
+     }
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  }
+ },
+ {
   "name": "live_project_info",
   "description": "Read the current set's file identity, gzip/XML manifest, referenced media, and missing-media report (metadata only).",
   "inputSchema": {
@@ -2033,6 +2053,879 @@
   }
  },
  {
+  "name": "live_change",
+  "description": "Make one change in one call: runs the named preview tool (tool) with its arguments (args), then its apply on that preview's transaction, and answers with the apply's transaction record, so live_undo undoes it as usual; the preview's own answer is under preview. Give an idempotencyKey to retry safely: the same key with the same change reconciles it instead of making it twice. Changes the producer decides on after seeing their preview (auditions, clip launches, captures, recording, realtime arming, Live's dialogs) aren't fused: preview and apply those with their own tools.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "tool": {
+     "type": "string",
+     "pattern": "^live_[a-z0-9_]+_preview$",
+     "minLength": 1,
+     "maxLength": 128,
+     "description": "A *_preview tool whose family has an *_apply, e.g. live_mixer_preview."
+    },
+    "args": {
+     "type": "object",
+     "description": "The preview tool's own arguments."
+    },
+    "idempotencyKey": {
+     "type": "string",
+     "minLength": 8,
+     "maxLength": 128
+    }
+   },
+   "required": [
+    "tool",
+    "args"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_clip_delete_preview",
+  "description": "Preview deleting one existing clip, in the Session or the Arrangement (clipRef from discovery; not a take lane's clip), fenced to the clip, its track, and its slot and scene or its Arrangement neighbours. The deletion is kept: Kumi can't bring the clip back; Live's undo can. Delete only what the producer asked to remove.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "clipRef": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    }
+   },
+   "required": [
+    "clipRef"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_clip_delete_apply",
+  "description": "Apply an exact, unexpired clip-deletion preview. Refused if the clip or what surrounds it changed since the preview. live_undo can't bring the clip back; Live's undo can.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "transactionId": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "confirmation": {
+     "type": "string",
+     "enum": [
+      "apply"
+     ]
+    },
+    "idempotencyKey": {
+     "type": "string",
+     "minLength": 8,
+     "maxLength": 128
+    }
+   },
+   "required": [
+    "transactionId",
+    "confirmation",
+    "idempotencyKey"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_scene_delete_preview",
+  "description": "Preview deleting one Session scene (sceneRef from discovery) and the clips in its slots, fenced to the scene and the Set's tracks and scenes as they are now. A Set keeps at least one scene. The deletion is kept: Kumi can't bring it back; Live's undo can.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "sceneRef": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    }
+   },
+   "required": [
+    "sceneRef"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_scene_delete_apply",
+  "description": "Apply an exact, unexpired scene-deletion preview. Refused if the Set's tracks or scenes changed since the preview. live_undo can't bring the scene back; Live's undo can.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "transactionId": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "confirmation": {
+     "type": "string",
+     "enum": [
+      "apply"
+     ]
+    },
+    "idempotencyKey": {
+     "type": "string",
+     "minLength": 8,
+     "maxLength": 128
+    }
+   },
+   "required": [
+    "transactionId",
+    "confirmation",
+    "idempotencyKey"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_track_delete_preview",
+  "description": "Preview deleting one audio, MIDI or group track (trackRef from discovery) with its clips and devices; a group goes with every track inside it, nested groups' too, as Live deletes a group (alsoDeletes names them). Fenced to the track and the Set's tracks and scenes as they are now. Return tracks go with live_track_structure; Main stays. The deletion is kept: Kumi can't bring it back; Live's undo can.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "trackRef": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    }
+   },
+   "required": [
+    "trackRef"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_track_delete_apply",
+  "description": "Apply an exact, unexpired track-deletion preview. Refused if the Set's tracks or scenes changed since the preview. live_undo can't bring the track back; Live's undo can.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "transactionId": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "confirmation": {
+     "type": "string",
+     "enum": [
+      "apply"
+     ]
+    },
+    "idempotencyKey": {
+     "type": "string",
+     "minLength": 8,
+     "maxLength": 128
+    }
+   },
+   "required": [
+    "transactionId",
+    "confirmation",
+    "idempotencyKey"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_locator_delete_preview",
+  "description": "Preview deleting one Arrangement locator (locatorRef from discovery), fenced to it and the Set's locators as they are now. The deletion is kept: Kumi can't bring it back; Live's undo can.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "locatorRef": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    }
+   },
+   "required": [
+    "locatorRef"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_locator_delete_apply",
+  "description": "Apply an exact, unexpired locator-deletion preview. Refused if the locators changed since the preview. live_undo can't bring the locator back; Live's undo can.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "transactionId": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "confirmation": {
+     "type": "string",
+     "enum": [
+      "apply"
+     ]
+    },
+    "idempotencyKey": {
+     "type": "string",
+     "minLength": 8,
+     "maxLength": 128
+    }
+   },
+   "required": [
+    "transactionId",
+    "confirmation",
+    "idempotencyKey"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_render_offline",
+  "description": "Render an audio track's own clips between two beats offline, before its devices, to a file (path, format, seconds, channels, sampleRate, bitDepth, bytes): no transport, nothing audible, nothing in the Set changes. Audio tracks only; a group is refused (render its tracks). expectedName is the track's name as you read it (the bridge checks it's still that track). Needs Kumi's Live extension.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "trackRef": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "fromBeat": {
+     "type": "number",
+     "minimum": 0
+    },
+    "toBeat": {
+     "type": "number",
+     "minimum": 0
+    },
+    "expectedName": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    }
+   },
+   "required": [
+    "trackRef",
+    "fromBeat",
+    "toBeat"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_arrangement_midi_clip_preview",
+  "description": "Preview making MIDI clips in the Arrangement with their notes: one clip (trackRef, start and length in beats, notes, name?, looping?) or several (clips: a list of those). Note starts are beats from the clip's start. A clip goes only where the track's Arrangement is empty (clear it first with live_clip_clear_range). Several clips are made in one Live undo step, their notes in a second. Undo deletes exactly the clips it made. Needs Kumi's Live extension.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "trackRef": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "start": {
+     "type": "number",
+     "minimum": 0
+    },
+    "length": {
+     "type": "number",
+     "exclusiveMinimum": 0
+    },
+    "name": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "looping": {
+     "type": "boolean"
+    },
+    "notes": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "pitch": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 127
+       },
+       "start": {
+        "type": "number",
+        "minimum": 0
+       },
+       "duration": {
+        "type": "number",
+        "exclusiveMinimum": 0
+       },
+       "velocity": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 127
+       },
+       "mute": {
+        "type": "boolean"
+       },
+       "probability": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+       },
+       "velocityDeviation": {
+        "type": "number",
+        "minimum": -127,
+        "maximum": 127
+       },
+       "releaseVelocity": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 127
+       }
+      },
+      "required": [
+       "pitch",
+       "start",
+       "duration"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "clips": {
+     "type": "array",
+     "minItems": 1,
+     "items": {
+      "type": "object",
+      "properties": {
+       "trackRef": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+       },
+       "start": {
+        "type": "number",
+        "minimum": 0
+       },
+       "length": {
+        "type": "number",
+        "exclusiveMinimum": 0
+       },
+       "name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+       },
+       "looping": {
+        "type": "boolean"
+       },
+       "notes": {
+        "type": "array",
+        "items": {
+         "type": "object"
+        }
+       }
+      },
+      "required": [
+       "trackRef",
+       "start",
+       "length",
+       "notes"
+      ],
+      "additionalProperties": false
+     }
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_arrangement_midi_clip_apply",
+  "description": "Apply an exact, unexpired Arrangement MIDI clip preview, then find each clip in the Arrangement to confirm it. Refused if the tracks or their Arrangement clips changed since the preview. A retry with the same key looks for the clips before making any.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "transactionId": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "confirmation": {
+     "type": "string",
+     "enum": [
+      "apply"
+     ]
+    },
+    "idempotencyKey": {
+     "type": "string",
+     "minLength": 8,
+     "maxLength": 128
+    }
+   },
+   "required": [
+    "transactionId",
+    "confirmation",
+    "idempotencyKey"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_clip_clear_range_preview",
+  "description": "Preview clearing an Arrangement range on one track (trackRef, fromBeat, toBeat): the clips inside go, clips crossing its edges are cut there (removes and cuts list them). The clearing is kept: Kumi can't bring the clips back; Live's undo can. Needs Kumi's Live extension.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "trackRef": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "fromBeat": {
+     "type": "number",
+     "minimum": 0
+    },
+    "toBeat": {
+     "type": "number",
+     "minimum": 0
+    }
+   },
+   "required": [
+    "trackRef",
+    "fromBeat",
+    "toBeat"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_clip_clear_range_apply",
+  "description": "Apply an exact, unexpired clear-range preview. Refused if the track or its Arrangement clips changed since the preview. live_undo can't bring the clips back; Live's undo can.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "transactionId": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "confirmation": {
+     "type": "string",
+     "enum": [
+      "apply"
+     ]
+    },
+    "idempotencyKey": {
+     "type": "string",
+     "minLength": 8,
+     "maxLength": 128
+    }
+   },
+   "required": [
+    "transactionId",
+    "confirmation",
+    "idempotencyKey"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_device_duplicate_preview",
+  "description": "Preview copying one device (deviceRef from discovery) straight after itself in its chain, with its settings. Undo deletes exactly the copy.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "deviceRef": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    }
+   },
+   "required": [
+    "deviceRef"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_device_duplicate_apply",
+  "description": "Apply an exact, unexpired device-copy preview. Refused if the device or its chain changed since the preview.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "transactionId": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "confirmation": {
+     "type": "string",
+     "enum": [
+      "apply"
+     ]
+    },
+    "idempotencyKey": {
+     "type": "string",
+     "minLength": 8,
+     "maxLength": 128
+    }
+   },
+   "required": [
+    "transactionId",
+    "confirmation",
+    "idempotencyKey"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_automation_read",
+  "description": "Read a Session clip's envelope for one parameter: whether it has one, its points and their revision. With time (a beat in the clip), also the value the envelope gives the parameter there.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "clipRef": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "parameterRef": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "time": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1000000000
+    }
+   },
+   "required": [
+    "clipRef",
+    "parameterRef"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_device_read",
+  "description": "Read what only some devices list. parameter-names: every parameter a plug-in has, configured or not (begin and end pick a range, end -1 to the last; total counts them when all were asked for). banks: a Max for Live device's parameter banks, each bank's name and its parameters' indices (-1 for an empty slot).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "deviceRef": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "what": {
+     "type": "string",
+     "enum": [
+      "parameter-names",
+      "banks"
+     ]
+    },
+    "begin": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 10000000
+    },
+    "end": {
+     "type": "integer",
+     "minimum": -1,
+     "maximum": 10000000
+    }
+   },
+   "required": [
+    "deviceRef",
+    "what"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_clip_time_convert",
+  "description": "Convert a time in an audio clip's sample between beats, sample frames and seconds, as Live's warping maps them. A value is null where Live can't convert it (an unwarped clip's sample has no beat time).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "clipRef": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "from": {
+     "type": "string",
+     "enum": [
+      "beats",
+      "samples",
+      "seconds"
+     ]
+    },
+    "value": {
+     "type": "number",
+     "minimum": -1000000000,
+     "maximum": 1000000000000
+    }
+   },
+   "required": [
+    "clipRef",
+    "from",
+    "value"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_run_python",
+  "description": "Run Python on Live's main thread. Use typed tools first, then this for APIs they don't cover; explore with dir(). mode eval returns an expression's value; exec (default) returns whatever the statements assign to result. Names: Live, song, app, obj (the optional ref's Live object), bridge. Returns JSON {ok, result, stdout, error}; error holds type, message and traceback. Live objects become {ref, type, name}, tuples and sets become lists. One step in Live's undo unless one is already open; scripts have no transaction undo. timeoutMs defaults to 5000 (1–30000); the deadline interrupts Python bytecode, and checks native calls when they return.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "code": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 65536
+    },
+    "mode": {
+     "type": "string",
+     "enum": [
+      "eval",
+      "exec"
+     ]
+    },
+    "ref": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "timeoutMs": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 30000
+    }
+   },
+   "required": [
+    "code"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_device_edit_preview",
+  "description": "Preview one edit of a device that isn't a parameter. set: a setting of Roar, Shifter, Spectral Resonator, Hybrid Reverb, CC Control or Simpler by its name (setting, value; a choice is its index, and the preview lists the choices). modulate: how much a Wavetable modulation source moves a target (source, value -1 to 1, and targetIndex in its matrix or parameterRef, one of its parameters, added to the matrix if it isn't there). slice-insert, slice-move, slice-remove (time, toTime in sample frames), slice-clear, slice-reset: a Simpler's slice points. warp-as (beats), warp-double, warp-half: a Simpler's warping. resend: CC Control sends its values again. Undo puts back a setting, a modulation amount or one slice; slice-clear, slice-reset and the warps are Live's undo's to take back.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "deviceRef": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "action": {
+     "type": "string",
+     "enum": [
+      "set",
+      "modulate",
+      "slice-insert",
+      "slice-move",
+      "slice-remove",
+      "slice-clear",
+      "slice-reset",
+      "warp-as",
+      "warp-double",
+      "warp-half",
+      "resend"
+     ]
+    },
+    "setting": {
+     "type": "string",
+     "enum": [
+      "roar.routing_mode_index",
+      "roar.env_listen",
+      "shifter.pitch_mode_index",
+      "spectral_resonator.frequency_dial_mode",
+      "spectral_resonator.midi_gate",
+      "spectral_resonator.mod_mode",
+      "spectral_resonator.mono_poly",
+      "spectral_resonator.pitch_mode",
+      "hybrid_reverb.ir_time_shaping_on",
+      "cc_control.custom_bool_target",
+      "cc_control.custom_float_target_0",
+      "cc_control.custom_float_target_1",
+      "cc_control.custom_float_target_2",
+      "cc_control.custom_float_target_3",
+      "cc_control.custom_float_target_4",
+      "cc_control.custom_float_target_5",
+      "cc_control.custom_float_target_6",
+      "cc_control.custom_float_target_7",
+      "cc_control.custom_float_target_8",
+      "cc_control.custom_float_target_9",
+      "cc_control.custom_float_target_10",
+      "cc_control.custom_float_target_11",
+      "simpler.playback_mode",
+      "simpler.retrigger",
+      "simpler.slicing_playback_mode",
+      "simpler.voices",
+      "simpler.pad_slicing",
+      "simpler.note_pitch_bend_range"
+     ]
+    },
+    "value": {
+     "type": [
+      "number",
+      "boolean"
+     ]
+    },
+    "source": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 1000
+    },
+    "targetIndex": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 100000
+    },
+    "parameterRef": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "time": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "toTime": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "beats": {
+     "type": "number",
+     "minimum": 0.001,
+     "maximum": 1000000
+    }
+   },
+   "required": [
+    "deviceRef",
+    "action"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_device_edit_apply",
+  "description": "Apply an exact, unexpired device-edit preview. Refused if the device, or what the edit is fenced on (the setting, the matrix's targets, the slices, the sample), changed since the preview.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "transactionId": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "confirmation": {
+     "type": "string",
+     "enum": [
+      "apply"
+     ]
+    },
+    "idempotencyKey": {
+     "type": "string",
+     "minLength": 8,
+     "maxLength": 128
+    }
+   },
+   "required": [
+    "transactionId",
+    "confirmation",
+    "idempotencyKey"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_undo_step_begin",
+  "description": "Open one step in Live's own undo history, so every change until live_undo_step_end is one Cmd-Z in Live for the producer (wrap a plan's changes in it). Kumi's own undo (live_undo) still undoes each change. The step closes itself after timeoutMs (default two minutes), when the bridge's connection goes, and when another one opens (closedPrevious says so). It groups the changes Kumi makes through the Remote Script, not those through Kumi's Live extension (offline renders, Arrangement MIDI clips, clearing a range, pad sample chains); an edit the producer makes while it's open becomes its own step and splits it.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "label": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "timeoutMs": {
+     "type": "integer",
+     "minimum": 1000,
+     "maximum": 3600000
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_undo_step_end",
+  "description": "Close the undo step live_undo_step_begin opened; with its stepId it closes only that one (another open step is left alone, reason other-step). Nothing open answers not-open.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "stepId": {
+     "type": "string",
+     "minLength": 8,
+     "maxLength": 128
+    }
+   },
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_song_undo",
+  "description": "Live's own undo, once, as Cmd-Z in Live: a last resort for when the producer asks to undo what they did in Live themselves. Never use it to undo Kumi's changes: live_undo does that exactly. It undoes whatever Live did last, closes an open undo step first, and says whether anything was undone (done) and what Live could undo and redo next. A retry with the same idempotencyKey answers again without undoing twice.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "confirmation": {
+     "type": "string",
+     "enum": [
+      "undo-in-live"
+     ]
+    },
+    "idempotencyKey": {
+     "type": "string",
+     "minLength": 8,
+     "maxLength": 128
+    }
+   },
+   "required": [
+    "confirmation",
+    "idempotencyKey"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_song_redo",
+  "description": "Live's own redo, once, as Shift-Cmd-Z in Live: a last resort for when the producer asks to redo what they undid in Live themselves. Never use it for Kumi's changes. It says whether anything was redone (done) and what Live could undo and redo next. A retry with the same idempotencyKey answers again without redoing twice.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "confirmation": {
+     "type": "string",
+     "enum": [
+      "redo-in-live"
+     ]
+    },
+    "idempotencyKey": {
+     "type": "string",
+     "minLength": 8,
+     "maxLength": 128
+    }
+   },
+   "required": [
+    "confirmation",
+    "idempotencyKey"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
   "name": "live_transaction_release",
   "description": "Give up the undo of applied transactions the client will never undo (a render's own steps, a search's settings), so they stop holding the host's transaction capacity. Nothing changes in Live.",
   "inputSchema": {
@@ -2147,6 +3040,209 @@
  {
   "name": "live_locator_jump_apply",
   "description": "Apply an exact, unexpired locator-jump preview with confirmation and idempotency.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "transactionId": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "confirmation": {
+     "type": "string",
+     "enum": [
+      "apply"
+     ]
+    },
+    "idempotencyKey": {
+     "type": "string",
+     "minLength": 8,
+     "maxLength": 128
+    }
+   },
+   "required": [
+    "transactionId",
+    "confirmation",
+    "idempotencyKey"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_willington_device_preview",
+  "description": "Preview exact-build Willington rack edits with complete prior-state capture: macro-name, variation-name (selected variation), macro-mapping, or selector-zone/key-zone/velocity-zone. Zone edits use ref=rack and targetRef=regular chain; capture all four integer endpoints, 0–127 (velocity 1–127). Audio racks only support selector zones. Drum/return chains are unsupported. Mapping indices are zero-based; null removes a mapping. Boolean ranges use 0–127 macro thresholds; others use parameter units. Playback must be stopped.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ref": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "kind": {
+     "type": "string",
+     "enum": [
+      "macro-name",
+      "macro-mapping",
+      "variation-name",
+      "selector-zone",
+      "key-zone",
+      "velocity-zone"
+     ]
+    },
+    "macroIndex": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 15
+    },
+    "targetRef": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "name": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "mappingIndex": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "minimum": 0,
+     "maximum": 15
+    },
+    "minimum": {
+     "type": "number"
+    },
+    "maximum": {
+     "type": "number"
+    },
+    "fadeMinimum": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 127
+    },
+    "fadeMaximum": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 127
+    },
+    "mappingKind": {
+     "type": "string",
+     "enum": [
+      "continuous",
+      "enum",
+      "boolean"
+     ]
+    }
+   },
+   "required": [
+    "ref",
+    "kind"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_willington_device_apply",
+  "description": "Apply an exact, unexpired Willington rack preview with confirmation, idempotency and verified readback.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "transactionId": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "confirmation": {
+     "type": "string",
+     "enum": [
+      "apply"
+     ]
+    },
+    "idempotencyKey": {
+     "type": "string",
+     "minLength": 8,
+     "maxLength": 128
+    }
+   },
+   "required": [
+    "transactionId",
+    "confirmation",
+    "idempotencyKey"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_follow_actions_preview",
+  "description": "Preview experimental Session clip Follow Actions on an explicitly enabled Willington build. Captures all ten fields for restoration. Stopped playback required. Actions 0 none, 1 stop, 2 again, 3 previous, 4 next, 5 first, 6 last, 7 any, 8 other, 9 jump. Chances sum to 100; changing one complements the other. Time is beats; jump scenes are 1-based.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "clipRef": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "followActionEnabled": {
+     "type": "boolean"
+    },
+    "followActionLinked": {
+     "type": "boolean"
+    },
+    "followActionA": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 9
+    },
+    "followActionB": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 9
+    },
+    "followActionChanceA": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 100
+    },
+    "followActionChanceB": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 100
+    },
+    "followActionLoopCount": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 1073741823
+    },
+    "followActionTime": {
+     "type": "number",
+     "minimum": 0.25,
+     "maximum": 1000000000
+    },
+    "followActionJumpA": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 8388608
+    },
+    "followActionJumpB": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 8388608
+    }
+   },
+   "required": [
+    "clipRef"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "live_follow_actions_apply",
+  "description": "Apply an exact, unexpired Follow Action preview with confirmation and idempotency.",
   "inputSchema": {
    "type": "object",
    "properties": {

@@ -78,10 +78,10 @@ python3 -m compileall -q remote-script/AbletonMcpBridge
 | 命令（在根目录运行） | 需要 | 作用 |
 | --- | --- | --- |
 | `npm run accept:live --workspace @kumi/app -- --set "<Set>"` | 打开了某个工程的一次性副本的 Live | 做出 Kumi 能做的每一类修改，用 Kumi 的撤销逐一撤销，播放、并轨、聆听和观看，并测量读取大型工程的耗时。不使用模型。 |
-| `npm run eval:changes --workspace @kumi/app [-- <case>]` | 你的登录和模型 | 检验模型如何使用 Kumi 的工具，针对一个带有真实桥接工具 schema 的合成桥接进行。从不触及 Live。 |
+| `npm run eval:changes --workspace @kumi/app [-- <case>, <case>]` | 你的登录和模型 | 检验模型如何使用 Kumi 的工具，针对一个带有真实桥接工具 schema 的合成桥接进行。从不触及 Live。每个用例给出所用时间、其中工具所占的时间，以及调用模型的次数；`EVAL_EFFORT` 设置模型的推理强度，`EVAL_TRACE=1` 逐一打印每次调用。 |
 | `npm run probe:inference --workspace @kumi/app` | 你的登录 | 用一个无害的工具发送一次经认证的请求。从不触及 Live。 |
 
-桥接的工具变化之后，运行 `node apps/kumi/scripts/make-bridge-tools.mjs`（需已构建桥接），以刷新 `eval:changes` 使用的 schema。
+桥接的工具变化之后，运行 `node apps/kumi/scripts/make-bridge-tools.mjs`（需已构建桥接），以刷新 `eval:changes` 使用的 schema。其中的 Operator、Saturator 和 EQ Eight 带有 Live 12.4 给它们的全部参数（从 Live 读入 `apps/kumi/scripts/live-devices.json`），并像 Live 一样运行 Kumi 自己设置参数的脚本。
 
 桥接还有一项仅供操作者使用的捕获检查：`apps/mcp-server` 中的 `npm run audio:live-verify`。它需要一个由生命周期安装并在真实 Live 上激活的桥接、一个准备好的一次性工程，以及 `PHASE8_CLI`、`PHASE8_RECEIPT`、`PHASE8_EXPECTED_GIT_SHA`、`PHASE8_TARBALL_SHA`、`PHASE8_EXPECTED_REGISTRY_HASH` 和 `PHASE8_OUTPUT_SAFETY_PROVENANCE`（可选：`PHASE8_CONFIG`、`PHASE8_SET_NAME`、`PHASE8_LIVE_VERSION`、`PHASE8_SOURCE_TRACK_INDEX`、`PHASE8_DESTINATION_TRACK_INDEX`、`PHASE8_RECORDED_DIRECTORY`）。它在触及 Live 之前对照回执检查已安装的文件，然后录制、取消并恢复一次捕获，并还原它改动过的所有内容。
 

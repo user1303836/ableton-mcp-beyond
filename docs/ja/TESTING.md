@@ -78,10 +78,10 @@ python3 -m compileall -q remote-script/AbletonMcpBridge
 | コマンド（ルートから） | 必要なもの | 内容 |
 | --- | --- | --- |
 | `npm run accept:live --workspace @kumi/app -- --set "<Set>"` | Set の使い捨てコピーを開いた Live | Kumi ができるあらゆる種類の変更を行い、それぞれを Kumi の取り消しで元に戻し、再生、バウンス、聴き取り、監視を行い、大きな Set の読み取りにかかる時間を計測します。モデルは使いません。 |
-| `npm run eval:changes --workspace @kumi/app [-- <case>]` | サインインとモデル | モデルが Kumi のツールをどう使うかを、本物のブリッジのツールスキーマを持つ合成ブリッジに対して評価します。Live には一切触れません。 |
+| `npm run eval:changes --workspace @kumi/app [-- <case>, <case>]` | サインインとモデル | モデルが Kumi のツールをどう使うかを、本物のブリッジのツールスキーマを持つ合成ブリッジに対して評価します。Live には一切触れません。各ケースは、かかった時間、そのうちツールの時間、モデルの呼び出し回数を示します。`EVAL_EFFORT` でモデルの推論の度合いを設定し、`EVAL_TRACE=1` で呼び出しを一つずつ表示します。 |
 | `npm run probe:inference --workspace @kumi/app` | サインイン | 無害なツールを使った認証済みのリクエストを一つ送ります。Live には一切触れません。 |
 
-ブリッジのツールが変わったら、（ブリッジをビルドした状態で）`node apps/kumi/scripts/make-bridge-tools.mjs` を実行し、`eval:changes` が使うスキーマを更新してください。
+ブリッジのツールが変わったら、（ブリッジをビルドした状態で）`node apps/kumi/scripts/make-bridge-tools.mjs` を実行し、`eval:changes` が使うスキーマを更新してください。その Operator、Saturator、EQ Eight には、Live から `apps/kumi/scripts/live-devices.json` に読み込んだ、Live 12.4 のすべてのパラメータがあり、パラメータを設定する Kumi 自身のスクリプトを Live と同じように実行します。
 
 ブリッジには、オペレーター専用のキャプチャのチェック `npm run audio:live-verify`（`apps/mcp-server` 内）もあります。これには、ライフサイクルでインストールして本物の Live でアクティベートしたブリッジ、準備済みの使い捨ての Set、そして `PHASE8_CLI`、`PHASE8_RECEIPT`、`PHASE8_EXPECTED_GIT_SHA`、`PHASE8_TARBALL_SHA`、`PHASE8_EXPECTED_REGISTRY_HASH`、`PHASE8_OUTPUT_SAFETY_PROVENANCE` が必要です（任意：`PHASE8_CONFIG`、`PHASE8_SET_NAME`、`PHASE8_LIVE_VERSION`、`PHASE8_SOURCE_TRACK_INDEX`、`PHASE8_DESTINATION_TRACK_INDEX`、`PHASE8_RECORDED_DIRECTORY`）。Live に触れる前にインストールされたファイルをレシートと照合し、その後キャプチャを録音、キャンセル、回復し、変更したものをすべて元に戻します。
 
