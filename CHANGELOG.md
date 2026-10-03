@@ -3,10 +3,10 @@
 Kumi's releases. The Ableton bridge (`apps/mcp-server`) is versioned on its own;
 each Kumi release names the bridge it ships with.
 
-## Unreleased
+## 1.7.1 — 2026-10-03
 
 Kumi's commands show they're working, and `kumi bridge` gets past its first line in moments on
-Windows.
+Windows. Ships with bridge 1.0.73, as 1.7.0 did.
 
 - `kumi bridge`, `kumi update`, `update --check`, `uninstall`, `doctor`, `report` and `login`
   show a small spinner after each step's line while it runs ("Updating Live's Remote Script and
