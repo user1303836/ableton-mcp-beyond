@@ -16,6 +16,7 @@ import { OFFER_ORDER } from "./models.js";
 import { detectColorDepth } from "./tui/style.js";
 import { INSTALLED, KUMI, KUMI_REPAIR } from "@kumi/runtime";
 import { extensionAnswers, extensionDataDir, extensionSource, installedExtension, liveExtensionsDir, readExtension, runningExtension } from "./live-extension.js";
+import { step } from "./spinner.js";
 import { systemLanguage } from "./voice.js";
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -323,7 +324,8 @@ function nodeVersion(command: string): Promise<string | undefined> {
 }
 
 export async function runDoctor(io: DoctorIo): Promise<number> {
-  const checks = await doctorChecks(io);
+  // Starting the bridge and asking Live can take half a minute: a spinner until the checks are in.
+  const checks = await step(io.out, io.env, "Checking…", () => doctorChecks(io), { keep: false });
   io.out.write(formatDoctor(checks));
   return checks.some((check) => check.status === "fix") ? 1 : 0;
 }

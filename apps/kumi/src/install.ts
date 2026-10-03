@@ -19,6 +19,7 @@ import { isLiveRunning, runProgram, type Ran } from "./bridge-setup.js";
 import { findBridgeConfig, kumiDir, remoteScriptsDir } from "./config.js";
 import { readBridgeServer } from "./doctor.js";
 import { extensionDataDir, KUMI_EXTENSION_ID, liveExtensionsDir, removeExtension, removeFormerExtension } from "./live-extension.js";
+import { step } from "./spinner.js";
 
 type Env = Readonly<Record<string, string | undefined>>;
 type Run = (command: string, args: readonly string[], cwd?: string) => Promise<Ran>;
@@ -110,6 +111,9 @@ async function ask(io: InstalledIo, question: string): Promise<boolean> {
 
 const bridgeVersion = (app: string) => { try { return (JSON.parse(readFileSync(join(app, "apps", "mcp-server", "package.json"), "utf8")) as { version?: string }).version; } catch { return undefined; } };
 
+/** Whether Live is running (no when that can't be told), with a spinner while it's asked. */
+const liveOpen = (io: InstalledIo, run: Run) => step(io.out, io.env, "Checking whether Live is open…", io.liveRunning ?? (() => isLiveRunning(run)), { keep: false }).catch(() => false);
+
 /** After Kumi changes, the bridge in Live when it's older than the Kumi now installed. */
 async function bridgeAfter(io: InstalledIo, home: string, app: string): Promise<number> {
   const say = (line = "") => io.out.write(`${line}\n`);
@@ -120,7 +124,7 @@ async function bridgeAfter(io: InstalledIo, home: string, app: string): Promise<
   const bundled = bridgeVersion(app);
   if (!installed || !bundled || !newerVersion(bundled, installed)) { say("The bridge in Live is up to date."); return 0; }
   say(`The bridge in Live is ${installed}; this Kumi's is ${bundled}.`);
-  if (await (io.liveRunning ?? (() => isLiveRunning(io.run ?? runProgram)))().catch(() => false)) { say(`Quit Live (save your work first), then run: ${KUMI} bridge`); return 0; }
+  if (await liveOpen(io, io.run ?? runProgram)) { say(`Quit Live (save your work first), then run: ${KUMI} bridge`); return 0; }
   return (io.updateBridge ?? ((path) => kumiBridge(home, path)))(app);
 }
 
@@ -158,8 +162,7 @@ export async function swapIn(fresh: string, app: string, previous: string): Prom
 export async function updateInstalled(io: InstalledIo): Promise<number> {
   const say = (line = "") => io.out.write(`${line}\n`);
   const home = kumiHome(io.env); const app = join(home, "app"); const fetcher = io.fetcher ?? fetch; const run = io.run ?? runProgram;
-  say("Looking for a newer Kumi…");
-  const manifest = await askRelease(io.env, fetcher);
+  const manifest = await step(io.out, io.env, "Looking for a newer Kumi…", () => askRelease(io.env, fetcher));
   if (typeof manifest === "string") { say(`${unasked(manifest, io.env)}.`); return 1; }
   if (!newerVersion(manifest.kumi, KUMI_VERSION)) { say(`Kumi is up to date (${KUMI_VERSION}).`); return bridgeAfter(io, home, app); }
   // A release that needs a newer Node than the one Kumi brought: the installer brings both.
@@ -170,18 +173,22 @@ export async function updateInstalled(io: InstalledIo): Promise<number> {
   const downloads = join(home, "downloads"); await mkdir(downloads, { recursive: true });
   const bundle = join(downloads, manifest.bundle); const fresh = join(home, "app.new");
   try {
-    say(`Downloading Kumi ${manifest.kumi}…`);
-    await download(`${releaseBase(io.env)}/${manifest.bundle}`, bundle, fetcher);
+    await step(io.out, io.env, `Downloading Kumi ${manifest.kumi}…`, () => download(`${releaseBase(io.env)}/${manifest.bundle}`, bundle, fetcher));
     if (sha256(bundle) !== manifest.sha256) { say("The download didn't match its checksum, so nothing was changed. Try again in a moment."); return 1; }
-    rmSync(fresh, { recursive: true, force: true }); await mkdir(fresh, { recursive: true });
-    // Windows' own tar, as the installer uses: a PATH from Git Bash puts GNU tar first, which reads "C:\…" as a remote host.
-    const unpacked = await run(systemProgram("tar"), ["-xzf", bundle, "-C", fresh]);
-    if (unpacked.code !== 0) { say(`Unpacking it failed: ${(unpacked.stderr || unpacked.stdout).trim().split("\n").at(-1) ?? "tar failed"}`); return 1; }
-    // The new Kumi has to start before it replaces this one.
-    const probe = await run(process.execPath, [join(fresh, "apps", "kumi", "bin", "kumi.mjs"), "--version"]);
-    if (probe.code !== 0 || !probe.stdout.includes(manifest.kumi)) { say("The new Kumi didn't start, so this one stays. Try again, or run the installer again."); return 1; }
-    try { await swapIn(fresh, app, join(home, "app.previous")); }
-    catch { say(process.platform === "win32" ? "Windows kept Kumi's folder busy; close every Kumi window, then run update again." : "Couldn't put the new Kumi in place, so this one stays."); return 1; }
+    // Unpacked, tried and swapped in under one spinner; what went wrong is said once it has stopped.
+    const failed = await step(io.out, io.env, `Putting Kumi ${manifest.kumi} in place…`, async () => {
+      rmSync(fresh, { recursive: true, force: true }); await mkdir(fresh, { recursive: true });
+      // Windows' own tar, as the installer uses: a PATH from Git Bash puts GNU tar first, which reads "C:\…" as a remote host.
+      const unpacked = await run(systemProgram("tar"), ["-xzf", bundle, "-C", fresh]);
+      if (unpacked.code !== 0) return `Unpacking it failed: ${(unpacked.stderr || unpacked.stdout).trim().split("\n").at(-1) ?? "tar failed"}`;
+      // The new Kumi has to start before it replaces this one.
+      const probe = await run(process.execPath, [join(fresh, "apps", "kumi", "bin", "kumi.mjs"), "--version"]);
+      if (probe.code !== 0 || !probe.stdout.includes(manifest.kumi)) return "The new Kumi didn't start, so this one stays. Try again, or run the installer again.";
+      try { await swapIn(fresh, app, join(home, "app.previous")); }
+      catch { return process.platform === "win32" ? "Windows kept Kumi's folder busy; close every Kumi window, then run update again." : "Couldn't put the new Kumi in place, so this one stays."; }
+      return undefined;
+    }, { keep: false });
+    if (failed) { say(failed); return 1; }
   } finally {
     rmSync(fresh, { recursive: true, force: true }); rmSync(bundle, { force: true });
   }
@@ -265,14 +272,14 @@ async function removeBridge(io: InstalledIo, run: Run): Promise<"removed" | "kep
   const extensions = liveExtensionsDir(io.env);
   const byHand = `AbletonMcpBridge from Live's Remote Scripts folder${extensions ? `, and ${KUMI_EXTENSION_ID} from ${extensions} and from ${extensionDataDir(extensions).replace(/[\\/]kumi\.kumi$/, "")}` : ""}`;
   if (!await ask(io, "Remove the Ableton bridge from Live too?")) { say(`The bridge stays in Live, and so do its files. To take it out later, remove ${byHand}.`); return "kept"; }
-  if (await (io.liveRunning ?? (() => isLiveRunning(run)))().catch(() => false)) { say(`Live is open, so the bridge stays, and so do its files. Quit Live, then remove ${byHand}.`); return "kept"; }
+  if (await liveOpen(io, run)) { say(`Live is open, so the bridge stays, and so do its files. Quit Live, then remove ${byHand}.`); return "kept"; }
   let entry: string | undefined;
   try { entry = readBridgeServer(config).entry; } catch { entry = undefined; }
   const root = entry ? join(entry, "..", "..", "..") : undefined;
   const lifecycle = root ? join(root, "dist", "src", "lifecycle-cli.js") : undefined;
   if (!lifecycle || !existsSync(lifecycle)) { say(`Kumi couldn't find the bridge's own uninstaller; remove ${byHand} by hand.`); return "kept"; }
   const state = join(config, "..");
-  const ran = await run(process.execPath, [lifecycle, "uninstall", "--remote-scripts-dir", remoteScriptsDir(io.env), "--state-dir", state, "--package-root", root!, "--apply", "--confirm-live-stopped"]);
+  const ran = await step(io.out, io.env, "Taking the bridge out of Live…", () => run(process.execPath, [lifecycle, "uninstall", "--remote-scripts-dir", remoteScriptsDir(io.env), "--state-dir", state, "--package-root", root!, "--apply", "--confirm-live-stopped"]), { keep: false });
   if (ran.code !== 0) { say(`The bridge's uninstaller refused; remove ${byHand} by hand.`); return "kept"; }
   // Kumi's extension goes with the bridge: Live would otherwise go on starting it. So does the copy Kumi
   // 1.6.0 and before put where Live on Windows doesn't read, and Kumi's listening device.
@@ -302,7 +309,7 @@ export async function uninstallInstalled(io: InstalledIo, options: { all: boolea
   if (!options.yes && !await ask(io, `Remove Kumi from ${home.replace(homedir(), "~")}? ${keeps}`)) { say("Nothing was removed."); return 1; }
   const bridge = await removeBridge(io, run);
   removePathLines(io, home);
-  await removeWindowsPath(run, home);
+  if (process.platform === "win32") await step(io.out, io.env, "Taking Kumi out of your PATH…", () => removeWindowsPath(run, home), { keep: false });
   // The bridge's configuration and package stay while Live still loads it from here: without them the
   // Remote Script fails every time Live starts.
   const bridgeStays = bridge !== "removed" && bridgeUses(join(home, "bridge"), io.env);

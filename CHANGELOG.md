@@ -3,6 +3,17 @@
 Kumi's releases. The Ableton bridge (`apps/mcp-server`) is versioned on its own;
 each Kumi release names the bridge it ships with.
 
+## Unreleased
+
+Kumi's commands show they're working.
+
+- `kumi bridge`, `kumi update`, `update --check`, `uninstall`, `doctor`, `report` and `login`
+  show a small spinner after each step's line while it runs ("Updating Live's Remote Script and
+  the bridge… ⠹"), so a step that takes a minute doesn't look stuck. The line stays once the
+  step is done. Piped output, `KUMI_UI=plain` and `TERM=dumb` get the plain lines, as before.
+- Running from a checkout on Windows with Node 24, packing the bridge no longer prints Node's
+  DEP0190 warning.
+
 ## 1.7.0 — 2026-10-02
 
 Kumi hears what it works on, uses Live's own commands that its scripting lacks, works inside ten

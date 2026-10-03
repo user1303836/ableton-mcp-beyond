@@ -15,6 +15,7 @@ import { KUMI_VERSION } from "@kumi/runtime";
 import { isLiveRunning, runProgram, type Ran } from "./bridge-setup.js";
 import { findBridgeConfig } from "./config.js";
 import { readBridgeServer } from "./doctor.js";
+import { step } from "./spinner.js";
 import { KUMI, KUMI_REPAIR } from "@kumi/runtime";
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -132,14 +133,13 @@ export async function runUpdate(io: UpdateIo): Promise<number> {
   const status = await run("git", ["status", "--porcelain", "--untracked-files=no"], repo);
   if (status.code !== 0) { say(`git couldn't read this checkout: ${last(status)}`); return 1; }
   if (status.stdout.trim()) { say(`This checkout has changes of its own, so Kumi leaves it as it is. Commit or stash them, then run: ${KUMI} update`); return 1; }
-  say(`Looking for a newer Kumi on ${branch}…`);
-  if ((await run("git", ["fetch", "--quiet", ...branch.split(/\/(.*)/s).slice(0, 2)], repo)).code !== 0) { say("Couldn't reach the repository; check the network, then run update again."); return 1; }
+  const fetched = await step(io.out, io.env, `Looking for a newer Kumi on ${branch}…`, () => run("git", ["fetch", "--quiet", ...branch.split(/\/(.*)/s).slice(0, 2)], repo));
+  if (fetched.code !== 0) { say("Couldn't reach the repository; check the network, then run update again."); return 1; }
   const behind = Number((await run("git", ["rev-list", "--count", `HEAD..${branch}`], repo)).stdout.trim()) || 0;
   if (behind > 0) {
     const pulled = await run("git", ["merge", "--ff-only", branch], repo);
     if (pulled.code !== 0) { say(`This checkout has moved away from ${branch}, so it can't simply move forward: ${last(pulled)}`); return 1; }
-    say("Installing and building (a few minutes)…");
-    const built = await run("npm", ["run", "setup"], repo);
+    const built = await step(io.out, io.env, "Installing and building (a few minutes)…", () => run("npm", ["run", "setup"], repo));
     if (built.code !== 0) { say(`Building failed: ${last(built)}. Run ${KUMI_REPAIR} to see why.`); return 1; }
   }
   let version = KUMI_VERSION; let bundled: string | undefined;
@@ -150,6 +150,6 @@ export async function runUpdate(io: UpdateIo): Promise<number> {
   if (!findBridgeConfig(io.env)) { say(`To connect Live, quit Live, then run: ${KUMI} bridge`); return 0; }
   if (!bridge) { say("The bridge in Live is up to date."); return 0; }
   say(`The bridge in Live is ${bridge.installed}; this Kumi's is ${bridge.bundled}.`);
-  if (await (io.liveRunning ?? (() => isLiveRunning(run)))().catch(() => false)) { say(`Quit Live (save your work first), then run: ${KUMI} bridge`); return 0; }
+  if (await step(io.out, io.env, "Checking whether Live is open…", io.liveRunning ?? (() => isLiveRunning(run)), { keep: false }).catch(() => false)) { say(`Quit Live (save your work first), then run: ${KUMI} bridge`); return 0; }
   return (io.updateBridge ?? kumiBridge)(repo);
 }

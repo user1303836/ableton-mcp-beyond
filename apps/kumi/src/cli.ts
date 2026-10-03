@@ -17,6 +17,7 @@ import { checkCheckout, newerKumi, olderBridge, runUpdate, type UpdateControl } 
 import { checkRelease, newerRelease, rollbackInstalled, uninstallInstalled, updateInstalled } from "./install.js";
 import { authStatus, login, logout, openBrowser } from "./login.js";
 import { createModelControl } from "./models.js";
+import { step } from "./spinner.js";
 import { createTerminal, type Terminal } from "./terminal.js";
 import { createTui } from "./tui/app.js";
 import { createVoiceControl } from "./voice.js";
@@ -100,7 +101,7 @@ async function probeLive(bridgeConfig: string): Promise<LiveProbe> {
 /** `kumi update --check`: whether there's a newer Kumi, without installing it. */
 async function updateCheck(): Promise<number> {
   try {
-    const latest = INSTALLED ? await checkRelease(process.env) : await checkCheckout();
+    const latest = await step(process.stdout, process.env, "Looking for a newer Kumi…", () => INSTALLED ? checkRelease(process.env) : checkCheckout(), { keep: false });
     process.stdout.write(latest ? `Kumi ${latest} is out (this is ${KUMI_VERSION}). Update with: ${sub("update")}\n` : `Kumi is up to date (${KUMI_VERSION}).\n`);
     return 0;
   } catch (error) { process.stdout.write(`${safeError(error, secrets)}.\n`); return 1; }

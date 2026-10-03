@@ -12,6 +12,7 @@ import type { Writable } from "node:stream";
 import { KUMI_VERSION, openCredentialStore } from "@kumi/runtime";
 import { loadAuthFile, loadGapsFile, loadProjectsDir, loadSettingsFile } from "./config.js";
 import { doctorChecks, formatDoctor, type DoctorIo } from "./doctor.js";
+import { step } from "./spinner.js";
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -131,7 +132,15 @@ export async function writeReport(io: ReportIo): Promise<number> {
   try { credentials = await openCredentialStore(loadAuthFile(env)).list(); } catch { /* none to take out */ }
   const secrets = [...strings(credentials), ...["AI_GATEWAY_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENCODE_API_KEY"].map((name) => env[name] ?? "")];
   const redact = redactor(secrets, home, user);
+  // The doctor's checks start the bridge and ask Live, which can take half a minute: a spinner meanwhile.
+  const file = await step(io.out, env, "Writing Kumi's report…", () => compose(io, redact, home, now), { keep: false });
+  io.out.write(`Kumi's report is in ${redact(file)}\nIt has Kumi's versions, the doctor's checks, what Kumi did in your last conversation, and the bridge's lines from Live's log. Keys and tokens are taken out. Send it with a few words about what happened.\n`);
+  return 0;
+}
 
+/** The report, written; where it is. */
+async function compose(io: ReportIo, redact: (text: string) => string, home: string, now: Date): Promise<string> {
+  const env = io.env;
   const sections: string[] = [];
   const section = (title: string, body: string[] | string) => sections.push(`## ${title}\n\n${Array.isArray(body) ? body.join("\n") : body}`);
   const terminal = [env.TERM_PROGRAM && `${env.TERM_PROGRAM} ${env.TERM_PROGRAM_VERSION ?? ""}`.trim(), env.WT_SESSION ? "Windows Terminal" : "", env.TERM ? `TERM=${env.TERM}` : "", env.COLORTERM ? `COLORTERM=${env.COLORTERM}` : ""].filter(Boolean).join(", ");
@@ -153,6 +162,5 @@ export async function writeReport(io: ReportIo): Promise<number> {
   const stamp = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const file = join(io.folder ?? home, `kumi-report-${stamp}.txt`);
   await writeFile(file, text, { mode: 0o600 });
-  io.out.write(`Kumi's report is in ${redact(file)}\nIt has Kumi's versions, the doctor's checks, what Kumi did in your last conversation, and the bridge's lines from Live's log. Keys and tokens are taken out. Send it with a few words about what happened.\n`);
-  return 0;
+  return file;
 }

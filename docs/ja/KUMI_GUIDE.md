@@ -322,7 +322,7 @@ Kumi はすべてを `~/.kumi` に保存します。`~/.kumi/settings.json` に�
 | `KUMI_LIVE_EXTENSIONS_DIR` | Kumi が Live の Extensions フォルダーを見つけられないときに、`kumi bridge` が Kumi の拡張機能を入れ、`kumi doctor` がそれを探す場所 |
 | `KUMI_BRIDGE_WAIT_SECONDS` | `kumi bridge` が Live の接続を待つ時間。`0` で待たない |
 | `KUMI_NO_UPDATE_CHECK` | 任意の値で起動時の新バージョン確認を無効にする |
-| `KUMI_UI=plain` | 全画面アプリの代わりに 1 行ずつのプレーンな出力 |
+| `KUMI_UI=plain` | 全画面アプリの代わりに 1 行ずつのプレーンな出力。`kumi bridge`、`kumi update` などのコマンドも、処理中にスピナーを表示しません |
 | `KUMI_COLOR` | 検出が間違っているときの `truecolor`、`256`、`16`、`none`。`NO_COLOR` にも従う |
 | `KUMI_ICONS` | ターミナルの記号が正しく表示されないときの `glyphs` または `badges`（2 文字のアイコン） |
 | `KUMI_TRACE=1` | ブリッジ呼び出しごとにその名前を表示（引数や結果は表示しない） |

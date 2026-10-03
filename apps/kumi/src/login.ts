@@ -5,6 +5,7 @@ import {
 } from "@kumi/runtime";
 import { readSettings, type AppConfig } from "./config.js";
 import { createModelControl, OFFER_ORDER } from "./models.js";
+import { spin, step, type Spinning } from "./spinner.js";
 import { KUMI, KUMI_START } from "@kumi/runtime";
 
 /** Where a key is typed or piped from. */
@@ -23,22 +24,26 @@ export async function login(config: Extract<AppConfig, { mode: "login" }>, io: I
     if (!io.input) throw new Error("Kumi needs a terminal to ask for the key.");
     const key = (await readHidden(io.input, io.out, `Paste your ${info.name} API key (make one at ${info.keyPage}). It won't show as you paste: `, io.signal)).trim();
     if (!validApiKey(key)) throw new Error("That doesn't look like an API key (one word of 8 or more characters); nothing was saved.");
-    io.out.write(`Checking it with ${info.name}…\n`);
     const models = createModelControl({ store, settingsFile: config.settingsFile, env: io.env, changed: async () => {} });
-    const verdict = await models.saveKey(config.provider, key, AbortSignal.any([io.signal, AbortSignal.timeout(20_000)]));
+    const verdict = await step(io.out, io.env, `Checking it with ${info.name}…`, () => models.saveKey(config.provider, key, AbortSignal.any([io.signal, AbortSignal.timeout(20_000)])));
     if (verdict === "refused") throw new Error(`${info.name} didn't accept that key; nothing was saved.`);
     io.out.write(verdict === "ok" ? `Signed in to ${info.name}. The key is in ${store.path} (owner-only).\n`
       : `Saved the key in ${store.path} (owner-only). ${info.name} didn't answer just now, so it isn't checked yet.\n`);
   } else {
     let credential: OAuthCredential;
     if (config.method === "import-pi") credential = await readPiCodexLogin(config.piAuthFile);
-    else if (config.method === "device") {
-      credential = await loginCodexDevice({ signal: io.signal, onCode: ({ url, code }) => io.out.write(`Open ${url} and enter the code ${code}\nWaiting for approval...\n`) });
-    } else {
-      credential = await loginCodexBrowser({ signal: io.signal, onUrl: (url) => {
-        io.out.write(`Sign in to ChatGPT in your browser. If it did not open, visit:\n${url}\nWaiting for the browser... (Ctrl-C cancels; use --device on a remote machine)\n`);
-        io.openBrowser?.(url);
-      } });
+    else {
+      // Once the address is out, a spinner while the producer signs in.
+      let waiting: Spinning = { stop() {} };
+      try {
+        credential = config.method === "device"
+          ? await loginCodexDevice({ signal: io.signal, onCode: ({ url, code }) => { io.out.write(`Open ${url} and enter the code ${code}\n`); waiting = spin(io.out, io.env, "Waiting for approval..."); } })
+          : await loginCodexBrowser({ signal: io.signal, onUrl: (url) => {
+            io.out.write(`Sign in to ChatGPT in your browser. If it did not open, visit:\n${url}\n`);
+            io.openBrowser?.(url);
+            waiting = spin(io.out, io.env, "Waiting for the browser... (Ctrl-C cancels; use --device on a remote machine)");
+          } });
+      } finally { waiting.stop(); }
     }
     await store.update(OPENAI_CODEX, async () => credential);
     io.out.write(`Signed in to ChatGPT (openai-codex). Saved to ${store.path} (owner-only).\n`);

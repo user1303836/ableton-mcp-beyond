@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -96,6 +97,35 @@ test("a first install packs Kumi's bridge, then has its lifecycle plan and apply
     assert(apply!.args.includes("--apply") && apply!.args.includes("--confirm-live-stopped"));
     assert(!apply!.args.includes("--allow-dirty-private-build"), "only a developer asks for that");
     assert.match(w.out, /choose AbletonMcpBridge as a Control Surface/);
+  } finally { w.done(); }
+});
+
+test("an installed Kumi copies the bridge its release prepared, without npm, and refuses a copy that doesn't match its checksum", async () => {
+  const w = world({ bundled: "1.0.34" });
+  try {
+    const prepared = join(w.root, "prepared");
+    const packageRoot = join(prepared, "package", "node_modules", "@ableton-mcp", "mcp-server");
+    mkdirSync(join(packageRoot, "dist", "src"), { recursive: true });
+    writeFileSync(join(packageRoot, "dist", "src", "lifecycle-cli.js"), "");
+    writeFileSync(join(prepared, "bridge.tgz"), "tarball bytes");
+    const sha = createHash("sha256").update("tarball bytes").digest("hex");
+    writeFileSync(join(prepared, "prepared.json"), JSON.stringify({ artifact: "bridge.tgz", sha256: sha }));
+    w.lifecycle.push(answer({ version: "ableton-mcp-lifecycle/v1", action: "install", applied: false, state: "planned" }),
+      answer({ version: "ableton-mcp-lifecycle/v1", action: "install", applied: true, state: "installed-restart-required" }));
+    assert.equal(await setupBridge(w.io({ prepared })), 0, w.out);
+    assert.ok(!w.calls.some((call) => call.command === "npm"), "nothing packed or installed");
+    const flag = (args: readonly string[], name: string) => args[args.indexOf(name) + 1]!;
+    const plan = w.calls[0]!;
+    assert.equal(readFileSync(flag(plan.args, "--artifact"), "utf8"), "tarball bytes");
+    assert.equal(flag(plan.args, "--artifact-sha256"), sha);
+    assert.ok(existsSync(join(flag(plan.args, "--package-root"), "dist", "src", "lifecycle-cli.js")), "its package is copied beside it");
+    assert.match(w.out, /Copying the bridge…\nInstalling Live's Remote Script and the bridge…\nDone: the Ableton bridge 1\.0\.34 is installed/);
+
+    writeFileSync(join(prepared, "prepared.json"), JSON.stringify({ artifact: "bridge.tgz", sha256: "0".repeat(64) }));
+    const ran = w.calls.length;
+    assert.equal(await setupBridge(w.io({ prepared })), 1);
+    assert.match(w.out, /Kumi's copy of the bridge is damaged/);
+    assert.equal(w.calls.length, ran, "nothing runs");
   } finally { w.done(); }
 });
 

@@ -637,7 +637,7 @@ Environment variables (paths must be absolute):
 | `KUMI_LIVE_EXTENSIONS_DIR` | Where `kumi bridge` puts Kumi's extension and `kumi doctor` looks for it, when Kumi doesn't find Live's Extensions folder |
 | `KUMI_BRIDGE_WAIT_SECONDS` | How long `kumi bridge` waits for Live to connect; `0` doesn't wait |
 | `KUMI_NO_UPDATE_CHECK` | Any value turns off the check for a newer version at start |
-| `KUMI_UI=plain` | Plain line-by-line output instead of the full-screen app |
+| `KUMI_UI=plain` | Plain line-by-line output instead of the full-screen app; `kumi bridge`, `kumi update` and the other commands show no spinner while they work |
 | `KUMI_COLOR` | `truecolor`, `256`, `16` or `none`, when detection gets it wrong; `NO_COLOR` is honoured |
 | `KUMI_ICONS` | `glyphs` or `badges` (two-letter icons), when the terminal's symbols look wrong |
 | `KUMI_TRACE=1` | Print the name of each bridge call (no arguments or results) |

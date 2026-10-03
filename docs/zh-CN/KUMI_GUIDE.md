@@ -322,7 +322,7 @@ Kumi 把一切都保存在 `~/.kumi` 中。`~/.kumi/settings.json` 包含：
 | `KUMI_LIVE_EXTENSIONS_DIR` | Kumi 找不到 Live 的 Extensions 文件夹时，指定 `kumi bridge` 放置 Kumi 扩展、`kumi doctor` 查找扩展的位置 |
 | `KUMI_BRIDGE_WAIT_SECONDS` | `kumi bridge` 等待 Live 连接的时长；`0` 表示不等待 |
 | `KUMI_NO_UPDATE_CHECK` | 设为任意值即关闭启动时的新版本检查 |
-| `KUMI_UI=plain` | 用逐行的纯文本输出代替全屏应用 |
+| `KUMI_UI=plain` | 用逐行的纯文本输出代替全屏应用；`kumi bridge`、`kumi update` 等命令在运行时也不显示加载动画 |
 | `KUMI_COLOR` | 颜色检测出错时设为 `truecolor`、`256`、`16` 或 `none`；也会遵循 `NO_COLOR` |
 | `KUMI_ICONS` | 终端里的符号显示不正常时设为 `glyphs` 或 `badges`（两个字母的图标） |
 | `KUMI_TRACE=1` | 打印每次桥接调用的名称（不含参数和结果） |

@@ -6,7 +6,8 @@
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { copyFile, cp, readFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -16,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { findBridgeConfig, kumiDir, remoteScriptsDir } from "./config.js";
 import { readBridgeServer } from "./doctor.js";
 import { extensionSource, installExtension, liveExtensionsDir, removeFormerExtension } from "./live-extension.js";
+import { spin, step } from "./spinner.js";
 import { EARS_NAME, installEars, KUMI, KUMI_REPAIR, KUMI_START, systemProgram } from "@kumi/runtime";
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -63,11 +65,12 @@ const tilde = (path: string) => (path.startsWith(homedir()) ? `~${path.slice(hom
 
 export function runProgram(command: string, args: readonly string[], cwd?: string): Promise<Ran> {
   // npm is npm.cmd on Windows, which only starts through a shell; the shell gets one command line,
-  // so paths with spaces (a user folder like "C:\Users\Jo Smith") are quoted.
+  // so paths with spaces (a user folder like "C:\Users\Jo Smith") are quoted. Kumi writes that line
+  // itself: given separate arguments with a shell, Node 24 warns (DEP0190) over a step's spinner.
   const shell = process.platform === "win32" && command === "npm";
-  const line = shell ? args.map((arg) => (/[\s&|<>^()]/.test(arg) ? `"${arg}"` : arg)) : [...args];
+  const [file, line] = shell ? [[command, ...args.map((arg) => (/[\s&|<>^()]/.test(arg) ? `"${arg}"` : arg))].join(" "), []] : [command, [...args]];
   return new Promise((resolve) => {
-    execFile(command, line, { cwd, maxBuffer: 16 * 1024 * 1024, timeout: 10 * 60_000, shell }, (error, stdout, stderr) => {
+    execFile(file, line, { cwd, maxBuffer: 16 * 1024 * 1024, timeout: 10 * 60_000, shell }, (error, stdout, stderr) => {
       const code = error && typeof (error as { code?: unknown }).code === "number" ? (error as { code: number }).code : error ? 1 : 0;
       resolve({ code, stdout: String(stdout), stderr: String(stderr) });
     });
@@ -177,6 +180,9 @@ const packageRootOf = (entry: string | undefined) => (entry ? dirname(dirname(di
 export async function setupBridge(io: BridgeSetupIo): Promise<number> {
   const say = (line = "") => io.out.write(`${line}\n`);
   const run = io.run ?? runProgram;
+  // A step that takes a while, with a spinner after its line in a terminal; `quiet`, shown only while it runs.
+  const working = <T>(line: string, work: () => Promise<T>, quiet = false) => step(io.out, io.env, line, work, { keep: !quiet });
+  const liveOpen = () => working("Checking whether Live is open…", io.liveRunning ?? (() => isLiveRunning(run)), true);
   const bridgeDir = io.bridgeDir ?? BRIDGE_DIR;
   const scripts = remoteScriptsDir(io.env);
   let bundled: string;
@@ -195,12 +201,12 @@ export async function setupBridge(io: BridgeSetupIo): Promise<number> {
   if (config && installed === bundled) {
     say(`The Ableton bridge ${bundled} is installed, the same as Kumi's.`);
     // A bridge installed before Kumi had an extension gets it now; Live loads it when it next opens.
-    placeExtension(io, say, [installedRoot, bridgeDir].filter((root): root is string => Boolean(root)), await (io.liveRunning ?? (() => isLiveRunning(run)))());
+    placeExtension(io, say, [installedRoot, bridgeDir].filter((root): root is string => Boolean(root)), await liveOpen());
     await placeEars(say, scripts);
     return 0;
   }
   say(config ? `Kumi's bridge is ${bundled}; the one Live uses is ${installed ?? "older"}. Updating it takes a minute.` : `Kumi will install the Ableton bridge ${bundled}: the Remote Script Live loads, and the local server Kumi talks to.`);
-  if (await (io.liveRunning ?? (() => isLiveRunning(run)))()) {
+  if (await liveOpen()) {
     say(`Live is open. Save your work, quit Live, then run this again: ${KUMI} bridge`);
     return 1;
   }
@@ -221,21 +227,24 @@ export async function setupBridge(io: BridgeSetupIo): Promise<number> {
   const ready = preparedBridge(io.prepared ?? PREPARED);
   let artifact: string; let sha: string;
   if (ready) {
-    say("Copying the bridge…");
+    // Copied asynchronously, so the spinner keeps turning while Windows' antivirus looks at each file.
+    const prepared = io.prepared ?? PREPARED;
     artifact = join(folder, ready.artifact);
-    copyFileSync(join(io.prepared ?? PREPARED, ready.artifact), artifact);
-    sha = createHash("sha256").update(readFileSync(artifact)).digest("hex");
-    if (sha !== ready.sha256) { say(`Kumi's copy of the bridge is damaged. Run ${KUMI_REPAIR}.`); return 1; }
-    cpSync(join(io.prepared ?? PREPARED, "package", "node_modules"), join(folder, "node_modules"), { recursive: true });
+    const copied = await working("Copying the bridge…", async () => {
+      await copyFile(join(prepared, ready.artifact), artifact);
+      if (createHash("sha256").update(await readFile(artifact)).digest("hex") !== ready.sha256) return false;
+      await cp(join(prepared, "package", "node_modules"), join(folder, "node_modules"), { recursive: true });
+      return true;
+    });
+    if (!copied) { say(`Kumi's copy of the bridge is damaged. Run ${KUMI_REPAIR}.`); return 1; }
+    sha = ready.sha256;
   } else {
-    say("Packing the bridge…");
-    const packed = await run("npm", ["pack", "--pack-destination", folder, "--silent"], bridgeDir);
+    const packed = await working("Packing the bridge…", () => run("npm", ["pack", "--pack-destination", folder, "--silent"], bridgeDir));
     const name = packed.stdout.trim().split("\n").filter(Boolean).at(-1);
     if (packed.code !== 0 || !name) { say(`Packing the bridge failed: ${(packed.stderr || packed.stdout).trim().split("\n").at(-1) ?? "npm pack failed"}`); return 1; }
     artifact = join(folder, name);
     sha = createHash("sha256").update(readFileSync(artifact)).digest("hex");
-    say("Installing its package…");
-    const installedPackage = await run("npm", ["install", "--prefix", folder, "--ignore-scripts", "--no-audit", "--no-fund", artifact], folder);
+    const installedPackage = await working("Installing its package…", () => run("npm", ["install", "--prefix", folder, "--ignore-scripts", "--no-audit", "--no-fund", artifact], folder));
     if (installedPackage.code !== 0) { say(`Installing the bridge's package failed: ${(installedPackage.stderr || installedPackage.stdout).trim().split("\n").at(-1) ?? "npm install failed"}`); return 1; }
   }
   const root = join(folder, "node_modules", "@ableton-mcp", "mcp-server");
@@ -243,14 +252,14 @@ export async function setupBridge(io: BridgeSetupIo): Promise<number> {
   // The lifecycle plans first (it changes nothing), then applies; either refusal is said as it is.
   const action = config ? "upgrade" : "install";
   const artifactArgs = ["--artifact", artifact, "--artifact-sha256", sha];
-  const plan = lifecycleAnswer(await lifecycle(root, action, artifactArgs));
+  const plan = lifecycleAnswer(await working("Checking what changes…", () => lifecycle(root, action, artifactArgs), true));
   if (!plan.ok) {
     say(`The bridge's installer refused: ${plan.reason}`);
     if (/dirty/i.test(plan.reason)) say("This checkout has uncommitted changes; to install it anyway (developers only), add --allow-dirty.");
     return 1;
   }
-  say(action === "upgrade" ? "Updating Live's Remote Script and the bridge…" : "Installing Live's Remote Script and the bridge…");
-  const applied = lifecycleAnswer(await lifecycle(root, action, [...artifactArgs, "--apply", "--confirm-live-stopped"]));
+  const applied = lifecycleAnswer(await working(action === "upgrade" ? "Updating Live's Remote Script and the bridge…" : "Installing Live's Remote Script and the bridge…",
+    () => lifecycle(root, action, [...artifactArgs, "--apply", "--confirm-live-stopped"])));
   if (!applied.ok) { say(`The bridge's installer stopped, and put back what was there: ${applied.reason}`); return 1; }
   say(`Done: the Ableton bridge ${bundled} is installed (${tilde(scripts)}).`);
   placeExtension(io, say, [root], false);
@@ -263,21 +272,23 @@ export async function setupBridge(io: BridgeSetupIo): Promise<number> {
   // only once Live's Remote Script answers on its port, which a plain connect says in a moment.
   const waitMs = io.waitMs ?? 10 * 60_000;
   if (waitMs <= 0) return 0;
-  say("Waiting for Live… (Enter or Ctrl-C stops waiting; nothing else depends on it)");
   const sleep = io.sleep ?? ((ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms).unref(); }));
   const answers = io.remoteScriptAnswers ?? remoteScriptAnswers;
   const configPath = findBridgeConfig(io.env) ?? join(state, "bridge-config.json");
   const attempts = Math.max(1, Math.ceil(waitMs / 2_000));
   const stop = stopOnKey(io.input);
+  const waiting = spin(io.out, io.env, "Waiting for Live… (Enter or Ctrl-C stops waiting; nothing else depends on it)");
+  let connected = false;
   try {
-    for (let attempt = 0; attempt < attempts && !stop.stopped; attempt++) {
+    for (let attempt = 0; attempt < attempts && !stop.stopped && !connected; attempt++) {
       if (await answers(configPath)) {
         const check = lifecycleAnswer(await lifecycle(root, "activate"));
-        if (check.ok && activated(check.value)) { say(`Live is connected through the new bridge. Run: ${KUMI_START}`); return 0; }
+        connected = check.ok && activated(check.value);
       }
-      if (attempt < attempts - 1 && !stop.stopped) await Promise.race([sleep(2_000), stop.pressed]);
+      if (attempt < attempts - 1 && !stop.stopped && !connected) await Promise.race([sleep(2_000), stop.pressed]);
     }
-  } finally { stop.release(); }
+  } finally { waiting.stop(); stop.release(); }
+  if (connected) { say(`Live is connected through the new bridge. Run: ${KUMI_START}`); return 0; }
   say(stop.stopped ? `Stopped waiting. Kumi connects on its own once Live has AbletonMcpBridge as a Control Surface; ${KUMI} doctor says how it stands.`
     : `Live didn't connect yet; Kumi will connect when it does. If it doesn't, run: ${KUMI} doctor`);
   return 0;
