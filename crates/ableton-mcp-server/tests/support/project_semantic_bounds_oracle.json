@@ -1,0 +1,52 @@
+[
+  {
+    "kind": "ascii",
+    "count": 4096,
+    "error": "semantic snapshot Set record data has unknown or malformed fields"
+  },
+  {
+    "kind": "ascii",
+    "count": 4097,
+    "error": "semantic artifact string exceeds the bound"
+  },
+  {
+    "kind": "astral",
+    "count": 2048,
+    "error": "semantic snapshot Set record data has unknown or malformed fields"
+  },
+  {
+    "kind": "astral",
+    "count": 2049,
+    "error": "semantic artifact string exceeds the bound"
+  },
+  {
+    "kind": "key",
+    "count": 128,
+    "error": "semantic snapshot Set record data has unknown or malformed fields"
+  },
+  {
+    "kind": "key",
+    "count": 129,
+    "error": "semantic artifact object exceeds field or key bounds"
+  },
+  {
+    "kind": "object",
+    "count": 64,
+    "error": "semantic snapshot Set record data has unknown or malformed fields"
+  },
+  {
+    "kind": "object",
+    "count": 65,
+    "error": "semantic artifact object exceeds field or key bounds"
+  },
+  {
+    "kind": "depth",
+    "count": 20,
+    "error": "semantic snapshot Set record data has unknown or malformed fields"
+  },
+  {
+    "kind": "depth",
+    "count": 21,
+    "error": "semantic output exceeds the audit depth bound"
+  }
+]

@@ -2,6 +2,8 @@
 
 [English](../en/USER_GUIDE.md) · [简体中文](../zh-CN/USER_GUIDE.md) · 日本語
 
+ネイティブ版 Kumi 1.7.5 のブリッジは Node を必要とせず、`ableton-mcp-server` のサブコマンドを使います。このページの Node・npm 配布向けの手順は旧版用です。現在のネイティブ版の手順は[英語版](../en/USER_GUIDE.md)を参照してください。Kumi を使う場合は、Live を閉じて `kumi bridge` を実行します。
+
 ブリッジは Kumi と Ableton Live をつなぐもので、どの MCP クライアントからも単独で使えます。ブリッジは二つの部分からなります。
 
 - ローカルの MCP サーバー `@ableton-mcp/mcp-server`

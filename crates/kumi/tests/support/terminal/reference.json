@@ -1,0 +1,645 @@
+{
+  "header": "Kumi · openai-codex/fixture · MCP disconnected / No Live access\nEach Set's conversations are kept: its latest continues next time, and /conversations goes back to earlier ones. /help for commands.\n",
+  "cases": [
+    {
+      "event": {
+        "type": "connection",
+        "state": "connecting"
+      },
+      "expected": "[connection] MCP/Live: connecting; no verified current Live observation\n"
+    },
+    {
+      "event": {
+        "type": "connection",
+        "state": "connected"
+      },
+      "expected": "[connection] MCP/Live: connected\n"
+    },
+    {
+      "event": {
+        "type": "connection",
+        "state": "disconnected"
+      },
+      "expected": "[connection] MCP/Live: disconnected; no verified current Live observation\n"
+    },
+    {
+      "event": {
+        "type": "observation",
+        "label": "Set private-token\ntrack"
+      },
+      "expected": "[observation] Set [redacted] track\n"
+    },
+    {
+      "event": {
+        "type": "change",
+        "change": {
+          "id": "c1",
+          "family": "tempo",
+          "title": "Tempo 120 → 124 BPM",
+          "state": "applied",
+          "at": 1
+        }
+      },
+      "expected": "[change] Tempo 120 → 124 BPM (/undo takes it back)\n"
+    },
+    {
+      "event": {
+        "type": "change",
+        "change": {
+          "id": "c2",
+          "family": "tempo",
+          "title": "Tempo 120 → 124 BPM",
+          "state": "applied",
+          "at": 2,
+          "note": "Check private-token",
+          "score": 0
+        }
+      },
+      "expected": "[change] Tempo 120 → 124 BPM (/undo takes it back)\n"
+    },
+    {
+      "event": {
+        "type": "change",
+        "change": {
+          "id": "c1",
+          "family": "tempo",
+          "title": "Tempo 120 → 124 BPM",
+          "state": "unsure",
+          "at": 1
+        }
+      },
+      "expected": "[change] Check Live: Tempo 120 → 124 BPM. Live didn't confirm it.\n"
+    },
+    {
+      "event": {
+        "type": "change",
+        "change": {
+          "id": "c2",
+          "family": "tempo",
+          "title": "Tempo 120 → 124 BPM",
+          "state": "unsure",
+          "at": 2,
+          "note": "Check private-token",
+          "score": 0
+        }
+      },
+      "expected": "[change] Check Live: Tempo 120 → 124 BPM. Check [redacted]\n"
+    },
+    {
+      "event": {
+        "type": "change",
+        "change": {
+          "id": "c1",
+          "family": "tempo",
+          "title": "Tempo 120 → 124 BPM",
+          "state": "kept",
+          "at": 1
+        }
+      },
+      "expected": "[change] Kept: Tempo 120 → 124 BPM.\n"
+    },
+    {
+      "event": {
+        "type": "change",
+        "change": {
+          "id": "c2",
+          "family": "tempo",
+          "title": "Tempo 120 → 124 BPM",
+          "state": "kept",
+          "at": 2,
+          "note": "Check private-token",
+          "score": 0
+        }
+      },
+      "expected": "[change] Kept: Tempo 120 → 124 BPM. Check [redacted]\n"
+    },
+    {
+      "event": {
+        "type": "change",
+        "change": {
+          "id": "c1",
+          "family": "tempo",
+          "title": "Tempo 120 → 124 BPM",
+          "state": "expired",
+          "at": 1
+        }
+      },
+      "expected": "[change] No undo anymore: Tempo 120 → 124 BPM.\n"
+    },
+    {
+      "event": {
+        "type": "change",
+        "change": {
+          "id": "c2",
+          "family": "tempo",
+          "title": "Tempo 120 → 124 BPM",
+          "state": "expired",
+          "at": 2,
+          "note": "Check private-token",
+          "score": 0
+        }
+      },
+      "expected": "[change] No undo anymore: Tempo 120 → 124 BPM. Check [redacted]\n"
+    },
+    {
+      "event": {
+        "type": "change",
+        "change": {
+          "id": "c1",
+          "family": "tempo",
+          "title": "Tempo 120 → 124 BPM",
+          "state": "heard",
+          "at": 1
+        }
+      },
+      "expected": "[heard] Tempo 120 → 124 BPM\n"
+    },
+    {
+      "event": {
+        "type": "change",
+        "change": {
+          "id": "c2",
+          "family": "tempo",
+          "title": "Tempo 120 → 124 BPM",
+          "state": "heard",
+          "at": 2,
+          "note": "Check private-token",
+          "score": 0
+        }
+      },
+      "expected": "[heard] Tempo 120 → 124 BPM · 0%\n"
+    },
+    {
+      "event": {
+        "type": "change",
+        "change": {
+          "id": "c1",
+          "family": "tempo",
+          "title": "Tempo 120 → 124 BPM",
+          "state": "undone",
+          "at": 1
+        }
+      },
+      "expected": ""
+    },
+    {
+      "event": {
+        "type": "change",
+        "change": {
+          "id": "c2",
+          "family": "tempo",
+          "title": "Tempo 120 → 124 BPM",
+          "state": "undone",
+          "at": 2,
+          "note": "Check private-token",
+          "score": 0
+        }
+      },
+      "expected": ""
+    },
+    {
+      "event": {
+        "type": "notice",
+        "message": "A notice\nnext line"
+      },
+      "expected": "A notice next line\n"
+    },
+    {
+      "event": {
+        "type": "tool-start",
+        "id": "t",
+        "name": "live_status"
+      },
+      "expected": "[tool] live_status started\n"
+    },
+    {
+      "event": {
+        "type": "tool-end",
+        "id": "t",
+        "name": "live_status",
+        "isError": false,
+        "elapsedMs": 23
+      },
+      "expected": "[tool] live_status success · 23 ms\n"
+    },
+    {
+      "event": {
+        "type": "tool-end",
+        "id": "t",
+        "name": "live_status",
+        "isError": true,
+        "elapsedMs": 23
+      },
+      "expected": "[tool] live_status error · 23 ms\n"
+    },
+    {
+      "event": {
+        "type": "remembered",
+        "scope": "producer",
+        "note": {
+          "id": "p1",
+          "text": "Short reverbs",
+          "at": 1
+        }
+      },
+      "expected": "[memory] Noted about you: Short reverbs\n"
+    },
+    {
+      "event": {
+        "type": "remembered",
+        "scope": "producer",
+        "note": {
+          "id": "p2",
+          "text": "Long reverbs",
+          "at": 2
+        },
+        "replaced": {
+          "id": "p1",
+          "text": "Short reverbs",
+          "at": 1
+        },
+        "pending": true
+      },
+      "expected": "[memory] Updated a note about you: Long reverbs (kept once the Set is saved)\n"
+    },
+    {
+      "event": {
+        "type": "forgot",
+        "scope": "producer",
+        "note": {
+          "id": "p1",
+          "text": "Short reverbs",
+          "at": 1
+        }
+      },
+      "expected": "[memory] Forgot: Short reverbs\n"
+    },
+    {
+      "event": {
+        "type": "remembered",
+        "scope": "set",
+        "note": {
+          "id": "p1",
+          "text": "Short reverbs",
+          "at": 1
+        }
+      },
+      "expected": "[memory] Noted about this Set: Short reverbs\n"
+    },
+    {
+      "event": {
+        "type": "remembered",
+        "scope": "set",
+        "note": {
+          "id": "p2",
+          "text": "Long reverbs",
+          "at": 2
+        },
+        "replaced": {
+          "id": "p1",
+          "text": "Short reverbs",
+          "at": 1
+        },
+        "pending": true
+      },
+      "expected": "[memory] Updated a note about this Set: Long reverbs (kept once the Set is saved)\n"
+    },
+    {
+      "event": {
+        "type": "forgot",
+        "scope": "set",
+        "note": {
+          "id": "p1",
+          "text": "Short reverbs",
+          "at": 1
+        }
+      },
+      "expected": "[memory] Forgot: Short reverbs\n"
+    },
+    {
+      "event": {
+        "type": "action",
+        "title": "Stopped",
+        "playing": false
+      },
+      "expected": "[live] Stopped\n"
+    },
+    {
+      "event": {
+        "type": "watching",
+        "on": true
+      },
+      "expected": "[live] Kumi is watching the Set; do it in Live, then tell Kumi you're done.\n"
+    },
+    {
+      "event": {
+        "type": "watching",
+        "on": false
+      },
+      "expected": "[live] Kumi stopped watching.\n"
+    },
+    {
+      "event": {
+        "type": "recipe",
+        "action": "saved",
+        "name": "My drums",
+        "steps": 3
+      },
+      "expected": "[recipe] Saved “My drums” (3 steps)\n"
+    },
+    {
+      "event": {
+        "type": "recipe",
+        "action": "updated",
+        "name": "My drums",
+        "steps": 3
+      },
+      "expected": "[recipe] Updated “My drums” (3 steps)\n"
+    },
+    {
+      "event": {
+        "type": "recipe",
+        "action": "running",
+        "name": "My drums",
+        "steps": 3
+      },
+      "expected": "[recipe] Running “My drums” (3 steps)\n"
+    },
+    {
+      "event": {
+        "type": "recipe",
+        "action": "forgotten",
+        "name": "My drums",
+        "steps": 3
+      },
+      "expected": "[recipe] Forgot “My drums” (3 steps)\n"
+    },
+    {
+      "event": {
+        "type": "technique",
+        "action": "kept",
+        "technique": {
+          "id": "t1",
+          "name": "Soft pads",
+          "fits": "quiet arrangements"
+        }
+      },
+      "expected": "[technique] Kept “Soft pads” (for quiet arrangements; /forget t1 drops it)\n"
+    },
+    {
+      "event": {
+        "type": "technique",
+        "action": "updated",
+        "technique": {
+          "id": "t1",
+          "name": "Soft pads",
+          "fits": "quiet arrangements"
+        }
+      },
+      "expected": "[technique] Updated “Soft pads” (for quiet arrangements; /forget t1 drops it)\n"
+    },
+    {
+      "event": {
+        "type": "technique",
+        "action": "used",
+        "technique": {
+          "id": "t1",
+          "name": "Soft pads",
+          "fits": "quiet arrangements"
+        }
+      },
+      "expected": "[technique] Using “Soft pads”\n"
+    },
+    {
+      "event": {
+        "type": "technique",
+        "action": "forgot",
+        "technique": {
+          "id": "t1",
+          "name": "Soft pads",
+          "fits": "quiet arrangements"
+        }
+      },
+      "expected": "[technique] Forgot “Soft pads”\n"
+    },
+    {
+      "event": {
+        "type": "lesson",
+        "action": "learned",
+        "id": "l1",
+        "line": "Small changes first"
+      },
+      "expected": "[learned] Small changes first\n"
+    },
+    {
+      "event": {
+        "type": "lesson",
+        "action": "updated",
+        "id": "l1",
+        "line": "Small changes first"
+      },
+      "expected": "[learned] Small changes first\n"
+    },
+    {
+      "event": {
+        "type": "lesson",
+        "action": "forgot",
+        "id": "l1",
+        "line": "Small changes first"
+      },
+      "expected": "[forgot a lesson] Small changes first\n"
+    },
+    {
+      "event": {
+        "type": "heard",
+        "file": "sound.wav",
+        "summary": "Bright",
+        "bands": [
+          1,
+          2
+        ]
+      },
+      "expected": "[heard] sound.wav · Bright\n"
+    },
+    {
+      "event": {
+        "type": "heard",
+        "file": "sound.wav",
+        "summary": "Bright",
+        "bands": [
+          1,
+          2
+        ],
+        "compared": {
+          "reference": "ref.wav",
+          "summary": "Close",
+          "differences": [
+            0
+          ],
+          "headlines": []
+        }
+      },
+      "expected": "[heard] sound.wav against ref.wav: close\n"
+    },
+    {
+      "event": {
+        "type": "heard",
+        "file": "sound.wav",
+        "summary": "Bright",
+        "bands": [
+          1,
+          2
+        ],
+        "compared": {
+          "reference": "ref.wav",
+          "summary": "Close",
+          "differences": [
+            1
+          ],
+          "headlines": [
+            "Bright top",
+            "Soft low end"
+          ]
+        }
+      },
+      "expected": "[heard] sound.wav against ref.wav: Bright top; Soft low end\n"
+    },
+    {
+      "event": {
+        "type": "watched",
+        "title": "A video",
+        "url": "https://example.com/video",
+        "from": 1,
+        "to": 62,
+        "duration": 90,
+        "chapters": [],
+        "words": "captions",
+        "lines": 2,
+        "frames": [],
+        "notes": [
+          "first",
+          "second",
+          "third",
+          "fourth"
+        ]
+      },
+      "expected": "[watched] “A video” (1:30): 0:01–1:02, its captions\n[watched] first\n[watched] second\n[watched] third\n"
+    },
+    {
+      "event": {
+        "type": "watched",
+        "title": "A video",
+        "url": "https://example.com/video",
+        "from": 1,
+        "to": 62,
+        "duration": 90,
+        "chapters": [],
+        "words": "automatic",
+        "lines": 2,
+        "frames": [],
+        "notes": [
+          "first",
+          "second",
+          "third",
+          "fourth"
+        ]
+      },
+      "expected": "[watched] “A video” (1:30): 0:01–1:02, its automatic captions\n[watched] first\n[watched] second\n[watched] third\n"
+    },
+    {
+      "event": {
+        "type": "watched",
+        "title": "A video",
+        "url": "https://example.com/video",
+        "from": 1,
+        "to": 62,
+        "duration": 90,
+        "chapters": [],
+        "words": "transcribed",
+        "lines": 2,
+        "frames": [],
+        "notes": [
+          "first",
+          "second",
+          "third",
+          "fourth"
+        ]
+      },
+      "expected": "[watched] “A video” (1:30): 0:01–1:02, its speech, transcribed\n[watched] first\n[watched] second\n[watched] third\n"
+    },
+    {
+      "event": {
+        "type": "watched",
+        "title": "A video",
+        "url": "https://example.com/video",
+        "from": 1,
+        "to": 62,
+        "duration": 90,
+        "chapters": [],
+        "words": "none",
+        "lines": 2,
+        "frames": [],
+        "notes": [
+          "first",
+          "second",
+          "third",
+          "fourth"
+        ]
+      },
+      "expected": "[watched] “A video” (1:30): 0:01–1:02, no words\n[watched] first\n[watched] second\n[watched] third\n"
+    },
+    {
+      "event": {
+        "type": "turn-complete",
+        "elapsedMs": 42,
+        "result": {
+          "stopReason": "completed"
+        }
+      },
+      "expected": "[completed] first text unavailable; total 42 ms; usage unavailable; cost unavailable\n"
+    },
+    {
+      "event": {
+        "type": "turn-complete",
+        "elapsedMs": 42,
+        "result": {
+          "stopReason": "completed",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 2,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 4
+          }
+        }
+      },
+      "expected": "[completed] first text unavailable; total 42 ms; reported tokens in/out 1/2; cache read/write 3/4; cost unavailable\n"
+    },
+    {
+      "event": {
+        "type": "turn-complete",
+        "elapsedMs": 42,
+        "result": {
+          "stopReason": "cancelled"
+        }
+      },
+      "expected": "[cancelled] first text unavailable; total 42 ms; usage unavailable; cost unavailable\n"
+    },
+    {
+      "event": {
+        "type": "turn-complete",
+        "elapsedMs": 42,
+        "result": {
+          "stopReason": "cancelled",
+          "usage": {
+            "inputTokens": 1,
+            "outputTokens": 2,
+            "cacheReadTokens": 3,
+            "cacheWriteTokens": 4
+          }
+        }
+      },
+      "expected": "[cancelled] first text unavailable; total 42 ms; reported tokens in/out 1/2; cache read/write 3/4 (partial before cancellation); cost unavailable\n"
+    }
+  ],
+  "closed": "Kumi closed. Each Set's conversation continues next time.\n"
+}

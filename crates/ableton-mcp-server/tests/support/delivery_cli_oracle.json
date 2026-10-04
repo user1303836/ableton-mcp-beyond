@@ -1,0 +1,815 @@
+[
+  {
+    "command": "setup",
+    "args": [],
+    "stdout": "",
+    "stderr": "usage: ableton-mcp-setup --output <path> [--bridge-host <loopback> --bridge-port <port> --secret-file <path> --bridge-timeout <ms> --realtime-port <port>] [--force]\n",
+    "code": 2
+  },
+  {
+    "command": "setup",
+    "args": [
+      "--unknown"
+    ],
+    "stdout": "",
+    "stderr": "setup: unknown option --unknown\n",
+    "code": 2
+  },
+  {
+    "command": "setup",
+    "args": [
+      "--force",
+      "--force"
+    ],
+    "stdout": "",
+    "stderr": "usage: ableton-mcp-setup --output <path> [--bridge-host <loopback> --bridge-port <port> --secret-file <path> --bridge-timeout <ms> --realtime-port <port>] [--force]\n",
+    "code": 2
+  },
+  {
+    "command": "setup",
+    "args": [
+      "--output"
+    ],
+    "stdout": "",
+    "stderr": "setup: --output requires a value\n",
+    "code": 2
+  },
+  {
+    "command": "setup",
+    "args": [
+      "--output",
+      "--force"
+    ],
+    "stdout": "",
+    "stderr": "setup: --output requires a value\n",
+    "code": 2
+  },
+  {
+    "command": "setup",
+    "args": [
+      "--output",
+      ""
+    ],
+    "stdout": "",
+    "stderr": "setup: --output requires a value\n",
+    "code": 2
+  },
+  {
+    "command": "setup",
+    "args": [
+      "--output",
+      "x",
+      "--output",
+      "y"
+    ],
+    "stdout": "",
+    "stderr": "setup: repeated --output\n",
+    "code": 2
+  },
+  {
+    "command": "setup",
+    "args": [
+      "--config"
+    ],
+    "stdout": "",
+    "stderr": "setup: unknown option --config\n",
+    "code": 2
+  },
+  {
+    "command": "setup",
+    "args": [
+      "--config",
+      ""
+    ],
+    "stdout": "",
+    "stderr": "setup: unknown option --config\nsetup: unknown option \n",
+    "code": 2
+  },
+  {
+    "command": "setup",
+    "args": [
+      "--config",
+      "-x"
+    ],
+    "stdout": "",
+    "stderr": "setup: unknown option --config\nsetup: unknown option -x\n",
+    "code": 2
+  },
+  {
+    "command": "setup",
+    "args": [
+      "--config",
+      "a",
+      "b"
+    ],
+    "stdout": "",
+    "stderr": "setup: unknown option --config\nsetup: unknown option a\nsetup: unknown option b\n",
+    "code": 2
+  },
+  {
+    "command": "setup",
+    "args": [
+      "--input",
+      "--output",
+      "x"
+    ],
+    "stdout": "",
+    "stderr": "setup: unknown option --input\n",
+    "code": 2
+  },
+  {
+    "command": "setup",
+    "args": [
+      "--input",
+      "a",
+      "--input",
+      "b"
+    ],
+    "stdout": "",
+    "stderr": "setup: unknown option --input\nsetup: unknown option a\nsetup: unknown option --input\nsetup: unknown option b\n",
+    "code": 2
+  },
+  {
+    "command": "setup",
+    "args": [
+      "--input",
+      "a",
+      "--output",
+      "b",
+      "--bridge-host",
+      "127.0.0.1"
+    ],
+    "stdout": "",
+    "stderr": "setup: unknown option --input\nsetup: unknown option a\n",
+    "code": 2
+  },
+  {
+    "command": "setup",
+    "args": [
+      "--destination"
+    ],
+    "stdout": "",
+    "stderr": "setup: unknown option --destination\n",
+    "code": 2
+  },
+  {
+    "command": "setup",
+    "args": [
+      "--destination",
+      "--force"
+    ],
+    "stdout": "",
+    "stderr": "setup: unknown option --destination\n",
+    "code": 2
+  },
+  {
+    "command": "setup",
+    "args": [
+      "--destination",
+      "a",
+      "--destination",
+      "b"
+    ],
+    "stdout": "",
+    "stderr": "setup: unknown option --destination\nsetup: unknown option a\nsetup: unknown option --destination\nsetup: unknown option b\n",
+    "code": 2
+  },
+  {
+    "command": "setup",
+    "args": [
+      "--bridge-port",
+      "-1"
+    ],
+    "stdout": "",
+    "stderr": "setup: --bridge-port requires a value\n",
+    "code": 2
+  },
+  {
+    "command": "setup",
+    "args": [
+      "--timeout-ms",
+      "-1"
+    ],
+    "stdout": "",
+    "stderr": "setup: unknown option --timeout-ms\nsetup: unknown option -1\n",
+    "code": 2
+  },
+  {
+    "command": "setup",
+    "args": [
+      "--realtime-port",
+      "--force"
+    ],
+    "stdout": "",
+    "stderr": "setup: --realtime-port requires a value\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [],
+    "stdout": "",
+    "stderr": "usage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [
+      "--unknown"
+    ],
+    "stdout": "",
+    "stderr": "migration: unknown option --unknown\nusage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [
+      "--force",
+      "--force"
+    ],
+    "stdout": "",
+    "stderr": "migration: repeated --force\nusage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [
+      "--output"
+    ],
+    "stdout": "",
+    "stderr": "migration: --output requires a value\nusage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [
+      "--output",
+      "--force"
+    ],
+    "stdout": "",
+    "stderr": "migration: --output requires a value\nusage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [
+      "--output",
+      ""
+    ],
+    "stdout": "",
+    "stderr": "migration: --output requires a value\nmigration: unknown option \nusage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [
+      "--output",
+      "x",
+      "--output",
+      "y"
+    ],
+    "stdout": "",
+    "stderr": "migration: repeated --output\nusage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [
+      "--config"
+    ],
+    "stdout": "",
+    "stderr": "migration: unknown option --config\nusage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [
+      "--config",
+      ""
+    ],
+    "stdout": "",
+    "stderr": "migration: unknown option --config\nmigration: unknown option \nusage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [
+      "--config",
+      "-x"
+    ],
+    "stdout": "",
+    "stderr": "migration: unknown option --config\nmigration: unknown option -x\nusage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [
+      "--config",
+      "a",
+      "b"
+    ],
+    "stdout": "",
+    "stderr": "migration: unknown option --config\nmigration: unknown option a\nmigration: unknown option b\nusage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [
+      "--input",
+      "--output",
+      "x"
+    ],
+    "stdout": "",
+    "stderr": "migration: --input requires a value\nusage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [
+      "--input",
+      "a",
+      "--input",
+      "b"
+    ],
+    "stdout": "",
+    "stderr": "migration: repeated --input\nusage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [
+      "--input",
+      "a",
+      "--output",
+      "b",
+      "--bridge-host",
+      "127.0.0.1"
+    ],
+    "stdout": "",
+    "stderr": "usage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [
+      "--destination"
+    ],
+    "stdout": "",
+    "stderr": "migration: unknown option --destination\nusage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [
+      "--destination",
+      "--force"
+    ],
+    "stdout": "",
+    "stderr": "migration: unknown option --destination\nusage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [
+      "--destination",
+      "a",
+      "--destination",
+      "b"
+    ],
+    "stdout": "",
+    "stderr": "migration: unknown option --destination\nmigration: unknown option a\nmigration: unknown option --destination\nmigration: unknown option b\nusage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [
+      "--bridge-port",
+      "-1"
+    ],
+    "stdout": "",
+    "stderr": "usage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [
+      "--timeout-ms",
+      "-1"
+    ],
+    "stdout": "",
+    "stderr": "usage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "migrate",
+    "args": [
+      "--realtime-port",
+      "--force"
+    ],
+    "stdout": "",
+    "stderr": "migration: --realtime-port requires a value\nusage: ableton-mcp-migrate --input PATH --output PATH [--force] [--bridge-host 127.0.0.1 --bridge-port N --secret-file ABSOLUTE_PATH [--timeout-ms N] [--realtime-port N]]\n",
+    "code": 2
+  },
+  {
+    "command": "diagnostics",
+    "args": [
+      "--unknown"
+    ],
+    "stdout": "",
+    "stderr": "diagnostics: expected at most one --config PATH\n",
+    "code": 2
+  },
+  {
+    "command": "diagnostics",
+    "args": [
+      "--force",
+      "--force"
+    ],
+    "stdout": "",
+    "stderr": "diagnostics: expected at most one --config PATH\n",
+    "code": 2
+  },
+  {
+    "command": "diagnostics",
+    "args": [
+      "--output"
+    ],
+    "stdout": "",
+    "stderr": "diagnostics: expected at most one --config PATH\n",
+    "code": 2
+  },
+  {
+    "command": "diagnostics",
+    "args": [
+      "--output",
+      "--force"
+    ],
+    "stdout": "",
+    "stderr": "diagnostics: expected at most one --config PATH\n",
+    "code": 2
+  },
+  {
+    "command": "diagnostics",
+    "args": [
+      "--output",
+      ""
+    ],
+    "stdout": "",
+    "stderr": "diagnostics: expected at most one --config PATH\n",
+    "code": 2
+  },
+  {
+    "command": "diagnostics",
+    "args": [
+      "--output",
+      "x",
+      "--output",
+      "y"
+    ],
+    "stdout": "",
+    "stderr": "diagnostics: expected at most one --config PATH\n",
+    "code": 2
+  },
+  {
+    "command": "diagnostics",
+    "args": [
+      "--config"
+    ],
+    "stdout": "",
+    "stderr": "diagnostics: expected at most one --config PATH\n",
+    "code": 2
+  },
+  {
+    "command": "diagnostics",
+    "args": [
+      "--config",
+      ""
+    ],
+    "stdout": "",
+    "stderr": "diagnostics: --config requires a path\n",
+    "code": 2
+  },
+  {
+    "command": "diagnostics",
+    "args": [
+      "--config",
+      "-x"
+    ],
+    "stdout": "",
+    "stderr": "diagnostics: expected at most one --config PATH\n",
+    "code": 2
+  },
+  {
+    "command": "diagnostics",
+    "args": [
+      "--config",
+      "a",
+      "b"
+    ],
+    "stdout": "",
+    "stderr": "diagnostics: expected at most one --config PATH\n",
+    "code": 2
+  },
+  {
+    "command": "diagnostics",
+    "args": [
+      "--input",
+      "--output",
+      "x"
+    ],
+    "stdout": "",
+    "stderr": "diagnostics: expected at most one --config PATH\n",
+    "code": 2
+  },
+  {
+    "command": "diagnostics",
+    "args": [
+      "--input",
+      "a",
+      "--input",
+      "b"
+    ],
+    "stdout": "",
+    "stderr": "diagnostics: expected at most one --config PATH\n",
+    "code": 2
+  },
+  {
+    "command": "diagnostics",
+    "args": [
+      "--input",
+      "a",
+      "--output",
+      "b",
+      "--bridge-host",
+      "127.0.0.1"
+    ],
+    "stdout": "",
+    "stderr": "diagnostics: expected at most one --config PATH\n",
+    "code": 2
+  },
+  {
+    "command": "diagnostics",
+    "args": [
+      "--destination"
+    ],
+    "stdout": "",
+    "stderr": "diagnostics: expected at most one --config PATH\n",
+    "code": 2
+  },
+  {
+    "command": "diagnostics",
+    "args": [
+      "--destination",
+      "--force"
+    ],
+    "stdout": "",
+    "stderr": "diagnostics: expected at most one --config PATH\n",
+    "code": 2
+  },
+  {
+    "command": "diagnostics",
+    "args": [
+      "--destination",
+      "a",
+      "--destination",
+      "b"
+    ],
+    "stdout": "",
+    "stderr": "diagnostics: expected at most one --config PATH\n",
+    "code": 2
+  },
+  {
+    "command": "diagnostics",
+    "args": [
+      "--bridge-port",
+      "-1"
+    ],
+    "stdout": "",
+    "stderr": "diagnostics: expected at most one --config PATH\n",
+    "code": 2
+  },
+  {
+    "command": "diagnostics",
+    "args": [
+      "--timeout-ms",
+      "-1"
+    ],
+    "stdout": "",
+    "stderr": "diagnostics: expected at most one --config PATH\n",
+    "code": 2
+  },
+  {
+    "command": "diagnostics",
+    "args": [
+      "--realtime-port",
+      "--force"
+    ],
+    "stdout": "",
+    "stderr": "diagnostics: expected at most one --config PATH\n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [],
+    "stdout": "",
+    "stderr": "usage: ableton-mcp-install-remote-script --destination <explicit-directory> [--config <absolute-host-config>] [--dry-run] [--force]\n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [
+      "--unknown"
+    ],
+    "stdout": "",
+    "stderr": "installer: unknown option --unknown\n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [
+      "--force",
+      "--force"
+    ],
+    "stdout": "",
+    "stderr": "usage: ableton-mcp-install-remote-script --destination <explicit-directory> [--config <absolute-host-config>] [--dry-run] [--force]\n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [
+      "--output"
+    ],
+    "stdout": "",
+    "stderr": "installer: unknown option --output\n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [
+      "--output",
+      "--force"
+    ],
+    "stdout": "",
+    "stderr": "installer: unknown option --output\n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [
+      "--output",
+      ""
+    ],
+    "stdout": "",
+    "stderr": "installer: unknown option --output\ninstaller: unknown option \n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [
+      "--output",
+      "x",
+      "--output",
+      "y"
+    ],
+    "stdout": "",
+    "stderr": "installer: unknown option --output\ninstaller: unknown option x\ninstaller: unknown option --output\ninstaller: unknown option y\n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [
+      "--config"
+    ],
+    "stdout": "",
+    "stderr": "installer: --config requires a value\n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [
+      "--config",
+      ""
+    ],
+    "stdout": "",
+    "stderr": "installer: --config requires a value\n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [
+      "--config",
+      "-x"
+    ],
+    "stdout": "",
+    "stderr": "installer: --config requires a value\n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [
+      "--config",
+      "a",
+      "b"
+    ],
+    "stdout": "",
+    "stderr": "installer: unknown option b\n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [
+      "--input",
+      "--output",
+      "x"
+    ],
+    "stdout": "",
+    "stderr": "installer: unknown option --input\ninstaller: unknown option --output\ninstaller: unknown option x\n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [
+      "--input",
+      "a",
+      "--input",
+      "b"
+    ],
+    "stdout": "",
+    "stderr": "installer: unknown option --input\ninstaller: unknown option a\ninstaller: unknown option --input\ninstaller: unknown option b\n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [
+      "--input",
+      "a",
+      "--output",
+      "b",
+      "--bridge-host",
+      "127.0.0.1"
+    ],
+    "stdout": "",
+    "stderr": "installer: unknown option --input\ninstaller: unknown option a\ninstaller: unknown option --output\ninstaller: unknown option b\ninstaller: unknown option --bridge-host\ninstaller: unknown option 127.0.0.1\n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [
+      "--destination"
+    ],
+    "stdout": "",
+    "stderr": "installer: --destination requires a value\n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [
+      "--destination",
+      "--force"
+    ],
+    "stdout": "",
+    "stderr": "installer: --destination requires a value\n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [
+      "--destination",
+      "a",
+      "--destination",
+      "b"
+    ],
+    "stdout": "",
+    "stderr": "installer: repeated --destination\n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [
+      "--bridge-port",
+      "-1"
+    ],
+    "stdout": "",
+    "stderr": "installer: unknown option --bridge-port\ninstaller: unknown option -1\n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [
+      "--timeout-ms",
+      "-1"
+    ],
+    "stdout": "",
+    "stderr": "installer: unknown option --timeout-ms\ninstaller: unknown option -1\n",
+    "code": 2
+  },
+  {
+    "command": "install-remote-script",
+    "args": [
+      "--realtime-port",
+      "--force"
+    ],
+    "stdout": "",
+    "stderr": "installer: unknown option --realtime-port\n",
+    "code": 2
+  }
+]

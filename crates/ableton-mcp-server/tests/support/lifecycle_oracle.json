@@ -1,0 +1,441 @@
+[
+  {
+    "label": "plan",
+    "result": {
+      "version": "ableton-mcp-lifecycle/v1",
+      "action": "install",
+      "applied": false,
+      "state": "planned",
+      "receiptPath": "<root>/State ü space/install-receipt.json",
+      "restartRequired": true,
+      "steps": [
+        {
+          "id": "preflight",
+          "impact": "read-only validation",
+          "status": "planned"
+        },
+        {
+          "id": "secret",
+          "impact": "creates owner-only secret",
+          "status": "planned"
+        },
+        {
+          "id": "config",
+          "impact": "creates owner-only bridge config",
+          "status": "planned"
+        },
+        {
+          "id": "remote-script",
+          "impact": "installs managed Live Remote Script",
+          "status": "planned"
+        },
+        {
+          "id": "receipt",
+          "impact": "writes owner-only lifecycle receipt",
+          "status": "planned"
+        }
+      ],
+      "verification": {
+        "packageVersion": "1.0.0",
+        "sourceCommit": "<commit>",
+        "sourceDirty": true,
+        "packageRootVerified": true,
+        "receiptPresent": false,
+        "bridgeDiagnosticsRequested": false,
+        "portsRequireApplyTimeProbe": true
+      },
+      "recovery": {
+        "journalPath": "<root>/State ü space/lifecycle-journal.json",
+        "rollbackAvailable": false
+      },
+      "instructions": [
+        "Review the plan, stop Ableton Live, then repeat with --apply and --confirm-live-stopped."
+      ]
+    }
+  },
+  {
+    "label": "install",
+    "result": {
+      "version": "ableton-mcp-lifecycle/v1",
+      "action": "install",
+      "applied": true,
+      "state": "completed",
+      "receiptPath": "<root>/State ü space/install-receipt.json",
+      "restartRequired": true,
+      "steps": [
+        {
+          "id": "preflight",
+          "impact": "read-only validation",
+          "status": "completed"
+        },
+        {
+          "id": "secret",
+          "impact": "creates owner-only secret",
+          "status": "completed"
+        },
+        {
+          "id": "config",
+          "impact": "creates owner-only bridge config",
+          "status": "completed"
+        },
+        {
+          "id": "remote-script",
+          "impact": "installs managed Live Remote Script",
+          "status": "completed"
+        },
+        {
+          "id": "receipt",
+          "impact": "writes owner-only lifecycle receipt",
+          "status": "completed"
+        }
+      ],
+      "verification": {
+        "packageVersion": "1.0.0",
+        "artifactSha256": "<sha256>",
+        "releaseManifestSha256": "<sha256>",
+        "registryHash": "<sha256>",
+        "remoteFiles": 6,
+        "configSha256": "<sha256>",
+        "configPermissions": "owner-only",
+        "secretPermissions": "owner-only",
+        "bridgeDiagnostics": null,
+        "portsAvailableAtPreflight": true,
+        "journalFinalized": true
+      },
+      "recovery": {
+        "journalPath": "<root>/State ü space/lifecycle-journal.json",
+        "rollbackAvailable": false
+      },
+      "instructions": [
+        "Restart Live, select AbletonMcpBridge as a Control Surface, then run activate."
+      ]
+    }
+  },
+  {
+    "label": "status",
+    "result": {
+      "version": "ableton-mcp-lifecycle/v1",
+      "action": "status",
+      "applied": false,
+      "state": "completed",
+      "receiptPath": "<root>/State ü space/install-receipt.json",
+      "restartRequired": false,
+      "steps": [
+        {
+          "id": "inspect",
+          "impact": "read-only lifecycle and drift report",
+          "status": "completed"
+        }
+      ],
+      "verification": {
+        "receipt": {
+          "status": "installed-restart-required",
+          "effectiveStatus": "installed-restart-required",
+          "generation": 1,
+          "packageVersion": "1.0.0",
+          "artifactSha256": "<sha256>",
+          "recordedActivation": {
+            "required": true,
+            "realLiveVerified": false,
+            "provenance": "unavailable",
+            "remediation": "Restart Live, select AbletonMcpBridge as a Control Surface, then run activate."
+          },
+          "activationEvidenceScope": "historical-receipt-not-current-connectivity",
+          "retained": {
+            "pendingCleanup": [],
+            "preserved": []
+          }
+        },
+        "installationIntegrityValid": true,
+        "packageValid": true,
+        "configValid": true,
+        "bridgeDiagnostics": null,
+        "remoteScript": {
+          "valid": true,
+          "missing": [],
+          "changed": [],
+          "unknown": []
+        },
+        "configPermissions": "owner-only",
+        "secretPermissions": "owner-only",
+        "lifecycleLockPresent": false
+      },
+      "recovery": {
+        "journalPath": "<root>/State ü space/lifecycle-journal.json",
+        "rollbackAvailable": false
+      },
+      "instructions": []
+    }
+  },
+  {
+    "label": "repair-noop",
+    "result": {
+      "version": "ableton-mcp-lifecycle/v1",
+      "action": "repair",
+      "applied": true,
+      "state": "completed",
+      "receiptPath": "<root>/State ü space/install-receipt.json",
+      "restartRequired": false,
+      "steps": [
+        {
+          "id": "inspect",
+          "impact": "compares receipt hashes and permissions",
+          "status": "completed"
+        },
+        {
+          "id": "quarantine",
+          "impact": "preserves drift before replacement",
+          "status": "skipped"
+        },
+        {
+          "id": "restore",
+          "impact": "restores managed payload only",
+          "status": "skipped"
+        },
+        {
+          "id": "verify",
+          "impact": "rehashes repaired state",
+          "status": "completed"
+        }
+      ],
+      "verification": {
+        "changed": false,
+        "remoteScript": {
+          "valid": true,
+          "missing": [],
+          "changed": [],
+          "unknown": []
+        },
+        "configValid": true,
+        "permissionsValid": true,
+        "diagnosticsValid": true,
+        "journalFinalized": true
+      },
+      "recovery": {
+        "journalPath": "<root>/State ü space/lifecycle-journal.json",
+        "rollbackAvailable": false
+      },
+      "instructions": []
+    }
+  },
+  {
+    "label": "upgrade",
+    "result": {
+      "version": "ableton-mcp-lifecycle/v1",
+      "action": "upgrade",
+      "applied": true,
+      "state": "completed",
+      "receiptPath": "<root>/State ü space/install-receipt.json",
+      "restartRequired": true,
+      "steps": [
+        {
+          "id": "preflight",
+          "impact": "verifies current and candidate manifests",
+          "status": "completed"
+        },
+        {
+          "id": "backup",
+          "impact": "retains current generation",
+          "status": "completed"
+        },
+        {
+          "id": "config",
+          "impact": "switches exact host entrypoint",
+          "status": "completed"
+        },
+        {
+          "id": "remote-script",
+          "impact": "atomically replaces managed bridge",
+          "status": "completed"
+        },
+        {
+          "id": "receipt",
+          "impact": "records rollback generation",
+          "status": "completed"
+        }
+      ],
+      "verification": {
+        "artifactSha256": "<sha256>",
+        "previousArtifactSha256": "<sha256>",
+        "remoteFiles": 6,
+        "retiredPreviousBackupRemoved": true,
+        "pendingCleanup": [],
+        "retentionFinalized": true,
+        "journalFinalized": true
+      },
+      "recovery": {
+        "journalPath": "<root>/State ü space/lifecycle-journal.json",
+        "rollbackAvailable": true
+      },
+      "instructions": [
+        "Restart Live and run activate; rollback remains available."
+      ]
+    }
+  },
+  {
+    "label": "rollback",
+    "result": {
+      "version": "ableton-mcp-lifecycle/v1",
+      "action": "rollback",
+      "applied": true,
+      "state": "completed",
+      "receiptPath": "<root>/State ü space/install-receipt.json",
+      "restartRequired": true,
+      "steps": [
+        {
+          "id": "preflight",
+          "impact": "verifies retained previous generation",
+          "status": "completed"
+        },
+        {
+          "id": "swap",
+          "impact": "restores prior Remote Script and configuration",
+          "status": "completed"
+        },
+        {
+          "id": "verify",
+          "impact": "rehashes restored generation",
+          "status": "completed"
+        }
+      ],
+      "verification": {
+        "artifactSha256": "<sha256>",
+        "remoteScript": {
+          "valid": true,
+          "missing": [],
+          "changed": [],
+          "unknown": []
+        },
+        "journalFinalized": true
+      },
+      "recovery": {
+        "journalPath": "<root>/State ü space/lifecycle-journal.json",
+        "rollbackAvailable": true,
+        "quarantine": "<root>/State ü space/quarantine/rolled-back-generation-<id>"
+      },
+      "instructions": [
+        "Restart Live and run activate after rollback."
+      ]
+    }
+  },
+  {
+    "label": "uninstall",
+    "result": {
+      "version": "ableton-mcp-lifecycle/v1",
+      "action": "uninstall",
+      "applied": true,
+      "state": "completed",
+      "receiptPath": "<root>/State ü space/install-receipt.json",
+      "restartRequired": true,
+      "steps": [
+        {
+          "id": "preflight",
+          "impact": "verifies receipt ownership",
+          "status": "completed"
+        },
+        {
+          "id": "remote-script",
+          "impact": "removes exact managed files or quarantines drift",
+          "status": "completed"
+        },
+        {
+          "id": "config",
+          "impact": "removes only digest-matching managed config",
+          "status": "completed"
+        },
+        {
+          "id": "secret",
+          "impact": "preserves secret unless purge is explicit",
+          "status": "completed"
+        },
+        {
+          "id": "receipt",
+          "impact": "records uninstalled state",
+          "status": "completed"
+        }
+      ],
+      "verification": {
+        "priorDrift": {
+          "valid": true,
+          "missing": [],
+          "changed": [],
+          "unknown": []
+        },
+        "priorGenerationDrift": {
+          "valid": true,
+          "missing": [],
+          "changed": [],
+          "unknown": []
+        },
+        "remoteRemoved": true,
+        "configRemoved": true,
+        "configPreservedBecauseModified": false,
+        "secretPurged": false,
+        "secretPreserved": true,
+        "pendingCleanup": [],
+        "preserved": [],
+        "journalFinalized": true
+      },
+      "recovery": {
+        "journalPath": "<root>/State ü space/lifecycle-journal.json",
+        "rollbackAvailable": false
+      },
+      "instructions": [
+        "Restart Live to unload the removed Control Surface.",
+        "Inspect preserved quarantine content, then remove the npm package only after every client configuration is updated."
+      ]
+    }
+  },
+  {
+    "label": "uninstall-again",
+    "result": {
+      "version": "ableton-mcp-lifecycle/v1",
+      "action": "uninstall",
+      "applied": true,
+      "state": "completed",
+      "receiptPath": "<root>/State ü space/install-receipt.json",
+      "restartRequired": true,
+      "steps": [
+        {
+          "id": "preflight",
+          "impact": "verifies receipt ownership",
+          "status": "completed"
+        },
+        {
+          "id": "remote-script",
+          "impact": "removes exact managed files or quarantines drift",
+          "status": "completed"
+        },
+        {
+          "id": "config",
+          "impact": "removes only digest-matching managed config",
+          "status": "completed"
+        },
+        {
+          "id": "secret",
+          "impact": "preserves secret unless purge is explicit",
+          "status": "completed"
+        },
+        {
+          "id": "receipt",
+          "impact": "records uninstalled state",
+          "status": "completed"
+        }
+      ],
+      "verification": {
+        "alreadyUninstalled": true,
+        "pendingCleanup": [],
+        "preserved": [],
+        "secretPurged": false,
+        "journalFinalized": true
+      },
+      "recovery": {
+        "journalPath": "<root>/State ü space/lifecycle-journal.json",
+        "rollbackAvailable": false
+      },
+      "instructions": [
+        "Inspect preserved quarantine content; remove the npm package only after clients are updated."
+      ]
+    }
+  }
+]

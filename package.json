@@ -1,6 +1,6 @@
 {
   "name": "kumi",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -10,8 +10,8 @@
     "build": "npm run build --workspace @kumi/runtime && npm run build --workspace @kumi/app",
     "typecheck": "npm run build --workspace @kumi/runtime && npm run typecheck --workspaces",
     "test": "npm run build && node scripts/test-isolated.mjs apps/kumi/dist/test/*.test.js packages/runtime/dist/test/*.test.js apps/live-extension/test/*.test.mjs",
-    "setup": "npm ci && npm run build && npm ci --prefix apps/mcp-server && npm run build --prefix apps/mcp-server",
-    "kumi": "node apps/kumi/bin/kumi.mjs"
+    "setup": "node scripts/native-kumi.mjs --setup",
+    "kumi": "node scripts/native-kumi.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

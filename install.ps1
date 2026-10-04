@@ -2,7 +2,7 @@
 #
 #   irm https://raw.githubusercontent.com/user1303836/kumi/main/install.ps1 | iex
 #
-# It puts Kumi and its own copy of Node in %USERPROFILE%\.kumi (no admin rights), adds its folder to your
+# It puts native Kumi in %USERPROFILE%\.kumi (no admin rights), adds its folder to your
 # PATH, and checks every download against its published checksum. Running it again updates or repairs
 # Kumi. Your settings, sign-ins and conversations in .kumi are never touched.
 #
@@ -72,7 +72,8 @@
     # ── What this computer is ────────────────────────────────────────────
     if ([Environment]::OSVersion.Version.Major -lt 10) { Fail 'Kumi needs Windows 10 or 11.' }
     $cpu = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
-    $arch = switch ($cpu) { 'AMD64' { 'x64' } 'ARM64' { 'arm64' } default { Fail "this processor ($cpu) isn't one Kumi's Node is made for." } }
+    $arch = switch ($cpu) { 'AMD64' { 'x86_64' } 'ARM64' { 'aarch64' } default { Fail "this processor ($cpu) isn't supported by this Kumi release." } }
+    $target = "$arch-pc-windows-msvc"
     $tar = Join-Path $env:SystemRoot 'System32\tar.exe'
     if (-not (Test-Path -LiteralPath $tar)) { Fail 'this Windows is missing tar.exe (Windows 10 from 2018 on has it). Update Windows, then run this again.' }
 
@@ -87,36 +88,15 @@
       # ── Which Kumi ─────────────────────────────────────────────────────
       Step 'Finding the latest Kumi…'
       $manifestFile = Join-Path $work 'release.json'
-      switch (Fetch "$base/kumi-release.json" $manifestFile) {
+      switch (Fetch "$base/kumi-release-$target.json" $manifestFile) {
         'missing' { Fail "there's no Kumi release to install at $($base -replace '^https://', '') yet. Try again later." }
         'failed' { Fail "couldn't reach GitHub ($base). Check your internet connection and try again." }
       }
       $release = Get-Content -Raw -LiteralPath $manifestFile | ConvertFrom-Json
-      if (-not ($release.kumi -and $release.bundle -and $release.sha256 -and $release.node)) { Fail "the release description didn't make sense; try again later." }
-
-      # ── Kumi's own Node ────────────────────────────────────────────────
-      $nodeDir = Join-Path $KumiHome 'node'
-      $nodeExe = Join-Path $nodeDir 'node.exe'
-      $haveNode = $false
-      if (Test-Path -LiteralPath $nodeExe) { try { $haveNode = ((& $nodeExe --version) -eq "v$($release.node)") } catch { } }
-      if ($haveNode) { Step "Node $($release.node) is already here." }
-      else {
-        Step "Downloading Node $($release.node) for Kumi (about 30 MB, once)…"
-        $nodeName = "node-v$($release.node)-win-$arch"
-        $sums = Join-Path $work 'SHASUMS256.txt'; $zip = Join-Path $work 'node.zip'
-        if ((Fetch "https://nodejs.org/dist/v$($release.node)/SHASUMS256.txt" $sums) -ne 'ok') { Fail "couldn't reach nodejs.org. Check your internet connection and try again." }
-        if ((Fetch "https://nodejs.org/dist/v$($release.node)/$nodeName.zip" $zip) -ne 'ok') { Fail "couldn't download Node from nodejs.org." }
-        $want = (Select-String -LiteralPath $sums -Pattern " $([regex]::Escape("$nodeName.zip"))$" | Select-Object -First 1).Line
-        if (-not $want -or ($want.Split(' ')[0] -ne (Sha $zip))) { Fail "Node's download didn't match its checksum, so it wasn't used. Try again." }
-        $unpacked = Join-Path $work 'node'
-        New-Item -ItemType Directory -Force -Path $unpacked | Out-Null
-        & $tar -xf $zip -C $unpacked
-        if ($LASTEXITCODE -ne 0) { Expand-Archive -LiteralPath $zip -DestinationPath $unpacked -Force }
-        $freshNode = Join-Path $unpacked $nodeName
-        try { & (Join-Path $freshNode 'node.exe') --version | Out-Null } catch { Fail "Node $($release.node) won't run on this computer." }
-        Swap $freshNode $nodeDir
-        Remove-Item -LiteralPath "$nodeDir.previous" -Recurse -Force -ErrorAction SilentlyContinue
-      }
+      if ($release.runtime -ne 'rust-native' -or $release.target -ne $target -or
+          $release.kumi -notmatch '^\d+\.\d+\.\d+(?:-[A-Za-z0-9_.]+)?$' -or
+          $release.bundle -notmatch '^[A-Za-z0-9_.-]+\.tar\.gz$' -or
+          $release.sha256 -cnotmatch '^[0-9a-f]{64}$') { Fail "the release description didn't match this computer." }
 
       # ── Kumi ───────────────────────────────────────────────────────────
       Step "Downloading Kumi $($release.kumi)…"
@@ -129,7 +109,7 @@
       if ($LASTEXITCODE -ne 0) { Fail "couldn't unpack Kumi." }
       $hadHome = $env:KUMI_HOME
       $env:KUMI_INSTALLED = '1'; $env:KUMI_HOME = $KumiHome
-      & $nodeExe (Join-Path $freshApp 'apps\kumi\bin\kumi.mjs') --version | Out-Null
+      & (Join-Path $freshApp 'kumi.exe') --version | Out-Null
       $started = ($LASTEXITCODE -eq 0)
       Remove-Item Env:KUMI_INSTALLED -ErrorAction SilentlyContinue
       if ($hadHome) { $env:KUMI_HOME = $hadHome } else { Remove-Item Env:KUMI_HOME -ErrorAction SilentlyContinue }
@@ -144,11 +124,14 @@
     New-Item -ItemType Directory -Force -Path $bin | Out-Null
     $launcher = @'
 @echo off
-rem Kumi's launcher, written by its installer: Kumi runs on its own Node, whatever Node this computer has.
-setlocal
-for %%I in ("%~dp0..") do set "KUMI_HOME=%%~fI"
-set "KUMI_INSTALLED=1"
+if not defined KUMI_HOME set "KUMI_HOME=%~dp0.."
+set KUMI_INSTALLED=1
+if exist "%KUMI_HOME%\app\kumi.exe" goto native
 "%KUMI_HOME%\node\node.exe" "%KUMI_HOME%\app\apps\kumi\bin\kumi.mjs" %*
+exit /b %errorlevel%
+:native
+"%KUMI_HOME%\app\kumi.exe" %*
+exit /b %errorlevel%
 '@
     Set-Content -LiteralPath (Join-Path $bin 'kumi.cmd') -Value $launcher -Encoding Ascii
 

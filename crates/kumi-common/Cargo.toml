@@ -1,0 +1,21 @@
+[package]
+name = "kumi-common"
+version = "1.7.5"
+description = "What Kumi's crates share: JavaScript-compatible JSON and strings, cancellation, time."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+icu_collator.workspace = true
+icu_locale_core.workspace = true
+ryu.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

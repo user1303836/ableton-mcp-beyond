@@ -43,22 +43,20 @@ const requiredFragments = [
 ];
 if (!requiredJob || requiredFragments.some((fragment) => !requiredJob.includes(fragment)) || !workflow.includes("- run: npm run package:verify")) throw new Error("CI lacks the complete fixed Required CI aggregate gate");
 
-const badgePath = `node-${majors.join("%20%7C%20")}-339933`;
-const badgeAlt = `Node ${majors.join(" | ")}`;
-for (const name of ["README.md", "README.ja.md", "README.zh-CN.md"]) {
-  const value = readFileSync(resolve(repositoryRoot, name), "utf8");
-  if (!value.includes(badgePath) || !value.includes(badgeAlt)) throw new Error(`${name} Node badge disagrees with canonical package policy`);
-}
+// This policy governs the retained TypeScript bridge and its npm tooling. Kumi's
+// native application documents its own runtime independently.
+const nodeSourcePolicy = /Node(?:\.js)?\s+22(?:\/|\s+(?:and|or)\s+)24\b/;
 const documentChecks = new Map([
-  ["docs/en/SUPPORT_MATRIX.md", "22.x, 24.x"],
-  ["docs/en/DELIVERY.md", "Node 22 and 24"],
-  ["docs/en/USER_GUIDE.md", "Node.js 22 and 24"],
-  ["docs/en/TESTING.md", "Node 22/24"],
-  ["docs/en/IMPLEMENTATION_STATUS.md", "Node 22/24"],
-  ["docs/en/CAPABILITY_MATRIX.md", "Node 22/24"],
-  ["docs/zh-CN/SUPPORT_MATRIX.md", "22.x、24.x"],
-  ["docs/ja/SUPPORT_MATRIX.md", "22.x、24.x"],
-  ["DEVELOPMENT.md", "Node.js 22 or 24"],
+  ["apps/mcp-server/README.md", nodeSourcePolicy],
+  ["docs/en/SUPPORT_MATRIX.md", /22\.x,\s*24\.x/],
+  ["docs/en/DELIVERY.md", nodeSourcePolicy],
+  ["docs/en/USER_GUIDE.md", nodeSourcePolicy],
+  ["docs/en/TESTING.md", nodeSourcePolicy],
+  ["docs/en/IMPLEMENTATION_STATUS.md", nodeSourcePolicy],
+  ["docs/en/CAPABILITY_MATRIX.md", nodeSourcePolicy],
+  ["docs/zh-CN/SUPPORT_MATRIX.md", /22\.x、24\.x/],
+  ["docs/ja/SUPPORT_MATRIX.md", /22\.x、24\.x/],
+  ["DEVELOPMENT.md", nodeSourcePolicy],
 ]);
-for (const [name, marker] of documentChecks) if (!readFileSync(resolve(repositoryRoot, name), "utf8").includes(marker)) throw new Error(`${name} lacks canonical Node policy marker: ${marker}`);
+for (const [name, marker] of documentChecks) if (!marker.test(readFileSync(resolve(repositoryRoot, name), "utf8"))) throw new Error(`${name} lacks canonical Node source-tool policy: ${marker}`);
 console.error(JSON.stringify({ schema: "ableton-mcp-node-policy/v1", supportedNodeMajors: majors, engine: expectedEngine, fixtures: "21-27", ciMatrixVerified: true, documentationVerified: true }));

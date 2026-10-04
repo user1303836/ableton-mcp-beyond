@@ -39,3 +39,8 @@ __pycache__/
 docs/evidence/willington-review.json
 # Kumi's Mac helper, built for releases (scripts/build-hands.mjs)
 packages/runtime/hands/
+
+/target/
+
+# Local port inventory and agent handoff notes
+/.port-notes/

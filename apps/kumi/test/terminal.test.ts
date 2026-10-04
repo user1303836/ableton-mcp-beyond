@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { PassThrough, Writable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
-import { test } from "node:test";
+import { after, before, test } from "node:test";
 import { stripVTControlCharacters } from "node:util";
 import type { SessionController, SessionEvent, TurnState } from "@kumi/runtime";
 import { createTerminal } from "../src/terminal.js";
@@ -9,6 +9,14 @@ import { KeyInput } from "../src/input.js";
 import { StreamingText, sanitizeText } from "../src/text.js";
 import { fakeModels, MODELS } from "./fake-models.js";
 import type { UpdateControl } from "../src/update.js";
+
+const inheritedTerm = process.env.TERM;
+// These fake TTYs provide cursor editing, even when the test runner inherits TERM=dumb.
+before(() => { process.env.TERM = "xterm-256color"; });
+after(() => {
+  if (inheritedTerm === undefined) delete process.env.TERM;
+  else process.env.TERM = inheritedTerm;
+});
 
 function fixture(tty = false, hold = false, startupNotice?: string, updates?: UpdateControl) {
   const input = new PassThrough() as PassThrough & { isTTY: boolean; isRaw: boolean; setRawMode(value: boolean): void };

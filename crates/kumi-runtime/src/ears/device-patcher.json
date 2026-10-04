@@ -1,0 +1,1112 @@
+{
+  "patcher": {
+    "fileversion": 1,
+    "appversion": {
+      "major": 9,
+      "minor": 1,
+      "revision": 5,
+      "architecture": "x64",
+      "modernui": 1
+    },
+    "classnamespace": "box",
+    "rect": [
+      100,
+      100,
+      900,
+      600
+    ],
+    "openrect": [
+      0,
+      0,
+      112,
+      169
+    ],
+    "bglocked": 0,
+    "openinpresentation": 1,
+    "default_fontsize": 10,
+    "default_fontface": 0,
+    "default_fontname": "Arial Bold",
+    "gridonopen": 1,
+    "gridsize": [
+      8,
+      8
+    ],
+    "gridsnaponopen": 1,
+    "objectsnaponopen": 1,
+    "statusbarvisible": 2,
+    "toolbarvisible": 1,
+    "boxanimatetime": 500,
+    "enablehscroll": 1,
+    "enablevscroll": 1,
+    "devicewidth": 112,
+    "description": "Kumi listens here when it needs to hear this track. The sound passes through untouched, and Kumi takes the device away when it's done.",
+    "digest": "",
+    "tags": "Kumi",
+    "style": "",
+    "subpatcher_template": "",
+    "title": "Kumi Ears",
+    "boxes": [
+      {
+        "box": {
+          "id": "obj-plugin",
+          "maxclass": "newobj",
+          "text": "plugin~ 1 2",
+          "numinlets": 1,
+          "numoutlets": 2,
+          "outlettype": [
+            "signal",
+            "signal"
+          ],
+          "patching_rect": [
+            40,
+            30,
+            80,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-plugout",
+          "maxclass": "newobj",
+          "text": "plugout~ 1 2",
+          "numinlets": 2,
+          "numoutlets": 0,
+          "outlettype": [],
+          "patching_rect": [
+            40,
+            330,
+            80,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-beat",
+          "maxclass": "newobj",
+          "text": "plugphasor~",
+          "numinlets": 1,
+          "numoutlets": 2,
+          "outlettype": [
+            "signal",
+            "list"
+          ],
+          "patching_rect": [
+            200,
+            30,
+            80,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-beat1",
+          "maxclass": "newobj",
+          "text": "+~ 1.",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            "signal"
+          ],
+          "patching_rect": [
+            200,
+            70,
+            50,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-record",
+          "maxclass": "newobj",
+          "text": "record~ ---kumiears 4",
+          "numinlets": 6,
+          "numoutlets": 1,
+          "outlettype": [
+            "signal"
+          ],
+          "patching_rect": [
+            40,
+            160,
+            160,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-buffer",
+          "maxclass": "newobj",
+          "text": "buffer~ ---kumiears 1000 4",
+          "numinlets": 1,
+          "numoutlets": 2,
+          "outlettype": [
+            "float",
+            "bang"
+          ],
+          "patching_rect": [
+            40,
+            230,
+            180,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-poll",
+          "maxclass": "newobj",
+          "text": "metro 10",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            "bang"
+          ],
+          "patching_rect": [
+            360,
+            60,
+            60,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-pollon",
+          "maxclass": "newobj",
+          "text": "loadmess 1",
+          "numinlets": 1,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            360,
+            30,
+            70,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-sync",
+          "maxclass": "newobj",
+          "text": "plugsync~",
+          "numinlets": 1,
+          "numoutlets": 9,
+          "outlettype": [
+            "int",
+            "int",
+            "int",
+            "float",
+            "list",
+            "float",
+            "float",
+            "int",
+            "int"
+          ],
+          "patching_rect": [
+            360,
+            100,
+            120,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-playing",
+          "maxclass": "newobj",
+          "text": "change",
+          "numinlets": 1,
+          "numoutlets": 3,
+          "outlettype": [
+            "",
+            "int",
+            "int"
+          ],
+          "patching_rect": [
+            360,
+            140,
+            50,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-playingmsg",
+          "maxclass": "newobj",
+          "text": "prepend playing",
+          "numinlets": 1,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            360,
+            170,
+            100,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-positionmsg",
+          "maxclass": "newobj",
+          "text": "prepend position",
+          "numinlets": 1,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            480,
+            170,
+            100,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-where",
+          "maxclass": "newobj",
+          "text": "sig~",
+          "numinlets": 1,
+          "numoutlets": 1,
+          "outlettype": [
+            "signal"
+          ],
+          "patching_rect": [
+            480,
+            200,
+            40,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-dsp",
+          "maxclass": "newobj",
+          "text": "dspstate~",
+          "numinlets": 1,
+          "numoutlets": 4,
+          "outlettype": [
+            "int",
+            "float",
+            "int",
+            "int"
+          ],
+          "patching_rect": [
+            600,
+            30,
+            70,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-ratemsg",
+          "maxclass": "newobj",
+          "text": "prepend samplerate",
+          "numinlets": 1,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            600,
+            70,
+            120,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-loaded",
+          "maxclass": "newobj",
+          "text": "live.thisdevice",
+          "numinlets": 1,
+          "numoutlets": 3,
+          "outlettype": [
+            "bang",
+            "int",
+            "int"
+          ],
+          "patching_rect": [
+            760,
+            30,
+            90,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-order",
+          "maxclass": "newobj",
+          "text": "t b b",
+          "numinlets": 1,
+          "numoutlets": 2,
+          "outlettype": [
+            "bang",
+            "bang"
+          ],
+          "patching_rect": [
+            760,
+            60,
+            40,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-loadedmsg",
+          "maxclass": "message",
+          "text": "loaded",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            760,
+            90,
+            50,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-receive",
+          "maxclass": "newobj",
+          "text": "udpreceive 47300",
+          "numinlets": 1,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            40,
+            400,
+            140,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-send",
+          "maxclass": "newobj",
+          "text": "udpsend 127.0.0.1 47290",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "outlettype": [],
+          "patching_rect": [
+            400,
+            520,
+            160,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-send-0",
+          "maxclass": "newobj",
+          "text": "udpsend 127.0.0.1 47290",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "outlettype": [],
+          "patching_rect": [
+            40,
+            560,
+            140,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-send-1",
+          "maxclass": "newobj",
+          "text": "udpsend 127.0.0.1 47291",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "outlettype": [],
+          "patching_rect": [
+            190,
+            560,
+            140,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-send-2",
+          "maxclass": "newobj",
+          "text": "udpsend 127.0.0.1 47292",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "outlettype": [],
+          "patching_rect": [
+            340,
+            560,
+            140,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-send-3",
+          "maxclass": "newobj",
+          "text": "udpsend 127.0.0.1 47293",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "outlettype": [],
+          "patching_rect": [
+            490,
+            560,
+            140,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-send-4",
+          "maxclass": "newobj",
+          "text": "udpsend 127.0.0.1 47294",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "outlettype": [],
+          "patching_rect": [
+            640,
+            560,
+            140,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-code",
+          "maxclass": "v8.codebox",
+          "filename": "none",
+          "code": "// Kumi Ears (made by Kumi). Kumi listens here; the sound passes through untouched.\ninlets = 1;\noutlets = 10;\n// 0: record~ (1 starts, 0 stops) · 1: buffer~ · 2: udpsend for any other port · 3: udpreceive (its port) · 4: the face's status line\n// 5–9: a udpsend for each of Kumi's ports (one udpsend told a new port per message sends some to the wrong one)\nconst VERSION = 3;\nconst KUMI_PORTS = [47290,47291,47292,47293,47294];\nlet sampleRate = 44100;\nlet port = 0;\nlet id = 0;\nlet beats = 0;\nlet running = 0;\nlet ready = false;\nlet armed = { beats: 0, running: 0 };\nlet loadedAt = Date.now();\nconst greeter = new Task(greet);\nfunction loaded() {\n  loadedAt = Date.now();\n  try { id = Number(new LiveAPI(\"this_device\").id) || 0; } catch (error) { id = 0; }\n  if (!id) id = 1 + Math.floor(Math.random() * 100000);\n  port = 47300 + (id % 600);\n  outlet(3, \"port\", port);\n  ready = true;\n  status(\"Kumi Ears\");\n  greet();\n  greeter.interval = 2000;\n  greeter.repeat();\n}\nfunction samplerate(rate) { if (rate > 0) sampleRate = rate; }\nfunction playing(value) { running = value ? 1 : 0; }\nfunction position(value) { beats = value; }\nfunction where() {\n  try { const device = new LiveAPI(\"this_device\"); return String(device.unquotedpath || device.path || \"\").replace(/\"/g, \"\"); } catch (error) { return \"\"; }\n}\nfunction say(to, address, args) {\n  const fixed = KUMI_PORTS.indexOf(to);\n  if (fixed >= 0) { outlet(5 + fixed, address, ...args); return; }\n  outlet(2, \"port\", to); outlet(2, address, ...args);\n}\nfunction greet() {\n  if (!ready) return;\n  const path = where();\n  // How long ago it loaded, too: Live can give a new device a removed one's id, and Kumi wants the one it just put there.\n  for (const to of KUMI_PORTS) say(to, \"/kumi/ears/hello\", [port, id, VERSION, sampleRate, path, Date.now() - loadedAt]);\n}\nfunction status(text) { outlet(4, \"set\", text); }\nfunction anything(...args) {\n  const reply = Number(args[1]) || 0;\n  const token = String(args[2] || \"\");\n  switch (messagename) {\n    // Every command is (what, the port to answer on, a token the answer carries back).\n    case \"/kumi/ears/ping\":\n      // Where Live is now, too (its position in beats, and whether it plays).\n      say(reply, \"/kumi/ears/pong\", [token, port, id, VERSION, sampleRate, where(), Date.now() - loadedAt, beats, running]);\n      return;\n    case \"/kumi/ears/arm\": {\n      // Seconds to hold, then where to answer: the buffer is cleared, so what wasn't recorded reads as zeros.\n      const seconds = Math.max(0.1, Math.min(900, Number(args[0]) || 10));\n      outlet(0, 0);\n      outlet(1, \"sizeinsamps\", Math.ceil(seconds * sampleRate));\n      outlet(1, \"clear\");\n      armed = { beats: beats, running: running };\n      outlet(0, 1);\n      status(\"Kumi is listening\");\n      say(reply, \"/kumi/ears/armed\", [token, port, beats, running, sampleRate]);\n      return;\n    }\n    case \"/kumi/ears/stop\":\n      outlet(0, 0);\n      status(\"Kumi Ears\");\n      say(reply, \"/kumi/ears/stopped\", [token, port]);\n      return;\n    case \"/kumi/ears/write\": {\n      // The whole buffer as raw 32-bit floats; Kumi trims what wasn't recorded.\n      const file = String(args[0] || \"\");\n      outlet(0, 0);\n      if (file) outlet(1, \"writeraw\", file, \"float32\");\n      status(\"Kumi Ears\");\n      say(reply, \"/kumi/ears/written\", [token, port, file, sampleRate, 4, armed.beats, armed.running]);\n      return;\n    }\n  }\n}\n",
+          "fontface": 0,
+          "fontname": "Menlo",
+          "fontsize": 11,
+          "numinlets": 1,
+          "numoutlets": 10,
+          "outlettype": [
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            ""
+          ],
+          "patching_rect": [
+            40,
+            450,
+            560,
+            50
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-name",
+          "maxclass": "comment",
+          "text": "Kumi Ears",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "presentation": 1,
+          "presentation_rect": [
+            6,
+            4,
+            100,
+            18
+          ],
+          "patching_rect": [
+            700,
+            300,
+            100,
+            18
+          ],
+          "fontname": "Arial Bold",
+          "fontsize": 11,
+          "textcolor": [
+            0.525,
+            0.89,
+            0.71,
+            1
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-status",
+          "maxclass": "comment",
+          "text": "Kumi listens here",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "presentation": 1,
+          "presentation_rect": [
+            6,
+            24,
+            104,
+            30
+          ],
+          "patching_rect": [
+            700,
+            330,
+            104,
+            30
+          ],
+          "fontname": "Arial",
+          "fontsize": 9,
+          "linecount": 2
+        }
+      },
+      {
+        "box": {
+          "id": "obj-statusmsg",
+          "maxclass": "newobj",
+          "text": "prepend set",
+          "numinlets": 1,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            640,
+            520,
+            80,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-meter-0",
+          "maxclass": "live.meter~",
+          "numinlets": 1,
+          "numoutlets": 2,
+          "outlettype": [
+            "float",
+            "int"
+          ],
+          "presentation": 1,
+          "presentation_rect": [
+            8,
+            62,
+            6,
+            96
+          ],
+          "patching_rect": [
+            860,
+            300,
+            6,
+            96
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-meter-1",
+          "maxclass": "live.meter~",
+          "numinlets": 1,
+          "numoutlets": 2,
+          "outlettype": [
+            "float",
+            "int"
+          ],
+          "presentation": 1,
+          "presentation_rect": [
+            18,
+            62,
+            6,
+            96
+          ],
+          "patching_rect": [
+            880,
+            300,
+            6,
+            96
+          ]
+        }
+      }
+    ],
+    "lines": [
+      {
+        "patchline": {
+          "source": [
+            "obj-plugin",
+            0
+          ],
+          "destination": [
+            "obj-plugout",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-plugin",
+            1
+          ],
+          "destination": [
+            "obj-plugout",
+            1
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-beat",
+            0
+          ],
+          "destination": [
+            "obj-beat1",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-plugin",
+            0
+          ],
+          "destination": [
+            "obj-record",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-plugin",
+            1
+          ],
+          "destination": [
+            "obj-record",
+            1
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-beat1",
+            0
+          ],
+          "destination": [
+            "obj-record",
+            2
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-pollon",
+            0
+          ],
+          "destination": [
+            "obj-poll",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-poll",
+            0
+          ],
+          "destination": [
+            "obj-sync",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-sync",
+            0
+          ],
+          "destination": [
+            "obj-playing",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-playing",
+            0
+          ],
+          "destination": [
+            "obj-playingmsg",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-sync",
+            6
+          ],
+          "destination": [
+            "obj-positionmsg",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-sync",
+            6
+          ],
+          "destination": [
+            "obj-where",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-where",
+            0
+          ],
+          "destination": [
+            "obj-record",
+            3
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-dsp",
+            1
+          ],
+          "destination": [
+            "obj-ratemsg",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-loaded",
+            0
+          ],
+          "destination": [
+            "obj-order",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-order",
+            1
+          ],
+          "destination": [
+            "obj-dsp",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-order",
+            0
+          ],
+          "destination": [
+            "obj-loadedmsg",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-receive",
+            0
+          ],
+          "destination": [
+            "obj-code",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-playingmsg",
+            0
+          ],
+          "destination": [
+            "obj-code",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-positionmsg",
+            0
+          ],
+          "destination": [
+            "obj-code",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-ratemsg",
+            0
+          ],
+          "destination": [
+            "obj-code",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-loadedmsg",
+            0
+          ],
+          "destination": [
+            "obj-code",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-code",
+            0
+          ],
+          "destination": [
+            "obj-record",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-code",
+            1
+          ],
+          "destination": [
+            "obj-buffer",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-code",
+            2
+          ],
+          "destination": [
+            "obj-send",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-code",
+            3
+          ],
+          "destination": [
+            "obj-receive",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-code",
+            5
+          ],
+          "destination": [
+            "obj-send-0",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-code",
+            6
+          ],
+          "destination": [
+            "obj-send-1",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-code",
+            7
+          ],
+          "destination": [
+            "obj-send-2",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-code",
+            8
+          ],
+          "destination": [
+            "obj-send-3",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-code",
+            9
+          ],
+          "destination": [
+            "obj-send-4",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-code",
+            4
+          ],
+          "destination": [
+            "obj-statusmsg",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-statusmsg",
+            0
+          ],
+          "destination": [
+            "obj-status",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-plugin",
+            0
+          ],
+          "destination": [
+            "obj-meter-0",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-plugin",
+            1
+          ],
+          "destination": [
+            "obj-meter-1",
+            0
+          ]
+        }
+      }
+    ],
+    "dependency_cache": [],
+    "latency": 0,
+    "project": {
+      "version": 1,
+      "creationdate": 3590052786,
+      "modificationdate": 3590052786,
+      "viewrect": [
+        0,
+        0,
+        300,
+        500
+      ],
+      "autoorganize": 1,
+      "hideprojectwindow": 1,
+      "showdependencies": 1,
+      "autolocalize": 0,
+      "contents": {
+        "patchers": {}
+      },
+      "layout": {},
+      "searchpath": {},
+      "detailsvisible": 0,
+      "amxdtype": 1633771873,
+      "readonly": 0,
+      "devpathtype": 0,
+      "devpath": ".",
+      "sortmode": 0,
+      "viewmode": 0
+    },
+    "autosave": 0
+  }
+}

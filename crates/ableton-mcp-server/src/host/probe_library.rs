@@ -1,0 +1,174 @@
+//! Owner-allowlisted offline library discovery, including the source WAL refusal.
+use super::*;
+use crate::{library_search::*, sqlite_reader::SqliteReader};
+use kumi_common::js::json as js_json;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+fn unavailable(message: impl Into<String>) -> LibrarySearchError {
+    LibraryUnavailable::new(message, json!({})).into()
+}
+fn allowlisted_file(file: &Value, root: &Value, label: &str) -> Result<PathBuf, LibrarySearchError> {
+    if !is_non_empty_string(file, 4096) || !file.as_str().is_some_and(|s| Path::new(s).is_absolute() && !s.contains('\0')) {
+        return Err(unavailable(format!("an explicit absolute {label} path is required")));
+    }
+    if !is_non_empty_string(root, 4096) || !root.as_str().is_some_and(|s| Path::new(s).is_absolute() && !s.contains('\0')) {
+        return Err(unavailable("an explicit absolute allowlist root is required"));
+    }
+    let root = crate::command::resolve(root.as_str().unwrap()).map_err(|_| unavailable("the allowlist root cannot be resolved"))?;
+    let root = Path::new(&root);
+    let stat = fs::symlink_metadata(root).map_err(|_| unavailable("the allowlist root does not exist"))?;
+    if !stat.is_dir() || stat.file_type().is_symlink() {
+        return Err(unavailable("the allowlist root must be a real directory"));
+    }
+    let real_root = fs::canonicalize(root).map_err(|_| unavailable("the allowlist root cannot be resolved"))?;
+    let file = crate::command::resolve(file.as_str().unwrap()).map_err(|_| unavailable(format!("the {label} cannot be resolved")))?;
+    let file = Path::new(&file);
+    let stat = fs::symlink_metadata(file).map_err(|_| unavailable(format!("the {label} does not exist")))?;
+    if !stat.is_file() || stat.file_type().is_symlink() {
+        return Err(unavailable(format!("the {label} must be a real regular file")));
+    }
+    if stat.len() > 128 * 1024 * 1024 {
+        return Err(unavailable(format!("the {label} exceeds its 128 MiB bound")));
+    }
+    let real = fs::canonicalize(file).map_err(|_| unavailable(format!("the {label} cannot be resolved")))?;
+    if !real.starts_with(real_root) {
+        return Err(unavailable(format!("the {label} is outside the owner allowlist root")));
+    }
+    Ok(real)
+}
+fn read_database(path: &Path) -> Result<SqliteReader, LibrarySearchError> {
+    let bytes = fs::read(path)
+        .map_err(|e| unavailable(format!("the library database is unreadable ({})", crate::delivery::io_error(&e, "open", &[path]))))?;
+    let reader = SqliteReader::new(bytes).map_err(|e| unavailable(format!("the library database is unreadable ({e})")))?;
+    if reader.wal_mode {
+        let wal = PathBuf::from(format!("{}-wal", path.to_string_lossy()));
+        if wal.exists() && fs::symlink_metadata(wal).is_ok_and(|m| m.len() > 0) {
+            return Err(unavailable("the library database has uncheckpointed WAL frames; close Live and retry after a checkpoint rather than guessing at partial content"));
+        }
+    }
+    Ok(reader)
+}
+fn strings(params: &Value, key: &str) -> Option<Vec<String>> {
+    params[key].as_array().map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+}
+impl McpHost {
+    pub async fn live_library_search_async(&self, id: &Value, params: &Value) -> Result<Value, LiveError> {
+        let bounded = |v: &Value, max: usize| v.as_array().is_some_and(|a| a.len() <= max && a.iter().all(|v| is_non_empty_string(v, 256)));
+        fn enum_list(v: &Value, allowed: &[&str]) -> Result<bool, LiveError> {
+            let Some(a) = v.as_array().filter(|a| a.len() <= allowed.len()) else { return Ok(false) };
+            for v in a {
+                if !allowed.contains(&js_string(v)?.as_str()) {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        let valid = has_only(
+            params,
+            &[
+                "database",
+                "allowlistRoot",
+                "pluginsDatabase",
+                "mode",
+                "query",
+                "tags",
+                "kinds",
+                "sources",
+                "vendors",
+                "formats",
+                "sort",
+                "limit",
+                "cursor",
+            ],
+        ) && match params.get("mode") {
+            Some(v) => ["files", "plugins", "tags"].contains(&js_string(v)?.as_str()),
+            None => true,
+        } && params.get("query").is_none_or(|v| is_non_empty_string(v, 256) || v == "")
+            && params.get("tags").is_none_or(|v| bounded(v, 8))
+            && match params.get("kinds") {
+                Some(v) => enum_list(v, LIBRARY_KINDS)?,
+                None => true,
+            }
+            && params.get("sources").is_none_or(|v| bounded(v, 8))
+            && params.get("vendors").is_none_or(|v| bounded(v, 8))
+            && match params.get("formats") {
+                Some(v) => enum_list(v, &["vst3", "vst2", "au", "clap", "unknown"])?,
+                None => true,
+            }
+            && match params.get("sort") {
+                Some(v) => ["useCount", "modified", "name"].contains(&js_string(v)?.as_str()),
+                None => true,
+            }
+            && params.get("limit").is_none_or(|v| is_integer_in_range(v, 1.0, 100.0))
+            && params.get("cursor").is_none_or(|v| is_non_empty_string(v, 4096));
+        if !valid {
+            return Ok(error(id, -32602, "database, allowlistRoot, and bounded query fields are invalid", None));
+        }
+        let mode = params.get("mode").filter(|v| !v.is_null()).cloned().unwrap_or(json!("files"));
+        let result = (|| -> Result<Value, LibrarySearchError> {
+            let database = allowlisted_file(&params["database"], &params["allowlistRoot"], "library database")?;
+            let kind = if mode == "plugins" {
+                LibraryMode::Plugins
+            } else if mode == "tags" {
+                LibraryMode::Tags
+            } else {
+                LibraryMode::Files
+            };
+            let mut query = LibraryQuery::new(kind, params["limit"].as_f64().unwrap_or(50.0) as usize);
+            query.host_values = Some(params.clone());
+            query.query = params["query"].as_str().map(str::to_owned);
+            query.tags = strings(params, "tags");
+            query.sources = strings(params, "sources");
+            query.vendors = strings(params, "vendors");
+            query.cursor = params["cursor"].as_str().map(str::to_owned);
+            query.kinds = params["kinds"].as_array().map(|a| a.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect());
+            query.formats = params["formats"].as_array().map(|a| a.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect());
+            query.sort = params.get("sort").map(|v| serde_json::from_value(v.clone()).unwrap_or(LibrarySort::Name));
+            let (version, supported, page) = if mode == "plugins" {
+                if params.get("pluginsDatabase").is_none() {
+                    return Err(unavailable(
+                        "plug-in inventory requires an explicit pluginsDatabase path (Live-plugins-*.db) inside the same allowlist root",
+                    ));
+                }
+                let path = allowlisted_file(&params["pluginsDatabase"], &params["allowlistRoot"], "plug-in database")?;
+                let reader = read_database(&path)?;
+                (
+                    assert_supported_plugins_schema(&reader)?,
+                    SUPPORTED_PLUGINS_SCHEMA_VERSIONS,
+                    serde_json::to_value(query_library_plugins(&reader, &query)?).unwrap(),
+                )
+            } else {
+                let reader = read_database(&database)?;
+                let version = assert_supported_files_schema(&reader)?;
+                let page = if mode == "tags" {
+                    serde_json::to_value(query_library_tag_vocabulary(&reader, &query)?).unwrap()
+                } else {
+                    serde_json::to_value(query_library_files(&reader, &query)?).unwrap()
+                };
+                (version, SUPPORTED_FILES_SCHEMA_VERSIONS, page)
+            };
+            let mut out = json!({"schema":LIBRARY_SEARCH_SCHEMA,"mode":mode,"databaseVersion":version,"supportedVersions":supported,"items":page["items"],"paging":page["paging"],"unavailable":{"similarity":"audio-similarity queries are unavailable in this build: the fe_values record schema is not enumerated (presence is noted, semantics are never guessed)","duplicates":"duplicate-sample queries are unavailable in this build: no duplicate-identity evidence is enumerated"},"privacy":{"note":"the database path, allowlist root, and raw filesystem paths are redacted from results; usage counts are opaque numbers; only module basenames are reported for plug-ins","redacted":["database","allowlistRoot","pluginsDatabase","plugin_modules.path"]},"provenance":{"bindingEvidence":"shape-probed first-hand on Live 12.4.5 (files database version 12300, macOS platform 2; plug-ins database version 1); unofficial undocumented schema, version-specific; results are discovery evidence and loadability still requires live_browser_inspect","supportedFilesVersions":SUPPORTED_FILES_SCHEMA_VERSIONS,"supportedPluginsVersions":SUPPORTED_PLUGINS_SCHEMA_VERSIONS}});
+            if mode == "files" {
+                if let Some(note) = page.get("tagVocabularyNote") {
+                    out["tagVocabularyNote"] = note.clone();
+                }
+            }
+            Ok(out)
+        })();
+        Ok(match result {
+            Ok(v) => success_text(id, &v),
+            Err(LibrarySearchError::Unavailable(e)) => {
+                let mut out = json!({"unavailable":true,"reason":e.message});
+                out.as_object_mut().unwrap().extend(e.details);
+                response(id, json!({"content":[text_content(&js_json::stringify(&out))],"isError":true}))
+            }
+            Err(e) => adapter_tool_error(
+                id,
+                &LiveError::error(e.to_string()),
+                "Library search is read-only and fail-closed; verify the database path and allowlist root.",
+            ),
+        })
+    }
+}

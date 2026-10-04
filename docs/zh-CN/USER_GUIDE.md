@@ -2,6 +2,8 @@
 
 [English](../en/USER_GUIDE.md) · 简体中文 · [日本語](../ja/USER_GUIDE.md)
 
+Kumi 1.7.5 的原生桥接不需要 Node，使用 `ableton-mcp-server` 的子命令。本页中面向 Node/npm 发行包的步骤适用于旧版；当前原生版步骤请参阅[英文版](../en/USER_GUIDE.md)。使用 Kumi 时，关闭 Live 后运行 `kumi bridge` 即可。
+
 桥接是 Kumi 与 Ableton Live 之间的连接，任何 MCP 客户端也可以单独使用它。它由两部分组成：
 
 - 一个本地 MCP 服务器 `@ableton-mcp/mcp-server`；

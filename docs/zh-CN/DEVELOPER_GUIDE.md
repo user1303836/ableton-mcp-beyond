@@ -4,6 +4,38 @@
 
 本仓库的各部分如何组合在一起、如何开发每个部分，以及如何发布。[测试](TESTING.md)列出了所有测试命令以及 CI 运行的内容。
 
+## 原生版开发
+
+当前应用和桥接位于根目录的 Cargo 工作区：`crates/kumi` 提供 CLI 和界面，
+`crates/kumi-runtime` 提供代理与 Live 集成，`crates/kumi-common` 提供公共功能，
+`crates/ableton-mcp-server` 提供桥接。需要 Rust、Cargo 和 Python 3.11 或更高版本。
+
+```sh
+cargo build --release --locked --workspace --bins
+cargo run --release -p kumi --
+sh scripts/test-isolated.sh   # PowerShell: ./scripts/test-isolated.ps1
+cargo run --locked --release -p ableton-mcp-server --bin ableton-mcp-benchmark
+```
+
+测试使用临时主目录。基准程序调用同目录中的分析工作进程，输出 JSON 测量结果，
+超出预算时返回失败。请使用优化后的 release 构建，并避免与大型构建同时运行。
+内存列统计 Rust 分配量。
+
+在没有未提交修改的检出中，本地准备 Mac 发布包的示例：
+
+```sh
+python3 scripts/build-hands.py
+MACOSX_DEPLOYMENT_TARGET=13.0 python3 scripts/build-native-release.py --target aarch64-apple-darwin --out release/native/aarch64-apple-darwin
+python3 -m unittest discover -s scripts/tests -p test_native_release.py
+```
+
+辅助程序保留原来的 `packages/runtime/hands/` 路径。发布包必须同时包含服务器和
+分析工作进程。各平台包的聚合、旧版本更新验证和版本号同步见
+[英文版当前发布流程](../en/DEVELOPER_GUIDE.md#releasing)。普通安装无需 Node；
+保留的 TypeScript 参考测试需要 Node.js 22 或 24。
+
+以下内容介绍保留的 **TypeScript 参考实现及旧版发布流程**。
+
 ## 布局
 
 | 文件夹 | 内容 |
@@ -41,9 +73,12 @@ bridge (apps/mcp-server)
 需要 Node.js 22 或 24、Python 3 和 git：
 
 ```sh
-npm run setup                 # 安装并构建 Kumi 和桥接
-npm run kumi                  # 运行这份检出；其余命令用 npm run kumi -- <command>
-npm run kumi -- bridge --allow-dirty   # 把这份检出中的桥接装进 Live（Live 需关闭）
+npm ci
+npm run build
+npm ci --prefix apps/mcp-server
+npm run build --prefix apps/mcp-server
+npm test
+npm test --prefix apps/mcp-server
 ```
 
 检出与已安装的 Kumi 共用 `~/.kumi`（设置、登录信息、对话、桥接的状态）。`--allow-dirty` 允许 `kumi bridge` 从带有未提交修改的检出中安装桥接。在 Windows 上，如果没有开启开发者模式、也没有使用提升权限的 shell，创建符号链接的测试会跳过或失败；CI 的运行器可以创建符号链接。

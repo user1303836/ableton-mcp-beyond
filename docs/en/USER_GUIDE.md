@@ -19,97 +19,46 @@ see the [Kumi guide](KUMI_GUIDE.md).
 
 ## Install
 
-The bridge runs on Node.js 22 and 24 (Node 24 LTS recommended); on any other
-major version its commands refuse to start. Live 12 runs on macOS or Windows;
-see [supported platforms](SUPPORT_MATRIX.md).
+The native server runs as an executable on macOS, Windows or Linux. Connecting to Live requires
+macOS or Windows. Use the archive for your operating system and architecture; the analysis worker
+must remain beside the server. No separate Node runtime is needed.
 
-Get the bridge one of two ways:
+- **With Kumi:** close Live and run `kumi bridge`.
+- **Standalone:** install the native tarball through `ableton-mcp-server lifecycle`, as described
+  in [delivery](DELIVERY.md).
+- **From source:** run `cargo build --release --locked -p ableton-mcp-server --bins` at the repository
+  root. `target/release/ableton-mcp-server` starts with offline tools until given a configuration.
 
-- **A release tarball**, installed with `ableton-mcp-lifecycle`. See
-  [delivery](DELIVERY.md).
-- **A source checkout:**
-
-  ```sh
-  cd apps/mcp-server
-  npm ci
-  npm run build
-  node dist/src/cli.js        # the server, not connected to Live
-  ```
-
-Started without `--config`, the server never connects to Live. Only the offline
-tools work then.
+The retained Node package and its npm commands are legacy tooling and the TypeScript parity
+reference. They require Node 22 or 24; that requirement does not apply to native packages.
 
 ## Connect to Live
 
-With a release, `ableton-mcp-lifecycle install` does everything below: it
-creates the secret and the configuration, installs the Remote Script, and keeps
-a receipt for upgrades and rollback. Follow [delivery](DELIVERY.md). On Windows,
-use the lifecycle: it gives the secret and configuration the owner-only
-permissions the bridge checks for.
+The lifecycle installer creates the owner-only secret and configuration, installs the Remote
+Script, and keeps the receipt for upgrades and rollback. Use it on Windows too, so it applies the
+required file permissions. Follow [delivery](DELIVERY.md).
 
-From a source checkout:
+Then open Live and select **AbletonMcpBridge** in **Settings → Link, Tempo & MIDI**. Check the
+connection with:
 
-1. Put the Remote Script beside the built package:
+```sh
+/absolute/path/ableton-mcp-server diagnostics --config /absolute/path/bridge-config.json
+```
 
-   ```sh
-   node scripts/stage-remote-script.mjs
-   ```
-
-2. Make a secret: one line of at least 32 characters, no spaces, readable only
-   by you.
-
-   ```sh
-   umask 077
-   node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64url'))" > /absolute/path/bridge.secret
-   ```
-
-3. Write the configuration:
-
-   ```sh
-   npm run setup -- --output /absolute/path/bridge-config.json \
-     --bridge-port 9765 --realtime-port 9766 \
-     --secret-file /absolute/path/bridge.secret
-   ```
-
-4. Quit Live. Install the Remote Script into the `Remote Scripts` folder of
-   your User Library, in a folder named `AbletonMcpBridge`. Try it with
-   `--dry-run` first:
-
-   ```sh
-   node dist/src/install-remote-script.js \
-     --destination "$HOME/Music/Ableton/User Library/Remote Scripts/AbletonMcpBridge" \
-     --config /absolute/path/bridge-config.json
-   ```
-
-   Pass `--config`: it tells the Remote Script where its configuration is, and
-   without it the script doesn't start. `--force` replaces an existing folder
-   and keeps the old one beside it as `AbletonMcpBridge.backup-<time>`.
-
-5. Open Live. In **Settings → Link, Tempo & MIDI**, choose **AbletonMcpBridge**
-   as a Control Surface.
-
-6. Check the connection:
-
-   ```sh
-   npm run diagnostics -- --config /absolute/path/bridge-config.json
-   ```
-
-   Look for `"provenance": "real-live"` and
-   `"readiness": { … "realLiveOperational": true }`. The command exits with 0
-   even when the bridge isn't connected, so read the report.
-   [Delivery](DELIVERY.md) explains each field.
+Look for `"provenance": "real-live"` and `"readiness": { … "realLiveOperational": true }`.
+Diagnostics can exit successfully while disconnected; read the report's readiness fields.
 
 ### The configuration file
 
-`ableton-mcp-setup` writes a version 2 file. The server, the Remote Script and
+`ableton-mcp-server setup` writes a version 2 file. The server, the Remote Script and
 the lifecycle all read it:
 
 ```json
 {
   "version": 2,
   "server": {
-    "command": "/absolute/path/node",
-    "args": ["/absolute/path/dist/src/cli.js", "--config", "/absolute/path/bridge-config.json"]
+    "command": "/absolute/path/ableton-mcp-server",
+    "args": ["--config", "/absolute/path/bridge-config.json"]
   },
   "bridge": {
     "host": "127.0.0.1",
@@ -123,18 +72,20 @@ the lifecycle all read it:
 
 | Field | Rule |
 | --- | --- |
-| `server.args` | The server's `cli.js`, `--config` and this file's own absolute path |
+| `server.command` | The native server's absolute executable path |
+| `server.args` | `--config` and this file's own absolute path |
 | `bridge.host` | `127.0.0.1` or `::1` |
 | `bridge.port` | 1–65535; the Remote Script listens here |
 | `bridge.secretFile` | Absolute path; owner-only, at least 32 characters |
 | `bridge.timeoutMs` | 100–60,000 ms per request to Live (default 5,000) |
 | `bridge.realtimePort` | Optional; must differ from `port`; see [realtime control](REALTIME_CONTROL.md) |
-| `bridge.diagnostics` | Optional; written only by `ableton-mcp-lifecycle install --enable-bridge-diagnostics` (see [operations](OPERATIONS.md)) |
+| `bridge.diagnostics` | Optional; written only by `ableton-mcp-server lifecycle install --enable-bridge-diagnostics` (see [operations](OPERATIONS.md)) |
 
+Legacy version 2 configurations naming Node and `cli.js` remain readable during migration.
 Unknown fields are refused. The file must be readable only by you. Running
-`ableton-mcp-setup` without bridge options writes a version 1 file. That file
+`ableton-mcp-server setup` without bridge options writes a version 1 file. That file
 only says how to start the server; passed to `--config`, it is refused.
-`ableton-mcp-migrate` converts older files (see [delivery](DELIVERY.md)).
+`ableton-mcp-server migrate` converts older files (see [delivery](DELIVERY.md)).
 
 ## Add the bridge to an MCP client
 
@@ -145,8 +96,8 @@ Use the configuration's `server.command` and `server.args`. In the common
 {
   "mcpServers": {
     "ableton": {
-      "command": "/absolute/path/node",
-      "args": ["/absolute/path/dist/src/cli.js", "--config", "/absolute/path/bridge-config.json"],
+      "command": "/absolute/path/ableton-mcp-server",
+      "args": ["--config", "/absolute/path/bridge-config.json"],
       "env": { "ABLETON_MCP_TOOL_POLICY": "edit-no-audio" }
     }
   }
@@ -190,11 +141,11 @@ Its tools appear in `tools/list` once it answers; see the
 
 | Command | Options |
 | --- | --- |
-| `ableton-mcp-server` (`npm start`) | None, or exactly `--config PATH` |
-| `ableton-mcp-setup` (`npm run setup`) | `--output PATH`, plus for version 2: `--bridge-port N`, `--secret-file PATH`, and optionally `--bridge-host`, `--bridge-timeout MS`, `--realtime-port N`. `--force` overwrites. |
-| `ableton-mcp-install-remote-script` | `--destination DIR`, `--config PATH`, `--dry-run`, `--force` |
-| `ableton-mcp-diagnostics` (`npm run diagnostics`) | None, or exactly `--config PATH`; prints a JSON report |
-| `ableton-mcp-lifecycle`, `ableton-mcp-migrate` | See [delivery](DELIVERY.md) |
+| `ableton-mcp-server` | None, or exactly `--config PATH` |
+| `ableton-mcp-server setup` | `--output PATH`, plus for version 2: `--bridge-port N`, `--secret-file PATH`, and optionally `--bridge-host`, `--bridge-timeout MS`, `--realtime-port N`. `--force` overwrites. |
+| `ableton-mcp-server install-remote-script` | `--destination DIR`, `--config PATH`, `--dry-run`, `--force` |
+| `ableton-mcp-server diagnostics` | None, or exactly `--config PATH`; prints a JSON report |
+| `ableton-mcp-server lifecycle`, `ableton-mcp-server migrate` | See [delivery](DELIVERY.md) |
 
 The first four exit with 2 for a bad option and 1 when they fail.
 

@@ -9,26 +9,28 @@ How the repository fits together, how to work on each part, and how to release.
 
 | Folder | What's in it |
 | --- | --- |
-| `apps/kumi` | The `kumi` command and the terminal app (`src/tui/`); `scripts/` holds the opt-in checks against a model or real Live |
-| `packages/runtime` | Kumi's agent core: `kernel/` (the agent loop), `providers/` and `auth/` (models and sign-in), `core/` (sessions, memory, techniques, recipes, goals, matching), `integrations/ableton/` (Kumi's Live tools), `audio/`, `video/`, `web/`, `devices/` (Max for Live devices), `mcp/` (the bridge client) |
-| `apps/mcp-server` | The bridge, `@ableton-mcp/mcp-server`: an MCP server over stdio, with its own lockfile, tests and CI. Also the lifecycle, setup, migration and diagnostics commands |
+| `crates/kumi` | The native `kumi` command and terminal app (`src/tui/`) |
+| `crates/kumi-runtime` | Agent loop, providers, sign-in, sessions, library, Live integration, media tools and MCP client |
+| `crates/kumi-common` | Shared runtime utilities and source-compatible value handling |
+| `crates/ableton-mcp-server` | Native MCP bridge, analysis worker, lifecycle, setup, migration and diagnostics |
+| `apps/kumi`, `packages/runtime`, `apps/mcp-server` | Retained TypeScript reference implementation, parity tests and opt-in checks against models or real Live |
 | `remote-script` | The bridge's Remote Script, which runs inside Live (`ableton_mcp_remote_script.py`, the `AbletonMcpBridge/` entry point, Python tests) |
 | `apps/live-extension` | Kumi's Live extension for Live 12.4 and later, on Live's Extensions SDK |
 | `protocol` | `ableton-live-v1.operations.json`, the operation registry the bridge and the Remote Script share |
-| `scripts` | `build-release.mjs` (the installer's bundle) and `test-isolated.mjs` |
+| `scripts` | Native release builders, migration packaging and isolated native/reference test runners |
 | `install.sh`, `install.ps1` | The installers |
 
-The root is an npm workspace of `apps/kumi` and `packages/runtime`. The bridge is
-deliberately separate: it builds, tests and packs on its own, and works without
-Kumi.
+The four native crates share the root Cargo workspace. The bridge also works
+without Kumi. The TypeScript reference retains its npm workspace and separate
+bridge lockfile.
 
 ## How the parts talk
 
 ```text
-kumi (apps/kumi, packages/runtime)
+kumi (crates/kumi, crates/kumi-runtime)
   │  MCP over stdio: Kumi starts the bridge as a child process
   ▼
-bridge (apps/mcp-server)
+bridge (crates/ableton-mcp-server)
   │  ableton-loopback/v1: authenticated TCP on 127.0.0.1
   ├──► Remote Script inside Live (remote-script/)
   │  local channel to the Extension Host
@@ -37,9 +39,9 @@ bridge (apps/mcp-server)
 
 - Kumi starts the bridge with the `full` deployment policy and an allow list of
   exactly the tools it uses (`ABLETON_MCP_TOOL_ALLOW`). The model calls a few
-  bridge reads directly (`MODEL_TOOLS` in `packages/runtime/src/mcp/allowed-tools.ts`);
+  bridge reads directly (`MODEL_TOOLS` in `crates/kumi-runtime/src/mcp/allowed_tools.rs`);
   Kumi's own tools call the rest.
-- The bridge's router (`apps/mcp-server/src/bridge/router.ts`) sends each
+- The bridge's router (`crates/ableton-mcp-server/src/bridge/router.rs`) sends each
   operation to the Remote Script, or to the extension when only the extension
   has it. The bridge can start Live's Extension Host itself when Live's
   Developer Mode keeps it from starting extensions.
@@ -49,56 +51,105 @@ bridge (apps/mcp-server)
 
 ## Setup
 
-With Node.js 22 or 24, Python 3 and git:
+With Rust, Cargo, Python 3.11 or later, and git:
 
 ```sh
-npm run setup                 # install and build Kumi and the bridge
-npm run kumi                  # run the checkout; npm run kumi -- <command> for the rest
-npm run kumi -- bridge --allow-dirty   # put this checkout's bridge into Live (Live closed)
+cargo build --release --locked --workspace --bins
+cargo run --release -p kumi --
+cargo run --release -p kumi -- bridge --allow-dirty   # Live must be closed
 ```
+
+The existing npm setup/start commands use this checkout when Cargo is available. Without Cargo,
+they hand off to the matching published native release. Node.js 22 or 24 is needed for the
+TypeScript reference build and tests, not for the native application.
 
 A checkout shares `~/.kumi` (settings, sign-ins, conversations, the bridge's
 state) with an installed Kumi. `--allow-dirty` lets `kumi bridge` install the
 bridge from a checkout with uncommitted changes. On Windows without Developer Mode or an
 elevated shell, tests that create symlinks skip or fail; CI's runners can.
 
+## Build, test and measure
+
+Run native checks from the repository root. The isolated runner invokes
+`cargo test --workspace --locked` with a temporary home:
+
+```sh
+cargo build --locked --workspace --all-targets
+sh scripts/test-isolated.sh                 # PowerShell: ./scripts/test-isolated.ps1
+sh scripts/test-isolated.sh -p kumi-runtime --test hands_transport
+python3 -m unittest discover -s scripts/tests -p 'test_*release.py'
+```
+
+Run performance gates with optimized binaries, outside coverage or other heavy
+builds. Build the sibling analysis worker before starting the benchmark:
+
+```sh
+cargo build --locked --release -p ableton-mcp-server --bins
+cargo run --locked --release -p ableton-mcp-server --bin ableton-mcp-benchmark
+```
+
+The benchmark prints JSON measurements and exits nonzero when a budget fails.
+Its memory columns report tracked Rust allocations; they are not separate V8
+heap, external and ArrayBuffer measurements. Debug timings are not release
+performance evidence.
+
+**TypeScript reference:** use Node.js 22 or 24 for the source tests and oracle
+generators. These commands build the reference implementation:
+
+```sh
+npm ci
+npm run build
+npm ci --prefix apps/mcp-server
+npm run build --prefix apps/mcp-server
+npm test
+npm test --prefix apps/mcp-server
+```
+
+See [Testing](TESTING.md) for reference coverage, audio oracles and optional
+real-Live checks.
+
 ## Working on Kumi
 
 **A change family** (a kind of change with its own HISTORY row and undo) is an
-entry in `BASE_CHANGES` (`packages/runtime/src/integrations/ableton/changes.ts`)
-or `MORE_CHANGES` (`more-changes.ts`), which `CHANGES` combines: the Kumi tool
-name, the bridge's preview and apply, a family (one of the fixed set of pictures
-HISTORY and NOW draw), a description for the model,
-and a `summarize` that turns the preview into plain words. Give it `since` (the
-first bridge release it works with, in `bridge-version.ts`) when older bridges
+entry in `CHANGES` (`crates/kumi-runtime/src/integrations/ableton/changes.rs`).
+Metadata comes from `assets/changes.json`; summaries live in
+`changes/summaries.rs` and `changes/more_summaries.rs`. Each entry names the Kumi
+tool, the bridge's preview and apply, a family (one of the fixed set of pictures
+HISTORY and NOW draw), a model description and a plain-language summary. Give it `since` (the
+first bridge release it works with, in `bridge_version.rs`) when older bridges
 refuse it, and `permanent` when Live gives no way back. Tests check every family
 for a unique tool, a title from a bare preview, descriptions that never ask the
 model to confirm, and host-only bridge tools. Run it on real Live with its undo
 (`accept:live`) before offering it.
 
 **An action** (something that isn't a change to the Set, with nothing to undo,
-such as playing) goes in `ACTIONS` in `actions.ts`.
+such as playing) goes in `ACTIONS` in `actions.rs`, with metadata in
+`assets/actions.json`.
 
 When the bridge's tools change, regenerate the synthetic bridge the change eval
-uses: `node apps/kumi/scripts/make-bridge-tools.mjs` (needs a built bridge).
+uses: `node apps/kumi/scripts/make-bridge-tools.mjs` (needs the built TypeScript
+reference bridge). Keep corresponding reference fixtures and native tests aligned.
 
 The terminal app's design and foundations are in
 [commands, keys and screens](KUMI_TUI.md#design-notes).
 
 ## Working on the bridge
 
+Paths below are relative to `crates/ableton-mcp-server`. The corresponding
+TypeScript reference remains in `apps/mcp-server`.
+
 | Path | What it is |
 | --- | --- |
-| `src/host.ts` | MCP dispatch, strict tool schemas, transactions, undo and recovery |
-| `src/tool-catalog.ts` | The single tool catalog: schemas, annotations, the capabilities each tool needs, and its deployment policy class |
-| `src/live.ts`, `src/registry.ts` | Live types and adapters; loading and validating the registry and its hash |
-| `src/bridge/` | The authenticated loopback client (`remote-adapter.ts`), the router, and the extension channel, launcher and folders |
+| `src/host.rs`, `src/host/` | MCP dispatch, strict tool schemas, transactions, undo and recovery |
+| `src/tool_catalog.rs` | The single tool catalog: schemas, annotations, the capabilities each tool needs, and its deployment policy class |
+| `src/live.rs`, `src/registry.rs` | Live types and adapters; loading and validating the registry and its hash |
+| `src/bridge/` | The authenticated loopback client (`remote_adapter.rs`), the router, and the extension channel, launcher and folders |
 | `src/transactions/` | Batches, device state, Session MIDI and discovery helpers |
-| `src/mcp-protocol.ts`, `src/stdio.ts` | MCP wire handling for both protocol versions |
-| `src/analysis*.ts`, `src/audio-*.ts`, `src/reference-analysis.ts` | Audio analysis in isolated workers |
-| `src/delivery.ts`, `src/lifecycle*.ts`, `src/setup.ts`, `src/migrate.ts`, `src/diagnostics.ts` | Configuration, secrets, install, upgrade, rollback and diagnostics |
-| `src/als.ts`, `src/project*.ts`, `src/library-search.ts` | Saved Sets, Set snapshots and diffs, Live's library database |
-| `src/follow-actions.ts` | The optional [Willington](WILLINGTON_INTEGRATION.md) Follow Actions |
+| `src/mcp_protocol.rs`, `src/stdio.rs` | MCP wire handling for both protocol versions |
+| `src/analysis*.rs`, `src/audio_*.rs`, `src/reference_analysis.rs` | Audio analysis in isolated workers |
+| `src/delivery*.rs`, `src/lifecycle*.rs`, `src/setup.rs`, `src/migrate.rs`, `src/diagnostics.rs` | Configuration, secrets, install, upgrade, rollback and diagnostics |
+| `src/als.rs`, `src/project*.rs`, `src/library_search.rs` | Saved Sets, Set snapshots and diffs, Live's library database |
+| `src/follow_actions.rs` | The optional [Willington](WILLINGTON_INTEGRATION.md) Follow Actions |
 
 **Contract rules.**
 
@@ -124,10 +175,8 @@ The terminal app's design and foundations are in
   the Remote Script doesn't recognize is reported unavailable, never faked.
 - stdout carries only the MCP protocol. Diagnostics go to stderr, without
   request data.
-- The process-backed adapter is asynchronous (`snapshotAsync`, `invokeAsync`,
-  …), while the shared interface and the simulator still have synchronous
-  methods; `McpHost.handleAsync` is the path for process-backed tools. Test
-  compatibility work against both until the synchronous surface goes.
+- Process-backed operations use `AsyncLiveAdapter`; the simulator also retains
+  synchronous methods. Test compatibility work against both paths.
 - Tests never need a running Live, a device, a particular machine or local-only
   material. Every new operation gets tests, including bad input and recovery.
 
@@ -156,6 +205,7 @@ against its checksum. Measurements of how Live runs the extension are in
 
 **Commits** have plain-English subjects that say what changed for the producer
 ("Kumi: talk to it while it works"). A bridge or Remote Script change bumps
+`crates/ableton-mcp-server/Cargo.toml`, `Cargo.lock` and the retained
 `apps/mcp-server/package.json` (and its lockfile), starts its subject with the
 new version ("Bridge 1.0.71: …"), bumps the fake bridge's version in
 `apps/kumi/scripts/eval-changes.mjs`, and adds a `### Bridge x.y.z` block under
@@ -168,23 +218,55 @@ commit its bundle. Work goes on a branch and reaches `main` by pull request.
 1. On the branch, one commit titled "Kumi X.Y.Z: the changelog, READMEs and
    versions" sets the version in the root `package.json` and lockfile,
    `apps/kumi/package.json` (its version and its `@kumi/runtime` dependency),
-   `packages/runtime/package.json` and `packages/runtime/src/version.ts` (a test
-   holds the four equal); the Status line of the three READMEs; the ships-with
+   `packages/runtime/package.json`, `packages/runtime/src/version.ts`,
+   `crates/kumi-runtime/src/version.rs`, the Kumi/common/runtime Cargo manifests
+   and `Cargo.lock` (the producer tests hold these equal); the Status line of
+   the three READMEs; the ships-with
    line under "Bridge versions" in the three `KUMI_CHANGES.md`; and the
    `CHANGELOG.md`'s `## Unreleased` becomes `## X.Y.Z — date`, with a line
    that says which bridge it ships with.
 2. Merge the pull request with a merge commit titled "Kumi X.Y.Z (#PR)".
 3. Tag the merge commit `vX.Y.Z` and push the tag. The Installer workflow builds
-   the bundle, tests installing it on macOS, Linux and Windows, and attaches
-   `kumi.tar.gz`, `kumi-release.json` and `SHA256SUMS` to a draft release
-   "Kumi X.Y.Z".
+   native bundles for Intel and ARM on macOS, Linux and Windows, tests installs
+   and migration, and attaches the per-target bundles/manifests plus the
+   compatibility `kumi.tar.gz`, `kumi-release.json` and `SHA256SUMS` to a draft
+   release "Kumi X.Y.Z".
 4. Write the release notes and publish the release. Only then do the installers,
    `kumi update` and the update check see it.
 
-`kumi-release.json` records the exact Node 24 release the bundle was built
-with, and the installer downloads that Node from nodejs.org beside Kumi. A
-release on a new Node major makes `kumi update` ask users to run the installer
-again.
+**Local native release staging**, from a clean commit:
+
+```sh
+python3 scripts/build-hands.py              # macOS only; universal, ad hoc signed helper
+MACOSX_DEPLOYMENT_TARGET=13.0 python3 scripts/build-native-release.py --target aarch64-apple-darwin --out release/native/aarch64-apple-darwin
+python3 -m unittest discover -s scripts/tests -p test_native_release.py
+```
+
+Use the host's Rust target triple. The builder runs a locked release build and
+binds the bridge artifact to the commit, Cargo lockfile, build recipe and exact
+file hashes. Mac bundles require the current helper in
+`packages/runtime/hands/`; other builders consume that artifact from the Mac
+job. The server and analysis worker must be shipped together. The
+`--binaries-dir` override packages existing binaries and does not establish
+that they were built with release optimizations.
+
+The aggregation step retains the manifest consumed by existing Node 24
+installations:
+
+```sh
+python3 scripts/build-migration-release.py release/native/*/kumi-release.json --node 24.21.0 --out release/installer
+KUMI_NATIVE_RELEASES="$PWD/release/installer" python3 -m unittest discover -s scripts/tests -p test_migration_release.py
+```
+
+Use the actual Node 24 version selected by the release workflow. Migration
+proof also needs the built TypeScript app and bridge reference; for the
+1.7.4-to-native transition, its compiled `packages/runtime/dist/src/version.js`
+must retain `KUMI_VERSION = "1.7.4"` as the workflow does. Run this proof with
+Node 24 and require all artifact tests to run. Fresh installs select a native
+target and do not download Node. Existing Node 24 installations use a one-time
+bootstrap during `kumi update`; the managed Node remains for rollback and
+optional YouTube challenges. Older Node majors may require rerunning the
+installer with the same `KUMI_HOME`.
 
 **The bridge** has no release of its own: it ships inside each Kumi release, and
 each CI run on `main` keeps a packed candidate for 90 days.

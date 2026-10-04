@@ -11,7 +11,7 @@ fails, see [recovery](RECOVERY.md).
 The MCP client starts the server, one process per client:
 
 ```sh
-node /absolute/path/dist/src/cli.js --config /absolute/path/bridge-config.json
+/absolute/path/ableton-mcp-server --config /absolute/path/bridge-config.json
 ```
 
 The server reads MCP messages as JSON lines on stdin and writes them on stdout.
@@ -20,9 +20,8 @@ Keep stdout for MCP alone. The server's own log lines go to stderr, prefixed
 any other [environment variables](USER_GUIDE.md#environment-variables) in the
 server's environment.
 
-Kumi starts its own server. It sets the policy to the tools it uses, gives the
-server a PATH that holds only Node's folder, and waits up to 65 seconds for an
-answer.
+Kumi starts its sibling native server, sets the policy to the tools it uses, and waits up to
+65 seconds for an answer. The analysis worker stays beside the server.
 
 ## Check the connection
 
@@ -37,8 +36,8 @@ Call `live_status`. A working connection shows:
 Don't take an open port or a running Live as proof: only an authenticated
 `live_status` is.
 
-`ableton-mcp-diagnostics --config <path>` checks the same from a terminal. It
-reports Node, the package, the configuration and the secret's permissions. It
+`ableton-mcp-server diagnostics --config <path>` checks the same from a terminal. It
+reports the native runtime, the package, the configuration and the secret's permissions. It
 then makes a short authenticated read of the Set (set, scenes, tracks,
 playback, one track's clip slots). [Delivery](DELIVERY.md) explains the report
 stage by stage.
@@ -83,7 +82,7 @@ go. Restarting the server starts with no undo records; see
 | What | Where |
 | --- | --- |
 | Configuration, secret, receipt, journal | The lifecycle's state folder: `~/.config/ableton-mcp`, or `%APPDATA%\ableton-mcp` on Windows, unless you chose another |
-| Remote Script diagnostics log | `bridge-diagnostics.log` in the state folder, only after `ableton-mcp-lifecycle install --enable-bridge-diagnostics`. It holds event codes without names or data; capped at 16 MiB, then it starts over. |
+| Remote Script diagnostics log | `bridge-diagnostics.log` in the state folder, only after `ableton-mcp-server lifecycle install --enable-bridge-diagnostics`. It holds event codes without names or data; capped at 16 MiB, then it starts over. |
 | Copies of imported audio | `~/.config/ableton-mcp/import-staging` (`%APPDATA%\ableton-mcp\import-staging`), or `ABLETON_MCP_IMPORT_STAGING_DIR`. Live plays these copies, so remove them only once no clip uses them; see [Live safety](LIVE_SAFETY.md). |
 | Drum Sampler carrier presets | The `Kumi` folder in Live's User Library, removed once loaded |
 | Device states | The folder you name to `live_device_state_save` |

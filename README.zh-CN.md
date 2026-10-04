@@ -6,7 +6,7 @@
   <a href="https://github.com/user1303836/kumi/actions/workflows/kumi.yml"><img alt="CI" src="https://github.com/user1303836/kumi/actions/workflows/kumi.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/user1303836/kumi/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/user1303836/kumi?label=release"></a>
   <img alt="Ableton Live 12" src="https://img.shields.io/badge/Ableton%20Live-12-111111">
-  <img alt="Node 22 | 24" src="https://img.shields.io/badge/node-22%20%7C%2024-339933">
+  <img alt="Native Rust runtime" src="https://img.shields.io/badge/runtime-native%20Rust-555555">
   <a href="LICENSE.md"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
 </p>
 
@@ -37,7 +37,7 @@
 
 ## 开始使用
 
-需要 Ableton Live 12，运行在 macOS 13 或更高版本，或 Windows 10、11 上。Live 12.4 或更高版本还会加入右键菜单、直接写进编曲视图的 MIDI 以及离线渲染。制作 Max for Live 设备需要 Max for Live（Live Suite，或加装了附加组件的 Standard）。Kumi 自带 Node。
+需要 Ableton Live 12，运行在 macOS 13 或更高版本，或 Windows 10、11 上。Live 12.4 或更高版本还会加入右键菜单、直接写进编曲视图的 MIDI 以及离线渲染。制作 Max for Live 设备需要 Max for Live（Live Suite，或加装了附加组件的 Standard）。Kumi 作为原生应用运行。
 
 **macOS：** 打开“终端”，粘贴：
 
@@ -67,28 +67,40 @@ kumi            # 在你的工程旁打开 Kumi
 
 有新版本时，Kumi 会在启动时告诉你。在 Kumi 中输入 `/update`，或在终端运行 `kumi update`，即可获取新版本，桥接也会一并更新；`kumi update --check` 只检查、不安装，`kumi update --rollback` 回到上一个版本。如果不想让它检查，在 `~/.kumi/settings.json` 中加入 `"updateCheck": false`。
 
+从当前的 1.7.4 安装版升级时，关闭 Live，运行 `kumi update`，然后照常打开 Kumi。
+设置、登录信息、对话和素材库都保留原位。首次启动原生应用时，现有桥接也会切换到原生版本。
+[迁移与回滚说明](docs/zh-CN/KUMI_GUIDE.md#更新报告与卸载)。
+
 [指南](docs/zh-CN/KUMI_GUIDE.md) · [命令、按键与界面](docs/zh-CN/KUMI_TUI.md) · [Kumi 如何修改你的工程](docs/zh-CN/KUMI_CHANGES.md) · [更新日志（英文）](CHANGELOG.md)
 
 ## 当前状态
 
-Kumi 1.7.4 已在 macOS 上的 Ableton Live 12.4（测试版）中测试。在 Windows 上，安装 Kumi 以及把它连接到 Live 已经过测试；其余功能在 Windows 上还是新的，出问题时请发送一份 `kumi report`。接下来将支持 Renoise 和 Reaper。
+最后的 TypeScript 版本 Kumi 1.7.4 已在 macOS 的 Ableton Live 12.4（测试版）中验证，Windows 验证覆盖安装和连接。
+原生版本 1.7.5 已有参考实现对比测试和隔离环境中的迁移测试，实际 Live 中的验证仍待完成。
+出问题时请发送 `kumi report`。接下来将支持 Renoise 和 Reaper。
 
 ## 开发
 
-在本仓库的副本中，使用 Node.js 22 或 24：
+使用 Rust 和 Cargo 构建当前检出的代码：
 
 ```sh
-npm run setup     # 安装并构建
-npm run kumi      # 运行（npm run kumi -- bridge、-- doctor 等）
-npm run typecheck
-npm test          # 无需 Live 或登录
+cargo build --release --locked --workspace --bins
+cargo run --release -p kumi --        # 在 -- 后添加 bridge、doctor 等参数
+sh scripts/test-isolated.sh          # 无需 Live 或登录
 ```
+
+原有的 `npm run setup` 和 `npm run kumi -- ...` 仍可使用。有 Cargo 时，它们构建并运行当前检出的代码。
+没有 Cargo 时，它们安装并运行对应版本的已发布原生应用。`~/.kumi` 中的设置、登录信息、对话和素材库
+保持原样。迁移后，运行 `kumi` 即可直接启动原生应用。
+
+TypeScript 保留为兼容性验证的参考实现。它的 `npm ci`、`npm run build`、`npm run typecheck` 和
+`npm test` 命令使用 Node.js 22 或 24。
 
 | 文件夹 | 内容 |
 | --- | --- |
-| `apps/kumi` | 终端应用和 `kumi` 命令 |
-| `packages/runtime` | Kumi 的代理核心：模型提供方、记忆、音频分析、视频、网络，以及与 Live 的集成 |
-| `apps/mcp-server` | 桥接：由 Kumi 启动的本地 MCP 服务器，也可单独与其他 MCP 客户端配合使用（[桥接指南（英文）](apps/mcp-server/README.md)） |
+| `crates/kumi` | 终端应用和 `kumi` 命令 |
+| `crates/kumi-runtime` | Kumi 的代理核心：模型提供方、记忆、音频分析、视频、网络，以及与 Live 的集成 |
+| `crates/ableton-mcp-server` | 桥接：由 Kumi 启动的本地 MCP 服务器，也可单独与其他 MCP 客户端配合使用（[桥接指南（英文）](apps/mcp-server/README.md)） |
 | `remote-script` | 桥接的 Remote Script，运行在 Live 内部 |
 | `apps/live-extension` | Kumi 的 Live 扩展（Live 12.4 及更高版本） |
 | `protocol` | 桥接与 Remote Script 共用的操作列表 |

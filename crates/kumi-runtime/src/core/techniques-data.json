@@ -1,0 +1,137 @@
+{
+  "description": "Kumi's learned techniques: ideas that made a sound the producer liked, kept to adapt for similar sounds later (a recipe, by contrast, replays exact steps). action draft: when you build a sound or a chain (from a tutorial, or a request of several steps), draft what's worth keeping in the same reply as the make_changes that builds it (a final make_changes ends the answer): its name, what it fits (the kind of sound or request), the idea (the chain and why each part), the settings that mattered, substitutes (what to use when a part isn't available, such as a plugin or a step Kumi can't do), and where it came from (a tutorial's title and address). Kumi keeps it only if the producer's next moves say they liked it, and shows them then; don't mention the draft. When it refines a technique you read, pass replaces with its id. action keep: the same fields, kept at once, only when the producer asks you in so many words to remember how something was done, or to change a technique (with replaces). action read: the whole of a technique listed in your instructions, when a request fits it; then adapt it and say you're using it. action forget: remove one when the producer asks.",
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "action"
+    ],
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "keep",
+          "read",
+          "forget"
+        ]
+      },
+      "id": {
+        "type": "string",
+        "pattern": "^t\\d{1,4}$",
+        "description": "read and forget: the technique's id"
+      },
+      "name": {
+        "type": "string",
+        "maxLength": 48
+      },
+      "fits": {
+        "type": "string",
+        "maxLength": 160,
+        "description": "The kind of sound or request it fits"
+      },
+      "idea": {
+        "type": "string",
+        "maxLength": 1200,
+        "description": "The chain and why each part"
+      },
+      "settings": {
+        "type": "string",
+        "maxLength": 600,
+        "description": "The settings that mattered"
+      },
+      "substitutes": {
+        "type": "string",
+        "maxLength": 400,
+        "description": "What to use when a part isn't available"
+      },
+      "recipe": {
+        "type": "string",
+        "maxLength": 64,
+        "description": "A recipe for the fixed parts, by name"
+      },
+      "source": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 300
+          }
+        }
+      },
+      "replaces": {
+        "type": "string",
+        "pattern": "^t\\d{1,4}$",
+        "description": "The id of a technique this refines"
+      }
+    }
+  },
+  "plan": {
+    "description": "When the plan builds a sound or a chain (devices loaded, and set up if you set them up), give it technique: its name, what it fits, and the idea (the chain and why each part), with the settings that matter and substitutes when you know them. Kumi keeps it only if the producer likes the result; don't mention it.",
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "fits",
+        "idea"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 48
+        },
+        "fits": {
+          "type": "string",
+          "maxLength": 160,
+          "description": "The kind of sound or request it fits"
+        },
+        "idea": {
+          "type": "string",
+          "maxLength": 1200,
+          "description": "The chain and why each part"
+        },
+        "settings": {
+          "type": "string",
+          "maxLength": 600,
+          "description": "The settings that mattered"
+        },
+        "substitutes": {
+          "type": "string",
+          "maxLength": 400,
+          "description": "What to use when a part isn't available"
+        },
+        "recipe": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "A recipe for the fixed parts, by name"
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 160
+            },
+            "url": {
+              "type": "string",
+              "maxLength": 300
+            }
+          }
+        },
+        "replaces": {
+          "type": "string",
+          "pattern": "^t\\d{1,4}$",
+          "description": "The id of a technique this refines"
+        }
+      },
+      "description": "When this plan builds a sound or a chain worth keeping: what makes it work (the chain and why, the settings that matter, substitutes, where it came from). Kumi keeps it only if the producer likes the result; don't mention it."
+    }
+  }
+}

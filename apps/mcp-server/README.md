@@ -29,36 +29,35 @@ applies. They also render audio and run Python inside Live. See
 
 ## Quick start from source
 
-You need Node.js 22 or 24 (24 LTS recommended). From the repository root:
+Build the native server and worker with Rust and Cargo, from the repository root:
 
 ```sh
-cd apps/mcp-server
-npm ci
-npm run build
-npm test
-npm run demo                 # a short MCP session, no Live needed
-node dist/src/cli.js         # the server, not connected to Live
+cargo build --release --locked -p ableton-mcp-server --bins
+./target/release/ableton-mcp-server --version
+./target/release/ableton-mcp-server  # offline MCP tools; no Live connection
 ```
 
-To connect it to Live, follow
-[Connect to Live](https://github.com/user1303836/kumi/blob/main/docs/en/USER_GUIDE.md#connect-to-live)
-in the user guide. Then run:
+For a configured connection, follow [delivery](https://github.com/user1303836/kumi/blob/main/docs/en/DELIVERY.md), then run:
 
 ```sh
-node dist/src/cli.js --config /absolute/path/bridge-config.json
-npm run diagnostics -- --config /absolute/path/bridge-config.json
+./target/release/ableton-mcp-server --config /absolute/path/bridge-config.json
+./target/release/ableton-mcp-server diagnostics --config /absolute/path/bridge-config.json
 ```
+
+Native packages include the server, its sibling analysis worker, Remote Script and Live extension.
+They need no separate Node runtime. The retained TypeScript implementation and its npm commands
+are the parity reference and legacy package tooling; those use Node.js 22 or 24.
 
 ## What's in the package
 
 | Command | What it does |
 | --- | --- |
 | `ableton-mcp-server` | The MCP server on stdio: no arguments, or `--config PATH` |
-| `ableton-mcp-setup` | Writes a server configuration |
-| `ableton-mcp-install-remote-script` | Copies the Remote Script into Live's Remote Scripts folder |
-| `ableton-mcp-diagnostics` | Checks Node, the package, the configuration and the connection to Live |
-| `ableton-mcp-lifecycle` | Installs, activates, upgrades, repairs, rolls back and uninstalls a release |
-| `ableton-mcp-migrate` | Converts an older configuration file |
+| `ableton-mcp-server setup` | Writes a server configuration |
+| `ableton-mcp-server install-remote-script` | Copies the Remote Script into Live's Remote Scripts folder |
+| `ableton-mcp-server diagnostics` | Checks the native runtime, the package, the configuration and the connection to Live |
+| `ableton-mcp-server lifecycle` | Installs, activates, upgrades, repairs, rolls back and uninstalls a release |
+| `ableton-mcp-server migrate` | Converts an older configuration file |
 
 ## Before you connect a client
 

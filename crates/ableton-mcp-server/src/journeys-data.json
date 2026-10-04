@@ -1,0 +1,1375 @@
+{
+  "catalog": [
+    {
+      "id": "create-beat-or-song",
+      "title": "Create and revise an editable beat or song section",
+      "summary": "Translate bounded rhythmic, harmonic, and production traits into editable Session structure and MIDI, with optional Arrangement, revision, and guarded audition stages.",
+      "fallback": "Return derived role/grid/section guidance and identify each unavailable stage. Never claim that Live contains or played the result.",
+      "stages": [
+        {
+          "id": "discover",
+          "announcement": "Discovering the Set, empty slots, tempo, scenes, devices, and stopped playback.",
+          "impact": "read-only",
+          "tools": [
+            "live_status",
+            "live_discover"
+          ],
+          "requiredForCore": true,
+          "capabilities": [
+            "session.read",
+            "session.discovery"
+          ],
+          "operations": [
+            "discover",
+            "session.playback"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_status",
+                "live_discover"
+              ],
+              "mechanism": "none",
+              "note": "Read-only; grants no Live mutation authority."
+            }
+          ],
+          "verification": "Require a fresh epoch, exact target refs, an empty slot, and authoritative playback state.",
+          "recovery": "No mutation occurred; refresh status and refs when state changed.",
+          "unavailableFallback": "Return the derived editable draft only and ask the operator to configure read/discovery support."
+        },
+        {
+          "id": "draft",
+          "announcement": "Deriving bounded grid, role, section, and note guidance from allowlisted high-level traits.",
+          "impact": "read-only",
+          "tools": [
+            "plan_user_journey"
+          ],
+          "requiredForCore": true,
+          "authorities": [
+            {
+              "tools": [
+                "plan_user_journey"
+              ],
+              "mechanism": "none",
+              "note": "Read-only; grants no Live mutation authority."
+            }
+          ],
+          "verification": "Show recognized traits, excluded identity/copy intent, bar/note bounds, and any clarification requirement.",
+          "recovery": "Revise high-level traits without touching Live.",
+          "unavailableFallback": "This local planning stage is always available."
+        },
+        {
+          "id": "preview-create",
+          "announcement": "Previewing exact Session structure and MIDI targets without mutation.",
+          "impact": "read-only",
+          "tools": [
+            "live_session_structure_preview",
+            "live_midi_clip_preview"
+          ],
+          "requiredForCore": true,
+          "capabilities": [
+            "session.structure",
+            "session.midi_clip.create",
+            "session.midi_note.write"
+          ],
+          "operations": [
+            "track.create",
+            "track.delete",
+            "scene.create",
+            "scene.delete",
+            "clip.create",
+            "clip.delete",
+            "note.add",
+            "note.add-batch",
+            "note.delete"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_session_structure_preview",
+                "live_midi_clip_preview"
+              ],
+              "mechanism": "none",
+              "note": "Read-only; grants no Live mutation authority."
+            }
+          ],
+          "verification": "Show exact proposed tracks/scenes/slot, editable notes, revisions, and impact.",
+          "recovery": "Discard or revise either preview independently.",
+          "unavailableFallback": "Keep a local role/grid/section draft and name unavailable creation operations."
+        },
+        {
+          "id": "apply-create",
+          "announcement": "Awaiting separate fixed apply confirmations before creating structure and MIDI.",
+          "impact": "project-mutation",
+          "tools": [
+            "live_session_structure_apply",
+            "live_midi_clip_apply",
+            "live_undo"
+          ],
+          "requiredForCore": true,
+          "capabilities": [
+            "session.structure",
+            "session.midi_clip.create",
+            "session.midi_note.write"
+          ],
+          "operations": [
+            "track.create",
+            "track.delete",
+            "scene.create",
+            "scene.delete",
+            "clip.create",
+            "clip.delete",
+            "note.add",
+            "note.add-batch",
+            "note.delete"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_session_structure_apply",
+                "live_midi_clip_apply"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "apply",
+              "note": "Each fresh preview is confirmed separately with the literal apply phrase and a new idempotency key."
+            },
+            {
+              "tools": [
+                "live_undo"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "undo",
+              "note": "Undo each applied structure/MIDI transaction separately while its postcondition still matches."
+            }
+          ],
+          "verification": "Verify every created ref, parent, slot, note field, and idempotent replay result.",
+          "recovery": "Use guarded undo with the matching transaction while its postcondition remains exact.",
+          "unavailableFallback": "Do not issue an apply or claim creation; present the preview as instructions only."
+        },
+        {
+          "id": "arrange",
+          "announcement": "Optionally previewing and duplicating the exact created section into Arrangement.",
+          "impact": "project-mutation",
+          "tools": [
+            "live_clip_duplicate_preview",
+            "live_clip_duplicate_apply",
+            "live_undo"
+          ],
+          "requiredForCore": false,
+          "capabilities": [
+            "session.read",
+            "arrangement.write"
+          ],
+          "operations": [
+            "clip.duplicate",
+            "arrangement.clip.delete"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_clip_duplicate_apply"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "apply",
+              "note": "Confirm the exact duplication preview with apply and a new idempotency key."
+            },
+            {
+              "tools": [
+                "live_undo"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "undo",
+              "note": "Cleanup is available only through the matching duplicate transaction while its created identity and fingerprint remain exact."
+            }
+          ],
+          "verification": "Read the exact retained Arrangement clip ref, source relationship, position, length, parent, name, fingerprint, and revision.",
+          "recovery": "Use guarded undo only for the exact transaction-created Arrangement clip. Arbitrary Arrangement deletion is refused because deleted clip state cannot be reconstructed.",
+          "unavailableFallback": "Keep the section in Session and label Arrangement duplication unavailable."
+        },
+        {
+          "id": "arrange-edit",
+          "announcement": "Optionally replanning after duplication to move the retained section and prove transaction-owned temporary cleanup.",
+          "impact": "project-mutation",
+          "tools": [
+            "live_clip_move_preview",
+            "live_clip_move_apply",
+            "live_arrangement_clip_preview",
+            "live_arrangement_clip_apply",
+            "live_undo"
+          ],
+          "requiredForCore": false,
+          "capabilities": [
+            "session.read",
+            "arrangement.write"
+          ],
+          "operations": [
+            "arrangement.clip.create",
+            "arrangement.clip.delete",
+            "arrangement.clip.move"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_clip_move_apply",
+                "live_arrangement_clip_apply"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "apply",
+              "note": "Confirm each move or temporary create preview independently with apply and a new idempotency key."
+            },
+            {
+              "tools": [
+                "live_undo"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "undo",
+              "note": "Delete only through the exact transaction that created the temporary clip; no arbitrary delete preview is available."
+            }
+          ],
+          "verification": "Verify the retained section's exact moved identity and position, and verify transaction-owned temporary cleanup is absent.",
+          "recovery": "Undo the exact unchanged move or transaction-owned create. Refuse arbitrary Arrangement deletion and report manual recovery when ownership/fingerprint no longer matches.",
+          "unavailableFallback": "Retain the duplicated section at its original position and provide manual move guidance."
+        },
+        {
+          "id": "audition",
+          "announcement": "Optionally awaiting separate output-safety confirmation before one bounded audition.",
+          "impact": "potentially-audible",
+          "tools": [
+            "live_clip_launch_preview",
+            "live_clip_launch_apply",
+            "live_clip_launch_stop",
+            "live_session_emergency_stop"
+          ],
+          "requiredForCore": false,
+          "capabilities": [
+            "session.read",
+            "transport"
+          ],
+          "operations": [
+            "session.playback",
+            "session.clip-launch",
+            "session.clip-stop",
+            "session.emergency-stop"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_clip_launch_apply",
+                "live_clip_launch_stop"
+              ],
+              "mechanism": "unpredictable-preview-token",
+              "note": "Use the distinct unpredictable launch and owned-stop tokens returned by the same unexpired preview."
+            },
+            {
+              "tools": [
+                "live_session_emergency_stop"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "emergency-stop",
+              "note": "Independent stop requires exact freshly observed expected targets."
+            }
+          ],
+          "verification": "Verify one preflighted target becomes fired/playing and then returns to the stopped baseline.",
+          "recovery": "Use the owning stop token; if ownership is unavailable, use exact fresh emergency targets.",
+          "unavailableFallback": "Do not start playback; provide visual/text inspection guidance."
+        },
+        {
+          "id": "revise",
+          "announcement": "Optionally previewing one bounded editable note revision after inspection or audition.",
+          "impact": "project-mutation",
+          "tools": [
+            "live_note_update_preview",
+            "live_note_update_apply",
+            "live_undo"
+          ],
+          "requiredForCore": false,
+          "capabilities": [
+            "session.midi_note.write"
+          ],
+          "operations": [
+            "discover",
+            "note.update"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_note_update_apply"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "apply",
+              "note": "Confirm the exact stable note-ID preview with the literal apply phrase and a new idempotency key."
+            },
+            {
+              "tools": [
+                "live_undo"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "undo",
+              "note": "Undo requires the matching applied transaction and a new idempotency key."
+            }
+          ],
+          "verification": "Read notes back by stable IDs and compare every supported changed field.",
+          "recovery": "Guardedly undo only while those note postconditions still match.",
+          "unavailableFallback": "Describe the revision without claiming it was written."
+        },
+        {
+          "id": "final-readback",
+          "announcement": "Reading final authoritative state and reporting every residual.",
+          "impact": "read-only",
+          "tools": [
+            "live_discover",
+            "live_snapshot"
+          ],
+          "requiredForCore": true,
+          "capabilities": [
+            "session.read",
+            "session.discovery"
+          ],
+          "operations": [
+            "discover",
+            "snapshot"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_discover",
+                "live_snapshot"
+              ],
+              "mechanism": "none",
+              "note": "Read-only; grants no Live mutation authority."
+            }
+          ],
+          "verification": "Report created refs, notes, Arrangement state, playback/recording state, and unresolved uncertainty.",
+          "recovery": "If readback is absent or contradictory, report uncertain and never replay a mutation blindly.",
+          "unavailableFallback": "Report that Live completion cannot be verified."
+        }
+      ]
+    },
+    {
+      "id": "sequence-advanced-drums",
+      "title": "Sequence expressive and probabilistic drums",
+      "summary": "Derive an editable bounded role pattern with fractional timing, probability, velocity/release variation, and explicit unsupported expressive fields.",
+      "fallback": "Return role/grid guidance and omit unsupported note fields. Never relabel velocity or timing as MPE, groove extraction, or per-note modulation.",
+      "stages": [
+        {
+          "id": "discover",
+          "announcement": "Discovering drum pads, stable note support, clip target, tempo, and grid.",
+          "impact": "read-only",
+          "tools": [
+            "live_status",
+            "live_discover"
+          ],
+          "requiredForCore": true,
+          "capabilities": [
+            "session.read",
+            "session.discovery",
+            "session.midi_note.read"
+          ],
+          "operations": [
+            "discover"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_status",
+                "live_discover"
+              ],
+              "mechanism": "none",
+              "note": "Read-only; grants no Live mutation authority."
+            }
+          ],
+          "verification": "Resolve exact pad pitches from authoritative pad/device data or ask the operator; never guess a mapping.",
+          "recovery": "No mutation occurred.",
+          "unavailableFallback": "Return role names with pitch unset and manual mapping instructions."
+        },
+        {
+          "id": "draft",
+          "announcement": "Deriving a bounded editable drum pattern and variation from allowlisted traits.",
+          "impact": "read-only",
+          "tools": [
+            "plan_user_journey"
+          ],
+          "requiredForCore": true,
+          "authorities": [
+            {
+              "tools": [
+                "plan_user_journey"
+              ],
+              "mechanism": "none",
+              "note": "Read-only; grants no Live mutation authority."
+            }
+          ],
+          "verification": "Cap at sixteen bars/512 notes and expose role, fractional start, duration, velocity, probability, deviation, and release intent separately.",
+          "recovery": "Revise density, timing, or variation locally.",
+          "unavailableFallback": "This local planning stage is always available."
+        },
+        {
+          "id": "preview-write",
+          "announcement": "Previewing an exact empty clip target and supported drum note fields.",
+          "impact": "read-only",
+          "tools": [
+            "live_midi_clip_preview"
+          ],
+          "requiredForCore": true,
+          "capabilities": [
+            "session.midi_clip.create",
+            "session.midi_note.write"
+          ],
+          "operations": [
+            "clip.create",
+            "clip.delete",
+            "note.add",
+            "note.add-batch",
+            "note.delete"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_midi_clip_preview"
+              ],
+              "mechanism": "none",
+              "note": "Read-only; grants no Live mutation authority."
+            }
+          ],
+          "verification": "Show exact slot/ref, normalized notes, unsupported fields, and bounds.",
+          "recovery": "Discard or revise the preview.",
+          "unavailableFallback": "Return the editable role pattern without a Live write claim."
+        },
+        {
+          "id": "apply-write",
+          "announcement": "Awaiting fixed apply confirmation before writing the exact drum clip.",
+          "impact": "project-mutation",
+          "tools": [
+            "live_midi_clip_apply",
+            "live_undo"
+          ],
+          "requiredForCore": true,
+          "capabilities": [
+            "session.midi_clip.create",
+            "session.midi_note.write"
+          ],
+          "operations": [
+            "clip.create",
+            "clip.delete",
+            "note.add",
+            "note.add-batch",
+            "note.delete"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_midi_clip_apply"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "apply",
+              "note": "Confirm the exact MIDI preview with apply and a new idempotency key."
+            },
+            {
+              "tools": [
+                "live_undo"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "undo",
+              "note": "Undo requires the matching transaction."
+            }
+          ],
+          "verification": "Read notes back with server-assigned stable IDs and compare supported fields.",
+          "recovery": "Guardedly undo the transaction-created clip while its identity still matches.",
+          "unavailableFallback": "Do not write; provide manual note entry guidance."
+        },
+        {
+          "id": "expressive-revision",
+          "announcement": "Optionally previewing probability, timing, velocity, deviation, release, and mute changes by stable note ID.",
+          "impact": "project-mutation",
+          "tools": [
+            "live_note_update_preview",
+            "live_note_update_apply",
+            "live_undo"
+          ],
+          "requiredForCore": false,
+          "capabilities": [
+            "session.midi_note.write"
+          ],
+          "operations": [
+            "discover",
+            "note.update"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_note_update_apply"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "apply",
+              "note": "Confirm exact note IDs/revisions with the literal apply phrase and a new idempotency key."
+            },
+            {
+              "tools": [
+                "live_undo"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "undo",
+              "note": "Undo requires the matching revision-safe transaction."
+            }
+          ],
+          "verification": "Read back each advertised field; leave unsupported values explicitly unavailable.",
+          "recovery": "Undo only unchanged transaction-owned note updates.",
+          "unavailableFallback": "Keep expressive values as manual guidance; do not claim MPE or unavailable fields."
+        },
+        {
+          "id": "audition",
+          "announcement": "Optionally awaiting output-safety confirmation for one exact clip audition.",
+          "impact": "potentially-audible",
+          "tools": [
+            "live_clip_launch_preview",
+            "live_clip_launch_apply",
+            "live_clip_launch_stop",
+            "live_session_emergency_stop"
+          ],
+          "requiredForCore": false,
+          "capabilities": [
+            "session.read",
+            "transport"
+          ],
+          "operations": [
+            "session.playback",
+            "session.clip-launch",
+            "session.clip-stop",
+            "session.emergency-stop"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_clip_launch_apply",
+                "live_clip_launch_stop"
+              ],
+              "mechanism": "unpredictable-preview-token",
+              "note": "Use distinct unpredictable launch/owned-stop tokens."
+            },
+            {
+              "tools": [
+                "live_session_emergency_stop"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "emergency-stop",
+              "note": "Use only with exact fresh targets."
+            }
+          ],
+          "verification": "Verify only the exact clip is active and then stopped.",
+          "recovery": "Use owned clip stop or exact emergency stop.",
+          "unavailableFallback": "Do not audition; inspect notes textually or in Live manually."
+        },
+        {
+          "id": "final-readback",
+          "announcement": "Reading final drum notes, playback state, and residuals.",
+          "impact": "read-only",
+          "tools": [
+            "live_discover"
+          ],
+          "requiredForCore": true,
+          "capabilities": [
+            "session.read",
+            "session.discovery"
+          ],
+          "operations": [
+            "discover"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_discover"
+              ],
+              "mechanism": "none",
+              "note": "Read-only; grants no Live mutation authority."
+            }
+          ],
+          "verification": "Report exact clip/note refs, field values, and stopped state if audition occurred.",
+          "recovery": "Contradictory readback is uncertain; do not rewrite blindly.",
+          "unavailableFallback": "Report that the Live write cannot be verified."
+        }
+      ]
+    },
+    {
+      "id": "design-owned-sound",
+      "title": "Design a sound with available native or owned devices",
+      "summary": "Derive topology/control directions, select one stable Browser result, optionally edit published parameters, audition safely, and compare authoritative before/after state.",
+      "fallback": "Provide topology, preset, and manual-control guidance. Never claim plug-in UI control, ownership, loading, or verification without an advertised API and authoritative readback.",
+      "stages": [
+        {
+          "id": "discover-browser",
+          "announcement": "Discovering Browser results and current topology without assuming a device exists.",
+          "impact": "read-only",
+          "tools": [
+            "live_status",
+            "live_browser_search",
+            "live_discover"
+          ],
+          "requiredForCore": true,
+          "capabilities": [
+            "session.read",
+            "session.discovery",
+            "browser"
+          ],
+          "operations": [
+            "discover",
+            "browser.search"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_status",
+                "live_browser_search",
+                "live_discover"
+              ],
+              "mechanism": "none",
+              "note": "Read-only; grants no Live mutation authority."
+            }
+          ],
+          "verification": "Use stable Browser IDs and exact track/device refs; distinguish native, pack, Max, and plug-in categories.",
+          "recovery": "No mutation occurred.",
+          "unavailableFallback": "Return semantic topology/control guidance and manual Browser instructions."
+        },
+        {
+          "id": "draft",
+          "announcement": "Deriving bounded topology and semantic control directions from allowlisted sonic traits.",
+          "impact": "read-only",
+          "tools": [
+            "plan_user_journey"
+          ],
+          "requiredForCore": true,
+          "authorities": [
+            {
+              "tools": [
+                "plan_user_journey"
+              ],
+              "mechanism": "none",
+              "note": "Read-only; grants no Live mutation authority."
+            }
+          ],
+          "verification": "Explain rationale without promising an acoustic outcome; controls remain semantic until published refs/bounds exist.",
+          "recovery": "Revise high-level sonic traits locally.",
+          "unavailableFallback": "This local planning stage is always available."
+        },
+        {
+          "id": "preview-load",
+          "announcement": "Previewing one selected stable Browser result on an exact track.",
+          "impact": "read-only",
+          "tools": [
+            "live_browser_load_preview"
+          ],
+          "requiredForCore": true,
+          "capabilities": [
+            "browser"
+          ],
+          "operations": [
+            "browser.load",
+            "device.delete"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_browser_load_preview"
+              ],
+              "mechanism": "none",
+              "note": "Read-only; grants no Live mutation authority."
+            }
+          ],
+          "verification": "Show stable result ID, exact target track, expected device identity, and cleanup operation.",
+          "recovery": "Discard the preview or choose another result.",
+          "unavailableFallback": "Do not claim load; provide manual selection guidance."
+        },
+        {
+          "id": "apply-load",
+          "announcement": "Awaiting fixed apply confirmation before loading one device.",
+          "impact": "project-mutation",
+          "tools": [
+            "live_browser_load_apply",
+            "live_undo"
+          ],
+          "requiredForCore": true,
+          "capabilities": [
+            "browser"
+          ],
+          "operations": [
+            "browser.load",
+            "device.delete"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_browser_load_apply"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "apply",
+              "note": "Confirm the exact Browser preview with apply and a new idempotency key."
+            },
+            {
+              "tools": [
+                "live_undo"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "undo",
+              "note": "Undo deletes only the transaction-created exact device."
+            }
+          ],
+          "verification": "Rediscover and verify exact device parentage/class/enabled state; capabilities may change after load.",
+          "recovery": "Guardedly remove only the transaction-created device.",
+          "unavailableFallback": "Do not issue a load or claim a device was created."
+        },
+        {
+          "id": "shape-published-controls",
+          "announcement": "Optionally previewing one bounded published parameter change after rediscovery.",
+          "impact": "project-mutation",
+          "tools": [
+            "live_device_parameter_preview",
+            "live_device_parameter_apply",
+            "live_undo"
+          ],
+          "requiredForCore": false,
+          "capabilities": [
+            "devices",
+            "parameters",
+            "device.parameter.write"
+          ],
+          "operations": [
+            "discover",
+            "device.parameter.set"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_device_parameter_apply"
+              ],
+              "mechanism": "unpredictable-preview-token",
+              "note": "Use the unpredictable token tied to one exact enabled parameter/ref/value/revision."
+            },
+            {
+              "tools": [
+                "live_undo"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "undo",
+              "note": "Undo requires the same transaction and unchanged postcondition."
+            }
+          ],
+          "verification": "Verify exact parentage, enabled state, bounds, quantization, value, and revision.",
+          "recovery": "Undo that parameter only; never automate an unpublished plug-in UI control.",
+          "unavailableFallback": "Present semantic manual adjustment guidance and label published parameter control unavailable."
+        },
+        {
+          "id": "audition",
+          "announcement": "Optionally awaiting output-safety confirmation for a bounded before/after audition.",
+          "impact": "potentially-audible",
+          "tools": [
+            "live_clip_launch_preview",
+            "live_clip_launch_apply",
+            "live_clip_launch_stop",
+            "live_session_emergency_stop"
+          ],
+          "requiredForCore": false,
+          "capabilities": [
+            "session.read",
+            "transport"
+          ],
+          "operations": [
+            "session.playback",
+            "session.clip-launch",
+            "session.clip-stop",
+            "session.emergency-stop"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_clip_launch_apply",
+                "live_clip_launch_stop"
+              ],
+              "mechanism": "unpredictable-preview-token",
+              "note": "Use distinct unpredictable launch and stop tokens."
+            },
+            {
+              "tools": [
+                "live_session_emergency_stop"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "emergency-stop",
+              "note": "Independent stop requires exact fresh targets."
+            }
+          ],
+          "verification": "Compare authoritative settings; device presence is context, not causal audio proof.",
+          "recovery": "Stop exact playback and restore the prior parameter/topology through its own transaction.",
+          "unavailableFallback": "Do not play; use authoritative parameter/topology readback only."
+        },
+        {
+          "id": "final-readback",
+          "announcement": "Reading final topology, parameters, playback state, and residuals.",
+          "impact": "read-only",
+          "tools": [
+            "live_discover"
+          ],
+          "requiredForCore": true,
+          "capabilities": [
+            "session.read",
+            "session.discovery"
+          ],
+          "operations": [
+            "discover"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_discover"
+              ],
+              "mechanism": "none",
+              "note": "Read-only; grants no Live mutation authority."
+            }
+          ],
+          "verification": "Report exact created device, changed parameter if any, playback state, and unsupported controls.",
+          "recovery": "Contradictory state is uncertain; do not reload or rewrite blindly.",
+          "unavailableFallback": "Report that Live topology cannot be verified."
+        }
+      ]
+    },
+    {
+      "id": "compare-reference-mix",
+      "title": "Compare a project section with a user-supplied reference",
+      "summary": "Analyze authorized caller PCM, align and level-match within bounds, optionally connect measured differences to fresh Live context/capture, and test one reversible hypothesis without claiming causality.",
+      "fallback": "Local standards/reference comparison remains available without Live. Label Live attribution unavailable and request explicit consent/provenance instead of inventing signal-chain evidence.",
+      "stages": [
+        {
+          "id": "source-relationship",
+          "announcement": "Establishing that project/reference PCM is caller-supplied or generated and permitted for this analysis.",
+          "impact": "read-only",
+          "tools": [
+            "audio_analyze"
+          ],
+          "requiredForCore": true,
+          "authorities": [
+            {
+              "tools": [
+                "audio_analyze"
+              ],
+              "mechanism": "none",
+              "note": "The caller supplies PCM and source relationship; this does not prove copyright ownership or legal clearance."
+            }
+          ],
+          "verification": "Record source relationship in the request without storing source paths or raw PCM in results.",
+          "recovery": "Cancel the disposable worker; no raw result is returned.",
+          "unavailableFallback": "This local stage is always available for bounded caller PCM."
+        },
+        {
+          "id": "measure",
+          "announcement": "Measuring bounded loudness, true peak, dynamics, spectrum, transients, and alignment.",
+          "impact": "read-only",
+          "tools": [
+            "audio_compare_reference"
+          ],
+          "requiredForCore": true,
+          "authorities": [
+            {
+              "tools": [
+                "audio_compare_reference"
+              ],
+              "mechanism": "none",
+              "note": "Read-only; grants no Live mutation authority."
+            }
+          ],
+          "verification": "Report standards versions, raw-audio privacy, alignment confidence/overlap, level match, and unavailable measurements.",
+          "recovery": "Use manual or disabled alignment when automatic alignment is ambiguous.",
+          "unavailableFallback": "This local stage is always available for supported PCM."
+        },
+        {
+          "id": "live-context",
+          "announcement": "Optionally linking measurements to fresh exact Live context without claiming device causality.",
+          "impact": "read-only",
+          "tools": [
+            "live_status",
+            "live_discover",
+            "audio_diagnose_live_context"
+          ],
+          "requiredForCore": false,
+          "capabilities": [
+            "session.read",
+            "session.discovery"
+          ],
+          "operations": [
+            "discover"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_status",
+                "live_discover",
+                "audio_diagnose_live_context"
+              ],
+              "mechanism": "none",
+              "note": "Read-only; grants no Live mutation authority."
+            }
+          ],
+          "verification": "Separate measured facts, observed topology, declared source relationship, and hypotheses.",
+          "recovery": "Keep the result local-only when Live context is unavailable or stale.",
+          "unavailableFallback": "Report measurement-only advice with no Live attribution."
+        },
+        {
+          "id": "guarded-capture",
+          "announcement": "Optionally awaiting consent and exact confirmation for one ephemeral Live Resampling capture.",
+          "impact": "recording",
+          "tools": [
+            "live_audio_capture_preview",
+            "live_audio_capture_apply",
+            "live_audio_capture_status",
+            "live_audio_capture_emergency_stop"
+          ],
+          "requiredForCore": false,
+          "capabilities": [
+            "audio.capture.resampling"
+          ],
+          "operations": [
+            "audio.capture.inspect",
+            "audio.capture.start",
+            "audio.capture.status",
+            "audio.capture.stop",
+            "audio.capture.cleanup",
+            "audio.capture.emergency-stop"
+          ],
+          "provenance": "real-live",
+          "authorities": [
+            {
+              "tools": [
+                "live_audio_capture_apply"
+              ],
+              "mechanism": "unpredictable-preview-token",
+              "note": "Use the unpredictable token for the exact source/destination/duration/route/epoch preview."
+            },
+            {
+              "tools": [
+                "live_audio_capture_emergency_stop"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "emergency-stop-and-clean",
+              "note": "Independent capture recovery uses the literal emergency-stop-and-clean phrase and exact recovery identity."
+            }
+          ],
+          "verification": "Require stopped playback/recording, restored route/arm/monitoring, deleted owned clip, absent WAV/ASD/quarantine, and no raw output.",
+          "recovery": "From a fresh host, inspect status and call capture emergency stop; Session playback emergency stop is not capture cleanup.",
+          "unavailableFallback": "Use caller-supplied PCM only and label Live capture unavailable."
+        },
+        {
+          "id": "reversible-hypothesis",
+          "announcement": "Optionally previewing one reversible mixer hypothesis before same-scope remeasurement.",
+          "impact": "project-mutation",
+          "tools": [
+            "live_mixer_preview",
+            "live_mixer_apply",
+            "live_undo"
+          ],
+          "requiredForCore": false,
+          "capabilities": [
+            "mixing"
+          ],
+          "operations": [
+            "discover",
+            "mixer.set"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_mixer_apply"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "apply",
+              "note": "Confirm one exact bounded mixer-row preview with the literal apply phrase and a new idempotency key."
+            },
+            {
+              "tools": [
+                "live_undo"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "undo",
+              "note": "Restore the exact prior mixer state with the matching transaction."
+            }
+          ],
+          "verification": "Restore the control and compare same-scope aggregate measurements; call it a hypothesis, never causality.",
+          "recovery": "Restore fresh authoritative mixer state and report uncertainty when recapture scope differs.",
+          "unavailableFallback": "Return measurement-led manual guidance without claiming a Live adjustment."
+        },
+        {
+          "id": "final-report",
+          "announcement": "Reporting measurement facts, text alternatives, confidence, advice, and every residual.",
+          "impact": "read-only",
+          "tools": [
+            "audio_compare_reference"
+          ],
+          "requiredForCore": true,
+          "authorities": [
+            {
+              "tools": [
+                "audio_compare_reference"
+              ],
+              "mechanism": "none",
+              "note": "Read-only; grants no Live mutation authority."
+            }
+          ],
+          "verification": "Include loudness/peak/dynamics/spectrum/transient text, alignment confidence, privacy, and Live attribution limits.",
+          "recovery": "If an optional capture or mutation is uncertain, do not call the journey complete until status/recovery reports residuals.",
+          "unavailableFallback": "This local reporting stage is always available."
+        }
+      ]
+    },
+    {
+      "id": "diagnose-performance-setup",
+      "title": "Diagnose a mix, recording, or performance setup",
+      "summary": "Aggregate authoritative playback, routing, monitoring, arm, mixer, recording, device, subscription, and realtime recovery readiness before proposing guarded fixes.",
+      "fallback": "Return a read-only risk checklist with exact missing capabilities. Never arm, monitor, record, route, play, or claim low-latency readiness when authority is absent.",
+      "stages": [
+        {
+          "id": "diagnose",
+          "announcement": "Reading playback, arm, monitoring, routing, mixer, device, automation, project, and recovery readiness.",
+          "impact": "read-only",
+          "tools": [
+            "live_status",
+            "live_discover",
+            "live_project_info"
+          ],
+          "requiredForCore": true,
+          "capabilities": [
+            "session.read",
+            "session.discovery",
+            "routing",
+            "mixing",
+            "transport"
+          ],
+          "operations": [
+            "discover",
+            "session.playback"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_status",
+                "live_discover",
+                "live_project_info"
+              ],
+              "mechanism": "none",
+              "note": "Read-only; grants no Live mutation authority."
+            }
+          ],
+          "verification": "Rank exact-ref/revision/provenance findings; unavailable measured latency remains unknown.",
+          "recovery": "No mutation occurred; if mapper-owned playback is already active, use only exact owned/emergency authority.",
+          "unavailableFallback": "Return a manual read-only feedback/clipping/arm/monitoring/latency checklist."
+        },
+        {
+          "id": "preview-fixes",
+          "announcement": "Previewing bounded routing and mixer fixes with audible/feedback impact and recovery.",
+          "impact": "read-only",
+          "tools": [
+            "live_routing_preview",
+            "live_mixer_preview"
+          ],
+          "requiredForCore": true,
+          "capabilities": [
+            "routing",
+            "mixing"
+          ],
+          "operations": [
+            "discover",
+            "routing.set",
+            "mixer.set"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_routing_preview",
+                "live_mixer_preview"
+              ],
+              "mechanism": "none",
+              "note": "Read-only; grants no Live mutation authority."
+            }
+          ],
+          "verification": "Show exact before/after route/mixer rows, feedback refusal, revisions, and independent recovery.",
+          "recovery": "Discard previews when monitoring, output safety, refs, or stop authority is unclear.",
+          "unavailableFallback": "Keep findings read-only and identify routing/mixer operations that need manual action."
+        },
+        {
+          "id": "apply-fixes",
+          "announcement": "Optionally awaiting separate exact confirmations for each routing or mixer fix.",
+          "impact": "project-mutation",
+          "tools": [
+            "live_routing_apply",
+            "live_mixer_apply",
+            "live_undo"
+          ],
+          "requiredForCore": false,
+          "capabilities": [
+            "routing",
+            "mixing"
+          ],
+          "operations": [
+            "discover",
+            "routing.set",
+            "mixer.set"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_routing_apply",
+                "live_mixer_apply"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "apply",
+              "note": "Confirm each purpose-specific preview separately with the literal apply phrase and its own idempotency key."
+            },
+            {
+              "tools": [
+                "live_undo"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "undo",
+              "note": "Restore each exact transaction independently."
+            }
+          ],
+          "verification": "Verify each route/mixer mutation independently before another consequential action.",
+          "recovery": "Undo exact unchanged rows and report any residual feedback/monitoring risk.",
+          "unavailableFallback": "Do not mutate; provide exact manual steps."
+        },
+        {
+          "id": "bounded-recording",
+          "announcement": "Optionally awaiting recording intent and exact confirmation for one bounded recording lifecycle.",
+          "impact": "recording",
+          "tools": [
+            "live_recording_preview",
+            "live_recording_apply",
+            "live_session_emergency_stop"
+          ],
+          "requiredForCore": false,
+          "capabilities": [
+            "recording"
+          ],
+          "operations": [
+            "discover",
+            "session.playback",
+            "recording.session",
+            "recording.arrangement",
+            "session.emergency-stop"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_recording_apply"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "apply",
+              "note": "Confirm exact mode/destination/arm/monitoring/playback preconditions with the literal apply phrase and a new idempotency key."
+            },
+            {
+              "tools": [
+                "live_session_emergency_stop"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "emergency-stop",
+              "note": "Independent playback/recording stop requires exact fresh targets/state."
+            }
+          ],
+          "verification": "Verify start and stop, exact destination/clip or Arrangement state, and restored arm/monitoring/transport.",
+          "recovery": "Stop exact recording, restore routing/arm/monitoring, and report created media/clips.",
+          "unavailableFallback": "Do not arm or record; return a manual preflight checklist."
+        },
+        {
+          "id": "bounded-realtime",
+          "announcement": "Optionally awaiting short-lived realtime authority for exact channels, ports, and parameters.",
+          "impact": "realtime",
+          "tools": [
+            "live_realtime_arm_preview",
+            "live_realtime_arm_apply",
+            "live_realtime_stats",
+            "live_realtime_disarm",
+            "live_session_emergency_stop"
+          ],
+          "requiredForCore": false,
+          "capabilities": [
+            "osc",
+            "realtime.events"
+          ],
+          "operations": [
+            "realtime.arm",
+            "realtime.disarm",
+            "realtime.stats",
+            "session.emergency-stop"
+          ],
+          "provenance": "real-live",
+          "authorities": [
+            {
+              "tools": [
+                "live_realtime_arm_apply"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "apply",
+              "note": "Confirm exact TTL/channels/source ports/parameter refs with the literal apply phrase and a new idempotency key."
+            },
+            {
+              "tools": [
+                "live_realtime_disarm"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "disarm",
+              "note": "Immediately revoke realtime authority with the literal disarm phrase."
+            },
+            {
+              "tools": [
+                "live_session_emergency_stop"
+              ],
+              "mechanism": "fixed-phrase",
+              "phrase": "emergency-stop",
+              "note": "Emergency stop remains independent of UDP token state."
+            }
+          ],
+          "verification": "Distinguish accepted/applied/dropped counters and verify expiry/disarm plus stopped state.",
+          "recovery": "Disarm immediately and use independent authenticated TCP emergency stop.",
+          "unavailableFallback": "Do not claim low-latency control; use bounded request/response tools."
+        },
+        {
+          "id": "final-readback",
+          "announcement": "Reading final routing, mixer, recording, playback, realtime authority, and residual state.",
+          "impact": "read-only",
+          "tools": [
+            "live_discover"
+          ],
+          "requiredForCore": true,
+          "capabilities": [
+            "session.read",
+            "session.discovery"
+          ],
+          "operations": [
+            "discover",
+            "session.playback"
+          ],
+          "authorities": [
+            {
+              "tools": [
+                "live_discover"
+              ],
+              "mechanism": "none",
+              "note": "Realtime stats evidence is carried forward only when the optional realtime stage was available."
+            }
+          ],
+          "verification": "Report exact rows/refs, transport/recording, authority expiry/disarm, and every residual.",
+          "recovery": "Contradictory/missing state is uncertain; use fresh discovery and only independently authorized stop.",
+          "unavailableFallback": "Report that final Live state cannot be verified."
+        }
+      ]
+    }
+  ],
+  "prompts": [
+    {
+      "name": "create_beat_or_song",
+      "description": "Translate bounded rhythmic, harmonic, and production traits into editable Session structure and MIDI, with optional Arrangement, revision, and guarded audition stages.",
+      "arguments": [
+        {
+          "name": "traits",
+          "description": "Bounded natural-language intent. Only allowlisted high-level traits enter derived guidance; identity/exact-copy text is excluded.",
+          "required": true
+        },
+        {
+          "name": "experienceLevel",
+          "description": "beginner or advanced (default beginner).",
+          "required": false
+        },
+        {
+          "name": "bars",
+          "description": "Optional 1-16 bar planning bound, encoded as a decimal string.",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "sequence_advanced_drums",
+      "description": "Derive an editable bounded role pattern with fractional timing, probability, velocity/release variation, and explicit unsupported expressive fields.",
+      "arguments": [
+        {
+          "name": "traits",
+          "description": "Bounded natural-language intent. Only allowlisted high-level traits enter derived guidance; identity/exact-copy text is excluded.",
+          "required": true
+        },
+        {
+          "name": "experienceLevel",
+          "description": "beginner or advanced (default beginner).",
+          "required": false
+        },
+        {
+          "name": "bars",
+          "description": "Optional 1-16 bar planning bound, encoded as a decimal string.",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "design_owned_sound",
+      "description": "Derive topology/control directions, select one stable Browser result, optionally edit published parameters, audition safely, and compare authoritative before/after state.",
+      "arguments": [
+        {
+          "name": "traits",
+          "description": "Bounded natural-language intent. Only allowlisted high-level traits enter derived guidance; identity/exact-copy text is excluded.",
+          "required": true
+        },
+        {
+          "name": "experienceLevel",
+          "description": "beginner or advanced (default beginner).",
+          "required": false
+        },
+        {
+          "name": "bars",
+          "description": "Optional 1-16 bar planning bound, encoded as a decimal string.",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "compare_reference_mix",
+      "description": "Analyze authorized caller PCM, align and level-match within bounds, optionally connect measured differences to fresh Live context/capture, and test one reversible hypothesis without claiming causality.",
+      "arguments": [
+        {
+          "name": "traits",
+          "description": "Bounded natural-language intent. Only allowlisted high-level traits enter derived guidance; identity/exact-copy text is excluded.",
+          "required": true
+        },
+        {
+          "name": "experienceLevel",
+          "description": "beginner or advanced (default beginner).",
+          "required": false
+        },
+        {
+          "name": "bars",
+          "description": "Optional 1-16 bar planning bound, encoded as a decimal string.",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "diagnose_performance_setup",
+      "description": "Aggregate authoritative playback, routing, monitoring, arm, mixer, recording, device, subscription, and realtime recovery readiness before proposing guarded fixes.",
+      "arguments": [
+        {
+          "name": "traits",
+          "description": "Bounded natural-language intent. Only allowlisted high-level traits enter derived guidance; identity/exact-copy text is excluded.",
+          "required": true
+        },
+        {
+          "name": "experienceLevel",
+          "description": "beginner or advanced (default beginner).",
+          "required": false
+        },
+        {
+          "name": "bars",
+          "description": "Optional 1-16 bar planning bound, encoded as a decimal string.",
+          "required": false
+        }
+      ]
+    }
+  ],
+  "ids": [
+    "create-beat-or-song",
+    "sequence-advanced-drums",
+    "design-owned-sound",
+    "compare-reference-mix",
+    "diagnose-performance-setup"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "docs": {
+    "apps/mcp-server/README.md": "16d4c44d5de98ac8636bc8fabce443c7d814679213e341a9e9fcf70266b01c84",
+    "docs/en/USER_GUIDE.md": "0f1a7678b6741c62ebbb8d2f5e9c519638984f631aedfad502d31b8412769ffd",
+    "docs/en/USER_JOURNEYS.md": "9829c2ecd9ee84646bd0af6aec73d02e4d7492de0294b4877c473ae3f0192bcd",
+    "docs/en/OPERATIONS.md": "52ad031fbd3b4d197983fcb439cd0cbe721c47e9fc58a2b083afaf3bf2f48c70",
+    "docs/en/RECOVERY.md": "b476b83183ed4816c8dbbb1dc138722419aa46ec34e35f6479bb1b11c771757c",
+    "docs/en/LIVE_SAFETY.md": "34d1aeb0f880794dd75aa68042083a6b71d146f1120fd1af34dc678508364fcb",
+    "docs/en/AUDIO_INTELLIGENCE.md": "ee960bfdc2469acbc04fa16b6e9f28fc35e979e2a60741c8db05b895bc7a3f67",
+    "docs/en/REALTIME_CONTROL.md": "fcce80a89a68edc3cedeb29d6b18964a75d3ef0e6c7f2283a3c44b572fe015b8",
+    "docs/en/DELIVERY.md": "9791b743ebc737295e1e597b525cb1468ecdafba6a3d21a98eb77e63c9b8b953",
+    "docs/en/DEVELOPER_GUIDE.md": "aa39d918920f1de198ac2e7d19284beb1c00dc723b204c86cb4b5f20a617ac97",
+    "docs/en/TESTING.md": "08ec03a9cf11b0bb7d3c841ec8431f334b9980575e28e00909e05968108d1657",
+    "docs/en/IMPLEMENTATION_STATUS.md": "6fcadeb560149f3d91ac36ae9e3f6e9fe262cd30cde6949a1faa236cd3ab33af",
+    "docs/en/DISTRIBUTION_POLICY.md": "9c4f2b87212f525f084adda92ca1a893e58c10ef6424e30f47a5db6213242237",
+    "docs/en/SUPPORT_MATRIX.md": "5483780cd47dd2a42af28e9c2193705650f1bc1d9901da9661e2d18b67d1962f",
+    "docs/en/CAPABILITY_MATRIX.md": "39dbe4e1e8832a6485eba68d70b2616bacf58ce83de98eaea652124966e3cf35"
+  }
+}

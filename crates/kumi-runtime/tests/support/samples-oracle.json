@@ -1,0 +1,3821 @@
+{
+  "files": [
+    {
+      "name": "Drums/Kicks/Kick 808 Long.wav",
+      "hex": "52494646bc09040057415645666d742010000000000000000000000010b10200000000006461746198090400"
+    },
+    {
+      "name": "Drums/Kicks/Kick Punchy.wav",
+      "hex": "5249464668ac000057415645666d742010000000000000000000000010b10200000000006461746144ac0000"
+    },
+    {
+      "name": "Drums/Snares/Snare Crack.aif",
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000056220000400eac44000000000000"
+    },
+    {
+      "name": "Drums/Hats/Closed Hat.wav",
+      "hex": "524946460c45000057415645666d742010000000000000000000000010b102000000000064617461e8440000"
+    },
+    {
+      "name": "Drums/Hats/notes.txt",
+      "hex": "6e6f7420617564696f"
+    },
+    {
+      "name": "Drums/.hidden/Kick Secret.wav",
+      "hex": "52494646f489000057415645666d742010000000000000000000000010b102000000000064617461d0890000"
+    },
+    {
+      "name": "Ableton Folder Info/Previews/Kick Preset.adv.ogg",
+      "hex": "4f676753"
+    },
+    {
+      "name": "Loops/90 BPM Break.wav",
+      "hex": "52494646e02d070057415645666d742010000000000000000000000010b102000000000064617461bc2d0700"
+    },
+    {
+      "name": "Kick/A kick.wav",
+      "hex": "524946460c45000057415645666d742010000000000000000000000010b102000000000064617461e8440000"
+    },
+    {
+      "name": "Other/Kick 2.wav",
+      "hex": "52494646f489000057415645666d742010000000000000000000000010b102000000000064617461d0890000"
+    },
+    {
+      "name": "Other/kick 10.WAVE",
+      "hex": "52494646dcce000057415645666d742010000000000000000000000010b102000000000064617461b8ce0000"
+    },
+    {
+      "name": "Other/Kïck 3.flac",
+      "hex": "664c6143"
+    },
+    {
+      "name": "Bad.wav",
+      "hex": "524946460c45000057415645666d742010000000000000000000000010"
+    }
+  ],
+  "cases": [
+    {
+      "words": [
+        "KICK"
+      ],
+      "limit": 20,
+      "value": {
+        "samples": [
+          {
+            "name": "Kick 808 Long",
+            "path": "$ROOT/Drums/Kicks/Kick 808 Long.wav",
+            "folder": "$ROOT",
+            "bytes": 44,
+            "seconds": 1.5
+          },
+          {
+            "name": "Kick Punchy",
+            "path": "$ROOT/Drums/Kicks/Kick Punchy.wav",
+            "folder": "$ROOT",
+            "bytes": 44,
+            "seconds": 0.25
+          },
+          {
+            "name": "Kick 2",
+            "path": "$ROOT/Other/Kick 2.wav",
+            "folder": "$ROOT",
+            "bytes": 44,
+            "seconds": 0.2
+          },
+          {
+            "name": "kick 10",
+            "path": "$ROOT/Other/kick 10.WAVE",
+            "folder": "$ROOT",
+            "bytes": 44,
+            "seconds": 0.3
+          },
+          {
+            "name": "A kick",
+            "path": "$ROOT/Kick/A kick.wav",
+            "folder": "$ROOT",
+            "bytes": 44,
+            "seconds": 0.1
+          }
+        ],
+        "scanned": 10,
+        "matched": 5,
+        "partial": false,
+        "missing": [
+          "$ROOT/Nowhere"
+        ]
+      }
+    },
+    {
+      "words": [
+        "drums",
+        "snare"
+      ],
+      "limit": 10,
+      "value": {
+        "samples": [
+          {
+            "name": "Snare Crack",
+            "path": "$ROOT/Drums/Snares/Snare Crack.aif",
+            "folder": "$ROOT",
+            "bytes": 38,
+            "seconds": 0.5
+          }
+        ],
+        "scanned": 10,
+        "matched": 1,
+        "partial": false,
+        "missing": [
+          "$ROOT/Nowhere"
+        ]
+      }
+    },
+    {
+      "words": [],
+      "limit": 50,
+      "value": {
+        "samples": [
+          {
+            "name": "90 BPM Break",
+            "path": "$ROOT/Loops/90 BPM Break.wav",
+            "folder": "$ROOT",
+            "bytes": 44,
+            "seconds": 2.667
+          },
+          {
+            "name": "A kick",
+            "path": "$ROOT/Kick/A kick.wav",
+            "folder": "$ROOT",
+            "bytes": 44,
+            "seconds": 0.1
+          },
+          {
+            "name": "Bad",
+            "path": "$ROOT/Bad.wav",
+            "folder": "$ROOT",
+            "bytes": 0
+          },
+          {
+            "name": "Closed Hat",
+            "path": "$ROOT/Drums/Hats/Closed Hat.wav",
+            "folder": "$ROOT",
+            "bytes": 44,
+            "seconds": 0.1
+          },
+          {
+            "name": "Kick 2",
+            "path": "$ROOT/Other/Kick 2.wav",
+            "folder": "$ROOT",
+            "bytes": 44,
+            "seconds": 0.2
+          },
+          {
+            "name": "Kïck 3",
+            "path": "$ROOT/Other/Kïck 3.flac",
+            "folder": "$ROOT",
+            "bytes": 4
+          },
+          {
+            "name": "kick 10",
+            "path": "$ROOT/Other/kick 10.WAVE",
+            "folder": "$ROOT",
+            "bytes": 44,
+            "seconds": 0.3
+          },
+          {
+            "name": "Kick 808 Long",
+            "path": "$ROOT/Drums/Kicks/Kick 808 Long.wav",
+            "folder": "$ROOT",
+            "bytes": 44,
+            "seconds": 1.5
+          },
+          {
+            "name": "Kick Punchy",
+            "path": "$ROOT/Drums/Kicks/Kick Punchy.wav",
+            "folder": "$ROOT",
+            "bytes": 44,
+            "seconds": 0.25
+          },
+          {
+            "name": "Snare Crack",
+            "path": "$ROOT/Drums/Snares/Snare Crack.aif",
+            "folder": "$ROOT",
+            "bytes": 38,
+            "seconds": 0.5
+          }
+        ],
+        "scanned": 10,
+        "matched": 10,
+        "partial": false,
+        "missing": [
+          "$ROOT/Nowhere"
+        ]
+      }
+    },
+    {
+      "words": [
+        "break"
+      ],
+      "limit": 1,
+      "value": {
+        "samples": [
+          {
+            "name": "90 BPM Break",
+            "path": "$ROOT/Loops/90 BPM Break.wav",
+            "folder": "$ROOT",
+            "bytes": 44,
+            "seconds": 2.667
+          }
+        ],
+        "scanned": 10,
+        "matched": 1,
+        "partial": false,
+        "missing": [
+          "$ROOT/Nowhere"
+        ]
+      }
+    },
+    {
+      "words": [
+        "  kick﻿",
+        ""
+      ],
+      "limit": 2,
+      "value": {
+        "samples": [
+          {
+            "name": "Kick 808 Long",
+            "path": "$ROOT/Drums/Kicks/Kick 808 Long.wav",
+            "folder": "$ROOT",
+            "bytes": 44,
+            "seconds": 1.5
+          },
+          {
+            "name": "Kick Punchy",
+            "path": "$ROOT/Drums/Kicks/Kick Punchy.wav",
+            "folder": "$ROOT",
+            "bytes": 44,
+            "seconds": 0.25
+          }
+        ],
+        "scanned": 10,
+        "matched": 5,
+        "partial": false,
+        "missing": [
+          "$ROOT/Nowhere"
+        ]
+      }
+    },
+    {
+      "words": [
+        "no-match"
+      ],
+      "limit": 10,
+      "value": {
+        "samples": [],
+        "scanned": 10,
+        "matched": 0,
+        "partial": false,
+        "missing": [
+          "$ROOT/Nowhere"
+        ]
+      }
+    },
+    {
+      "words": [],
+      "limit": 0,
+      "value": {
+        "samples": [],
+        "scanned": 10,
+        "matched": 10,
+        "partial": false,
+        "missing": [
+          "$ROOT/Nowhere"
+        ]
+      }
+    }
+  ],
+  "headers": [
+    {
+      "hex": "524946462400000057415645666d742010000000000000000000000010b10200000000006461746100000000",
+      "bytes": 44,
+      "value": 0,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000000000000000000010b10200000000006461746100000000",
+      "bytes": 44,
+      "value": 0,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000000000000000000010b102000000000064617461ffffffff",
+      "bytes": 44,
+      "value": 0,
+      "throws": false
+    },
+    {
+      "hex": "",
+      "bytes": 0,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52",
+      "bytes": 1,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "5249",
+      "bytes": 2,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946",
+      "bytes": 3,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646",
+      "bytes": 4,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "5249464624",
+      "bytes": 5,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400",
+      "bytes": 6,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646240000",
+      "bytes": 7,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "5249464624000000",
+      "bytes": 8,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057",
+      "bytes": 9,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646240000005741",
+      "bytes": 10,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "5249464624000000574156",
+      "bytes": 11,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645",
+      "bytes": 12,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646240000005741564566",
+      "bytes": 13,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d",
+      "bytes": 14,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d74",
+      "bytes": 15,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d7420",
+      "bytes": 16,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d742010",
+      "bytes": 17,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d74201000",
+      "bytes": 18,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d7420100000",
+      "bytes": 19,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000",
+      "bytes": 20,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d74201000000000",
+      "bytes": 21,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d7420100000000000",
+      "bytes": 22,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000000000",
+      "bytes": 23,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d74201000000000000000",
+      "bytes": 24,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d7420100000000000000000",
+      "bytes": 25,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000000000000000",
+      "bytes": 26,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d74201000000000000000000000",
+      "bytes": 27,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d7420100000000000000000000000",
+      "bytes": 28,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000000000000000000010",
+      "bytes": 29,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000000000000000000010b1",
+      "bytes": 30,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000000000000000000010b102",
+      "bytes": 31,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000000000000000000010b10200",
+      "bytes": 32,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000000000000000000010b1020000",
+      "bytes": 33,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000000000000000000010b102000000",
+      "bytes": 34,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000000000000000000010b10200000000",
+      "bytes": 35,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000000000000000000010b1020000000000",
+      "bytes": 36,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000000000000000000010b102000000000064",
+      "bytes": 37,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000000000000000000010b10200000000006461",
+      "bytes": 38,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000000000000000000010b1020000000000646174",
+      "bytes": 39,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000000000000000000010b102000000000064617461",
+      "bytes": 40,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000000000000000000010b10200000000006461746100",
+      "bytes": 41,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000000000000000000010b1020000000000646174610000",
+      "bytes": 42,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462400000057415645666d742010000000000000000000000010b102000000000064617461000000",
+      "bytes": 43,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000000000000010b10200000000006461746104000000",
+      "bytes": 44,
+      "value": 0.000022675736961451248,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000000000000010b10200000000006461746100000000",
+      "bytes": 48,
+      "value": 0.000022675736961451248,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000000000000010b102000000000064617461ffffffff",
+      "bytes": 48,
+      "value": 0.000022675736961451248,
+      "throws": false
+    },
+    {
+      "hex": "",
+      "bytes": 0,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52",
+      "bytes": 1,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "5249",
+      "bytes": 2,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946",
+      "bytes": 3,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646",
+      "bytes": 4,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "5249464628",
+      "bytes": 5,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800",
+      "bytes": 6,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646280000",
+      "bytes": 7,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "5249464628000000",
+      "bytes": 8,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057",
+      "bytes": 9,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646280000005741",
+      "bytes": 10,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "5249464628000000574156",
+      "bytes": 11,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645",
+      "bytes": 12,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646280000005741564566",
+      "bytes": 13,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d",
+      "bytes": 14,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d74",
+      "bytes": 15,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d7420",
+      "bytes": 16,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d742010",
+      "bytes": 17,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d74201000",
+      "bytes": 18,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d7420100000",
+      "bytes": 19,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000",
+      "bytes": 20,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d74201000000000",
+      "bytes": 21,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d7420100000000000",
+      "bytes": 22,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000",
+      "bytes": 23,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d74201000000000000000",
+      "bytes": 24,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d7420100000000000000000",
+      "bytes": 25,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000000000",
+      "bytes": 26,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d74201000000000000000000000",
+      "bytes": 27,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d7420100000000000000000000000",
+      "bytes": 28,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000000000000010",
+      "bytes": 29,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000000000000010b1",
+      "bytes": 30,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000000000000010b102",
+      "bytes": 31,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000000000000010b10200",
+      "bytes": 32,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000000000000010b1020000",
+      "bytes": 33,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000000000000010b102000000",
+      "bytes": 34,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000000000000010b10200000000",
+      "bytes": 35,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000000000000010b1020000000000",
+      "bytes": 36,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000000000000010b102000000000064",
+      "bytes": 37,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000000000000010b10200000000006461",
+      "bytes": 38,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000000000000010b1020000000000646174",
+      "bytes": 39,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000000000000010b102000000000064617461",
+      "bytes": 40,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000000000000010b10200000000006461746104",
+      "bytes": 41,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000000000000010b1020000000000646174610400",
+      "bytes": 42,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946462800000057415645666d742010000000000000000000000010b102000000000064617461040000",
+      "bytes": 43,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000000000000010b102000000000064617461e8440000",
+      "bytes": 44,
+      "value": 0.1,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000000000000010b10200000000006461746100000000",
+      "bytes": 17684,
+      "value": 0.1,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000000000000010b102000000000064617461ffffffff",
+      "bytes": 17684,
+      "value": 0.1,
+      "throws": false
+    },
+    {
+      "hex": "",
+      "bytes": 0,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52",
+      "bytes": 1,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "5249",
+      "bytes": 2,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946",
+      "bytes": 3,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646",
+      "bytes": 4,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c",
+      "bytes": 5,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45",
+      "bytes": 6,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c4500",
+      "bytes": 7,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c450000",
+      "bytes": 8,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057",
+      "bytes": 9,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c4500005741",
+      "bytes": 10,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c450000574156",
+      "bytes": 11,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645",
+      "bytes": 12,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c4500005741564566",
+      "bytes": 13,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d",
+      "bytes": 14,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d74",
+      "bytes": 15,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d7420",
+      "bytes": 16,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d742010",
+      "bytes": 17,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d74201000",
+      "bytes": 18,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d7420100000",
+      "bytes": 19,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000",
+      "bytes": 20,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d74201000000000",
+      "bytes": 21,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d7420100000000000",
+      "bytes": 22,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000",
+      "bytes": 23,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d74201000000000000000",
+      "bytes": 24,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d7420100000000000000000",
+      "bytes": 25,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000000000",
+      "bytes": 26,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d74201000000000000000000000",
+      "bytes": 27,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d7420100000000000000000000000",
+      "bytes": 28,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000000000000010",
+      "bytes": 29,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000000000000010b1",
+      "bytes": 30,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000000000000010b102",
+      "bytes": 31,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000000000000010b10200",
+      "bytes": 32,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000000000000010b1020000",
+      "bytes": 33,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000000000000010b102000000",
+      "bytes": 34,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000000000000010b10200000000",
+      "bytes": 35,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000000000000010b1020000000000",
+      "bytes": 36,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000000000000010b102000000000064",
+      "bytes": 37,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000000000000010b10200000000006461",
+      "bytes": 38,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000000000000010b1020000000000646174",
+      "bytes": 39,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000000000000010b102000000000064617461",
+      "bytes": 40,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000000000000010b102000000000064617461e8",
+      "bytes": 41,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000000000000010b102000000000064617461e844",
+      "bytes": 42,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946460c45000057415645666d742010000000000000000000000010b102000000000064617461e84400",
+      "bytes": 43,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000000000000010b10200000000006461746188580100",
+      "bytes": 44,
+      "value": 0.5,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000000000000010b10200000000006461746100000000",
+      "bytes": 88244,
+      "value": 0.5,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000000000000010b102000000000064617461ffffffff",
+      "bytes": 88244,
+      "value": 0.5,
+      "throws": false
+    },
+    {
+      "hex": "",
+      "bytes": 0,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52",
+      "bytes": 1,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "5249",
+      "bytes": 2,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946",
+      "bytes": 3,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646",
+      "bytes": 4,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac",
+      "bytes": 5,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58",
+      "bytes": 6,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac5801",
+      "bytes": 7,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac580100",
+      "bytes": 8,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057",
+      "bytes": 9,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac5801005741",
+      "bytes": 10,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac580100574156",
+      "bytes": 11,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645",
+      "bytes": 12,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac5801005741564566",
+      "bytes": 13,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d",
+      "bytes": 14,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d74",
+      "bytes": 15,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d7420",
+      "bytes": 16,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010",
+      "bytes": 17,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d74201000",
+      "bytes": 18,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d7420100000",
+      "bytes": 19,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000",
+      "bytes": 20,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d74201000000000",
+      "bytes": 21,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d7420100000000000",
+      "bytes": 22,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000",
+      "bytes": 23,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d74201000000000000000",
+      "bytes": 24,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d7420100000000000000000",
+      "bytes": 25,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000000000",
+      "bytes": 26,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d74201000000000000000000000",
+      "bytes": 27,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d7420100000000000000000000000",
+      "bytes": 28,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000000000000010",
+      "bytes": 29,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000000000000010b1",
+      "bytes": 30,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000000000000010b102",
+      "bytes": 31,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000000000000010b10200",
+      "bytes": 32,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000000000000010b1020000",
+      "bytes": 33,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000000000000010b102000000",
+      "bytes": 34,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000000000000010b10200000000",
+      "bytes": 35,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000000000000010b1020000000000",
+      "bytes": 36,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000000000000010b102000000000064",
+      "bytes": 37,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000000000000010b10200000000006461",
+      "bytes": 38,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000000000000010b1020000000000646174",
+      "bytes": 39,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000000000000010b102000000000064617461",
+      "bytes": 40,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000000000000010b10200000000006461746188",
+      "bytes": 41,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000000000000010b1020000000000646174618858",
+      "bytes": 42,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac58010057415645666d742010000000000000000000000010b102000000000064617461885801",
+      "bytes": 43,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000000000000010b10200000000006461746198090400",
+      "bytes": 44,
+      "value": 1.5,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000000000000010b10200000000006461746100000000",
+      "bytes": 264644,
+      "value": 1.5,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000000000000010b102000000000064617461ffffffff",
+      "bytes": 264644,
+      "value": 1.5,
+      "throws": false
+    },
+    {
+      "hex": "",
+      "bytes": 0,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52",
+      "bytes": 1,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "5249",
+      "bytes": 2,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946",
+      "bytes": 3,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646",
+      "bytes": 4,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc",
+      "bytes": 5,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09",
+      "bytes": 6,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc0904",
+      "bytes": 7,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc090400",
+      "bytes": 8,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057",
+      "bytes": 9,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc0904005741",
+      "bytes": 10,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc090400574156",
+      "bytes": 11,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645",
+      "bytes": 12,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc0904005741564566",
+      "bytes": 13,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d",
+      "bytes": 14,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d74",
+      "bytes": 15,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d7420",
+      "bytes": 16,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010",
+      "bytes": 17,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d74201000",
+      "bytes": 18,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d7420100000",
+      "bytes": 19,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000",
+      "bytes": 20,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d74201000000000",
+      "bytes": 21,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d7420100000000000",
+      "bytes": 22,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000",
+      "bytes": 23,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d74201000000000000000",
+      "bytes": 24,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d7420100000000000000000",
+      "bytes": 25,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000000000",
+      "bytes": 26,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d74201000000000000000000000",
+      "bytes": 27,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d7420100000000000000000000000",
+      "bytes": 28,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000000000000010",
+      "bytes": 29,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000000000000010b1",
+      "bytes": 30,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000000000000010b102",
+      "bytes": 31,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000000000000010b10200",
+      "bytes": 32,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000000000000010b1020000",
+      "bytes": 33,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000000000000010b102000000",
+      "bytes": 34,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000000000000010b10200000000",
+      "bytes": 35,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000000000000010b1020000000000",
+      "bytes": 36,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000000000000010b102000000000064",
+      "bytes": 37,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000000000000010b10200000000006461",
+      "bytes": 38,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000000000000010b1020000000000646174",
+      "bytes": 39,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000000000000010b102000000000064617461",
+      "bytes": 40,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000000000000010b10200000000006461746198",
+      "bytes": 41,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000000000000010b1020000000000646174619809",
+      "bytes": 42,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646bc09040057415645666d742010000000000000000000000010b102000000000064617461980904",
+      "bytes": 43,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000000000000010b102000000000064617461bc2d0700",
+      "bytes": 44,
+      "value": 2.6670068027210885,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000000000000010b10200000000006461746100000000",
+      "bytes": 470504,
+      "value": 2.6670068027210885,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000000000000010b102000000000064617461ffffffff",
+      "bytes": 470504,
+      "value": 2.6670068027210885,
+      "throws": false
+    },
+    {
+      "hex": "",
+      "bytes": 0,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52",
+      "bytes": 1,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "5249",
+      "bytes": 2,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946",
+      "bytes": 3,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646",
+      "bytes": 4,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e0",
+      "bytes": 5,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d",
+      "bytes": 6,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d07",
+      "bytes": 7,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d0700",
+      "bytes": 8,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057",
+      "bytes": 9,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d07005741",
+      "bytes": 10,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d0700574156",
+      "bytes": 11,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645",
+      "bytes": 12,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d07005741564566",
+      "bytes": 13,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d",
+      "bytes": 14,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d74",
+      "bytes": 15,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d7420",
+      "bytes": 16,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010",
+      "bytes": 17,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d74201000",
+      "bytes": 18,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d7420100000",
+      "bytes": 19,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000",
+      "bytes": 20,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d74201000000000",
+      "bytes": 21,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d7420100000000000",
+      "bytes": 22,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000",
+      "bytes": 23,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d74201000000000000000",
+      "bytes": 24,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d7420100000000000000000",
+      "bytes": 25,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000000000",
+      "bytes": 26,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d74201000000000000000000000",
+      "bytes": 27,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d7420100000000000000000000000",
+      "bytes": 28,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000000000000010",
+      "bytes": 29,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000000000000010b1",
+      "bytes": 30,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000000000000010b102",
+      "bytes": 31,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000000000000010b10200",
+      "bytes": 32,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000000000000010b1020000",
+      "bytes": 33,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000000000000010b102000000",
+      "bytes": 34,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000000000000010b10200000000",
+      "bytes": 35,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000000000000010b1020000000000",
+      "bytes": 36,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000000000000010b102000000000064",
+      "bytes": 37,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000000000000010b10200000000006461",
+      "bytes": 38,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000000000000010b1020000000000646174",
+      "bytes": 39,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000000000000010b102000000000064617461",
+      "bytes": 40,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000000000000010b102000000000064617461bc",
+      "bytes": 41,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000000000000010b102000000000064617461bc2d",
+      "bytes": 42,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646e02d070057415645666d742010000000000000000000000010b102000000000064617461bc2d07",
+      "bytes": 43,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000000000000010b10200000000006461746180a6830a",
+      "bytes": 44,
+      "value": 1000,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000000000000010b10200000000006461746100000000",
+      "bytes": 176400044,
+      "value": 1000,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000000000000010b102000000000064617461ffffffff",
+      "bytes": 176400044,
+      "value": 1000,
+      "throws": false
+    },
+    {
+      "hex": "",
+      "bytes": 0,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52",
+      "bytes": 1,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "5249",
+      "bytes": 2,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "524946",
+      "bytes": 3,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646",
+      "bytes": 4,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4",
+      "bytes": 5,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6",
+      "bytes": 6,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a683",
+      "bytes": 7,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a",
+      "bytes": 8,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57",
+      "bytes": 9,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a5741",
+      "bytes": 10,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a574156",
+      "bytes": 11,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645",
+      "bytes": 12,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a5741564566",
+      "bytes": 13,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d",
+      "bytes": 14,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d74",
+      "bytes": 15,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d7420",
+      "bytes": 16,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010",
+      "bytes": 17,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d74201000",
+      "bytes": 18,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d7420100000",
+      "bytes": 19,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000",
+      "bytes": 20,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d74201000000000",
+      "bytes": 21,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d7420100000000000",
+      "bytes": 22,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000",
+      "bytes": 23,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d74201000000000000000",
+      "bytes": 24,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d7420100000000000000000",
+      "bytes": 25,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000000000",
+      "bytes": 26,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d74201000000000000000000000",
+      "bytes": 27,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d7420100000000000000000000000",
+      "bytes": 28,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000000000000010",
+      "bytes": 29,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000000000000010b1",
+      "bytes": 30,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000000000000010b102",
+      "bytes": 31,
+      "value": null,
+      "throws": true
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000000000000010b10200",
+      "bytes": 32,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000000000000010b1020000",
+      "bytes": 33,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000000000000010b102000000",
+      "bytes": 34,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000000000000010b10200000000",
+      "bytes": 35,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000000000000010b1020000000000",
+      "bytes": 36,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000000000000010b102000000000064",
+      "bytes": 37,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000000000000010b10200000000006461",
+      "bytes": 38,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000000000000010b1020000000000646174",
+      "bytes": 39,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000000000000010b102000000000064617461",
+      "bytes": 40,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000000000000010b10200000000006461746180",
+      "bytes": 41,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000000000000010b10200000000006461746180a6",
+      "bytes": 42,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646a4a6830a57415645666d742010000000000000000000000010b10200000000006461746180a683",
+      "bytes": 43,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000000000400eac44000000000000",
+      "bytes": 38,
+      "value": 0,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494643434f4d4d000000120000000000000000400eac44000000000000",
+      "bytes": 38,
+      "value": 0,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000000000c00eac44000000000000",
+      "bytes": 38,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "",
+      "bytes": 0,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "46",
+      "bytes": 1,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f",
+      "bytes": 2,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f52",
+      "bytes": 3,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d",
+      "bytes": 4,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d00",
+      "bytes": 5,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000",
+      "bytes": 6,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d000000",
+      "bytes": 7,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e",
+      "bytes": 8,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41",
+      "bytes": 9,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e4149",
+      "bytes": 10,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e414946",
+      "bytes": 11,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646",
+      "bytes": 12,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e4149464643",
+      "bytes": 13,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f",
+      "bytes": 14,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d",
+      "bytes": 15,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d",
+      "bytes": 16,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d00",
+      "bytes": 17,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000",
+      "bytes": 18,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000",
+      "bytes": 19,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d00000012",
+      "bytes": 20,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200",
+      "bytes": 21,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000",
+      "bytes": 22,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d00000012000000",
+      "bytes": 23,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000",
+      "bytes": 24,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000",
+      "bytes": 25,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d00000012000000000000",
+      "bytes": 26,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000000000",
+      "bytes": 27,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000000000",
+      "bytes": 28,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000000000c0",
+      "bytes": 29,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000000000c00e",
+      "bytes": 30,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000000000c00eac",
+      "bytes": 31,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000000000c00eac44",
+      "bytes": 32,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000000000c00eac4400",
+      "bytes": 33,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000000000c00eac440000",
+      "bytes": 34,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000000000c00eac44000000",
+      "bytes": 35,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000000000c00eac4400000000",
+      "bytes": 36,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000000000c00eac440000000000",
+      "bytes": 37,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000010000400eac44000000000000",
+      "bytes": 38,
+      "value": 0.000022675736961451248,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494643434f4d4d000000120000000000010000400eac44000000000000",
+      "bytes": 38,
+      "value": 0.000022675736961451248,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000010000c00eac44000000000000",
+      "bytes": 38,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "",
+      "bytes": 0,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "46",
+      "bytes": 1,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f",
+      "bytes": 2,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f52",
+      "bytes": 3,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d",
+      "bytes": 4,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d00",
+      "bytes": 5,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000",
+      "bytes": 6,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d000000",
+      "bytes": 7,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e",
+      "bytes": 8,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41",
+      "bytes": 9,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e4149",
+      "bytes": 10,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e414946",
+      "bytes": 11,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646",
+      "bytes": 12,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e4149464643",
+      "bytes": 13,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f",
+      "bytes": 14,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d",
+      "bytes": 15,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d",
+      "bytes": 16,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d00",
+      "bytes": 17,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000",
+      "bytes": 18,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000",
+      "bytes": 19,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d00000012",
+      "bytes": 20,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200",
+      "bytes": 21,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000",
+      "bytes": 22,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d00000012000000",
+      "bytes": 23,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000",
+      "bytes": 24,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000",
+      "bytes": 25,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d00000012000000000001",
+      "bytes": 26,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000000100",
+      "bytes": 27,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000010000",
+      "bytes": 28,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000010000c0",
+      "bytes": 29,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000010000c00e",
+      "bytes": 30,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000010000c00eac",
+      "bytes": 31,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000010000c00eac44",
+      "bytes": 32,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000010000c00eac4400",
+      "bytes": 33,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000010000c00eac440000",
+      "bytes": 34,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000010000c00eac44000000",
+      "bytes": 35,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000010000c00eac4400000000",
+      "bytes": 36,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000000010000c00eac440000000000",
+      "bytes": 37,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000056220000400eac44000000000000",
+      "bytes": 38,
+      "value": 0.5,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494643434f4d4d000000120000000056220000400eac44000000000000",
+      "bytes": 38,
+      "value": 0.5,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000056220000c00eac44000000000000",
+      "bytes": 38,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "",
+      "bytes": 0,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "46",
+      "bytes": 1,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f",
+      "bytes": 2,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f52",
+      "bytes": 3,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d",
+      "bytes": 4,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d00",
+      "bytes": 5,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000",
+      "bytes": 6,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d000000",
+      "bytes": 7,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e",
+      "bytes": 8,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41",
+      "bytes": 9,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e4149",
+      "bytes": 10,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e414946",
+      "bytes": 11,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646",
+      "bytes": 12,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e4149464643",
+      "bytes": 13,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f",
+      "bytes": 14,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d",
+      "bytes": 15,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d",
+      "bytes": 16,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d00",
+      "bytes": 17,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000",
+      "bytes": 18,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000",
+      "bytes": 19,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d00000012",
+      "bytes": 20,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200",
+      "bytes": 21,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000",
+      "bytes": 22,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d00000012000000",
+      "bytes": 23,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000",
+      "bytes": 24,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000056",
+      "bytes": 25,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d00000012000000005622",
+      "bytes": 26,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000562200",
+      "bytes": 27,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000056220000",
+      "bytes": 28,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000056220000c0",
+      "bytes": 29,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000056220000c00e",
+      "bytes": 30,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000056220000c00eac",
+      "bytes": 31,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000056220000c00eac44",
+      "bytes": 32,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000056220000c00eac4400",
+      "bytes": 33,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000056220000c00eac440000",
+      "bytes": 34,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000056220000c00eac44000000",
+      "bytes": 35,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000056220000c00eac4400000000",
+      "bytes": 36,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000000056220000c00eac440000000000",
+      "bytes": 37,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000ac440000400eac44000000000000",
+      "bytes": 38,
+      "value": 1,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494643434f4d4d0000001200000000ac440000400eac44000000000000",
+      "bytes": 38,
+      "value": 1,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000ac440000c00eac44000000000000",
+      "bytes": 38,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "",
+      "bytes": 0,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "46",
+      "bytes": 1,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f",
+      "bytes": 2,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f52",
+      "bytes": 3,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d",
+      "bytes": 4,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d00",
+      "bytes": 5,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000",
+      "bytes": 6,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d000000",
+      "bytes": 7,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e",
+      "bytes": 8,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41",
+      "bytes": 9,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e4149",
+      "bytes": 10,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e414946",
+      "bytes": 11,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646",
+      "bytes": 12,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e4149464643",
+      "bytes": 13,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f",
+      "bytes": 14,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d",
+      "bytes": 15,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d",
+      "bytes": 16,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d00",
+      "bytes": 17,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000",
+      "bytes": 18,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000",
+      "bytes": 19,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d00000012",
+      "bytes": 20,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200",
+      "bytes": 21,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000",
+      "bytes": 22,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d00000012000000",
+      "bytes": 23,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000",
+      "bytes": 24,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000ac",
+      "bytes": 25,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000ac44",
+      "bytes": 26,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000ac4400",
+      "bytes": 27,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000ac440000",
+      "bytes": 28,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000ac440000c0",
+      "bytes": 29,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000ac440000c00e",
+      "bytes": 30,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000ac440000c00eac",
+      "bytes": 31,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000ac440000c00eac44",
+      "bytes": 32,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000ac440000c00eac4400",
+      "bytes": 33,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000ac440000c00eac440000",
+      "bytes": 34,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000ac440000c00eac44000000",
+      "bytes": 35,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000ac440000c00eac4400000000",
+      "bytes": 36,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200000000ac440000c00eac440000000000",
+      "bytes": 37,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000ffffffff0000400eac44000000000000",
+      "bytes": 38,
+      "value": 97391.54863945578,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494643434f4d4d000000120000ffffffff0000400eac44000000000000",
+      "bytes": 38,
+      "value": 97391.54863945578,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000ffffffff0000c00eac44000000000000",
+      "bytes": 38,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "",
+      "bytes": 0,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "46",
+      "bytes": 1,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f",
+      "bytes": 2,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f52",
+      "bytes": 3,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d",
+      "bytes": 4,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d00",
+      "bytes": 5,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000",
+      "bytes": 6,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d000000",
+      "bytes": 7,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e",
+      "bytes": 8,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41",
+      "bytes": 9,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e4149",
+      "bytes": 10,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e414946",
+      "bytes": 11,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646",
+      "bytes": 12,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e4149464643",
+      "bytes": 13,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f",
+      "bytes": 14,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d",
+      "bytes": 15,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d",
+      "bytes": 16,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d00",
+      "bytes": 17,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000",
+      "bytes": 18,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000",
+      "bytes": 19,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d00000012",
+      "bytes": 20,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d0000001200",
+      "bytes": 21,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000",
+      "bytes": 22,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000ff",
+      "bytes": 23,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000ffff",
+      "bytes": 24,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000ffffff",
+      "bytes": 25,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000ffffffff",
+      "bytes": 26,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000ffffffff00",
+      "bytes": 27,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000ffffffff0000",
+      "bytes": 28,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000ffffffff0000c0",
+      "bytes": 29,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000ffffffff0000c00e",
+      "bytes": 30,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000ffffffff0000c00eac",
+      "bytes": 31,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000ffffffff0000c00eac44",
+      "bytes": 32,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000ffffffff0000c00eac4400",
+      "bytes": 33,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000ffffffff0000c00eac440000",
+      "bytes": 34,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000ffffffff0000c00eac44000000",
+      "bytes": 35,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000ffffffff0000c00eac4400000000",
+      "bytes": 36,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "464f524d0000001e41494646434f4d4d000000120000ffffffff0000c00eac440000000000",
+      "bytes": 37,
+      "value": null,
+      "throws": false
+    },
+    {
+      "hex": "52494646ac580100574156454a554e4b0300000061626300666d742010000000000000000000000010b10200000000006461746188580100",
+      "bytes": 56,
+      "value": 0.5,
+      "throws": false
+    }
+  ],
+  "collation": {
+    "names": [
+      "Kick 2",
+      "kick 10",
+      "Kïck 3",
+      "kick 01",
+      "KICK 1",
+      "kick-2",
+      "kick_2",
+      "808 7",
+      "808 12",
+      "Écho",
+      "echo",
+      "Ö",
+      "o",
+      "α2",
+      "α12",
+      "中文2",
+      "中文10"
+    ],
+    "pairs": [
+      0,
+      -1,
+      -1,
+      1,
+      1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      1,
+      0,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      1,
+      -1,
+      0,
+      1,
+      1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      0,
+      0,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      0,
+      0,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      0,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      0,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      1,
+      0,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      1,
+      1,
+      0,
+      0,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      1,
+      1,
+      0,
+      0,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      -1,
+      -1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      -1,
+      -1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      -1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0
+    ]
+  }
+}

@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -116,4 +117,50 @@ test("no documentation states a payload file count that disagrees with the relea
     });
   }
   assert.deepEqual(stale, [], "stale file-count claims found; drop the numeral and name release-manifest.json as the source of truth, or correct the count");
+});
+
+
+function nodePolicyFixture(context) {
+  const root = mkdtempSync(resolve(tmpdir(), "ableton-node-source-policy-"));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  const files = [
+    "apps/mcp-server/package.json", "apps/mcp-server/scripts/verify-node-policy.mjs",
+    ".github/workflows/ci.yml", "apps/mcp-server/README.md", "DEVELOPMENT.md",
+    ...["SUPPORT_MATRIX", "DELIVERY", "USER_GUIDE", "TESTING", "IMPLEMENTATION_STATUS", "CAPABILITY_MATRIX"].map((name) => `docs/en/${name}.md`),
+    "docs/zh-CN/SUPPORT_MATRIX.md", "docs/ja/SUPPORT_MATRIX.md",
+  ];
+  for (const name of files) {
+    const destination = resolve(root, name);
+    mkdirSync(dirname(destination), { recursive: true });
+    cpSync(resolve(repositoryRoot, name), destination);
+  }
+  cpSync(resolve(packageRoot, "node_modules/semver"), resolve(root, "apps/mcp-server/node_modules/semver"), { recursive: true });
+  for (const name of ["README.md", "README.ja.md", "README.zh-CN.md"]) writeFileSync(resolve(root, name), "# Kumi\nNative Rust application.\n");
+  return { root, run: () => spawnSync(process.execPath, [resolve(root, "apps/mcp-server/scripts/verify-node-policy.mjs")], { encoding: "utf8" }) };
+}
+
+test("Node source-tool policy accepts native Kumi documentation and both source version phrasings", (context) => {
+  const { root, run } = nodePolicyFixture(context);
+  for (const version of ["Node.js 22 or 24", "Node 22 and 24", "Node 22/24"]) {
+    writeFileSync(resolve(root, "apps/mcp-server/README.md"), `# Bridge\nThe TypeScript parity reference uses ${version}.\n`);
+    const result = run();
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stderr).documentationVerified, true);
+  }
+});
+
+test("Node source-tool policy still rejects bridge documentation, engine and CI drift", (context) => {
+  for (const [name, mutate, expected] of [
+    ["apps/mcp-server/README.md", () => "# Bridge\nSource tools need Node.js 22 or 26.\n", /README\.md lacks canonical Node source-tool policy/],
+    ["docs/en/USER_GUIDE.md", () => "# Guide\nSource tools need Node.js 20 or 24.\n", /USER_GUIDE\.md lacks canonical Node source-tool policy/],
+    ["apps/mcp-server/package.json", (text) => { const value = JSON.parse(text); value.engines.node = ">=22"; return JSON.stringify(value); }, /canonical disjoint range/],
+    [".github/workflows/ci.yml", (text) => text.replaceAll("node: 22", "node: 26"), /CI Node matrix semantics disagree/],
+  ]) {
+    const { root, run } = nodePolicyFixture(context);
+    const path = resolve(root, name);
+    writeFileSync(path, mutate(readFileSync(path, "utf8")));
+    const result = run();
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, expected);
+  }
 });

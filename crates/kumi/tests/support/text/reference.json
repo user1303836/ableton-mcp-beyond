@@ -1,0 +1,528 @@
+{
+  "cases": [
+    {
+      "secrets": [
+        "private-token"
+      ],
+      "chunks": [
+        "ok\u001b[3",
+        "1m red\u001b[0m ",
+        "\u001b]52;c;malicious",
+        "clipboard\u0007",
+        "key: private-",
+        "token",
+        "\u001bPdiscard",
+        "\u001b\\ done‮"
+      ],
+      "output": [
+        "ok",
+        " red ",
+        "",
+        "",
+        "key: ",
+        "[redacted]",
+        "",
+        " done"
+      ],
+      "finish": ""
+    },
+    {
+      "secrets": [
+        "猫🎹token",
+        "other"
+      ],
+      "chunks": [
+        "a 猫",
+        "🎹to",
+        "ken, oth",
+        "er!"
+      ],
+      "output": [
+        "a ",
+        "",
+        "[redacted], ",
+        "[redacted]!"
+      ],
+      "finish": ""
+    },
+    {
+      "secrets": [
+        "abc",
+        "abxyz"
+      ],
+      "chunks": [
+        "ab",
+        "d",
+        " abx",
+        "yz a",
+        "b",
+        "c"
+      ],
+      "output": [
+        "",
+        "abd",
+        " ",
+        "[redacted] ",
+        "",
+        "[redacted]"
+      ],
+      "finish": ""
+    },
+    {
+      "secrets": [],
+      "chunks": [
+        "31mredmalicious",
+        " hello\t world​‏‮﻿",
+        "\u001bXhidden\u001b",
+        "\u001b",
+        "\\ end"
+      ],
+      "output": [
+        "red",
+        " hello     world",
+        "",
+        "",
+        " end"
+      ],
+      "finish": ""
+    },
+    {
+      "secrets": [
+        "🎹secret"
+      ],
+      "chunks": [
+        "x",
+        " 🎹s",
+        "ecret",
+        "y"
+      ],
+      "output": [
+        "x",
+        " ",
+        "[redacted]",
+        "y"
+      ],
+      "finish": ""
+    }
+  ],
+  "events": [
+    {
+      "event": {
+        "action": "searched",
+        "title": "a query",
+        "where": "web",
+        "results": 0
+      },
+      "expected": {
+        "lead": "Searched the web for",
+        "title": "“a query”",
+        "detail": "nothing found"
+      }
+    },
+    {
+      "event": {
+        "action": "searched",
+        "title": "a query",
+        "where": "web",
+        "results": 1
+      },
+      "expected": {
+        "lead": "Searched the web for",
+        "title": "“a query”",
+        "detail": "1 result"
+      }
+    },
+    {
+      "event": {
+        "action": "searched",
+        "title": "a query",
+        "where": "web",
+        "results": 8
+      },
+      "expected": {
+        "lead": "Searched the web for",
+        "title": "“a query”",
+        "detail": "8 results"
+      }
+    },
+    {
+      "event": {
+        "action": "searched",
+        "title": "a query",
+        "where": "github",
+        "results": 0
+      },
+      "expected": {
+        "lead": "Searched GitHub for",
+        "title": "“a query”",
+        "detail": "nothing found"
+      }
+    },
+    {
+      "event": {
+        "action": "searched",
+        "title": "a query",
+        "where": "github",
+        "results": 1
+      },
+      "expected": {
+        "lead": "Searched GitHub for",
+        "title": "“a query”",
+        "detail": "1 repository"
+      }
+    },
+    {
+      "event": {
+        "action": "searched",
+        "title": "a query",
+        "where": "github",
+        "results": 8
+      },
+      "expected": {
+        "lead": "Searched GitHub for",
+        "title": "“a query”",
+        "detail": "8 repositories"
+      }
+    },
+    {
+      "event": {
+        "action": "read",
+        "title": "Audio tutorial",
+        "url": "https://www.example.com/audio",
+        "kind": "a page"
+      },
+      "expected": {
+        "lead": "Read",
+        "title": "“Audio tutorial”",
+        "detail": "example.com"
+      }
+    },
+    {
+      "event": {
+        "action": "read",
+        "title": "https://example.com/foo/bar",
+        "url": "https://example.com/foo/bar",
+        "kind": "code",
+        "files": 1
+      },
+      "expected": {
+        "lead": "Read",
+        "title": "example.com/foo/bar",
+        "detail": "code · 1 file"
+      }
+    },
+    {
+      "event": {
+        "action": "read",
+        "title": "Repo",
+        "url": "https://github.com/a/b",
+        "kind": "a GitHub repository",
+        "files": 10
+      },
+      "expected": {
+        "lead": "Read",
+        "title": "“Repo”",
+        "detail": "github.com · a GitHub repository · 10 files"
+      }
+    },
+    {
+      "event": {
+        "action": "read",
+        "title": "",
+        "url": "bad"
+      },
+      "expected": {
+        "lead": "Read",
+        "title": "",
+        "detail": ""
+      }
+    },
+    {
+      "event": {
+        "action": "read",
+        "title": "Page",
+        "url": "https://example.com",
+        "files": 0
+      },
+      "expected": {
+        "lead": "Read",
+        "title": "“Page”",
+        "detail": "example.com · 0 files"
+      }
+    }
+  ],
+  "library": [
+    {
+      "status": null,
+      "expected": null
+    },
+    {
+      "status": {
+        "state": "new",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "done": 120
+      },
+      "expected": null
+    },
+    {
+      "status": {
+        "state": "new",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "todo": 1234,
+        "done": 120
+      },
+      "expected": null
+    },
+    {
+      "status": {
+        "state": "new",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "learnedAt": 0,
+        "done": 120
+      },
+      "expected": null
+    },
+    {
+      "status": {
+        "state": "new",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "learnedAt": 0,
+        "todo": 1234,
+        "done": 120
+      },
+      "expected": null
+    },
+    {
+      "status": {
+        "state": "new",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "learnedAt": 100,
+        "done": 120
+      },
+      "expected": null
+    },
+    {
+      "status": {
+        "state": "new",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "learnedAt": 100,
+        "todo": 1234,
+        "done": 120
+      },
+      "expected": null
+    },
+    {
+      "status": {
+        "state": "learning",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "done": 120
+      },
+      "expected": "Learning your library in the background…"
+    },
+    {
+      "status": {
+        "state": "learning",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "todo": 1234,
+        "done": 120
+      },
+      "expected": "Learning your library in the background · 120 of 1,234 sounds"
+    },
+    {
+      "status": {
+        "state": "learning",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "learnedAt": 0,
+        "done": 120
+      },
+      "expected": "Learning your library in the background…"
+    },
+    {
+      "status": {
+        "state": "learning",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "learnedAt": 0,
+        "todo": 1234,
+        "done": 120
+      },
+      "expected": "Learning your library in the background · 120 of 1,234 sounds"
+    },
+    {
+      "status": {
+        "state": "learning",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "learnedAt": 100,
+        "done": 120
+      },
+      "expected": "Your library: 12,000 sounds · 3,000 presets · 100 Sets"
+    },
+    {
+      "status": {
+        "state": "learning",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "learnedAt": 100,
+        "todo": 1234,
+        "done": 120
+      },
+      "expected": "Your library: 12,000 sounds · 3,000 presets · 100 Sets · learning 1,114 new"
+    },
+    {
+      "status": {
+        "state": "paused",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "done": 120
+      },
+      "expected": "Learning your library · paused while Live plays"
+    },
+    {
+      "status": {
+        "state": "paused",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "todo": 1234,
+        "done": 120
+      },
+      "expected": "Learning your library · paused while Live plays"
+    },
+    {
+      "status": {
+        "state": "paused",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "learnedAt": 0,
+        "done": 120
+      },
+      "expected": "Learning your library · paused while Live plays"
+    },
+    {
+      "status": {
+        "state": "paused",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "learnedAt": 0,
+        "todo": 1234,
+        "done": 120
+      },
+      "expected": "Learning your library · paused while Live plays"
+    },
+    {
+      "status": {
+        "state": "paused",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "learnedAt": 100,
+        "done": 120
+      },
+      "expected": "Your library: 12,000 sounds · 3,000 presets · 100 Sets"
+    },
+    {
+      "status": {
+        "state": "paused",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "learnedAt": 100,
+        "todo": 1234,
+        "done": 120
+      },
+      "expected": "Your library: 12,000 sounds · 3,000 presets · 100 Sets"
+    },
+    {
+      "status": {
+        "state": "ready",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "done": 120
+      },
+      "expected": "Learning your library in the background…"
+    },
+    {
+      "status": {
+        "state": "ready",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "todo": 1234,
+        "done": 120
+      },
+      "expected": "Learning your library in the background · 120 of 1,234 sounds"
+    },
+    {
+      "status": {
+        "state": "ready",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "learnedAt": 0,
+        "done": 120
+      },
+      "expected": "Learning your library in the background…"
+    },
+    {
+      "status": {
+        "state": "ready",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "learnedAt": 0,
+        "todo": 1234,
+        "done": 120
+      },
+      "expected": "Learning your library in the background · 120 of 1,234 sounds"
+    },
+    {
+      "status": {
+        "state": "ready",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "learnedAt": 100,
+        "done": 120
+      },
+      "expected": "Your library: 12,000 sounds · 3,000 presets · 100 Sets"
+    },
+    {
+      "status": {
+        "state": "ready",
+        "sounds": 12000,
+        "presets": 3000,
+        "sets": 100,
+        "learnedAt": 100,
+        "todo": 1234,
+        "done": 120
+      },
+      "expected": "Your library: 12,000 sounds · 3,000 presets · 100 Sets"
+    }
+  ]
+}

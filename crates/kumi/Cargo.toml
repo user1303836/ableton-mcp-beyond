@@ -1,0 +1,53 @@
+[package]
+name = "kumi"
+version = "1.7.5"
+description = "Kumi, a studio partner for Ableton Live: the command and the terminal app."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+default-run = "kumi"
+
+[lib]
+name = "kumi"
+path = "src/lib.rs"
+
+[[bin]]
+name = "kumi"
+path = "src/main.rs"
+
+[dependencies]
+kumi-common.workspace = true
+kumi-runtime.workspace = true
+ableton-mcp-server.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+crossterm.workspace = true
+flate2.workspace = true
+futures.workspace = true
+hex.workspace = true
+home.workspace = true
+memchr.workspace = true
+rand.workspace = true
+regex.workspace = true
+fancy-regex.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+unicode-segmentation.workspace = true
+unicode-width.workspace = true
+url.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tempfile.workspace = true

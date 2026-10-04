@@ -1,0 +1,160 @@
+[
+  {
+    "tool": "play",
+    "since": "1.0.34",
+    "preview": "live_transport_action_preview",
+    "apply": "live_transport_action_apply",
+    "description": "Play, stop and the like: start (from the start marker; set it first with set_transport's position), continue (from where it stopped), stop, play-selection, stop-all-clips, back-to-arrangement (Live's Back to Arrangement button: tracks that followed their Session clips play the Arrangement again), tap-tempo, nudge-up and nudge-down, re-enable-automation, trigger-session-record. Use it whenever hearing or stopping helps: to check or show what you built, or to record.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "start",
+            "continue",
+            "stop",
+            "play-selection",
+            "stop-all-clips",
+            "back-to-arrangement",
+            "tap-tempo",
+            "nudge-up",
+            "nudge-down",
+            "re-enable-automation",
+            "trigger-session-record"
+          ]
+        }
+      }
+    },
+    "newer": {
+      "back-to-arrangement": "1.0.35"
+    }
+  },
+  {
+    "tool": "fire_scene",
+    "since": "1.0.34",
+    "preview": "live_scene_fire_preview",
+    "apply": "live_scene_fire_apply",
+    "description": "Launch a scene (every clip in its row), as clicking its launch button does. ref is the scene from discovery."
+  },
+  {
+    "tool": "launch_clip",
+    "preview": "live_clip_launch_preview",
+    "apply": "live_clip_launch_apply",
+    "description": "Launch one Session clip to hear it: slotRef is its clip slot, from discovery.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slotRef"
+      ],
+      "properties": {
+        "slotRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    }
+  },
+  {
+    "tool": "record",
+    "since": "1.0.34",
+    "preview": "live_recording_preview",
+    "apply": "live_recording_apply",
+    "description": "Start or stop recording: action start or stop, lane session or arrangement, and destinationTrackRef, the armed track (arm it with set_routing first). Live records onto every armed track, so Kumi disarms any other first (only this one records) and says which. Recording keeps what it records in the Set; stop it with action stop.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "lane"
+      ],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "start",
+            "stop"
+          ]
+        },
+        "lane": {
+          "type": "string",
+          "enum": [
+            "session",
+            "arrangement"
+          ]
+        },
+        "destinationTrackRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "alsoTrackRefs": {
+          "type": "array",
+          "maxItems": 7,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "description": "More armed tracks recorded at the same time (bridge 1.0.47): several sources rendered in one pass"
+        }
+      }
+    }
+  },
+  {
+    "tool": "jump_to_locator",
+    "preview": "live_locator_jump_preview",
+    "apply": "live_locator_jump_apply",
+    "description": "Move the playhead to a locator: direction next or previous, or ref for a particular one."
+  },
+  {
+    "tool": "select",
+    "since": "1.0.34",
+    "preview": "live_selection_preview",
+    "apply": "live_selection_apply",
+    "description": "Show the producer something by selecting it in Live: trackRef, sceneRef, slotRef, detailClipRef (opens it in the Clip view) or chainRef. Use it whenever showing something helps: where a thing is, or what you just built. (Live's scripting can't select a device or a parameter reliably: select its track, or its chain, instead.)",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "trackRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "sceneRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "slotRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "detailClipRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "chainRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    }
+  },
+  {
+    "tool": "show",
+    "preview": "live_view_preview",
+    "apply": "live_view_apply",
+    "description": "Change what Live shows: focus-view with view Session, Arranger, Detail, Detail/Clip, Detail/DeviceChain or Browser; hide-view; zoom-in, zoom-out, scroll-left, scroll-right; follow-on, follow-off; collapse-track or expand-track (trackRef); browser-toggle."
+  }
+]

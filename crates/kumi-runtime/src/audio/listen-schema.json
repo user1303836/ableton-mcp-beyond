@@ -1,0 +1,94 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "file": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "The audio: a file's absolute path or ~/…, or an audio clip's clipRef from discovery"
+    },
+    "track": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "A track in the Set to hear (its reference from this turn, or its name), after its devices"
+    },
+    "tracks": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "description": "Several tracks heard together: each one's sound, and where they clash"
+    },
+    "mix": {
+      "type": "boolean",
+      "description": "true: hear the whole mix, as Main plays it"
+    },
+    "from_beat": {
+      "type": "number",
+      "minimum": 0,
+      "description": "For the Set: where in the Arrangement to hear, in beats (left out: what's playing now, or the loop or the playhead)"
+    },
+    "beats": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 64,
+      "description": "For the Set: how much to hear, in beats"
+    },
+    "compare_to": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "A reference to set file against, the same ways"
+    },
+    "focus": {
+      "type": "string",
+      "enum": [
+        "mix",
+        "sound"
+      ],
+      "description": "mix for a song or stem, sound for one note or hit; left out, chosen by length"
+    },
+    "from_seconds": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Where to start listening in file"
+    },
+    "compare_from_seconds": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Where to start listening in the reference; left out, its start"
+    },
+    "seconds": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 720,
+      "description": "How long to listen"
+    },
+    "transcribe": {
+      "type": "boolean",
+      "description": "Transcribe file's notes (its first minute): when each starts, its pitch, velocity and length, to write the sequence as MIDI"
+    },
+    "form": {
+      "type": "boolean",
+      "description": "Hear file's form instead: its sections in bars (where each starts, how long), each one's energy, density and low end, which are alike, and its part (intro, build, peak, break, outro), to arrange like it"
+    },
+    "tempo": {
+      "type": "number",
+      "minimum": 20,
+      "maximum": 999,
+      "description": "The Set's tempo, so transcribed notes come in beats and a form's bars are counted in the Set's octave"
+    },
+    "beats_per_bar": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16,
+      "description": "Beats in the Set's bar, for a form (4 when left out)"
+    }
+  }
+}

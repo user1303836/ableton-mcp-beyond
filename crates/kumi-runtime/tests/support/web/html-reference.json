@@ -1,0 +1,51 @@
+[
+  {
+    "html": "<!doctype html><html><head><title>Ignored here</title><style>h1{color:red}</style><script>var x = \"<p>not text</p>\";</script></head><body>\n    <nav><a href=\"/\">Home</a> <a href=\"/docs\">Docs</a></nav>\n    <div class=\"navbox\">Other reverbs</div>\n    <h1>Allpass <br> filters</h1>\n    <p>An <b>allpass</b> passes every frequency &amp; shifts phase: H(z) = z<sup>-1</sup>, x<sub>n</sub> &mdash; see <a href=\"/fdn\">the FDN page</a> and <a href=\"#top\">top</a>.</p>\n    <p>Again: <a href=\"/fdn\">the FDN page</a>. Mail <a href=\"mailto:a@b.c\">us</a>. Use <code>clamp(x, -1, 1)</code><code></code>.</p>\n    <img alt=\"*\" src=\"/icon.png\"><img alt=\"Block diagram of an allpass\" src=\"img/allpass.png\"><img alt=\"{\\displaystyle H(z)=z^{-1}}\" src=\"/math.png\">\n    <ul><li><p>First</p></li><li>Second<ul><li>Nested</li></ul></li></ul>\n    <ol start=\"3\"><li>Three</li><li>Four</li></ol>\n    <pre class=\"language-c\"><code>\ny = x + g * d;\n  d = y;</code></pre>\n    <table><tr><th>Delay</th><th>ms</th></tr><tr><td>A</td><td>29.7</td></tr></table>\n    <blockquote><p>Quoted words.</p></blockquote>\n    <div hidden>Hidden</div><span aria-hidden=\"true\">icon</span><div style=\"display: none\">Gone</div>\n    <button>Copy</button><footer>© Someone</footer>\n  </body></html>",
+    "base": "https://example.com/dsp/allpass.html",
+    "text": "# Allpass filters\n\nAn allpass passes every frequency & shifts phase: H(z) = z^(-1), x_n — see [the FDN page](https://example.com/fdn) and top.\n\nAgain: the FDN page. Mail us. Use `clamp(x, -1, 1)`.\n\n![Block diagram of an allpass](https://example.com/dsp/img/allpass.png) ${\\displaystyle H(z)=z^{-1}}$\n\n- First\n- Second\n  - Nested\n\n3. Three\n4. Four\n\n```c\ny = x + g * d;\n  d = y;\n```\n\nDelay | ms\nA | 29.7\n\n> Quoted words.",
+    "read": {
+      "title": "Ignored here",
+      "text": "# Allpass filters\n\nAn allpass passes every frequency & shifts phase: H(z) = z^(-1), x_n — see [the FDN page](https://example.com/fdn) and top.\n\nAgain: the FDN page. Mail us. Use `clamp(x, -1, 1)`.\n\n![Block diagram of an allpass](https://example.com/dsp/img/allpass.png) ${\\displaystyle H(z)=z^{-1}}$\n\n- First\n- Second\n  - Nested\n\n3. Three\n4. Four\n\n```c\ny = x + g * d;\n  d = y;\n```\n\nDelay | ms\nA | 29.7\n\n> Quoted words.",
+      "scripted": false
+    }
+  },
+  {
+    "html": "<html><head><title>FDN &ndash; notes</title><meta name=\"description\" content=\"How feedback delay networks work\"></head><body><header>Site header with plenty of words that aren't the article at all, repeated to be long enough to matter here</header><main><h2>Feedback delay networks</h2><p>Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. </p></main></body></html>",
+    "base": "https://example.com/dsp/allpass.html",
+    "text": "Site header with plenty of words that aren't the article at all, repeated to be long enough to matter here\n\n## Feedback delay networks\n\nFour delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix.",
+    "read": {
+      "title": "FDN – notes",
+      "description": "How feedback delay networks work",
+      "text": "## Feedback delay networks\n\nFour delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix. Four delays feed back through a unitary matrix.",
+      "scripted": false
+    }
+  },
+  {
+    "html": "<html><body><div id=\"root\"></div><script src=\"/app.js\"></script><noscript>Enable JavaScript</noscript></body></html>",
+    "base": "https://example.com/dsp/allpass.html",
+    "text": "",
+    "read": {
+      "text": "",
+      "scripted": true
+    }
+  },
+  {
+    "html": "<base href=\"/elsewhere/\"><title>Things &amp; stuff</title><p>&#x1F3B5; &alpha; &#0; &unknown; <a href=\"a?b=1&amp;c=2\">🧑‍🎤 notes</a></p><textarea>&lt;code&gt;</textarea>",
+    "base": "https://example.com/dsp/allpass.html",
+    "text": "🎵 α � &unknown; [🧑‍🎤 notes](https://example.com/dsp/a?b=1&c=2)\n\n<code>",
+    "read": {
+      "title": "Things & stuff",
+      "text": "🎵 α � &unknown; [🧑‍🎤 notes](https://example.com/elsewhere/a?b=1&c=2)\n\n<code>",
+      "scripted": false
+    }
+  },
+  {
+    "html": "<h2><p>A heading</p></h2><pre><code class=\"language-rust\">\nfn main() {}\n</code></pre><math alttext=\"x + y\">ignored</math><blockquote><p>one</p><p>two</p></blockquote>",
+    "base": "https://example.com/dsp/allpass.html",
+    "text": "## A heading\n\n```rust\nfn main() {}\n```\n\n$x + y$\n\n> one\n>\n> two",
+    "read": {
+      "text": "## A heading\n\n```rust\nfn main() {}\n```\n\n$x + y$\n\n> one\n>\n> two",
+      "scripted": false
+    }
+  }
+]

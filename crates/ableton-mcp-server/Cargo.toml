@@ -1,0 +1,76 @@
+[package]
+name = "ableton-mcp-server"
+# The bridge is versioned on its own, as apps/mcp-server always was; each Kumi release names the bridge it ships with.
+version = "1.0.73"
+description = "The Ableton Live MCP bridge: an MCP host over stdio, speaking to Live's Remote Script and Kumi's Live extension."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "ableton_mcp_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ableton-mcp-server"
+path = "src/bin/ableton-mcp-server.rs"
+
+[[bin]]
+name = "ableton-mcp-setup"
+path = "src/bin/ableton-mcp-setup.rs"
+
+[[bin]]
+name = "ableton-mcp-migrate"
+path = "src/bin/ableton-mcp-migrate.rs"
+
+[[bin]]
+name = "ableton-mcp-diagnostics"
+path = "src/bin/ableton-mcp-diagnostics.rs"
+
+[[bin]]
+name = "ableton-mcp-install-remote-script"
+path = "src/bin/ableton-mcp-install-remote-script.rs"
+
+[[bin]]
+name = "ableton-mcp-lifecycle"
+path = "src/bin/ableton-mcp-lifecycle.rs"
+
+[[bin]]
+name = "ableton-mcp-analysis-worker"
+path = "src/bin/ableton-mcp-analysis-worker.rs"
+
+[[bin]]
+name = "ableton-mcp-benchmark"
+path = "src/bin/ableton-mcp-benchmark.rs"
+
+[dependencies]
+kumi-common.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+bytes.workspace = true
+flate2.workspace = true
+futures.workspace = true
+hex.workspace = true
+hmac.workspace = true
+home.workspace = true
+memchr.workspace = true
+rand.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json = { workspace = true, features = ["unbounded_depth"] }
+sha2.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+uuid.workspace = true
+unicode-normalization.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tempfile.workspace = true

@@ -1,0 +1,20 @@
+//! Rust port of `apps/kumi/src`.
+
+pub mod bridge_setup;
+pub mod cli;
+pub mod config;
+pub mod doctor;
+pub mod history;
+pub mod input;
+pub mod install;
+pub mod library;
+pub mod live_extension;
+pub mod login;
+pub mod models;
+pub mod report;
+pub mod spinner;
+pub mod terminal;
+pub mod text;
+pub mod tui;
+pub mod update;
+pub mod voice;

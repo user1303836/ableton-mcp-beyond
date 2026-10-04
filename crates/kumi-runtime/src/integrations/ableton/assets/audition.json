@@ -1,0 +1,110 @@
+{
+  "description": "Hear what you built, quietly, and how close it is to a reference, in one call: Kumi plays the part with Main silenced and hears each candidate track after its devices, compares it with the reference, then puts everything back. Up to 8 candidates are heard together in one real-time pass, so try several ideas at once (different instruments, chains, settings on separate tracks). Say where the part is: from_beat and beats in the Arrangement, or a Session clip per candidate (clip), which Kumi plays from the Arrangement for the render and removes after. A candidate can be the whole mix ({\"mix\": true}, on its own): what Main plays at from_beat, heard as quietly as a track; audition it against a reference to match a mix, changing EQ, compression and levels between rounds. Returns each candidate's closeness to the reference (0–100) with the biggest gaps in words, and what it heard. A silent render is reported, not compared. Without a reference it only listens.",
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "candidates"
+    ],
+    "properties": {
+      "candidates": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 8,
+        "description": "The tracks to render, each on its own (a candidate sound, or the track to check), or the whole mix",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "track": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "mix": {
+              "type": "boolean",
+              "description": "true: the whole mix (Main's output) instead of a track"
+            },
+            "clip": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "description": "A Session clip on that track to play (its clipRef); left out, the Arrangement at from_beat"
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 60,
+              "description": "A short name for it (\"Collision + parallel delay\")"
+            }
+          }
+        }
+      },
+      "from_beat": {
+        "type": "number",
+        "minimum": 0,
+        "description": "Where the part starts in the Arrangement, in beats (a 4/4 bar is 4)"
+      },
+      "beats": {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "maximum": 64,
+        "description": "How long to render, in beats; a clip's length when left out, 8 at most by default"
+      },
+      "reference": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024,
+        "description": "What to match: an audio file's path or ~/…, or an audio clip's clipRef"
+      },
+      "reference_from_seconds": {
+        "type": "number",
+        "minimum": 0,
+        "description": "Where in the reference the part is"
+      },
+      "reference_seconds": {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "maximum": 120,
+        "description": "How much of the reference to hear"
+      },
+      "focus": {
+        "type": "string",
+        "enum": [
+          "sound",
+          "section"
+        ],
+        "description": "sound: one patch or hit (timbre, envelope, pitch); section: a part or mix (balance, density, rhythm too). Left out, by length"
+      }
+    }
+  },
+  "renderDescription": "Render an audio track's own clips (its recordings, a bounce) between two points to a file at once: offline and silent, no transport, no recording. It's the raw audio, before the track's devices; instruments, effects and the mix aren't in it (for those, audition, or record by resampling). Returns the file for listen, to hear it or compare it with a reference.",
+  "renderSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "track",
+      "from_beat",
+      "beats"
+    ],
+    "properties": {
+      "track": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "description": "An audio track (its reference from this turn)"
+      },
+      "from_beat": {
+        "type": "number",
+        "minimum": 0,
+        "description": "Where to start in the Arrangement, in beats (a 4/4 bar is 4)"
+      },
+      "beats": {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "maximum": 100000,
+        "description": "How long, in beats"
+      }
+    }
+  }
+}

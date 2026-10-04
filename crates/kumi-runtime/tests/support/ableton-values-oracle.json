@@ -1,0 +1,6876 @@
+{
+  "parsed": [
+    {
+      "text": "812 Hz",
+      "value": {
+        "value": 812,
+        "unit": "hz"
+      }
+    },
+    {
+      "text": "1.20 kHz",
+      "value": {
+        "value": 1200,
+        "unit": "hz"
+      }
+    },
+    {
+      "text": "-6.0 dB",
+      "value": {
+        "value": -6,
+        "unit": "db"
+      }
+    },
+    {
+      "text": "−inf dB",
+      "value": {
+        "value": "-Infinity",
+        "unit": "db"
+      }
+    },
+    {
+      "text": "120 ms",
+      "value": {
+        "value": 0.12,
+        "unit": "s"
+      }
+    },
+    {
+      "text": "35 %",
+      "value": {
+        "value": 35,
+        "unit": "%"
+      }
+    },
+    {
+      "text": "4.0:1",
+      "value": {
+        "value": 4,
+        "unit": "ratio"
+      }
+    },
+    {
+      "text": "Saw",
+      "value": null
+    },
+    {
+      "text": "  ",
+      "value": null
+    },
+    {
+      "text": "1,234 Hz",
+      "value": {
+        "value": 1234,
+        "unit": "hz"
+      }
+    },
+    {
+      "text": "2e-3 s",
+      "value": {
+        "value": 0.002,
+        "unit": "s"
+      }
+    },
+    {
+      "text": "2e+3 Hz",
+      "value": null
+    },
+    {
+      "text": "+2 Hz",
+      "value": null
+    },
+    {
+      "text": "2foo",
+      "value": null
+    },
+    {
+      "text": "20 semitones",
+      "value": {
+        "value": 20,
+        "unit": ""
+      }
+    },
+    {
+      "text": "30 semi",
+      "value": {
+        "value": 30,
+        "unit": "st"
+      }
+    },
+    {
+      "text": "50 cents",
+      "value": {
+        "value": 50,
+        "unit": "cents"
+      }
+    },
+    {
+      "text": "5 ct",
+      "value": {
+        "value": 5,
+        "unit": "cents"
+      }
+    },
+    {
+      "text": "7 deg",
+      "value": {
+        "value": 7,
+        "unit": "°"
+      }
+    },
+    {
+      "text": "7°",
+      "value": {
+        "value": 7,
+        "unit": "°"
+      }
+    },
+    {
+      "text": "50%whatever",
+      "value": {
+        "value": 50,
+        "unit": ""
+      }
+    },
+    {
+      "text": "4 : 1",
+      "value": {
+        "value": 4,
+        "unit": "ratio"
+      }
+    },
+    {
+      "text": "4:2",
+      "value": {
+        "value": 4,
+        "unit": ""
+      }
+    },
+    {
+      "text": "Infinity dB",
+      "value": {
+        "value": "-Infinity",
+        "unit": "db"
+      }
+    },
+    {
+      "text": "- inf dB",
+      "value": {
+        "value": "-Infinity",
+        "unit": "db"
+      }
+    },
+    {
+      "text": "infantry",
+      "value": {
+        "value": "-Infinity",
+        "unit": ""
+      }
+    },
+    {
+      "text": "1e999",
+      "value": null
+    },
+    {
+      "text": "1.5sec",
+      "value": {
+        "value": 1.5,
+        "unit": "s"
+      }
+    },
+    {
+      "text": "8k",
+      "value": {
+        "value": 8000,
+        "unit": "hz"
+      }
+    },
+    {
+      "text": "123abc",
+      "value": {
+        "value": 12,
+        "unit": ""
+      }
+    },
+    {
+      "text": "0x20",
+      "value": {
+        "value": 0,
+        "unit": "x"
+      }
+    },
+    {
+      "text": "1.2.3",
+      "value": {
+        "value": 1.2,
+        "unit": ""
+      }
+    },
+    {
+      "text": "1Hz",
+      "value": {
+        "value": 1,
+        "unit": ""
+      }
+    },
+    {
+      "text": "1﻿Hz",
+      "value": {
+        "value": 1,
+        "unit": "hz"
+      }
+    },
+    {
+      "text": "1 Hz",
+      "value": {
+        "value": 1,
+        "unit": "hz"
+      }
+    },
+    {
+      "text": "١٠Hz",
+      "value": null
+    },
+    {
+      "text": "1E-3 S",
+      "value": {
+        "value": 0.001,
+        "unit": "s"
+      }
+    },
+    {
+      "text": "1 cent",
+      "value": {
+        "value": 1,
+        "unit": "cents"
+      }
+    },
+    {
+      "text": "1 cents",
+      "value": {
+        "value": 1,
+        "unit": "cents"
+      }
+    },
+    {
+      "text": "1centsa",
+      "value": null
+    },
+    {
+      "text": "-0",
+      "value": {
+        "value": 0,
+        "unit": ""
+      }
+    },
+    {
+      "text": "-.25 x",
+      "value": {
+        "value": -0.25,
+        "unit": "x"
+      }
+    }
+  ],
+  "maps": [
+    {
+      "min": 0,
+      "max": 1,
+      "grid": [
+        [
+          0,
+          "20 Hz"
+        ],
+        [
+          0.0078125,
+          "21 Hz"
+        ],
+        [
+          0.015625,
+          "22 Hz"
+        ],
+        [
+          0.0234375,
+          "24 Hz"
+        ],
+        [
+          0.03125,
+          "25 Hz"
+        ],
+        [
+          0.0390625,
+          "26 Hz"
+        ],
+        [
+          0.046875,
+          "28 Hz"
+        ],
+        [
+          0.0546875,
+          "29 Hz"
+        ],
+        [
+          0.0625,
+          "31 Hz"
+        ],
+        [
+          0.0703125,
+          "33 Hz"
+        ],
+        [
+          0.078125,
+          "34 Hz"
+        ],
+        [
+          0.0859375,
+          "36 Hz"
+        ],
+        [
+          0.09375,
+          "38 Hz"
+        ],
+        [
+          0.1015625,
+          "40 Hz"
+        ],
+        [
+          0.109375,
+          "43 Hz"
+        ],
+        [
+          0.1171875,
+          "45 Hz"
+        ],
+        [
+          0.125,
+          "47 Hz"
+        ],
+        [
+          0.1328125,
+          "50 Hz"
+        ],
+        [
+          0.140625,
+          "53 Hz"
+        ],
+        [
+          0.1484375,
+          "56 Hz"
+        ],
+        [
+          0.15625,
+          "59 Hz"
+        ],
+        [
+          0.1640625,
+          "62 Hz"
+        ],
+        [
+          0.171875,
+          "66 Hz"
+        ],
+        [
+          0.1796875,
+          "69 Hz"
+        ],
+        [
+          0.1875,
+          "73 Hz"
+        ],
+        [
+          0.1953125,
+          "77 Hz"
+        ],
+        [
+          0.203125,
+          "81 Hz"
+        ],
+        [
+          0.2109375,
+          "86 Hz"
+        ],
+        [
+          0.21875,
+          "91 Hz"
+        ],
+        [
+          0.2265625,
+          "96 Hz"
+        ],
+        [
+          0.234375,
+          "101 Hz"
+        ],
+        [
+          0.2421875,
+          "107 Hz"
+        ],
+        [
+          0.25,
+          "112 Hz"
+        ],
+        [
+          0.2578125,
+          "119 Hz"
+        ],
+        [
+          0.265625,
+          "125 Hz"
+        ],
+        [
+          0.2734375,
+          "132 Hz"
+        ],
+        [
+          0.28125,
+          "140 Hz"
+        ],
+        [
+          0.2890625,
+          "147 Hz"
+        ],
+        [
+          0.296875,
+          "155 Hz"
+        ],
+        [
+          0.3046875,
+          "164 Hz"
+        ],
+        [
+          0.3125,
+          "173 Hz"
+        ],
+        [
+          0.3203125,
+          "183 Hz"
+        ],
+        [
+          0.328125,
+          "193 Hz"
+        ],
+        [
+          0.3359375,
+          "204 Hz"
+        ],
+        [
+          0.34375,
+          "215 Hz"
+        ],
+        [
+          0.3515625,
+          "227 Hz"
+        ],
+        [
+          0.359375,
+          "239 Hz"
+        ],
+        [
+          0.3671875,
+          "253 Hz"
+        ],
+        [
+          0.375,
+          "267 Hz"
+        ],
+        [
+          0.3828125,
+          "281 Hz"
+        ],
+        [
+          0.390625,
+          "297 Hz"
+        ],
+        [
+          0.3984375,
+          "314 Hz"
+        ],
+        [
+          0.40625,
+          "331 Hz"
+        ],
+        [
+          0.4140625,
+          "349 Hz"
+        ],
+        [
+          0.421875,
+          "369 Hz"
+        ],
+        [
+          0.4296875,
+          "389 Hz"
+        ],
+        [
+          0.4375,
+          "411 Hz"
+        ],
+        [
+          0.4453125,
+          "433 Hz"
+        ],
+        [
+          0.453125,
+          "458 Hz"
+        ],
+        [
+          0.4609375,
+          "483 Hz"
+        ],
+        [
+          0.46875,
+          "510 Hz"
+        ],
+        [
+          0.4765625,
+          "538 Hz"
+        ],
+        [
+          0.484375,
+          "568 Hz"
+        ],
+        [
+          0.4921875,
+          "599 Hz"
+        ],
+        [
+          0.5,
+          "632 Hz"
+        ],
+        [
+          0.5078125,
+          "668 Hz"
+        ],
+        [
+          0.515625,
+          "705 Hz"
+        ],
+        [
+          0.5234375,
+          "744 Hz"
+        ],
+        [
+          0.53125,
+          "785 Hz"
+        ],
+        [
+          0.5390625,
+          "828 Hz"
+        ],
+        [
+          0.546875,
+          "874 Hz"
+        ],
+        [
+          0.5546875,
+          "923 Hz"
+        ],
+        [
+          0.5625,
+          "974 Hz"
+        ],
+        [
+          0.5703125,
+          "1.03 kHz"
+        ],
+        [
+          0.578125,
+          "1.08 kHz"
+        ],
+        [
+          0.5859375,
+          "1.15 kHz"
+        ],
+        [
+          0.59375,
+          "1.21 kHz"
+        ],
+        [
+          0.6015625,
+          "1.28 kHz"
+        ],
+        [
+          0.609375,
+          "1.35 kHz"
+        ],
+        [
+          0.6171875,
+          "1.42 kHz"
+        ],
+        [
+          0.625,
+          "1.50 kHz"
+        ],
+        [
+          0.6328125,
+          "1.58 kHz"
+        ],
+        [
+          0.640625,
+          "1.67 kHz"
+        ],
+        [
+          0.6484375,
+          "1.76 kHz"
+        ],
+        [
+          0.65625,
+          "1.86 kHz"
+        ],
+        [
+          0.6640625,
+          "1.96 kHz"
+        ],
+        [
+          0.671875,
+          "2.07 kHz"
+        ],
+        [
+          0.6796875,
+          "2.19 kHz"
+        ],
+        [
+          0.6875,
+          "2.31 kHz"
+        ],
+        [
+          0.6953125,
+          "2.44 kHz"
+        ],
+        [
+          0.703125,
+          "2.57 kHz"
+        ],
+        [
+          0.7109375,
+          "2.72 kHz"
+        ],
+        [
+          0.71875,
+          "2.87 kHz"
+        ],
+        [
+          0.7265625,
+          "3.02 kHz"
+        ],
+        [
+          0.734375,
+          "3.19 kHz"
+        ],
+        [
+          0.7421875,
+          "3.37 kHz"
+        ],
+        [
+          0.75,
+          "3.56 kHz"
+        ],
+        [
+          0.7578125,
+          "3.75 kHz"
+        ],
+        [
+          0.765625,
+          "3.96 kHz"
+        ],
+        [
+          0.7734375,
+          "4.18 kHz"
+        ],
+        [
+          0.78125,
+          "4.41 kHz"
+        ],
+        [
+          0.7890625,
+          "4.66 kHz"
+        ],
+        [
+          0.796875,
+          "4.92 kHz"
+        ],
+        [
+          0.8046875,
+          "5.19 kHz"
+        ],
+        [
+          0.8125,
+          "5.48 kHz"
+        ],
+        [
+          0.8203125,
+          "5.78 kHz"
+        ],
+        [
+          0.828125,
+          "6.10 kHz"
+        ],
+        [
+          0.8359375,
+          "6.44 kHz"
+        ],
+        [
+          0.84375,
+          "6.80 kHz"
+        ],
+        [
+          0.8515625,
+          "7.17 kHz"
+        ],
+        [
+          0.859375,
+          "7.57 kHz"
+        ],
+        [
+          0.8671875,
+          "7.99 kHz"
+        ],
+        [
+          0.875,
+          "8.43 kHz"
+        ],
+        [
+          0.8828125,
+          "8.90 kHz"
+        ],
+        [
+          0.890625,
+          "9.40 kHz"
+        ],
+        [
+          0.8984375,
+          "9.92 kHz"
+        ],
+        [
+          0.90625,
+          "10.47 kHz"
+        ],
+        [
+          0.9140625,
+          "11.05 kHz"
+        ],
+        [
+          0.921875,
+          "11.66 kHz"
+        ],
+        [
+          0.9296875,
+          "12.31 kHz"
+        ],
+        [
+          0.9375,
+          "12.99 kHz"
+        ],
+        [
+          0.9453125,
+          "13.71 kHz"
+        ],
+        [
+          0.953125,
+          "14.47 kHz"
+        ],
+        [
+          0.9609375,
+          "15.27 kHz"
+        ],
+        [
+          0.96875,
+          "16.12 kHz"
+        ],
+        [
+          0.9765625,
+          "17.01 kHz"
+        ],
+        [
+          0.984375,
+          "17.95 kHz"
+        ],
+        [
+          0.9921875,
+          "18.95 kHz"
+        ],
+        [
+          1,
+          "20.00 kHz"
+        ]
+      ]
+    },
+    {
+      "min": 0,
+      "max": 1,
+      "grid": [
+        [
+          0,
+          "-36.0 dB"
+        ],
+        [
+          0.0078125,
+          "-35.6 dB"
+        ],
+        [
+          0.015625,
+          "-35.3 dB"
+        ],
+        [
+          0.0234375,
+          "-34.9 dB"
+        ],
+        [
+          0.03125,
+          "-34.5 dB"
+        ],
+        [
+          0.0390625,
+          "-34.1 dB"
+        ],
+        [
+          0.046875,
+          "-33.8 dB"
+        ],
+        [
+          0.0546875,
+          "-33.4 dB"
+        ],
+        [
+          0.0625,
+          "-33.0 dB"
+        ],
+        [
+          0.0703125,
+          "-32.6 dB"
+        ],
+        [
+          0.078125,
+          "-32.3 dB"
+        ],
+        [
+          0.0859375,
+          "-31.9 dB"
+        ],
+        [
+          0.09375,
+          "-31.5 dB"
+        ],
+        [
+          0.1015625,
+          "-31.1 dB"
+        ],
+        [
+          0.109375,
+          "-30.8 dB"
+        ],
+        [
+          0.1171875,
+          "-30.4 dB"
+        ],
+        [
+          0.125,
+          "-30.0 dB"
+        ],
+        [
+          0.1328125,
+          "-29.6 dB"
+        ],
+        [
+          0.140625,
+          "-29.3 dB"
+        ],
+        [
+          0.1484375,
+          "-28.9 dB"
+        ],
+        [
+          0.15625,
+          "-28.5 dB"
+        ],
+        [
+          0.1640625,
+          "-28.1 dB"
+        ],
+        [
+          0.171875,
+          "-27.8 dB"
+        ],
+        [
+          0.1796875,
+          "-27.4 dB"
+        ],
+        [
+          0.1875,
+          "-27.0 dB"
+        ],
+        [
+          0.1953125,
+          "-26.6 dB"
+        ],
+        [
+          0.203125,
+          "-26.3 dB"
+        ],
+        [
+          0.2109375,
+          "-25.9 dB"
+        ],
+        [
+          0.21875,
+          "-25.5 dB"
+        ],
+        [
+          0.2265625,
+          "-25.1 dB"
+        ],
+        [
+          0.234375,
+          "-24.8 dB"
+        ],
+        [
+          0.2421875,
+          "-24.4 dB"
+        ],
+        [
+          0.25,
+          "-24.0 dB"
+        ],
+        [
+          0.2578125,
+          "-23.6 dB"
+        ],
+        [
+          0.265625,
+          "-23.3 dB"
+        ],
+        [
+          0.2734375,
+          "-22.9 dB"
+        ],
+        [
+          0.28125,
+          "-22.5 dB"
+        ],
+        [
+          0.2890625,
+          "-22.1 dB"
+        ],
+        [
+          0.296875,
+          "-21.8 dB"
+        ],
+        [
+          0.3046875,
+          "-21.4 dB"
+        ],
+        [
+          0.3125,
+          "-21.0 dB"
+        ],
+        [
+          0.3203125,
+          "-20.6 dB"
+        ],
+        [
+          0.328125,
+          "-20.3 dB"
+        ],
+        [
+          0.3359375,
+          "-19.9 dB"
+        ],
+        [
+          0.34375,
+          "-19.5 dB"
+        ],
+        [
+          0.3515625,
+          "-19.1 dB"
+        ],
+        [
+          0.359375,
+          "-18.8 dB"
+        ],
+        [
+          0.3671875,
+          "-18.4 dB"
+        ],
+        [
+          0.375,
+          "-18.0 dB"
+        ],
+        [
+          0.3828125,
+          "-17.6 dB"
+        ],
+        [
+          0.390625,
+          "-17.3 dB"
+        ],
+        [
+          0.3984375,
+          "-16.9 dB"
+        ],
+        [
+          0.40625,
+          "-16.5 dB"
+        ],
+        [
+          0.4140625,
+          "-16.1 dB"
+        ],
+        [
+          0.421875,
+          "-15.8 dB"
+        ],
+        [
+          0.4296875,
+          "-15.4 dB"
+        ],
+        [
+          0.4375,
+          "-15.0 dB"
+        ],
+        [
+          0.4453125,
+          "-14.6 dB"
+        ],
+        [
+          0.453125,
+          "-14.3 dB"
+        ],
+        [
+          0.4609375,
+          "-13.9 dB"
+        ],
+        [
+          0.46875,
+          "-13.5 dB"
+        ],
+        [
+          0.4765625,
+          "-13.1 dB"
+        ],
+        [
+          0.484375,
+          "-12.8 dB"
+        ],
+        [
+          0.4921875,
+          "-12.4 dB"
+        ],
+        [
+          0.5,
+          "-12.0 dB"
+        ],
+        [
+          0.5078125,
+          "-11.6 dB"
+        ],
+        [
+          0.515625,
+          "-11.3 dB"
+        ],
+        [
+          0.5234375,
+          "-10.9 dB"
+        ],
+        [
+          0.53125,
+          "-10.5 dB"
+        ],
+        [
+          0.5390625,
+          "-10.1 dB"
+        ],
+        [
+          0.546875,
+          "-9.8 dB"
+        ],
+        [
+          0.5546875,
+          "-9.4 dB"
+        ],
+        [
+          0.5625,
+          "-9.0 dB"
+        ],
+        [
+          0.5703125,
+          "-8.6 dB"
+        ],
+        [
+          0.578125,
+          "-8.3 dB"
+        ],
+        [
+          0.5859375,
+          "-7.9 dB"
+        ],
+        [
+          0.59375,
+          "-7.5 dB"
+        ],
+        [
+          0.6015625,
+          "-7.1 dB"
+        ],
+        [
+          0.609375,
+          "-6.8 dB"
+        ],
+        [
+          0.6171875,
+          "-6.4 dB"
+        ],
+        [
+          0.625,
+          "-6.0 dB"
+        ],
+        [
+          0.6328125,
+          "-5.6 dB"
+        ],
+        [
+          0.640625,
+          "-5.3 dB"
+        ],
+        [
+          0.6484375,
+          "-4.9 dB"
+        ],
+        [
+          0.65625,
+          "-4.5 dB"
+        ],
+        [
+          0.6640625,
+          "-4.1 dB"
+        ],
+        [
+          0.671875,
+          "-3.8 dB"
+        ],
+        [
+          0.6796875,
+          "-3.4 dB"
+        ],
+        [
+          0.6875,
+          "-3.0 dB"
+        ],
+        [
+          0.6953125,
+          "-2.6 dB"
+        ],
+        [
+          0.703125,
+          "-2.3 dB"
+        ],
+        [
+          0.7109375,
+          "-1.9 dB"
+        ],
+        [
+          0.71875,
+          "-1.5 dB"
+        ],
+        [
+          0.7265625,
+          "-1.1 dB"
+        ],
+        [
+          0.734375,
+          "-0.8 dB"
+        ],
+        [
+          0.7421875,
+          "-0.4 dB"
+        ],
+        [
+          0.75,
+          "0.0 dB"
+        ],
+        [
+          0.7578125,
+          "0.4 dB"
+        ],
+        [
+          0.765625,
+          "0.8 dB"
+        ],
+        [
+          0.7734375,
+          "1.1 dB"
+        ],
+        [
+          0.78125,
+          "1.5 dB"
+        ],
+        [
+          0.7890625,
+          "1.9 dB"
+        ],
+        [
+          0.796875,
+          "2.3 dB"
+        ],
+        [
+          0.8046875,
+          "2.6 dB"
+        ],
+        [
+          0.8125,
+          "3.0 dB"
+        ],
+        [
+          0.8203125,
+          "3.4 dB"
+        ],
+        [
+          0.828125,
+          "3.8 dB"
+        ],
+        [
+          0.8359375,
+          "4.1 dB"
+        ],
+        [
+          0.84375,
+          "4.5 dB"
+        ],
+        [
+          0.8515625,
+          "4.9 dB"
+        ],
+        [
+          0.859375,
+          "5.3 dB"
+        ],
+        [
+          0.8671875,
+          "5.6 dB"
+        ],
+        [
+          0.875,
+          "6.0 dB"
+        ],
+        [
+          0.8828125,
+          "6.4 dB"
+        ],
+        [
+          0.890625,
+          "6.8 dB"
+        ],
+        [
+          0.8984375,
+          "7.1 dB"
+        ],
+        [
+          0.90625,
+          "7.5 dB"
+        ],
+        [
+          0.9140625,
+          "7.9 dB"
+        ],
+        [
+          0.921875,
+          "8.3 dB"
+        ],
+        [
+          0.9296875,
+          "8.6 dB"
+        ],
+        [
+          0.9375,
+          "9.0 dB"
+        ],
+        [
+          0.9453125,
+          "9.4 dB"
+        ],
+        [
+          0.953125,
+          "9.8 dB"
+        ],
+        [
+          0.9609375,
+          "10.1 dB"
+        ],
+        [
+          0.96875,
+          "10.5 dB"
+        ],
+        [
+          0.9765625,
+          "10.9 dB"
+        ],
+        [
+          0.984375,
+          "11.3 dB"
+        ],
+        [
+          0.9921875,
+          "11.6 dB"
+        ],
+        [
+          1,
+          "12.0 dB"
+        ]
+      ]
+    },
+    {
+      "min": 0,
+      "max": 3,
+      "items": [
+        "Sine",
+        "Saw",
+        "Square",
+        "Noise"
+      ],
+      "grid": [
+        [
+          0,
+          "Sine"
+        ],
+        [
+          1,
+          "Saw"
+        ],
+        [
+          2,
+          "Square"
+        ],
+        [
+          3,
+          "Noise"
+        ]
+      ]
+    },
+    {
+      "min": -1,
+      "max": 1,
+      "grid": [
+        [
+          1,
+          "1000 Hz"
+        ],
+        [
+          0,
+          "100 Hz"
+        ],
+        [
+          -1,
+          "10 Hz"
+        ]
+      ]
+    },
+    {
+      "min": 0,
+      "max": 1,
+      "grid": [
+        [
+          0,
+          "-inf dB"
+        ],
+        [
+          0.5,
+          "-12 dB"
+        ],
+        [
+          1,
+          "6 dB"
+        ]
+      ]
+    },
+    {
+      "min": 2,
+      "max": 2,
+      "items": [
+        "On"
+      ],
+      "grid": [
+        [
+          2,
+          "On"
+        ]
+      ]
+    },
+    {
+      "min": 0,
+      "max": 1,
+      "grid": [
+        [
+          0,
+          "0 ms"
+        ],
+        [
+          0.5,
+          "0.5 s"
+        ],
+        [
+          1,
+          "1 sec"
+        ]
+      ]
+    },
+    {
+      "min": 0,
+      "max": 1,
+      "grid": []
+    },
+    {
+      "min": 0,
+      "max": 1,
+      "grid": [
+        [
+          0,
+          "50 %"
+        ],
+        [
+          0.5,
+          "50 %"
+        ],
+        [
+          1,
+          "50 %"
+        ]
+      ]
+    }
+  ],
+  "values": [
+    {
+      "map": 0,
+      "target": "812 Hz",
+      "value": 0.5362039687491077
+    },
+    {
+      "map": 0,
+      "target": "1.20 kHz",
+      "value": 0.5924751982952566
+    },
+    {
+      "map": 0,
+      "target": "-6.0 dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "−inf dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "120 ms",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "35 %",
+      "value": "This parameter doesn't show values in %; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "4.0:1",
+      "value": "This parameter doesn't show values in ratio; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "Saw",
+      "value": "“Saw” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "  ",
+      "value": "“” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "1,234 Hz",
+      "value": 0.5964783550748597
+    },
+    {
+      "map": 0,
+      "target": "2e-3 s",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "2e+3 Hz",
+      "value": "“2e+3 Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "+2 Hz",
+      "value": "“+2 Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "2foo",
+      "value": "“2foo” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "20 semitones",
+      "value": 0
+    },
+    {
+      "map": 0,
+      "target": "30 semi",
+      "value": "This parameter doesn't show values in st; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "50 cents",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "5 ct",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "7 deg",
+      "value": "This parameter doesn't show values in °; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "7°",
+      "value": "This parameter doesn't show values in °; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "50%whatever",
+      "value": 0.1328125
+    },
+    {
+      "map": 0,
+      "target": "4 : 1",
+      "value": "This parameter doesn't show values in ratio; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "4:2",
+      "value": 0
+    },
+    {
+      "map": 0,
+      "target": "Infinity dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "- inf dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "infantry",
+      "value": 0
+    },
+    {
+      "map": 0,
+      "target": "1e999",
+      "value": "“1e999” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "1.5sec",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "8k",
+      "value": 0.8673697880158241
+    },
+    {
+      "map": 0,
+      "target": "123abc",
+      "value": 0
+    },
+    {
+      "map": 0,
+      "target": "0x20",
+      "value": 32
+    },
+    {
+      "map": 0,
+      "target": "1.2.3",
+      "value": 0
+    },
+    {
+      "map": 0,
+      "target": "1Hz",
+      "value": 0
+    },
+    {
+      "map": 0,
+      "target": "1﻿Hz",
+      "value": 0
+    },
+    {
+      "map": 0,
+      "target": "1 Hz",
+      "value": 0
+    },
+    {
+      "map": 0,
+      "target": "١٠Hz",
+      "value": "“١٠Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "1E-3 S",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "1 cent",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "1 cents",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "1centsa",
+      "value": "“1centsa” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "-0",
+      "value": 0
+    },
+    {
+      "map": 0,
+      "target": "-.25 x",
+      "value": "This parameter doesn't show values in x; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "800 Hz",
+      "value": 0.5340228602934971
+    },
+    {
+      "map": 0,
+      "target": "2.5 kHz",
+      "value": 0.6989687220471191
+    },
+    {
+      "map": 0,
+      "target": "40 kHz",
+      "value": 1
+    },
+    {
+      "map": 0,
+      "target": "300 Hz",
+      "value": 0.39203565493858866
+    },
+    {
+      "map": 0,
+      "target": "0.5",
+      "value": 0.5
+    },
+    {
+      "map": 0,
+      "target": "0x10",
+      "value": 16
+    },
+    {
+      "map": 0,
+      "target": "-0x10",
+      "value": "This parameter doesn't show values in x; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "sq",
+      "value": "“sq” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "S",
+      "value": "“S” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "on",
+      "value": "“on” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "50 ms",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "100 %",
+      "value": "This parameter doesn't show values in %; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": "loud",
+      "value": "“loud” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 0,
+      "target": 0.25,
+      "value": 0.25
+    },
+    {
+      "map": 0,
+      "target": -1,
+      "value": -1
+    },
+    {
+      "map": 0,
+      "target": 2,
+      "value": 2
+    },
+    {
+      "map": 1,
+      "target": "812 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "1.20 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "-6.0 dB",
+      "value": 0.625
+    },
+    {
+      "map": 1,
+      "target": "−inf dB",
+      "value": 0
+    },
+    {
+      "map": 1,
+      "target": "120 ms",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "35 %",
+      "value": "This parameter doesn't show values in %; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "4.0:1",
+      "value": "This parameter doesn't show values in ratio; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "Saw",
+      "value": "“Saw” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "  ",
+      "value": "“” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "1,234 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "2e-3 s",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "2e+3 Hz",
+      "value": "“2e+3 Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "+2 Hz",
+      "value": "“+2 Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "2foo",
+      "value": "“2foo” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "20 semitones",
+      "value": 1
+    },
+    {
+      "map": 1,
+      "target": "30 semi",
+      "value": "This parameter doesn't show values in st; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "50 cents",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "5 ct",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "7 deg",
+      "value": "This parameter doesn't show values in °; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "7°",
+      "value": "This parameter doesn't show values in °; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "50%whatever",
+      "value": 1
+    },
+    {
+      "map": 1,
+      "target": "4 : 1",
+      "value": "This parameter doesn't show values in ratio; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "4:2",
+      "value": 0.8333333333333334
+    },
+    {
+      "map": 1,
+      "target": "Infinity dB",
+      "value": 0
+    },
+    {
+      "map": 1,
+      "target": "- inf dB",
+      "value": 0
+    },
+    {
+      "map": 1,
+      "target": "infantry",
+      "value": 0
+    },
+    {
+      "map": 1,
+      "target": "1e999",
+      "value": "“1e999” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "1.5sec",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "8k",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "123abc",
+      "value": 1
+    },
+    {
+      "map": 1,
+      "target": "0x20",
+      "value": 32
+    },
+    {
+      "map": 1,
+      "target": "1.2.3",
+      "value": 0.775390625
+    },
+    {
+      "map": 1,
+      "target": "1Hz",
+      "value": 0.7708333333333334
+    },
+    {
+      "map": 1,
+      "target": "1﻿Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "1 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "١٠Hz",
+      "value": "“١٠Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "1E-3 S",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "1 cent",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "1 cents",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "1centsa",
+      "value": "“1centsa” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "-0",
+      "value": 0
+    },
+    {
+      "map": 1,
+      "target": "-.25 x",
+      "value": "This parameter doesn't show values in x; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "800 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "2.5 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "40 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "300 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "0.5",
+      "value": 0.5
+    },
+    {
+      "map": 1,
+      "target": "0x10",
+      "value": 16
+    },
+    {
+      "map": 1,
+      "target": "-0x10",
+      "value": "This parameter doesn't show values in x; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "sq",
+      "value": "“sq” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "S",
+      "value": "“S” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "on",
+      "value": "“on” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "50 ms",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "100 %",
+      "value": "This parameter doesn't show values in %; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": "loud",
+      "value": "“loud” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 1,
+      "target": 0.25,
+      "value": 0.25
+    },
+    {
+      "map": 1,
+      "target": -1,
+      "value": -1
+    },
+    {
+      "map": 1,
+      "target": 2,
+      "value": 2
+    },
+    {
+      "map": 2,
+      "target": "812 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "1.20 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "-6.0 dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "−inf dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "120 ms",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "35 %",
+      "value": "This parameter doesn't show values in %; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "4.0:1",
+      "value": "This parameter doesn't show values in ratio; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "Saw",
+      "value": 1
+    },
+    {
+      "map": 2,
+      "target": "  ",
+      "value": 0
+    },
+    {
+      "map": 2,
+      "target": "1,234 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "2e-3 s",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "2e+3 Hz",
+      "value": "“2e+3 Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 3, or one of Sine, Saw, Square, Noise."
+    },
+    {
+      "map": 2,
+      "target": "+2 Hz",
+      "value": "“+2 Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 3, or one of Sine, Saw, Square, Noise."
+    },
+    {
+      "map": 2,
+      "target": "2foo",
+      "value": "“2foo” isn't a value Kumi can place on this parameter; give a number between 0 and 3, or one of Sine, Saw, Square, Noise."
+    },
+    {
+      "map": 2,
+      "target": "20 semitones",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "30 semi",
+      "value": "This parameter doesn't show values in st; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "50 cents",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "5 ct",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "7 deg",
+      "value": "This parameter doesn't show values in °; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "7°",
+      "value": "This parameter doesn't show values in °; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "50%whatever",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "4 : 1",
+      "value": "This parameter doesn't show values in ratio; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "4:2",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "Infinity dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "- inf dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "infantry",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "1e999",
+      "value": "“1e999” isn't a value Kumi can place on this parameter; give a number between 0 and 3, or one of Sine, Saw, Square, Noise."
+    },
+    {
+      "map": 2,
+      "target": "1.5sec",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "8k",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "123abc",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "0x20",
+      "value": 32
+    },
+    {
+      "map": 2,
+      "target": "1.2.3",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "1Hz",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "1﻿Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "1 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "١٠Hz",
+      "value": "“١٠Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 3, or one of Sine, Saw, Square, Noise."
+    },
+    {
+      "map": 2,
+      "target": "1E-3 S",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "1 cent",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "1 cents",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "1centsa",
+      "value": "“1centsa” isn't a value Kumi can place on this parameter; give a number between 0 and 3, or one of Sine, Saw, Square, Noise."
+    },
+    {
+      "map": 2,
+      "target": "-0",
+      "value": 0
+    },
+    {
+      "map": 2,
+      "target": "-.25 x",
+      "value": "This parameter doesn't show values in x; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "800 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "2.5 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "40 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "300 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "0.5",
+      "value": 0.5
+    },
+    {
+      "map": 2,
+      "target": "0x10",
+      "value": 16
+    },
+    {
+      "map": 2,
+      "target": "-0x10",
+      "value": "This parameter doesn't show values in x; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "sq",
+      "value": 2
+    },
+    {
+      "map": 2,
+      "target": "S",
+      "value": 0
+    },
+    {
+      "map": 2,
+      "target": "on",
+      "value": "“on” isn't a value Kumi can place on this parameter; give a number between 0 and 3, or one of Sine, Saw, Square, Noise."
+    },
+    {
+      "map": 2,
+      "target": "50 ms",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "100 %",
+      "value": "This parameter doesn't show values in %; give a number between 0 and 3."
+    },
+    {
+      "map": 2,
+      "target": "loud",
+      "value": "“loud” isn't a value Kumi can place on this parameter; give a number between 0 and 3, or one of Sine, Saw, Square, Noise."
+    },
+    {
+      "map": 2,
+      "target": 0.25,
+      "value": 0.25
+    },
+    {
+      "map": 2,
+      "target": -1,
+      "value": -1
+    },
+    {
+      "map": 2,
+      "target": 2,
+      "value": 2
+    },
+    {
+      "map": 3,
+      "target": "812 Hz",
+      "value": 0.9095560292411754
+    },
+    {
+      "map": 3,
+      "target": "1.20 kHz",
+      "value": 1
+    },
+    {
+      "map": 3,
+      "target": "-6.0 dB",
+      "value": "This parameter doesn't show values in db; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "−inf dB",
+      "value": "This parameter doesn't show values in db; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "120 ms",
+      "value": "This parameter doesn't show values in s; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "35 %",
+      "value": "This parameter doesn't show values in %; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "4.0:1",
+      "value": "This parameter doesn't show values in ratio; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "Saw",
+      "value": "“Saw” isn't a value Kumi can place on this parameter; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "  ",
+      "value": "“” isn't a value Kumi can place on this parameter; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "1,234 Hz",
+      "value": 1
+    },
+    {
+      "map": 3,
+      "target": "2e-3 s",
+      "value": "This parameter doesn't show values in s; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "2e+3 Hz",
+      "value": "“2e+3 Hz” isn't a value Kumi can place on this parameter; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "+2 Hz",
+      "value": "“+2 Hz” isn't a value Kumi can place on this parameter; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "2foo",
+      "value": "“2foo” isn't a value Kumi can place on this parameter; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "20 semitones",
+      "value": -0.8888888888888888
+    },
+    {
+      "map": 3,
+      "target": "30 semi",
+      "value": "This parameter doesn't show values in st; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "50 cents",
+      "value": "This parameter doesn't show values in cents; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "5 ct",
+      "value": "This parameter doesn't show values in cents; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "7 deg",
+      "value": "This parameter doesn't show values in °; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "7°",
+      "value": "This parameter doesn't show values in °; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "50%whatever",
+      "value": -0.5555555555555556
+    },
+    {
+      "map": 3,
+      "target": "4 : 1",
+      "value": "This parameter doesn't show values in ratio; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "4:2",
+      "value": -1
+    },
+    {
+      "map": 3,
+      "target": "Infinity dB",
+      "value": "This parameter doesn't show values in db; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "- inf dB",
+      "value": "This parameter doesn't show values in db; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "infantry",
+      "value": 1
+    },
+    {
+      "map": 3,
+      "target": "1e999",
+      "value": "“1e999” isn't a value Kumi can place on this parameter; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "1.5sec",
+      "value": "This parameter doesn't show values in s; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "8k",
+      "value": 1
+    },
+    {
+      "map": 3,
+      "target": "123abc",
+      "value": -0.9777777777777777
+    },
+    {
+      "map": 3,
+      "target": "0x20",
+      "value": 32
+    },
+    {
+      "map": 3,
+      "target": "1.2.3",
+      "value": -1
+    },
+    {
+      "map": 3,
+      "target": "1Hz",
+      "value": -1
+    },
+    {
+      "map": 3,
+      "target": "1﻿Hz",
+      "value": -1
+    },
+    {
+      "map": 3,
+      "target": "1 Hz",
+      "value": -1
+    },
+    {
+      "map": 3,
+      "target": "١٠Hz",
+      "value": "“١٠Hz” isn't a value Kumi can place on this parameter; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "1E-3 S",
+      "value": "This parameter doesn't show values in s; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "1 cent",
+      "value": "This parameter doesn't show values in cents; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "1 cents",
+      "value": "This parameter doesn't show values in cents; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "1centsa",
+      "value": "“1centsa” isn't a value Kumi can place on this parameter; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "-0",
+      "value": 0
+    },
+    {
+      "map": 3,
+      "target": "-.25 x",
+      "value": "This parameter doesn't show values in x; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "800 Hz",
+      "value": 0.9030899869919435
+    },
+    {
+      "map": 3,
+      "target": "2.5 kHz",
+      "value": 1
+    },
+    {
+      "map": 3,
+      "target": "40 kHz",
+      "value": 1
+    },
+    {
+      "map": 3,
+      "target": "300 Hz",
+      "value": 0.4771212547196624
+    },
+    {
+      "map": 3,
+      "target": "0.5",
+      "value": 0.5
+    },
+    {
+      "map": 3,
+      "target": "0x10",
+      "value": 16
+    },
+    {
+      "map": 3,
+      "target": "-0x10",
+      "value": "This parameter doesn't show values in x; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "sq",
+      "value": "“sq” isn't a value Kumi can place on this parameter; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "S",
+      "value": "“S” isn't a value Kumi can place on this parameter; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "on",
+      "value": "“on” isn't a value Kumi can place on this parameter; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "50 ms",
+      "value": "This parameter doesn't show values in s; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "100 %",
+      "value": "This parameter doesn't show values in %; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": "loud",
+      "value": "“loud” isn't a value Kumi can place on this parameter; give a number between -1 and 1."
+    },
+    {
+      "map": 3,
+      "target": 0.25,
+      "value": 0.25
+    },
+    {
+      "map": 3,
+      "target": -1,
+      "value": -1
+    },
+    {
+      "map": 3,
+      "target": 2,
+      "value": 2
+    },
+    {
+      "map": 4,
+      "target": "812 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "1.20 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "-6.0 dB",
+      "value": 0.6666666666666666
+    },
+    {
+      "map": 4,
+      "target": "−inf dB",
+      "value": "NaN"
+    },
+    {
+      "map": 4,
+      "target": "120 ms",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "35 %",
+      "value": "This parameter doesn't show values in %; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "4.0:1",
+      "value": "This parameter doesn't show values in ratio; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "Saw",
+      "value": "“Saw” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "  ",
+      "value": "“” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "1,234 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "2e-3 s",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "2e+3 Hz",
+      "value": "“2e+3 Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "+2 Hz",
+      "value": "“+2 Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "2foo",
+      "value": "“2foo” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "20 semitones",
+      "value": 1
+    },
+    {
+      "map": 4,
+      "target": "30 semi",
+      "value": "This parameter doesn't show values in st; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "50 cents",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "5 ct",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "7 deg",
+      "value": "This parameter doesn't show values in °; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "7°",
+      "value": "This parameter doesn't show values in °; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "50%whatever",
+      "value": 1
+    },
+    {
+      "map": 4,
+      "target": "4 : 1",
+      "value": "This parameter doesn't show values in ratio; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "4:2",
+      "value": 0.9444444444444444
+    },
+    {
+      "map": 4,
+      "target": "Infinity dB",
+      "value": "NaN"
+    },
+    {
+      "map": 4,
+      "target": "- inf dB",
+      "value": "NaN"
+    },
+    {
+      "map": 4,
+      "target": "infantry",
+      "value": "NaN"
+    },
+    {
+      "map": 4,
+      "target": "1e999",
+      "value": "“1e999” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "1.5sec",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "8k",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "123abc",
+      "value": 1
+    },
+    {
+      "map": 4,
+      "target": "0x20",
+      "value": 32
+    },
+    {
+      "map": 4,
+      "target": "1.2.3",
+      "value": 0.8666666666666667
+    },
+    {
+      "map": 4,
+      "target": "1Hz",
+      "value": 0.8611111111111112
+    },
+    {
+      "map": 4,
+      "target": "1﻿Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "1 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "١٠Hz",
+      "value": "“١٠Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "1E-3 S",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "1 cent",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "1 cents",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "1centsa",
+      "value": "“1centsa” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "-0",
+      "value": 0
+    },
+    {
+      "map": 4,
+      "target": "-.25 x",
+      "value": "This parameter doesn't show values in x; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "800 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "2.5 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "40 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "300 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "0.5",
+      "value": 0.5
+    },
+    {
+      "map": 4,
+      "target": "0x10",
+      "value": 16
+    },
+    {
+      "map": 4,
+      "target": "-0x10",
+      "value": "This parameter doesn't show values in x; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "sq",
+      "value": "“sq” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "S",
+      "value": "“S” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "on",
+      "value": "“on” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "50 ms",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "100 %",
+      "value": "This parameter doesn't show values in %; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": "loud",
+      "value": "“loud” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 4,
+      "target": 0.25,
+      "value": 0.25
+    },
+    {
+      "map": 4,
+      "target": -1,
+      "value": -1
+    },
+    {
+      "map": 4,
+      "target": 2,
+      "value": 2
+    },
+    {
+      "map": 5,
+      "target": "812 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "1.20 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "-6.0 dB",
+      "value": "This parameter doesn't show values in db; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "−inf dB",
+      "value": "This parameter doesn't show values in db; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "120 ms",
+      "value": "This parameter doesn't show values in s; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "35 %",
+      "value": "This parameter doesn't show values in %; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "4.0:1",
+      "value": "This parameter doesn't show values in ratio; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "Saw",
+      "value": "“Saw” isn't a value Kumi can place on this parameter; give a number between 2 and 2, or one of On."
+    },
+    {
+      "map": 5,
+      "target": "  ",
+      "value": 2
+    },
+    {
+      "map": 5,
+      "target": "1,234 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "2e-3 s",
+      "value": "This parameter doesn't show values in s; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "2e+3 Hz",
+      "value": "“2e+3 Hz” isn't a value Kumi can place on this parameter; give a number between 2 and 2, or one of On."
+    },
+    {
+      "map": 5,
+      "target": "+2 Hz",
+      "value": "“+2 Hz” isn't a value Kumi can place on this parameter; give a number between 2 and 2, or one of On."
+    },
+    {
+      "map": 5,
+      "target": "2foo",
+      "value": "“2foo” isn't a value Kumi can place on this parameter; give a number between 2 and 2, or one of On."
+    },
+    {
+      "map": 5,
+      "target": "20 semitones",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "30 semi",
+      "value": "This parameter doesn't show values in st; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "50 cents",
+      "value": "This parameter doesn't show values in cents; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "5 ct",
+      "value": "This parameter doesn't show values in cents; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "7 deg",
+      "value": "This parameter doesn't show values in °; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "7°",
+      "value": "This parameter doesn't show values in °; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "50%whatever",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "4 : 1",
+      "value": "This parameter doesn't show values in ratio; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "4:2",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "Infinity dB",
+      "value": "This parameter doesn't show values in db; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "- inf dB",
+      "value": "This parameter doesn't show values in db; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "infantry",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "1e999",
+      "value": "“1e999” isn't a value Kumi can place on this parameter; give a number between 2 and 2, or one of On."
+    },
+    {
+      "map": 5,
+      "target": "1.5sec",
+      "value": "This parameter doesn't show values in s; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "8k",
+      "value": "This parameter doesn't show values in hz; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "123abc",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "0x20",
+      "value": 32
+    },
+    {
+      "map": 5,
+      "target": "1.2.3",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "1Hz",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "1﻿Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "1 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "١٠Hz",
+      "value": "“١٠Hz” isn't a value Kumi can place on this parameter; give a number between 2 and 2, or one of On."
+    },
+    {
+      "map": 5,
+      "target": "1E-3 S",
+      "value": "This parameter doesn't show values in s; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "1 cent",
+      "value": "This parameter doesn't show values in cents; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "1 cents",
+      "value": "This parameter doesn't show values in cents; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "1centsa",
+      "value": "“1centsa” isn't a value Kumi can place on this parameter; give a number between 2 and 2, or one of On."
+    },
+    {
+      "map": 5,
+      "target": "-0",
+      "value": 0
+    },
+    {
+      "map": 5,
+      "target": "-.25 x",
+      "value": "This parameter doesn't show values in x; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "800 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "2.5 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "40 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "300 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "0.5",
+      "value": 0.5
+    },
+    {
+      "map": 5,
+      "target": "0x10",
+      "value": 16
+    },
+    {
+      "map": 5,
+      "target": "-0x10",
+      "value": "This parameter doesn't show values in x; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "sq",
+      "value": "“sq” isn't a value Kumi can place on this parameter; give a number between 2 and 2, or one of On."
+    },
+    {
+      "map": 5,
+      "target": "S",
+      "value": "“S” isn't a value Kumi can place on this parameter; give a number between 2 and 2, or one of On."
+    },
+    {
+      "map": 5,
+      "target": "on",
+      "value": 2
+    },
+    {
+      "map": 5,
+      "target": "50 ms",
+      "value": "This parameter doesn't show values in s; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "100 %",
+      "value": "This parameter doesn't show values in %; give a number between 2 and 2."
+    },
+    {
+      "map": 5,
+      "target": "loud",
+      "value": "“loud” isn't a value Kumi can place on this parameter; give a number between 2 and 2, or one of On."
+    },
+    {
+      "map": 5,
+      "target": 0.25,
+      "value": 0.25
+    },
+    {
+      "map": 5,
+      "target": -1,
+      "value": -1
+    },
+    {
+      "map": 5,
+      "target": 2,
+      "value": 2
+    },
+    {
+      "map": 6,
+      "target": "812 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "1.20 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "-6.0 dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "−inf dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "120 ms",
+      "value": 0.12
+    },
+    {
+      "map": 6,
+      "target": "35 %",
+      "value": "This parameter doesn't show values in %; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "4.0:1",
+      "value": "This parameter doesn't show values in ratio; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "Saw",
+      "value": "“Saw” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "  ",
+      "value": "“” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "1,234 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "2e-3 s",
+      "value": 0.002
+    },
+    {
+      "map": 6,
+      "target": "2e+3 Hz",
+      "value": "“2e+3 Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "+2 Hz",
+      "value": "“+2 Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "2foo",
+      "value": "“2foo” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "20 semitones",
+      "value": 1
+    },
+    {
+      "map": 6,
+      "target": "30 semi",
+      "value": "This parameter doesn't show values in st; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "50 cents",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "5 ct",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "7 deg",
+      "value": "This parameter doesn't show values in °; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "7°",
+      "value": "This parameter doesn't show values in °; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "50%whatever",
+      "value": 1
+    },
+    {
+      "map": 6,
+      "target": "4 : 1",
+      "value": "This parameter doesn't show values in ratio; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "4:2",
+      "value": 1
+    },
+    {
+      "map": 6,
+      "target": "Infinity dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "- inf dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "infantry",
+      "value": 0
+    },
+    {
+      "map": 6,
+      "target": "1e999",
+      "value": "“1e999” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "1.5sec",
+      "value": 1
+    },
+    {
+      "map": 6,
+      "target": "8k",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "123abc",
+      "value": 1
+    },
+    {
+      "map": 6,
+      "target": "0x20",
+      "value": 32
+    },
+    {
+      "map": 6,
+      "target": "1.2.3",
+      "value": 1
+    },
+    {
+      "map": 6,
+      "target": "1Hz",
+      "value": 1
+    },
+    {
+      "map": 6,
+      "target": "1﻿Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "1 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "١٠Hz",
+      "value": "“١٠Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "1E-3 S",
+      "value": 0.001
+    },
+    {
+      "map": 6,
+      "target": "1 cent",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "1 cents",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "1centsa",
+      "value": "“1centsa” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "-0",
+      "value": 0
+    },
+    {
+      "map": 6,
+      "target": "-.25 x",
+      "value": "This parameter doesn't show values in x; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "800 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "2.5 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "40 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "300 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "0.5",
+      "value": 0.5
+    },
+    {
+      "map": 6,
+      "target": "0x10",
+      "value": 16
+    },
+    {
+      "map": 6,
+      "target": "-0x10",
+      "value": "This parameter doesn't show values in x; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "sq",
+      "value": "“sq” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "S",
+      "value": "“S” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "on",
+      "value": "“on” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "50 ms",
+      "value": 0.05
+    },
+    {
+      "map": 6,
+      "target": "100 %",
+      "value": "This parameter doesn't show values in %; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": "loud",
+      "value": "“loud” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 6,
+      "target": 0.25,
+      "value": 0.25
+    },
+    {
+      "map": 6,
+      "target": -1,
+      "value": -1
+    },
+    {
+      "map": 6,
+      "target": 2,
+      "value": 2
+    },
+    {
+      "map": 7,
+      "target": "812 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "1.20 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "-6.0 dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "−inf dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "120 ms",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "35 %",
+      "value": "This parameter doesn't show values in %; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "4.0:1",
+      "value": "This parameter doesn't show values in ratio; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "Saw",
+      "value": "“Saw” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "  ",
+      "value": "“” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "1,234 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "2e-3 s",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "2e+3 Hz",
+      "value": "“2e+3 Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "+2 Hz",
+      "value": "“+2 Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "2foo",
+      "value": "“2foo” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "20 semitones",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "30 semi",
+      "value": "This parameter doesn't show values in st; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "50 cents",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "5 ct",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "7 deg",
+      "value": "This parameter doesn't show values in °; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "7°",
+      "value": "This parameter doesn't show values in °; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "50%whatever",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "4 : 1",
+      "value": "This parameter doesn't show values in ratio; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "4:2",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "Infinity dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "- inf dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "infantry",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "1e999",
+      "value": "“1e999” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "1.5sec",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "8k",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "123abc",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "0x20",
+      "value": 32
+    },
+    {
+      "map": 7,
+      "target": "1.2.3",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "1Hz",
+      "value": "This parameter doesn't show values in plain numbers; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "1﻿Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "1 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "١٠Hz",
+      "value": "“١٠Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "1E-3 S",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "1 cent",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "1 cents",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "1centsa",
+      "value": "“1centsa” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "-0",
+      "value": 0
+    },
+    {
+      "map": 7,
+      "target": "-.25 x",
+      "value": "This parameter doesn't show values in x; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "800 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "2.5 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "40 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "300 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "0.5",
+      "value": 0.5
+    },
+    {
+      "map": 7,
+      "target": "0x10",
+      "value": 16
+    },
+    {
+      "map": 7,
+      "target": "-0x10",
+      "value": "This parameter doesn't show values in x; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "sq",
+      "value": "“sq” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "S",
+      "value": "“S” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "on",
+      "value": "“on” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "50 ms",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "100 %",
+      "value": "This parameter doesn't show values in %; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": "loud",
+      "value": "“loud” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 7,
+      "target": 0.25,
+      "value": 0.25
+    },
+    {
+      "map": 7,
+      "target": -1,
+      "value": -1
+    },
+    {
+      "map": 7,
+      "target": 2,
+      "value": 2
+    },
+    {
+      "map": 8,
+      "target": "812 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "1.20 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "-6.0 dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "−inf dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "120 ms",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "35 %",
+      "value": 0
+    },
+    {
+      "map": 8,
+      "target": "4.0:1",
+      "value": "This parameter doesn't show values in ratio; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "Saw",
+      "value": "“Saw” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "  ",
+      "value": "“” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "1,234 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "2e-3 s",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "2e+3 Hz",
+      "value": "“2e+3 Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "+2 Hz",
+      "value": "“+2 Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "2foo",
+      "value": "“2foo” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "20 semitones",
+      "value": 0
+    },
+    {
+      "map": 8,
+      "target": "30 semi",
+      "value": "This parameter doesn't show values in st; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "50 cents",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "5 ct",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "7 deg",
+      "value": "This parameter doesn't show values in °; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "7°",
+      "value": "This parameter doesn't show values in °; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "50%whatever",
+      "value": 0
+    },
+    {
+      "map": 8,
+      "target": "4 : 1",
+      "value": "This parameter doesn't show values in ratio; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "4:2",
+      "value": 0
+    },
+    {
+      "map": 8,
+      "target": "Infinity dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "- inf dB",
+      "value": "This parameter doesn't show values in db; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "infantry",
+      "value": 0
+    },
+    {
+      "map": 8,
+      "target": "1e999",
+      "value": "“1e999” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "1.5sec",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "8k",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "123abc",
+      "value": 0
+    },
+    {
+      "map": 8,
+      "target": "0x20",
+      "value": 32
+    },
+    {
+      "map": 8,
+      "target": "1.2.3",
+      "value": 0
+    },
+    {
+      "map": 8,
+      "target": "1Hz",
+      "value": 0
+    },
+    {
+      "map": 8,
+      "target": "1﻿Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "1 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "١٠Hz",
+      "value": "“١٠Hz” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "1E-3 S",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "1 cent",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "1 cents",
+      "value": "This parameter doesn't show values in cents; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "1centsa",
+      "value": "“1centsa” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "-0",
+      "value": 0
+    },
+    {
+      "map": 8,
+      "target": "-.25 x",
+      "value": "This parameter doesn't show values in x; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "800 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "2.5 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "40 kHz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "300 Hz",
+      "value": "This parameter doesn't show values in hz; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "0.5",
+      "value": 0.5
+    },
+    {
+      "map": 8,
+      "target": "0x10",
+      "value": 16
+    },
+    {
+      "map": 8,
+      "target": "-0x10",
+      "value": "This parameter doesn't show values in x; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "sq",
+      "value": "“sq” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "S",
+      "value": "“S” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "on",
+      "value": "“on” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "50 ms",
+      "value": "This parameter doesn't show values in s; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": "100 %",
+      "value": 0
+    },
+    {
+      "map": 8,
+      "target": "loud",
+      "value": "“loud” isn't a value Kumi can place on this parameter; give a number between 0 and 1."
+    },
+    {
+      "map": 8,
+      "target": 0.25,
+      "value": 0.25
+    },
+    {
+      "map": 8,
+      "target": -1,
+      "value": -1
+    },
+    {
+      "map": 8,
+      "target": 2,
+      "value": 2
+    }
+  ],
+  "contexts": [
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "set"
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "objectIdentity",
+          "parentRef",
+          "name",
+          "tempo",
+          "playing",
+          "position",
+          "loop"
+        ],
+        "kind": "set"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "set",
+        "parent": "p",
+        "fields": [
+          "value",
+          "ref",
+          "name",
+          1,
+          null,
+          "value"
+        ]
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "objectIdentity",
+          "value",
+          "name"
+        ],
+        "kind": "set",
+        "parent": "p"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "set",
+        "fields": null,
+        "limit": 400
+      },
+      "value": {
+        "limit": 400,
+        "budget": 1000,
+        "fields": null,
+        "kind": "set"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "set",
+        "parent": null,
+        "fields": []
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "objectIdentity"
+        ],
+        "kind": "set",
+        "parent": null
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "track"
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "name",
+          "color",
+          "parentRef",
+          "objectIdentity",
+          "kind",
+          "mediaKind",
+          "armed",
+          "monitoringState",
+          "playingSlotIndex",
+          "firedSlotIndex",
+          "isSelected"
+        ],
+        "kind": "track"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "track",
+        "parent": "p",
+        "fields": [
+          "value",
+          "ref",
+          "name",
+          1,
+          null,
+          "value"
+        ]
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "name",
+          "color",
+          "value"
+        ],
+        "kind": "track",
+        "parent": "p"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "track",
+        "fields": null,
+        "limit": 400
+      },
+      "value": {
+        "limit": 400,
+        "budget": 1000,
+        "fields": null,
+        "kind": "track"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "track",
+        "parent": null,
+        "fields": []
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "name",
+          "color"
+        ],
+        "kind": "track",
+        "parent": null
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "return-track"
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "name",
+          "color",
+          "parentRef",
+          "objectIdentity",
+          "kind",
+          "mediaKind"
+        ],
+        "kind": "return-track"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "return-track",
+        "parent": "p",
+        "fields": [
+          "value",
+          "ref",
+          "name",
+          1,
+          null,
+          "value"
+        ]
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "name",
+          "color",
+          "value"
+        ],
+        "kind": "return-track",
+        "parent": "p"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "return-track",
+        "fields": null,
+        "limit": 400
+      },
+      "value": {
+        "limit": 400,
+        "budget": 1000,
+        "fields": null,
+        "kind": "return-track"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "return-track",
+        "parent": null,
+        "fields": []
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "name",
+          "color"
+        ],
+        "kind": "return-track",
+        "parent": null
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "main-track"
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "name",
+          "color",
+          "parentRef",
+          "objectIdentity",
+          "kind",
+          "mediaKind"
+        ],
+        "kind": "main-track"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "main-track",
+        "parent": "p",
+        "fields": [
+          "value",
+          "ref",
+          "name",
+          1,
+          null,
+          "value"
+        ]
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "name",
+          "color",
+          "value"
+        ],
+        "kind": "main-track",
+        "parent": "p"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "main-track",
+        "fields": null,
+        "limit": 400
+      },
+      "value": {
+        "limit": 400,
+        "budget": 1000,
+        "fields": null,
+        "kind": "main-track"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "main-track",
+        "parent": null,
+        "fields": []
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "name",
+          "color"
+        ],
+        "kind": "main-track",
+        "parent": null
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "scene"
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "objectIdentity",
+          "name",
+          "index"
+        ],
+        "kind": "scene"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "scene",
+        "parent": "p",
+        "fields": [
+          "value",
+          "ref",
+          "name",
+          1,
+          null,
+          "value"
+        ]
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "value",
+          "name"
+        ],
+        "kind": "scene",
+        "parent": "p"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "scene",
+        "fields": null,
+        "limit": 400
+      },
+      "value": {
+        "limit": 400,
+        "budget": 1000,
+        "fields": null,
+        "kind": "scene"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "scene",
+        "parent": null,
+        "fields": []
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef"
+        ],
+        "kind": "scene",
+        "parent": null
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "locator"
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "objectIdentity",
+          "name",
+          "position"
+        ],
+        "kind": "locator"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "locator",
+        "parent": "p",
+        "fields": [
+          "value",
+          "ref",
+          "name",
+          1,
+          null,
+          "value"
+        ]
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "value",
+          "name"
+        ],
+        "kind": "locator",
+        "parent": "p"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "locator",
+        "fields": null,
+        "limit": 400
+      },
+      "value": {
+        "limit": 400,
+        "budget": 1000,
+        "fields": null,
+        "kind": "locator"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "locator",
+        "parent": null,
+        "fields": []
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef"
+        ],
+        "kind": "locator",
+        "parent": null
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "device"
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "objectIdentity",
+          "name",
+          "kind",
+          "className",
+          "enabled",
+          "canHaveChains",
+          "chainList"
+        ],
+        "kind": "device"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "device",
+        "parent": "p",
+        "fields": [
+          "value",
+          "ref",
+          "name",
+          1,
+          null,
+          "value"
+        ]
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "value",
+          "name"
+        ],
+        "kind": "device",
+        "parent": "p"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "device",
+        "fields": null,
+        "limit": 400
+      },
+      "value": {
+        "limit": 400,
+        "budget": 1000,
+        "fields": null,
+        "kind": "device"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "device",
+        "parent": null,
+        "fields": []
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef"
+        ],
+        "kind": "device",
+        "parent": null
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "parameter"
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "objectIdentity",
+          "name",
+          "value",
+          "min",
+          "max",
+          "displayValue",
+          "enabled",
+          "automatable"
+        ],
+        "kind": "parameter"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "parameter",
+        "parent": "p",
+        "fields": [
+          "value",
+          "ref",
+          "name",
+          1,
+          null,
+          "value"
+        ]
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "value",
+          "name"
+        ],
+        "kind": "parameter",
+        "parent": "p"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "parameter",
+        "fields": null,
+        "limit": 400
+      },
+      "value": {
+        "limit": 400,
+        "budget": 1000,
+        "fields": null,
+        "kind": "parameter"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "parameter",
+        "parent": null,
+        "fields": []
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef"
+        ],
+        "kind": "parameter",
+        "parent": null
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "clip-slot"
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "clipRef",
+          "parentRef",
+          "objectIdentity",
+          "name",
+          "sceneIndex",
+          "empty"
+        ],
+        "kind": "clip-slot"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "clip-slot",
+        "parent": "p",
+        "fields": [
+          "value",
+          "ref",
+          "name",
+          1,
+          null,
+          "value"
+        ]
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "clipRef",
+          "value",
+          "name"
+        ],
+        "kind": "clip-slot",
+        "parent": "p"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "clip-slot",
+        "fields": null,
+        "limit": 400
+      },
+      "value": {
+        "limit": 400,
+        "budget": 1000,
+        "fields": null,
+        "kind": "clip-slot"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "clip-slot",
+        "parent": null,
+        "fields": []
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "clipRef"
+        ],
+        "kind": "clip-slot",
+        "parent": null
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "session-clip"
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "objectIdentity",
+          "name",
+          "kind",
+          "start",
+          "length"
+        ],
+        "kind": "session-clip"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "session-clip",
+        "parent": "p",
+        "fields": [
+          "value",
+          "ref",
+          "name",
+          1,
+          null,
+          "value"
+        ]
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "value",
+          "name"
+        ],
+        "kind": "session-clip",
+        "parent": "p"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "session-clip",
+        "fields": null,
+        "limit": 400
+      },
+      "value": {
+        "limit": 400,
+        "budget": 1000,
+        "fields": null,
+        "kind": "session-clip"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "session-clip",
+        "parent": null,
+        "fields": []
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef"
+        ],
+        "kind": "session-clip",
+        "parent": null
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "arrangement-clip"
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "objectIdentity",
+          "name",
+          "kind",
+          "start",
+          "length"
+        ],
+        "kind": "arrangement-clip"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "arrangement-clip",
+        "parent": "p",
+        "fields": [
+          "value",
+          "ref",
+          "name",
+          1,
+          null,
+          "value"
+        ]
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "value",
+          "name"
+        ],
+        "kind": "arrangement-clip",
+        "parent": "p"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "arrangement-clip",
+        "fields": null,
+        "limit": 400
+      },
+      "value": {
+        "limit": 400,
+        "budget": 1000,
+        "fields": null,
+        "kind": "arrangement-clip"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "arrangement-clip",
+        "parent": null,
+        "fields": []
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef"
+        ],
+        "kind": "arrangement-clip",
+        "parent": null
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "note"
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "id",
+          "pitch",
+          "start",
+          "duration",
+          "velocity",
+          "mute"
+        ],
+        "kind": "note"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "note",
+        "parent": "p",
+        "fields": [
+          "value",
+          "ref",
+          "name",
+          1,
+          null,
+          "value"
+        ]
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "value",
+          "name"
+        ],
+        "kind": "note",
+        "parent": "p"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "note",
+        "fields": null,
+        "limit": 400
+      },
+      "value": {
+        "limit": 400,
+        "budget": 1000,
+        "fields": null,
+        "kind": "note"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "note",
+        "parent": null,
+        "fields": []
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef"
+        ],
+        "kind": "note",
+        "parent": null
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "routing-choice"
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "objectIdentity",
+          "name",
+          "direction",
+          "type"
+        ],
+        "kind": "routing-choice"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "routing-choice",
+        "parent": "p",
+        "fields": [
+          "value",
+          "ref",
+          "name",
+          1,
+          null,
+          "value"
+        ]
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "value",
+          "name"
+        ],
+        "kind": "routing-choice",
+        "parent": "p"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "routing-choice",
+        "fields": null,
+        "limit": 400
+      },
+      "value": {
+        "limit": 400,
+        "budget": 1000,
+        "fields": null,
+        "kind": "routing-choice"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "routing-choice",
+        "parent": null,
+        "fields": []
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef"
+        ],
+        "kind": "routing-choice",
+        "parent": null
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "selection"
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "selectedTrackRef",
+          "selectedSceneRef",
+          "highlightedClipSlotRef"
+        ],
+        "kind": "selection"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "selection",
+        "parent": "p",
+        "fields": [
+          "value",
+          "ref",
+          "name",
+          1,
+          null,
+          "value"
+        ]
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "value",
+          "name"
+        ],
+        "kind": "selection",
+        "parent": "p"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "selection",
+        "fields": null,
+        "limit": 400
+      },
+      "value": {
+        "limit": 400,
+        "budget": 1000,
+        "fields": null,
+        "kind": "selection"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "selection",
+        "parent": null,
+        "fields": []
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef"
+        ],
+        "kind": "selection",
+        "parent": null
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "session-playback"
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "epoch",
+          "revision",
+          "transport",
+          "firedTargets",
+          "playingTargets"
+        ],
+        "kind": "session-playback"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "session-playback",
+        "parent": "p",
+        "fields": [
+          "value",
+          "ref",
+          "name",
+          1,
+          null,
+          "value"
+        ]
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef",
+          "value",
+          "name"
+        ],
+        "kind": "session-playback",
+        "parent": "p"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "session-playback",
+        "fields": null,
+        "limit": 400
+      },
+      "value": {
+        "limit": 400,
+        "budget": 1000,
+        "fields": null,
+        "kind": "session-playback"
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "session-playback",
+        "parent": null,
+        "fields": []
+      },
+      "value": {
+        "limit": 25,
+        "budget": 1000,
+        "fields": [
+          "ref",
+          "parentRef"
+        ],
+        "kind": "session-playback",
+        "parent": null
+      }
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "__proto__"
+      },
+      "error": "Unsupported discovery kind"
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "__proto__",
+        "parent": "p",
+        "fields": [
+          "value",
+          "ref",
+          "name",
+          1,
+          null,
+          "value"
+        ]
+      },
+      "error": "Unsupported discovery kind"
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "__proto__",
+        "fields": null,
+        "limit": 400
+      },
+      "error": "Unsupported discovery kind"
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "__proto__",
+        "parent": null,
+        "fields": []
+      },
+      "error": "Unsupported discovery kind"
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "bad"
+      },
+      "error": "Unsupported discovery kind"
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "bad",
+        "parent": "p",
+        "fields": [
+          "value",
+          "ref",
+          "name",
+          1,
+          null,
+          "value"
+        ]
+      },
+      "error": "Unsupported discovery kind"
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "bad",
+        "fields": null,
+        "limit": 400
+      },
+      "error": "Unsupported discovery kind"
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": "bad",
+        "parent": null,
+        "fields": []
+      },
+      "error": "Unsupported discovery kind"
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": null
+      },
+      "error": "Unsupported discovery kind"
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": null,
+        "parent": "p",
+        "fields": [
+          "value",
+          "ref",
+          "name",
+          1,
+          null,
+          "value"
+        ]
+      },
+      "error": "Unsupported discovery kind"
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": null,
+        "fields": null,
+        "limit": 400
+      },
+      "error": "Unsupported discovery kind"
+    },
+    {
+      "fn": "discoveryArgs",
+      "input": {
+        "kind": null,
+        "parent": null,
+        "fields": []
+      },
+      "error": "Unsupported discovery kind"
+    },
+    {
+      "fn": "setIdentity",
+      "input": {
+        "ref": "opaque",
+        "objectIdentity": "id"
+      },
+      "value": "[\"opaque\",\"id\"]"
+    },
+    {
+      "fn": "setIdentity",
+      "input": {
+        "ref": "opaque",
+        "name": "Same Name"
+      },
+      "value": "[\"opaque\",null]"
+    },
+    {
+      "fn": "setIdentity",
+      "input": {
+        "ref": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "value": "[\"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\",null]"
+    },
+    {
+      "fn": "setIdentity",
+      "input": {
+        "ref": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "error": "Current Set reference is unavailable"
+    },
+    {
+      "fn": "setIdentity",
+      "input": {},
+      "error": "Current Set reference is unavailable"
+    },
+    {
+      "fn": "setIdentity",
+      "input": {
+        "ref": 1
+      },
+      "error": "Current Set reference is unavailable"
+    },
+    {
+      "fn": "setIdentity",
+      "input": {
+        "ref": "",
+        "objectIdentity": "id"
+      },
+      "error": "Current Set reference is unavailable"
+    },
+    {
+      "fn": "queryKey",
+      "input": {
+        "cursor": "old",
+        "b": 1,
+        "A": 2,
+        "a": {
+          "z": 2,
+          "ä": 1,
+          "a": 3
+        },
+        "arr": [
+          {
+            "b": 2,
+            "a": 1
+          }
+        ]
+      },
+      "value": "{\"a\":{\"a\":3,\"ä\":1,\"z\":2},\"A\":2,\"arr\":[{\"a\":1,\"b\":2}],\"b\":1}"
+    },
+    {
+      "fn": "queryKey",
+      "input": {
+        "0": 3,
+        "2": 2,
+        "10": 1,
+        "01": 4,
+        "kind": "track",
+        "cursor": null
+      },
+      "value": "{\"0\":3,\"2\":2,\"10\":1,\"01\":4,\"kind\":\"track\"}"
+    },
+    {
+      "fn": "queryKey",
+      "input": {
+        "kind": "track",
+        "filter": {
+          "cursor": "nested",
+          "names": [
+            "Z",
+            "a"
+          ]
+        }
+      },
+      "value": "{\"filter\":{\"cursor\":\"nested\",\"names\":[\"Z\",\"a\"]},\"kind\":\"track\"}"
+    },
+    {
+      "fn": "payload",
+      "input": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"connected\":true,\"adapter\":\"remote\",\"epoch\":2}"
+          }
+        ]
+      },
+      "value": {
+        "connected": true,
+        "adapter": "remote",
+        "epoch": 2
+      }
+    },
+    {
+      "fn": "statusPayload",
+      "input": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"connected\":true,\"adapter\":\"remote\",\"epoch\":2}"
+          }
+        ]
+      },
+      "value": {
+        "connected": true,
+        "adapter": "remote",
+        "epoch": 2
+      }
+    },
+    {
+      "fn": "payload",
+      "input": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{}"
+          }
+        ],
+        "structuredContent": {
+          "connected": false,
+          "adapter": "offline"
+        }
+      },
+      "value": {
+        "connected": false,
+        "adapter": "offline"
+      }
+    },
+    {
+      "fn": "statusPayload",
+      "input": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{}"
+          }
+        ],
+        "structuredContent": {
+          "connected": false,
+          "adapter": "offline"
+        }
+      },
+      "value": {
+        "connected": false,
+        "adapter": "offline"
+      }
+    },
+    {
+      "fn": "payload",
+      "input": {
+        "content": [
+          {
+            "type": "text",
+            "text": "[]"
+          }
+        ]
+      },
+      "error": "Malformed Live observation; refresh before continuing"
+    },
+    {
+      "fn": "statusPayload",
+      "input": {
+        "content": [
+          {
+            "type": "text",
+            "text": "[]"
+          }
+        ]
+      },
+      "error": "Malformed Live observation; refresh before continuing"
+    },
+    {
+      "fn": "payload",
+      "input": {
+        "content": [],
+        "isError": true
+      },
+      "error": "Live read returned an error; no old observation is current"
+    },
+    {
+      "fn": "statusPayload",
+      "input": {
+        "content": [],
+        "isError": true
+      },
+      "error": "Live read returned an error; no old observation is current"
+    },
+    {
+      "fn": "payload",
+      "input": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\n"
+          },
+          {
+            "type": "text",
+            "text": "\"x\":1}"
+          }
+        ]
+      },
+      "value": {
+        "x": 1
+      }
+    },
+    {
+      "fn": "statusPayload",
+      "input": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\n"
+          },
+          {
+            "type": "text",
+            "text": "\"x\":1}"
+          }
+        ]
+      },
+      "error": "Malformed Live status; access cannot be verified"
+    },
+    {
+      "fn": "payload",
+      "input": {
+        "content": [],
+        "structuredContent": {}
+      },
+      "value": {}
+    },
+    {
+      "fn": "statusPayload",
+      "input": {
+        "content": [],
+        "structuredContent": {}
+      },
+      "error": "Malformed Live status; access cannot be verified"
+    },
+    {
+      "fn": "payload",
+      "input": {
+        "content": [
+          {
+            "type": "text",
+            "text": "bad"
+          }
+        ]
+      },
+      "error": "Malformed Live observation; refresh before continuing"
+    },
+    {
+      "fn": "statusPayload",
+      "input": {
+        "content": [
+          {
+            "type": "text",
+            "text": "bad"
+          }
+        ]
+      },
+      "error": "Malformed Live observation; refresh before continuing"
+    },
+    {
+      "fn": "payload",
+      "input": {
+        "content": [],
+        "structuredContent": {
+          "connected": true,
+          "adapter": "remote",
+          "epoch": -1
+        }
+      },
+      "value": {
+        "connected": true,
+        "adapter": "remote",
+        "epoch": -1
+      }
+    },
+    {
+      "fn": "statusPayload",
+      "input": {
+        "content": [],
+        "structuredContent": {
+          "connected": true,
+          "adapter": "remote",
+          "epoch": -1
+        }
+      },
+      "error": "Malformed Live status; access cannot be verified"
+    },
+    {
+      "fn": "discoveryPayload",
+      "input": {
+        "content": [],
+        "structuredContent": {
+          "epoch": 7,
+          "kind": "track",
+          "items": [
+            {
+              "ref": "x"
+            }
+          ],
+          "revision": "r",
+          "truncated": false
+        }
+      },
+      "value": {
+        "epoch": 7,
+        "kind": "track",
+        "items": [
+          {
+            "ref": "x"
+          }
+        ],
+        "revision": "r",
+        "truncated": false
+      }
+    },
+    {
+      "fn": "discoveryPayload",
+      "input": {
+        "content": [],
+        "structuredContent": {
+          "epoch": 8,
+          "kind": "track",
+          "items": [
+            {
+              "ref": "x"
+            }
+          ],
+          "revision": "r",
+          "truncated": false
+        }
+      },
+      "error": "Live epoch changed; result discarded, refresh before continuing"
+    },
+    {
+      "fn": "discoveryPayload",
+      "input": {
+        "content": [],
+        "structuredContent": {
+          "epoch": 7,
+          "kind": "device",
+          "items": [
+            {
+              "ref": "x"
+            }
+          ],
+          "revision": "r",
+          "truncated": false
+        }
+      },
+      "error": "Malformed discovery result"
+    },
+    {
+      "fn": "discoveryPayload",
+      "input": {
+        "content": [],
+        "structuredContent": {
+          "epoch": 7,
+          "kind": "track",
+          "items": [
+            null
+          ],
+          "revision": "r",
+          "truncated": false
+        }
+      },
+      "error": "Malformed Live observation; refresh before continuing"
+    },
+    {
+      "fn": "discoveryPayload",
+      "input": {
+        "content": [],
+        "structuredContent": {
+          "epoch": 7,
+          "kind": "track",
+          "items": [],
+          "revision": "r",
+          "truncated": false
+        }
+      },
+      "value": {
+        "epoch": 7,
+        "kind": "track",
+        "items": [],
+        "revision": "r",
+        "truncated": false
+      }
+    },
+    {
+      "fn": "discoveryPayload",
+      "input": {
+        "content": [],
+        "structuredContent": {
+          "epoch": 7,
+          "kind": "track",
+          "items": [
+            {
+              "ref": "x"
+            }
+          ],
+          "revision": "r",
+          "truncated": null
+        }
+      },
+      "error": "Malformed discovery result"
+    },
+    {
+      "fn": "discoveryPayload",
+      "input": {
+        "content": [],
+        "structuredContent": {
+          "epoch": 7,
+          "kind": "track",
+          "items": [
+            {
+              "ref": "x"
+            }
+          ],
+          "revision": 0,
+          "truncated": false
+        }
+      },
+      "error": "Malformed discovery result"
+    },
+    {
+      "fn": "discoveryPayload",
+      "input": {
+        "content": [],
+        "structuredContent": {
+          "epoch": 7,
+          "kind": "track",
+          "items": [
+            {
+              "ref": "x"
+            }
+          ],
+          "revision": "r",
+          "truncated": false,
+          "nextCursor": ""
+        }
+      },
+      "error": "Malformed discovery result"
+    },
+    {
+      "fn": "discoveryPayload",
+      "input": {
+        "content": [],
+        "structuredContent": {
+          "epoch": 7,
+          "kind": "track",
+          "items": [
+            {
+              "ref": "x"
+            }
+          ],
+          "revision": "r",
+          "truncated": false,
+          "nextCursor": null
+        }
+      },
+      "error": "Malformed discovery result"
+    },
+    {
+      "fn": "discoveryPayload",
+      "input": {
+        "content": [],
+        "structuredContent": {
+          "epoch": 7,
+          "kind": "track",
+          "items": [
+            {
+              "ref": "x"
+            }
+          ],
+          "revision": "r",
+          "truncated": false,
+          "nextCursor": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        }
+      },
+      "value": {
+        "epoch": 7,
+        "kind": "track",
+        "items": [
+          {
+            "ref": "x"
+          }
+        ],
+        "revision": "r",
+        "truncated": false,
+        "nextCursor": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      }
+    },
+    {
+      "fn": "discoveryPayload",
+      "input": {
+        "content": [],
+        "structuredContent": {
+          "epoch": 7,
+          "kind": "track",
+          "items": [
+            {
+              "ref": "x"
+            }
+          ],
+          "revision": "r",
+          "truncated": false,
+          "nextCursor": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        }
+      },
+      "error": "Malformed discovery result"
+    }
+  ],
+  "scripts": [
+    {
+      "kind": "find",
+      "args": [
+        {
+          "device": "7:device:0:0",
+          "parameter": "dri",
+          "map": true
+        },
+        {
+          "ref": "7:parameter:0:0:1",
+          "map": false
+        },
+        {
+          "device": "7:device:0:0",
+          "parameter": "Wobble",
+          "map": false
+        }
+      ],
+      "hash": "c33fd2913c68a315a402a8d8ee68f415f73bdf211715c425900439d8d3db2184"
+    },
+    {
+      "kind": "set",
+      "args": [
+        {
+          "device": "7:device:0:0",
+          "index": 0,
+          "name": "Drive",
+          "value": 2
+        },
+        {
+          "ref": "7:parameter:0:0:1",
+          "value": 1.6
+        }
+      ],
+      "hash": "b4b33081115f336292997d54eb100b4e5e5fedfc779bc9b3894a68604863f8ac"
+    },
+    {
+      "kind": "revert",
+      "args": [
+        {
+          "device": "7:device:0:0",
+          "index": 0,
+          "name": "Drive",
+          "prior": 0.75,
+          "applied": 1
+        },
+        {
+          "ref": "7:parameter:0:0:1",
+          "prior": 0,
+          "applied": 2
+        }
+      ],
+      "hash": "2cae15b6174ebd748fd08f673da2bb7dd8f09823c601f9bb0ab6e06c1956c0b8"
+    },
+    {
+      "kind": "set",
+      "args": [
+        {
+          "device": "7:device:0:0",
+          "index": 0,
+          "name": "Drive",
+          "value": 0.25
+        },
+        {
+          "device": "7:device:0:0",
+          "index": 2,
+          "name": "Locked",
+          "value": 0.9
+        }
+      ],
+      "hash": "cd7e447c492d5d0564493fbb16af816139a55d6c90c2ea90ac30461f76ae1b04"
+    },
+    {
+      "kind": "set",
+      "args": [
+        {
+          "device": "7:device:0:0",
+          "index": 1,
+          "name": "Drive",
+          "value": 0.3
+        }
+      ],
+      "hash": "5b50a68883671a9db03e3a7252e7350919151cb1b952832b20016c06b62afab1"
+    },
+    {
+      "kind": "set",
+      "args": [
+        {
+          "ref": "8:parameter:0:0:1",
+          "value": 1
+        }
+      ],
+      "hash": "986a59331f79587f70677b568332d16053fdce823c47a14a0bbeae7ef7f0fa41"
+    },
+    {
+      "kind": "find",
+      "args": [
+        {
+          "device": "7:device:0:1",
+          "parameter": "Drive",
+          "map": false
+        }
+      ],
+      "hash": "a198d888455f261862da52d455625d7bf2f72815f947330702b9712e00893f25"
+    },
+    {
+      "kind": "set",
+      "args": [
+        {
+          "device": "7:device:0:1",
+          "index": 0,
+          "name": "Drive",
+          "value": 0.5
+        }
+      ],
+      "hash": "cace3c138bc7494748c20df92c3f87a3098ac046aa9755bc6d9978a08bc4c636"
+    },
+    {
+      "kind": "set",
+      "args": [
+        {
+          "ref": "7:parameter:0:1:0",
+          "value": 0.5
+        }
+      ],
+      "hash": "217717d0ebc0a8a9ba81717749c826b49934d51d56f06d427e73850234b96c9d"
+    },
+    {
+      "kind": "revert",
+      "args": [
+        {
+          "device": "7:device:0:1",
+          "index": 0,
+          "name": "Drive",
+          "prior": 0,
+          "applied": 1
+        },
+        {
+          "ref": "7:parameter:0:1:0",
+          "name": "Input Gain",
+          "prior": 0,
+          "applied": 1
+        }
+      ],
+      "hash": "bcd6247e96e5df2fb3092ce5ca67c30122e0ebe4afbaae628acb0ef795595bc1"
+    }
+  ],
+  "executed": [
+    {
+      "ok": true,
+      "result": [
+        {
+          "name": "Drive",
+          "min": 0,
+          "max": 1,
+          "index": 0,
+          "items": [],
+          "grid": [
+            [
+              0,
+              "-36.0 dB"
+            ],
+            [
+              0.0078125,
+              "-35.6 dB"
+            ],
+            [
+              0.015625,
+              "-35.2 dB"
+            ],
+            [
+              0.0234375,
+              "-34.9 dB"
+            ],
+            [
+              0.03125,
+              "-34.5 dB"
+            ],
+            [
+              0.0390625,
+              "-34.1 dB"
+            ],
+            [
+              0.046875,
+              "-33.8 dB"
+            ],
+            [
+              0.0546875,
+              "-33.4 dB"
+            ],
+            [
+              0.0625,
+              "-33.0 dB"
+            ],
+            [
+              0.0703125,
+              "-32.6 dB"
+            ],
+            [
+              0.078125,
+              "-32.2 dB"
+            ],
+            [
+              0.0859375,
+              "-31.9 dB"
+            ],
+            [
+              0.09375,
+              "-31.5 dB"
+            ],
+            [
+              0.1015625,
+              "-31.1 dB"
+            ],
+            [
+              0.109375,
+              "-30.8 dB"
+            ],
+            [
+              0.1171875,
+              "-30.4 dB"
+            ],
+            [
+              0.125,
+              "-30.0 dB"
+            ],
+            [
+              0.1328125,
+              "-29.6 dB"
+            ],
+            [
+              0.140625,
+              "-29.2 dB"
+            ],
+            [
+              0.1484375,
+              "-28.9 dB"
+            ],
+            [
+              0.15625,
+              "-28.5 dB"
+            ],
+            [
+              0.1640625,
+              "-28.1 dB"
+            ],
+            [
+              0.171875,
+              "-27.8 dB"
+            ],
+            [
+              0.1796875,
+              "-27.4 dB"
+            ],
+            [
+              0.1875,
+              "-27.0 dB"
+            ],
+            [
+              0.1953125,
+              "-26.6 dB"
+            ],
+            [
+              0.203125,
+              "-26.2 dB"
+            ],
+            [
+              0.2109375,
+              "-25.9 dB"
+            ],
+            [
+              0.21875,
+              "-25.5 dB"
+            ],
+            [
+              0.2265625,
+              "-25.1 dB"
+            ],
+            [
+              0.234375,
+              "-24.8 dB"
+            ],
+            [
+              0.2421875,
+              "-24.4 dB"
+            ],
+            [
+              0.25,
+              "-24.0 dB"
+            ],
+            [
+              0.2578125,
+              "-23.6 dB"
+            ],
+            [
+              0.265625,
+              "-23.2 dB"
+            ],
+            [
+              0.2734375,
+              "-22.9 dB"
+            ],
+            [
+              0.28125,
+              "-22.5 dB"
+            ],
+            [
+              0.2890625,
+              "-22.1 dB"
+            ],
+            [
+              0.296875,
+              "-21.8 dB"
+            ],
+            [
+              0.3046875,
+              "-21.4 dB"
+            ],
+            [
+              0.3125,
+              "-21.0 dB"
+            ],
+            [
+              0.3203125,
+              "-20.6 dB"
+            ],
+            [
+              0.328125,
+              "-20.2 dB"
+            ],
+            [
+              0.3359375,
+              "-19.9 dB"
+            ],
+            [
+              0.34375,
+              "-19.5 dB"
+            ],
+            [
+              0.3515625,
+              "-19.1 dB"
+            ],
+            [
+              0.359375,
+              "-18.8 dB"
+            ],
+            [
+              0.3671875,
+              "-18.4 dB"
+            ],
+            [
+              0.375,
+              "-18.0 dB"
+            ],
+            [
+              0.3828125,
+              "-17.6 dB"
+            ],
+            [
+              0.390625,
+              "-17.2 dB"
+            ],
+            [
+              0.3984375,
+              "-16.9 dB"
+            ],
+            [
+              0.40625,
+              "-16.5 dB"
+            ],
+            [
+              0.4140625,
+              "-16.1 dB"
+            ],
+            [
+              0.421875,
+              "-15.8 dB"
+            ],
+            [
+              0.4296875,
+              "-15.4 dB"
+            ],
+            [
+              0.4375,
+              "-15.0 dB"
+            ],
+            [
+              0.4453125,
+              "-14.6 dB"
+            ],
+            [
+              0.453125,
+              "-14.2 dB"
+            ],
+            [
+              0.4609375,
+              "-13.9 dB"
+            ],
+            [
+              0.46875,
+              "-13.5 dB"
+            ],
+            [
+              0.4765625,
+              "-13.1 dB"
+            ],
+            [
+              0.484375,
+              "-12.8 dB"
+            ],
+            [
+              0.4921875,
+              "-12.4 dB"
+            ],
+            [
+              0.5,
+              "-12.0 dB"
+            ],
+            [
+              0.5078125,
+              "-11.6 dB"
+            ],
+            [
+              0.515625,
+              "-11.2 dB"
+            ],
+            [
+              0.5234375,
+              "-10.9 dB"
+            ],
+            [
+              0.53125,
+              "-10.5 dB"
+            ],
+            [
+              0.5390625,
+              "-10.1 dB"
+            ],
+            [
+              0.546875,
+              "-9.8 dB"
+            ],
+            [
+              0.5546875,
+              "-9.4 dB"
+            ],
+            [
+              0.5625,
+              "-9.0 dB"
+            ],
+            [
+              0.5703125,
+              "-8.6 dB"
+            ],
+            [
+              0.578125,
+              "-8.2 dB"
+            ],
+            [
+              0.5859375,
+              "-7.9 dB"
+            ],
+            [
+              0.59375,
+              "-7.5 dB"
+            ],
+            [
+              0.6015625,
+              "-7.1 dB"
+            ],
+            [
+              0.609375,
+              "-6.8 dB"
+            ],
+            [
+              0.6171875,
+              "-6.4 dB"
+            ],
+            [
+              0.625,
+              "-6.0 dB"
+            ],
+            [
+              0.6328125,
+              "-5.6 dB"
+            ],
+            [
+              0.640625,
+              "-5.2 dB"
+            ],
+            [
+              0.6484375,
+              "-4.9 dB"
+            ],
+            [
+              0.65625,
+              "-4.5 dB"
+            ],
+            [
+              0.6640625,
+              "-4.1 dB"
+            ],
+            [
+              0.671875,
+              "-3.8 dB"
+            ],
+            [
+              0.6796875,
+              "-3.4 dB"
+            ],
+            [
+              0.6875,
+              "-3.0 dB"
+            ],
+            [
+              0.6953125,
+              "-2.6 dB"
+            ],
+            [
+              0.703125,
+              "-2.2 dB"
+            ],
+            [
+              0.7109375,
+              "-1.9 dB"
+            ],
+            [
+              0.71875,
+              "-1.5 dB"
+            ],
+            [
+              0.7265625,
+              "-1.1 dB"
+            ],
+            [
+              0.734375,
+              "-0.8 dB"
+            ],
+            [
+              0.7421875,
+              "-0.4 dB"
+            ],
+            [
+              0.75,
+              "0.0 dB"
+            ],
+            [
+              0.7578125,
+              "0.4 dB"
+            ],
+            [
+              0.765625,
+              "0.8 dB"
+            ],
+            [
+              0.7734375,
+              "1.1 dB"
+            ],
+            [
+              0.78125,
+              "1.5 dB"
+            ],
+            [
+              0.7890625,
+              "1.9 dB"
+            ],
+            [
+              0.796875,
+              "2.2 dB"
+            ],
+            [
+              0.8046875,
+              "2.6 dB"
+            ],
+            [
+              0.8125,
+              "3.0 dB"
+            ],
+            [
+              0.8203125,
+              "3.4 dB"
+            ],
+            [
+              0.828125,
+              "3.8 dB"
+            ],
+            [
+              0.8359375,
+              "4.1 dB"
+            ],
+            [
+              0.84375,
+              "4.5 dB"
+            ],
+            [
+              0.8515625,
+              "4.9 dB"
+            ],
+            [
+              0.859375,
+              "5.2 dB"
+            ],
+            [
+              0.8671875,
+              "5.6 dB"
+            ],
+            [
+              0.875,
+              "6.0 dB"
+            ],
+            [
+              0.8828125,
+              "6.4 dB"
+            ],
+            [
+              0.890625,
+              "6.8 dB"
+            ],
+            [
+              0.8984375,
+              "7.1 dB"
+            ],
+            [
+              0.90625,
+              "7.5 dB"
+            ],
+            [
+              0.9140625,
+              "7.9 dB"
+            ],
+            [
+              0.921875,
+              "8.2 dB"
+            ],
+            [
+              0.9296875,
+              "8.6 dB"
+            ],
+            [
+              0.9375,
+              "9.0 dB"
+            ],
+            [
+              0.9453125,
+              "9.4 dB"
+            ],
+            [
+              0.953125,
+              "9.8 dB"
+            ],
+            [
+              0.9609375,
+              "10.1 dB"
+            ],
+            [
+              0.96875,
+              "10.5 dB"
+            ],
+            [
+              0.9765625,
+              "10.9 dB"
+            ],
+            [
+              0.984375,
+              "11.2 dB"
+            ],
+            [
+              0.9921875,
+              "11.6 dB"
+            ],
+            [
+              1,
+              "12.0 dB"
+            ]
+          ]
+        },
+        {
+          "name": "Type",
+          "min": 0,
+          "max": 3
+        },
+        {
+          "missing": [
+            "Drive",
+            "Type",
+            "Locked"
+          ]
+        }
+      ],
+      "drive": 0.75,
+      "type": 0
+    },
+    {
+      "ok": true,
+      "result": {
+        "device": "Saturator",
+        "track": {
+          "ref": "?",
+          "type": "Track",
+          "name": "Bass"
+        },
+        "items": [
+          {
+            "name": "Drive",
+            "prior": 0.75,
+            "priorDisplay": "0.0 dB",
+            "min": 0,
+            "max": 1,
+            "value": 1,
+            "display": "12.0 dB"
+          },
+          {
+            "name": "Type",
+            "prior": 0,
+            "priorDisplay": "Analog",
+            "min": 0,
+            "max": 3,
+            "value": 2,
+            "display": "Medium"
+          }
+        ]
+      },
+      "drive": 1,
+      "type": 2
+    },
+    {
+      "ok": true,
+      "result": {
+        "back": 2,
+        "moved": [],
+        "gone": []
+      },
+      "drive": 0.75,
+      "type": 0
+    },
+    {
+      "ok": false,
+      "error": "Live refused",
+      "drive": 0.75,
+      "type": 0
+    },
+    {
+      "ok": false,
+      "error": "the device changed: its parameter 1 is now Type",
+      "drive": 0.75,
+      "type": 0
+    },
+    {
+      "ok": false,
+      "error": "Live's references changed since Kumi read them; discover again",
+      "drive": 0.75,
+      "type": 0
+    },
+    {
+      "ok": true,
+      "result": [
+        {
+          "error": "that device isn't in Live any more; discover it again"
+        }
+      ],
+      "drive": 0.75,
+      "type": 0
+    },
+    {
+      "ok": false,
+      "error": "that device isn't in Live any more; discover it again",
+      "drive": 0.75,
+      "type": 0
+    },
+    {
+      "ok": false,
+      "error": "that device isn't in Live any more; discover it again",
+      "drive": 0.75,
+      "type": 0
+    },
+    {
+      "ok": true,
+      "result": {
+        "back": 0,
+        "moved": [],
+        "gone": [
+          "Input Gain",
+          "Drive"
+        ]
+      },
+      "drive": 0.75,
+      "type": 0
+    }
+  ],
+  "assets": {
+    "instructions": "4ae6e7843456d67c2c5bfdb81c4dc97dd0bd43ad4abf0a4e3004f177eb785eb1",
+    "display": "7b06021146373ec7f84fc817ff2515be40fd7b57c3963d038d3dfc162b1da6fc",
+    "fields": {
+      "set": [
+        "ref",
+        "parentRef",
+        "objectIdentity",
+        "name",
+        "tempo",
+        "playing",
+        "position",
+        "loop"
+      ],
+      "track": [
+        "ref",
+        "parentRef",
+        "objectIdentity",
+        "name",
+        "kind",
+        "mediaKind",
+        "armed",
+        "monitoringState",
+        "playingSlotIndex",
+        "firedSlotIndex",
+        "isSelected",
+        "color"
+      ],
+      "return-track": [
+        "ref",
+        "parentRef",
+        "objectIdentity",
+        "name",
+        "kind",
+        "mediaKind",
+        "color"
+      ],
+      "main-track": [
+        "ref",
+        "parentRef",
+        "objectIdentity",
+        "name",
+        "kind",
+        "mediaKind",
+        "color"
+      ],
+      "scene": [
+        "ref",
+        "parentRef",
+        "objectIdentity",
+        "name",
+        "index"
+      ],
+      "locator": [
+        "ref",
+        "parentRef",
+        "objectIdentity",
+        "name",
+        "position"
+      ],
+      "device": [
+        "ref",
+        "parentRef",
+        "objectIdentity",
+        "name",
+        "kind",
+        "className",
+        "enabled",
+        "canHaveChains",
+        "chainList"
+      ],
+      "parameter": [
+        "ref",
+        "parentRef",
+        "objectIdentity",
+        "name",
+        "value",
+        "min",
+        "max",
+        "displayValue",
+        "enabled",
+        "automatable"
+      ],
+      "clip-slot": [
+        "ref",
+        "parentRef",
+        "objectIdentity",
+        "name",
+        "sceneIndex",
+        "empty",
+        "clipRef"
+      ],
+      "session-clip": [
+        "ref",
+        "parentRef",
+        "objectIdentity",
+        "name",
+        "kind",
+        "start",
+        "length"
+      ],
+      "arrangement-clip": [
+        "ref",
+        "parentRef",
+        "objectIdentity",
+        "name",
+        "kind",
+        "start",
+        "length"
+      ],
+      "note": [
+        "ref",
+        "parentRef",
+        "id",
+        "pitch",
+        "start",
+        "duration",
+        "velocity",
+        "mute"
+      ],
+      "routing-choice": [
+        "ref",
+        "parentRef",
+        "objectIdentity",
+        "name",
+        "direction",
+        "type"
+      ],
+      "selection": [
+        "ref",
+        "selectedTrackRef",
+        "selectedSceneRef",
+        "highlightedClipSlotRef"
+      ],
+      "session-playback": [
+        "ref",
+        "epoch",
+        "revision",
+        "transport",
+        "firedTargets",
+        "playingTargets"
+      ]
+    },
+    "parents": {
+      "device": [
+        "track",
+        "return-track",
+        "main-track",
+        "device",
+        "chain"
+      ],
+      "parameter": [
+        "device",
+        "chain"
+      ],
+      "clip-slot": [
+        "track",
+        "return-track",
+        "main-track"
+      ],
+      "session-clip": [
+        "clip-slot"
+      ],
+      "arrangement-clip": [
+        "track",
+        "return-track",
+        "main-track"
+      ],
+      "note": [
+        "session-clip",
+        "arrangement-clip"
+      ],
+      "routing-choice": [
+        "track",
+        "return-track",
+        "main-track"
+      ]
+    }
+  }
+}

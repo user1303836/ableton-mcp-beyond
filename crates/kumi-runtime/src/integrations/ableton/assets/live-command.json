@@ -1,0 +1,226 @@
+{
+  "commands": {
+    "save": {
+      "titles": [
+        "Save Live Set",
+        "Save"
+      ],
+      "target": "none",
+      "done": "Saved the Set"
+    },
+    "collect_all_and_save": {
+      "titles": [
+        "Collect All and Save"
+      ],
+      "target": "none",
+      "done": "Collected all and saved the Set"
+    },
+    "group_tracks": {
+      "titles": [
+        "Group",
+        "Group Tracks"
+      ],
+      "target": "tracks",
+      "done": "Grouped"
+    },
+    "ungroup_tracks": {
+      "titles": [
+        "Ungroup",
+        "Ungroup Tracks"
+      ],
+      "target": "track",
+      "done": "Ungrouped"
+    },
+    "freeze_track": {
+      "titles": [
+        "Freeze Track",
+        "Unfreeze Track"
+      ],
+      "target": "track",
+      "done": "Froze"
+    },
+    "unfreeze_track": {
+      "titles": [
+        "Unfreeze Track",
+        "Freeze Track"
+      ],
+      "target": "track",
+      "done": "Unfroze"
+    },
+    "flatten_track": {
+      "titles": [
+        "Flatten Track",
+        "Flatten Tracks",
+        "Flatten"
+      ],
+      "target": "track",
+      "done": "Flattened"
+    },
+    "bounce_to_new_track": {
+      "titles": [
+        "Bounce to New Track",
+        "Bounce Track to New Track"
+      ],
+      "target": "track-or-clip",
+      "done": "Bounced to a new track"
+    },
+    "bounce_track_in_place": {
+      "titles": [
+        "Bounce Track in Place",
+        "Bounce Tracks in Place"
+      ],
+      "target": "track",
+      "done": "Bounced in place"
+    },
+    "paste_bounced_audio": {
+      "titles": [
+        "Paste Bounced Audio"
+      ],
+      "target": "track",
+      "done": "Pasted bounced audio"
+    },
+    "consolidate": {
+      "titles": [
+        "Consolidate"
+      ],
+      "target": "clip",
+      "done": "Consolidated"
+    },
+    "convert_melody_to_midi": {
+      "titles": [
+        "Convert Melody to New MIDI Track"
+      ],
+      "target": "clip",
+      "done": "Converted the melody to MIDI"
+    },
+    "convert_harmony_to_midi": {
+      "titles": [
+        "Convert Harmony to New MIDI Track"
+      ],
+      "target": "clip",
+      "done": "Converted the harmony to MIDI"
+    },
+    "convert_drums_to_midi": {
+      "titles": [
+        "Convert Drums to New MIDI Track"
+      ],
+      "target": "clip",
+      "done": "Converted the drums to MIDI"
+    },
+    "slice_to_midi_track": {
+      "titles": [
+        "Slice to New MIDI Track"
+      ],
+      "target": "clip",
+      "done": "Sliced to a new MIDI track",
+      "dialog": true
+    },
+    "separate_stems": {
+      "titles": [
+        "Separate Stems to New Audio Tracks",
+        "Separate Stems"
+      ],
+      "target": "clip",
+      "done": "Separated stems"
+    },
+    "export_audio": {
+      "titles": [
+        "Export Audio/Video",
+        "Export Audio"
+      ],
+      "target": "none",
+      "done": "Opened Export Audio/Video",
+      "dialog": true
+    },
+    "export_midi_clip": {
+      "titles": [
+        "Export MIDI Clip"
+      ],
+      "target": "clip",
+      "done": "Opened Export MIDI Clip",
+      "dialog": true
+    }
+  },
+  "description": "Use Live's own commands, through its menus and keys, for what your other tools can't do: group or ungroup tracks, freeze, unfreeze or flatten a track, bounce a track or clip to audio without playing it (bounce_to_new_track, bounce_track_in_place), consolidate, convert an audio clip to MIDI (melody, harmony, drums), separate stems, slice to a MIDI track, save the Set (or collect all and save), export audio or a MIDI clip. Give the command and what it works on (track, tracks side by side, or clip): Kumi selects it in Live, presses the command, and says what changed. For anything else Live's menus or keys do, give menu (the item's titles, [\"Create\", \"Insert Silence\"]) or keys ([\"cmd+e\"]). When Live opens a dialog, its words and buttons come back: answer presses one. Live comes to the front for a moment. Prefer your other tools whenever one does the job.",
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "command": {
+        "type": "string",
+        "enum": [
+          "save",
+          "collect_all_and_save",
+          "group_tracks",
+          "ungroup_tracks",
+          "freeze_track",
+          "unfreeze_track",
+          "flatten_track",
+          "bounce_to_new_track",
+          "bounce_track_in_place",
+          "paste_bounced_audio",
+          "consolidate",
+          "convert_melody_to_midi",
+          "convert_harmony_to_midi",
+          "convert_drums_to_midi",
+          "slice_to_midi_track",
+          "separate_stems",
+          "export_audio",
+          "export_midi_clip"
+        ],
+        "description": "One of Live's commands Kumi knows"
+      },
+      "track": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "description": "The track it works on (its reference from this turn, or its name)"
+      },
+      "tracks": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 64,
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "description": "Tracks side by side (to group them), first to last"
+      },
+      "clip": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "description": "The clip it works on: its clipRef from this turn (a Session clip), or \"selected\" for the one the producer selected in Live"
+      },
+      "menu": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 4,
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "description": "Any of Live's menu items by its titles, [\"Edit\", \"Freeze Track\"]"
+      },
+      "keys": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 16,
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "description": "Keys to press in Live, one combination each: \"cmd+shift+r\", \"down\""
+      },
+      "answer": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "description": "Press this button of the dialog Live has open (OK, Export, Cancel…)"
+      }
+    }
+  }
+}

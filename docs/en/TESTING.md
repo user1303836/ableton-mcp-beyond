@@ -7,16 +7,31 @@ CI runs. None of the ordinary tests need Live or a sign-in.
 
 ## Quick start
 
-From a checkout, with Node 22/24 (Node 24 LTS recommended):
+Native tests use Cargo. The isolated runner gives tests a temporary home:
 
 ```sh
-npm run setup                                   # install and build everything
-npm test                                        # Kumi: the app, the runtime and the Live extension
-(cd apps/mcp-server && npm test)                # the bridge
-python3 -m unittest discover -s remote-script -p 'test_*.py'   # the Remote Script
+cargo build --workspace --all-targets --locked
+sh scripts/test-isolated.sh                   # Windows: ./scripts/test-isolated.ps1
+python3 -m unittest discover -s remote-script -p 'test_*.py'
+python3 -m unittest discover -s scripts/tests -p 'test_*release.py'
 ```
 
-Some checks need more than Node:
+For the TypeScript parity reference, use Node 22 or 24:
+
+```sh
+npm ci
+npm run build
+npm ci --prefix apps/mcp-server
+npm run build --prefix apps/mcp-server
+npm test
+(cd apps/mcp-server && npm test)
+```
+
+`npm test` explicitly selects the unchanged TypeScript reference entrypoint. Ordinary npm
+start/setup commands use native Kumi. Migration tests run the old updater against native
+fixtures; installer CI also checks real native artifacts on supported systems.
+
+Additional tools:
 
 | Needs | For |
 | --- | --- |
@@ -36,7 +51,7 @@ Run from the repository root.
 | --- | --- |
 | `npm run typecheck` | Builds the runtime, then type-checks the app and the runtime |
 | `npm test` | Builds, then runs the app's, the runtime's and the Live extension's tests |
-| `KUMI_TEST_BRIDGE=1 npm test` | The same, with the bridge interoperability test required rather than skipped; build the bridge first (`npm run setup` does) |
+| `KUMI_TEST_BRIDGE=1 npm test` | The same, with the bridge interoperability test required rather than skipped; build the reference bridge first (`npm run build --prefix apps/mcp-server`) |
 
 `npm test` gives the tests a home of their own: `HOME`, `USERPROFILE`,
 `APPDATA`, `LOCALAPPDATA`, `XDG_CONFIG_HOME` and `KUMI_HOME` point into a fresh

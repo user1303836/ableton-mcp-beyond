@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const home = mkdtempSync(join(tmpdir(), "kumi-test-home-"));
-const env = { ...process.env, HOME: home, USERPROFILE: home, APPDATA: join(home, "AppData", "Roaming"), LOCALAPPDATA: join(home, "AppData", "Local"), XDG_CONFIG_HOME: join(home, ".config"), KUMI_HOME: join(home, ".kumi") };
+const env = { ...process.env, KUMI_REFERENCE_RUNTIME: "1", HOME: home, USERPROFILE: home, APPDATA: join(home, "AppData", "Roaming"), LOCALAPPDATA: join(home, "AppData", "Local"), XDG_CONFIG_HOME: join(home, ".config"), KUMI_HOME: join(home, ".kumi") };
 delete env.KUMI_REMOTE_SCRIPTS_DIR; delete env.KUMI_LIVE_EXTENSIONS_DIR;
 const run = spawnSync(process.execPath, ["--test", ...process.argv.slice(2)], { stdio: "inherit", env });
 rmSync(home, { recursive: true, force: true });

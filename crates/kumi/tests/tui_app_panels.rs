@@ -1,0 +1,633 @@
+#[path = "support/models.rs"]
+mod models;
+#[path = "support/tui_app.rs"]
+mod support;
+use futures::FutureExt;
+use kumi::{terminal::Terminal, tui::app::PanelTab};
+use models::FakeModels;
+use serde_json::json;
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
+use support::*;
+macro_rules! case {
+    ($name:ident,$body:expr) => {
+        #[tokio::test(flavor = "current_thread")]
+        async fn $name() {
+            tokio::task::LocalSet::new().run_until($body).await;
+        }
+    };
+}
+fn model_harness(m: Rc<FakeModels>, width: i32) -> Harness {
+    Harness::with(width, 40, Rc::new(Control::default()), |o| o.models = Some(m))
+}
+case!(missing_default_model_and_commands_over_picker, async {
+    let fake = FakeModels::catalog();
+    let h = model_harness(fake, 120);
+    h.start().await;
+    h.emit(json!({"type":"error","message":"ChatGPT doesn't offer gpt-6-astra to this sign-in (HTTP 404); choose another model.","kind":"model","provider":"openai-codex"}));
+    h.has("Choose another model?");
+    h.type_text("\r").await;
+    h.has("Choose a model");
+    h.close().await;
+    let fake = FakeModels::catalog();
+    *fake.model.borrow_mut() = None;
+    let h = model_harness(fake, 120);
+    h.start().await;
+    h.has("Kumi talks to GPT-6 Astra, ChatGPT's first choice. /model changes it.");
+    h.close().await;
+    let fake = FakeModels::catalog();
+    *fake.model.borrow_mut() = None;
+    fake.signed_in.borrow_mut().clear();
+    let h = model_harness(fake, 120);
+    h.start().await;
+    for s in
+        ["Sign in to a provider to talk to its models", "Choose a model", "Sign in to ChatGPT", "with your ChatGPT plan", "no model chosen"]
+    {
+        h.has(s)
+    }
+    h.type_text("/").await;
+    assert!(!has(&h.screen(), "Choose a model"));
+    h.has("Forget this conversation and start fresh");
+    h.type_text("help\r").await;
+    h.has("enter sends · ctrl+j or alt+enter starts a new line");
+    h.type_text("/model\r").await;
+    h.type_text("gpt-6/").await;
+    h.has("filter: gpt-6/");
+    h.close().await;
+});
+case!(chatgpt_browser_clipboard_success_and_cancel, async {
+    let fake = FakeModels::catalog();
+    *fake.model.borrow_mut() = None;
+    fake.signed_in.borrow_mut().clear();
+    let h = model_harness(fake.clone(), 120);
+    h.start().await;
+    h.type_text("\r").await;
+    for s in
+        ["Sign in to ChatGPT", "https://auth.example.test/oauth/authorize", "Waiting for the browser…", "c copies the link · esc to cancel"]
+    {
+        h.has(s)
+    }
+    let url = "https://auth.example.test/oauth/authorize?client=kumi&state=fixture";
+    assert_eq!(*h.browsed.borrow(), [url]);
+    h.type_text("c").await;
+    use base64::Engine;
+    assert!(h.output.text.borrow().contains(&format!("\x1b]52;c;{}\x07", base64::engine::general_purpose::STANDARD.encode(url))));
+    h.has("Copied the sign-in link.");
+    fake.finish_chatgpt.borrow_mut().take().unwrap().send(()).unwrap();
+    delay(10).await;
+    h.has("Signed in to ChatGPT.");
+    assert!(h.screen().iter().any(|s| s.contains("GPT-6 Astra") && s.contains("current")));
+    h.type_text("\x1b").await;
+    h.type_text("/login\r").await;
+    h.type_text("\r").await;
+    h.has("Waiting for the browser…");
+    h.type_text("\x1b").await;
+    assert!(!has(&h.screen(), "Waiting for the browser…"));
+    assert!(!has(&h.screen(), "didn't finish"));
+    h.close().await;
+});
+fn local_models() -> Rc<FakeModels> {
+    let m = FakeModels::catalog();
+    m.lists.borrow_mut().insert("ollama".into(),serde_json::from_value(json!([{ "id":"ollama/qwen3:8b","provider":"ollama","model":"qwen3:8b","name":"qwen3:8b","description":"8.2B · Q4_K_M · loaded","efforts":[],"tools":true,"loaded":true,"where":"on this computer"},{"id":"ollama/gemma3:4b","provider":"ollama","model":"gemma3:4b","name":"gemma3:4b","description":"4.3B · Q4_K_M · can't change the Set","efforts":[],"tools":false,"where":"on this computer"}])).unwrap());
+    *m.local.borrow_mut() = vec![
+        kumi::models::LocalStatus {
+            id: "ollama".into(),
+            name: "Ollama".into(),
+            r#where: "on this computer".into(),
+            running: true,
+            start: None,
+        },
+        kumi::models::LocalStatus {
+            id: "lmstudio".into(),
+            name: "LM Studio".into(),
+            r#where: "on this computer".into(),
+            running: false,
+            start: Some("Open LM Studio and start its server (Developer tab), or run: lms server start".into()),
+        },
+    ];
+    m.notes.borrow_mut().insert("ollama/gemma3:4b".into(),"gemma3:4b can't use tools, so Kumi can talk with it about your Set but can't change anything. qwen3:8b on Ollama can: /model chooses it.".into());
+    m
+}
+case!(local_models_choices_default_network_retry_and_closed_startup, async {
+    let fake = local_models();
+    let h = model_harness(fake.clone(), 140);
+    h.start().await;
+    h.type_text("/model\r").await;
+    h.type_text("computer").await;
+    for s in [
+        "Ollama · on this computer",
+        "8.2B · Q4_K_M · loaded",
+        "can't change the Set",
+        "LM Studio · on this computer",
+        "not running",
+        "Open LM Studio and start its server",
+    ] {
+        h.has(s)
+    }
+    assert!(!has(&h.screen(), "Sign in to LM Studio"));
+    assert!(!has(&h.screen(), "Sign in to Ollama"));
+    h.type_text("\x1b").await;
+    h.type_text("/model\r").await;
+    h.type_text("gemma\r").await;
+    assert!(fake.calls.borrow().contains(&"choose:ollama/gemma3:4b".into()));
+    h.has("Kumi talks to gemma3:4b from your next message.");
+    h.has("can't use tools");
+    assert!(h.screen()[0].contains("gemma3:4b"));
+    h.close().await;
+    let fake = local_models();
+    *fake.model.borrow_mut() = None;
+    fake.signed_in.borrow_mut().clear();
+    let h = model_harness(fake, 140);
+    h.start().await;
+    h.has("Kumi talks to qwen3:8b, in Ollama on this computer. /model changes it.");
+    assert!(!has(&h.screen(), "Choose a model"));
+    h.type_text("Tighten the kick\r").await;
+    h.emit(json!({"type":"state","state":"running"}));
+    h.emit(json!({"type":"error","message":"Ollama isn't running: open it, or run `ollama serve`, then send your message again.","kind":"network","provider":"ollama"}));
+    h.emit(json!({"type":"state","state":"idle"}));
+    for s in ["Ollama isn't running", "Send your message again?", "Send it again", "once Ollama is running"] {
+        h.has(s)
+    }
+    h.type_text("\r").await;
+    assert_eq!(h.calls().iter().filter(|s| s.starts_with("submit:")).count(), 2);
+    h.close().await;
+    let fake = local_models();
+    *fake.model.borrow_mut() = Some("ollama/qwen3:8b".into());
+    fake.local.borrow_mut()[0].running = false;
+    fake.local.borrow_mut()[0].start = Some("Open Ollama, or run: ollama serve".into());
+    let h = model_harness(fake, 140);
+    h.start().await;
+    h.has("Ollama isn't running, so qwen3:8b can't answer yet. Open Ollama, or run: ollama serve.");
+    assert!(!has(&h.screen(), "Sign in to"));
+    h.close().await;
+});
+case!(update_offers_checks_and_closes_after_confirmation, async {
+    let requested = Rc::new(Cell::new(0));
+    let unreachable = Rc::new(Cell::new(false));
+    let updates = kumi::update::UpdateControl {
+        current: "1.0.0".into(),
+        request: {
+            let r = requested.clone();
+            Rc::new(move || r.set(r.get() + 1))
+        },
+        check: {
+            let u = unreachable.clone();
+            Rc::new(move || {
+                let u = u.clone();
+                async move {
+                    if u.get() {
+                        Err(kumi_runtime::core::errors::RuntimeError::plain(
+                            "Kumi couldn't reach GitHub to ask; check your internet connection",
+                        ))
+                    } else {
+                        Ok(None)
+                    }
+                }
+                .boxed_local()
+            })
+        },
+    };
+    let h = Harness::with(120, 36, Rc::new(Control::default()), |o| o.updates = Some(updates.clone()));
+    h.start().await;
+    h.connect();
+    h.type_text("/update\r").await;
+    h.has("Kumi is up to date (1.0.0).");
+    unreachable.set(true);
+    h.type_text("/update\r").await;
+    h.has("Kumi couldn't reach GitHub to ask");
+    h.has("/update again later.");
+    h.app.offer_update("1.1.0");
+    h.has("Kumi 1.1.0 is out: /update gets it.");
+    h.close().await;
+    assert_eq!(requested.get(), 0);
+    unreachable.set(false);
+    let h = Harness::with(120, 36, Rc::new(Control::default()), |o| o.updates = Some(updates));
+    let done = h.app.run();
+    delay(5).await;
+    h.connect();
+    h.app.offer_update("1.1.0");
+    h.has("Kumi 1.1.0 is out · /update gets it");
+    h.has("Kumi can see Night Drive.");
+    h.type_text("/update\r").await;
+    h.has("Update to Kumi 1.1.0?");
+    h.has("Kumi closes, updates and opens again");
+    h.type_text("\x1b[B\r").await;
+    assert!(!has(&h.screen(), "Update to Kumi 1.1.0?"));
+    assert_eq!(requested.get(), 0);
+    h.type_text("/update\r").await;
+    h.type_text("\r").await;
+    assert_eq!(done.await, 0);
+    assert_eq!(requested.get(), 1);
+    h.close().await;
+    let h = Harness::new(120, 36);
+    h.start().await;
+    h.type_text("/upd").await;
+    assert!(!has(&h.screen(), "Get the newest Kumi"));
+    h.close().await;
+});
+case!(memory_notes_techniques_recipes_and_taste, async {
+    let c = Rc::new(Control::default());
+    *c.memory.borrow_mut()=Some(serde_json::from_value(json!({"producer":[{"id":"p1","text":"Prefers short, dark reverbs","at":1}],"set":[{"id":"s1","text":"The Reese is the main bass","at":2}],"setName":"Night Drive","saved":true})).unwrap());
+    c.set("forgot", json!({"id":"s1","text":"The Reese is the main bass","at":2}));
+    let h = Harness::with(120, 36, c.clone(), |_| {});
+    h.start().await;
+    h.connect();
+    h.type_text("/memory\r").await;
+    for s in ["What Kumi remembers", "About you", "Prefers short, dark reverbs", "About Night Drive", "The Reese is the main bass"] {
+        h.has(s)
+    }
+    h.type_text("\x1b[B\r").await;
+    h.has("Forget this note?");
+    h.type_text("\r").await;
+    assert!(h.calls().contains(&"forget:s1".into()));
+    assert!(!has(&h.screen(), "Forget this note?"));
+    h.close().await;
+    c.set("techniques", json!([{"id":"t1","name":"Neuro from a Reese","fits":"gritty, moving neuro basses","source":"Au5 · Neuro bass"}]));
+    c.set("recipes", json!([{"name":"Drum bus","about":"a return with glue compression","params":[],"steps":3,"used":0,"created":1}]));
+    let h = Harness::with(120, 36, c.clone(), |_| {});
+    h.start().await;
+    h.connect();
+    h.type_text("/memory\r").await;
+    for s in ["What Kumi remembers · notes, techniques and recipes", "Techniques", "Neuro from a Reese", "Recipes", "Drum bus"] {
+        h.has(s)
+    }
+    h.type_text("techn\r").await;
+    h.has("Forget this technique?");
+    h.type_text("\r").await;
+    assert!(h.calls().contains(&"forget-technique:t1".into()));
+    h.close().await;
+    let c = Rc::new(Control::default());
+    *c.memory.borrow_mut() = Some(serde_json::from_value(json!({"producer":[],"set":[],"saved":true,"setName":"Night Drive"})).unwrap());
+    *c.library.borrow_mut() =
+        Some(serde_json::from_value(json!({"state":"learning","sounds":120,"presets":40,"sets":3,"todo":900,"done":120})).unwrap());
+    c.set("taste",json!([{"id":"chain-vocal","line":"Vocals: EQ Eight → Compressor → Reverb (on 4 of 4 vocal tracks)"},{"id":"tempo","line":"Tempo: usually 124–126 BPM"}]));
+    let h = Harness::with(240, 36, c, |_| {});
+    h.start().await;
+    h.connect();
+    h.has("Learning your library in the background · 120 of 900 sounds");
+    *h.control.library.borrow_mut() =
+        Some(serde_json::from_value(json!({"state":"ready","sounds":1020,"presets":40,"sets":3,"learnedAt":1})).unwrap());
+    h.emit(json!({"type":"library","status":{"state":"ready","sounds":1020,"presets":40,"sets":3,"learnedAt":1}}));
+    h.has("Your library: 1,020 sounds · 40 presets · 3 Sets");
+    h.type_text("/status\r").await;
+    h.has("· Your library: 1,020 sounds · 40 presets · 3 Sets");
+    h.type_text("/memory\r").await;
+    for s in ["From your Sets", "Vocals: EQ Eight → Compressor → Reverb (on 4 of 4 vocal tracks)", "Tempo: usually 124–126 BPM"] {
+        h.has(s)
+    }
+    h.type_text("vocals\r").await;
+    h.has("Forget this, from your Sets?");
+    h.type_text("\r").await;
+    assert!(h.calls().contains(&"forget-taste:chain-vocal".into()));
+    h.has("Forgot, from your Sets: Vocals: EQ Eight → Compressor → Reverb");
+    h.close().await;
+    let h = Harness::new(160, 36);
+    h.start().await;
+    h.connect();
+    h.emit(json!({"type":"notice","message":"Continuing your conversation from 2 hours ago. /new starts fresh."}));
+    for done in [0, 1] {
+        h.emit(json!({"type":"library","status":{"state":"learning","sounds":done,"presets":0,"sets":0,"todo":10,"done":done}}));
+    }
+    assert_eq!(h.screen().iter().filter(|s| s.contains("Learning your library in the background…")).count(), 1);
+    h.close().await;
+});
+case!(recipes_run_and_fill_blanks, async {
+    let c = Rc::new(Control::default());
+    c.set("recipes",json!([{"name":"Drum bus","about":"Glue, saturation and a short room on a new return","params":[],"steps":3,"used":2,"lastUsed":kumi_common::time::now_ms()-86400000,"created":1},{"name":"Resample twice","about":"OTT and Saturator, then Grain Delay","params":[{"name":"track","about":"the track to resample"}],"steps":6,"used":0,"created":2}]));
+    c.set("recipe-result", json!({"text":"Done:\n- Added return track “Drum Bus”","isError":false}));
+    let h = Harness::with(120, 36, c, |_| {});
+    h.start().await;
+    h.connect();
+    h.type_text("/recipes\r").await;
+    for s in ["Your recipes", "Drum bus", "Resample twice", "used 1 day ago"] {
+        h.has(s)
+    }
+    h.type_text("\r").await;
+    h.has("Run it now");
+    h.type_text("\r").await;
+    assert!(h.calls().contains(&"run-recipe:Drum bus".into()));
+    h.has("Added return track “Drum Bus”");
+    h.type_text("/recipes\r").await;
+    h.type_text("\x1b[B\r").await;
+    h.has("Run it on…");
+    h.has("Kumi needs: the track to resample");
+    h.type_text("\r").await;
+    h.has("Run my recipe “Resample twice” on");
+    h.emit(json!({"type":"recipe","action":"saved","name":"Vocal chain","steps":4}));
+    h.has("↻ Saved a recipe: Vocal chain (4 steps)");
+    h.close().await;
+});
+case!(goal_dashboard_and_aside_panel, async {
+    let c = Rc::new(Control::default());
+    c.set("goal", json!(true));
+    let h = Harness::with(140, 40, c, |_| {});
+    h.start().await;
+    h.connect();
+    h.type_text("/goal make my pad sound like ~/ref.wav\r").await;
+    assert!(h.calls().contains(&"goal:make my pad sound like ~/ref.wav".into()));
+    h.emit(json!({"type":"state","state":"running"}));
+    h.emit(json!({"type":"goal","state":"running","goal":"make my pad sound like ~/ref.wav","generation":12,"rendered":36,"trend":[58,58,61,64,64,70,71,71,74,76,76,81],"first":58,"best":{"label":"Collision","score":81},"leader":"Collision · Collision → Delay → Limiter","idea":"Tried a Collision with parallel delays.","elapsedMs":185000,"candidates":3}));
+    for s in [
+        "GOAL",
+        "searching · gen 12 · 36 heard · 3",
+        "candidates · 3:05",
+        "81% from 58%",
+        "best  Collision · Collision → Delay →",
+        "tried  Tried a Collision with parallel",
+        "goal · 81% · gen 12 · 3:05",
+    ] {
+        h.has(s)
+    }
+    assert!(regex::Regex::new("▁.*█").unwrap().is_match(&h.screen().join("\n")));
+    h.type_text("/goal stop\r").await;
+    assert!(h.calls().contains(&"stop-goal".into()));
+    h.emit(json!({"type":"goal","state":"done","goal":"make my pad sound like ~/ref.wav","generation":13,"rendered":39,"trend":[58,81],"first":58,"best":{"label":"Collision","score":81},"elapsedMs":200000,"candidates":3,"bestTrack":"Kumi · Goal best","why":"stopped"}));
+    h.emit(json!({"type":"state","state":"idle"}));
+    h.has("done · stopped · gen 13");
+    h.has("kept on  Kumi · Goal best");
+    assert!(!has(&h.screen(), "goal · 81%"));
+    h.close().await;
+    let c = Rc::new(Control::default());
+    c.set("aside", json!("Erbe-Verb's tail runs **up to a minute**."));
+    let release = kumi_common::abort::Signal::new();
+    *c.aside_gate.borrow_mut() = Some(release.clone());
+    let h = Harness::with(120, 36, c, |_| {});
+    h.start().await;
+    h.connect();
+    h.type_text("build me a reverb\r").await;
+    h.emit(json!({"type":"state","state":"running"}));
+    h.emit(json!({"type":"tool-start","id":"t1","name":"make_device"}));
+    h.type_text("/btw how long can its tail be?\r").await;
+    assert!(h.calls().contains(&"aside:how long can its tail be?".into()));
+    for s in ["btw · how long can its tail be?", "Erbe-Verb's tail runs up to a minute.", "making a device"] {
+        h.has(s)
+    }
+    release.cancel();
+    delay(5).await;
+    h.type_text("\x1b").await;
+    assert!(!has(&h.screen(), "btw ·"));
+    assert!(!has(&h.screen(), "up to a minute"));
+    assert!(!h.calls().iter().any(|s| s.starts_with("submit:") && s.contains("tail")));
+    h.type_text("/btw\r").await;
+    h.has("up to a minute");
+    h.close().await;
+});
+struct Stub;
+impl kumi::tui::tabs::Tab for Stub {
+    fn id(&self) -> &str {
+        "stub"
+    }
+    fn title(&self) -> &str {
+        "STUB"
+    }
+    fn rows(&self, _: i32) -> Vec<kumi::tui::tabs::TabRow> {
+        vec![kumi::tui::tabs::TabRow { spans: vec![kumi::tui::wrap::Span::styled("stub row", Default::default())], ..Default::default() }]
+    }
+}
+fn strip(lines: &[String]) -> usize {
+    lines.iter().position(|s| s.contains("HISTORY") && s.contains("───")).unwrap()
+}
+case!(tab_area_anchor_custom_tabs_and_remembered_selection, async {
+    for rows in [24, 36, 50] {
+        let h = Harness::new(120, rows);
+        h.start().await;
+        h.connect();
+        let lines = h.screen();
+        let pane = rows - 1;
+        let bottom = (pane / 2).max(7).min(pane - 8);
+        assert_eq!(strip(&lines) as i32, 1 + pane - bottom);
+        assert!(lines.iter().position(|s| s.contains("NOW")).unwrap() < strip(&lines));
+        h.has("Nothing changed yet");
+        h.close().await;
+    }
+    let saved = Rc::new(RefCell::new(None::<String>));
+    let options = |o: &mut kumi::tui::app::TuiOptions| {
+        o.tabs = vec![Rc::new(Stub)];
+        let s = saved.clone();
+        let t = saved.clone();
+        o.panel_tab =
+            Some(PanelTab { load: Rc::new(move || s.borrow().clone()), save: Rc::new(move |id| *t.borrow_mut() = Some(id.into())) });
+    };
+    let h = Harness::with(120, 36, Rc::new(Control::default()), options);
+    h.start().await;
+    h.connect();
+    let lines = h.screen();
+    let row = strip(&lines);
+    assert!(lines[row].contains("STUB"));
+    h.type_text(&click(&lines, row, "STUB")).await;
+    assert!(h.screen()[row + 1].contains("stub row"));
+    assert_eq!(saved.borrow().as_deref(), Some("stub"));
+    h.type_text("\x1b[Z").await;
+    h.type_text("\x1b[Z").await;
+    h.has("Nothing changed yet");
+    assert_eq!(saved.borrow().as_deref(), Some("history"));
+    h.close().await;
+    *saved.borrow_mut() = Some("stub".into());
+    let h = Harness::with(120, 36, Rc::new(Control::default()), options);
+    h.start().await;
+    h.connect();
+    assert!(h.screen()[row + 1].contains("stub row"));
+    h.close().await;
+});
+case!(usage_status_api_plan_and_conversation_picker, async {
+    for keyed in [true, false] {
+        let m = FakeModels::catalog();
+        if keyed {
+            *m.model.borrow_mut() = Some("anthropic/claude-sonnet-5-5".into());
+            m.signed_in.borrow_mut().insert(kumi_runtime::providers::ProviderId::Anthropic);
+        }
+        let h = model_harness(m, 240);
+        h.start().await;
+        for usage in [
+            json!({"inputTokens":9000,"outputTokens":700,"cacheReadTokens":6000,"cacheWriteTokens":0}),
+            json!({"inputTokens":4500,"outputTokens":520,"cacheReadTokens":2000,"cacheWriteTokens":0}),
+        ] {
+            h.emit(json!({"type":"turn-complete","result":{"stopReason":"completed","usage":usage},"elapsedMs":900}));
+        }
+        h.type_text("/status\r").await;
+        if keyed {
+            h.has("this session: 13.5k tokens in (8.0k cached), 1.2k out")
+        } else {
+            assert!(!has(&h.screen(), "tokens in"))
+        }
+        h.close().await;
+    }
+    let c = Rc::new(Control::default());
+    *c.conversations.borrow_mut()=serde_json::from_value(json!([{"id":"now001","savedAt":kumi_common::time::now_ms(),"first":"add a hi-hat groove","turns":2,"current":true},{"id":"old001","savedAt":kumi_common::time::now_ms()-2*3600000,"first":"make the bass wider","turns":5,"current":false}])).unwrap();
+    let h = Harness::with(120, 36, c, |_| {});
+    h.start().await;
+    h.connect();
+    h.type_text("/conversations\r").await;
+    h.has("Conversations about Night Drive");
+    assert!(h.screen().iter().any(|s| s.contains("add a hi-hat groove") && s.contains("this one · 2 requests")));
+    assert!(h.screen().iter().any(|s| s.contains("make the bass wider") && s.contains("2 hours ago · 5 requests")));
+    h.type_text("\x1b[B\r").await;
+    assert!(h.calls().contains(&"resume:old001".into()));
+    h.emit(json!({"type":"resumed","savedAt":kumi_common::time::now_ms()-2*3600000,"chosen":true,"lines":[{"role":"user","text":"make the bass wider"},{"role":"assistant","text":"Widened it to 140%."}],"changes":[{"id":"old001:c4","family":"mixer","title":"Bass width 100% → 140%","state":"expired","note":"From an earlier session, so Kumi can't undo it now.","at":1}]}));
+    h.has("Back to your conversation from 2 hours ago");
+    h.has("Widened it to 140%.");
+    assert!(h.screen().iter().any(|s| s.contains("Bass width") && s.contains("no undo")));
+    h.close().await;
+});
+case!(memory_rows_forget_and_use, async {
+    let c = Rc::new(Control::default());
+    *c.memory.borrow_mut() = Some(serde_json::from_value(json!({"producer":[],"set":[],"saved":true})).unwrap());
+    c.set("recipes", json!([]));
+    c.set("techniques", json!([]));
+    let h = Harness::with(120, 36, c, |_| {});
+    h.start().await;
+    h.connect();
+    h.emit(json!({"type":"technique","action":"kept","technique":{"id":"t1","name":"Neuro from a Reese","fits":"gritty neuro basses","source":"Au5 · Neuro bass"}}));
+    h.has("◆ Kept a technique: Neuro from a Reese");
+    let lines = h.screen();
+    let now = lines.iter().position(|s| s.contains("NOW")).unwrap();
+    assert!(lines[now + 1].contains("◆ Kept a technique: Neuro"));
+    h.emit(json!({"type":"remembered","scope":"producer","note":{"id":"p1","text":"Prefers short reverbs","at":1}}));
+    h.emit(json!({"type":"recipe","action":"saved","name":"Drum bus","steps":3}));
+    h.has("✎ Noted about you: Prefers short reverbs");
+    h.has("↻ Saved a recipe: Drum bus (3 steps)");
+    let lines = h.screen();
+    let row = strip(&lines);
+    assert!(lines[row + 1].contains("↻ Drum bus") && lines[row + 1].contains("forget"));
+    assert!(lines[row + 2].contains("✎ Prefers short reverbs"));
+    assert!(lines[row + 3].contains("◆ Neuro from a Reese"));
+    h.type_text(&click(&lines, row + 3, "forget")).await;
+    assert!(h.calls().contains(&"forget-technique:t1".into()));
+    h.emit(json!({"type":"technique","action":"forgot","technique":{"id":"t1","name":"Neuro from a Reese","fits":"gritty neuro basses"}}));
+    assert!(h.screen()[row + 3].contains("forgotten"));
+    h.has("◆ Forgot the technique: Neuro from a Reese");
+    h.type_text(&click(&h.screen(), row + 2, "forget")).await;
+    h.has("That was already gone.");
+    h.emit(json!({"type":"technique","action":"used","technique":{"id":"t2","name":"Parallel drum crush","fits":"punchy drums"}}));
+    h.has("◆ Using your technique: Parallel drum crush");
+    h.close().await;
+});
+case!(stop_live_and_held_cancel_refusal, async {
+    let c = Rc::new(Control::default());
+    c.stop.set(true);
+    let h = Harness::with(120, 36, c.clone(), |_| {});
+    h.start().await;
+    h.connect();
+    h.emit(json!({"type":"state","state":"running"}));
+    h.type_text("/stop\r").await;
+    h.has("■ Stopped");
+    assert!(h.calls().contains(&"cancel".into()));
+    h.emit(json!({"type":"state","state":"idle"}));
+    c.set("stop-result", json!(false));
+    h.type_text("/stop\r").await;
+    h.has("press space in Live");
+    h.emit(json!({"type":"connection","state":"disconnected"}));
+    h.type_text("/stop\r").await;
+    assert_eq!(h.calls().iter().filter(|s| s.as_str() == "stop-live").count(), 2);
+    h.close().await;
+    let c = Rc::new(Control::default());
+    c.set("cancel-idle", json!(true));
+    let h = Harness::with(120, 36, c.clone(), |_| {});
+    h.start().await;
+    h.connect();
+    h.emit(json!({"type":"state","state":"running"}));
+    h.type_text("make the bass louder\r").await;
+    h.has("↳ make the bass louder");
+    h.type_text("\x1b").await;
+    assert!(h.calls().contains(&"cancel".into()));
+    assert!(!h.calls().iter().any(|s| s.starts_with("submit:")));
+    h.has("make the bass louder");
+    assert!(!has(&h.screen(), "↳ make the bass louder"));
+    h.type_text("\x15").await;
+    h.emit(json!({"type":"state","state":"running"}));
+    h.type_text("too long, say\r").await;
+    c.set("submit-error", json!("Enter a nonempty prompt of at most 16 KiB"));
+    h.emit(json!({"type":"state","state":"idle"}));
+    delay(10).await;
+    h.has("at most 16 KiB");
+    h.has("too long, say");
+    assert!(!has(&h.screen(), "↳ too long, say"));
+    h.close().await;
+});
+case!(reconnect_refused_undo_and_narrow_undo, async {
+    let c = Rc::new(Control::default());
+    c.set("reconnect", json!(true));
+    let h = Harness::with(120, 36, c, |_| {});
+    h.start().await;
+    h.connect();
+    h.emit(json!({"type":"change","change":{"id":"c5","family":"tempo","title":"Tempo 120 → 126 BPM","state":"applied","at":1}}));
+    h.type_text("/reconnect\r").await;
+    assert!(h.calls().contains(&"reconnect".into()));
+    assert!(h.screen().iter().any(|s| s.contains("Tempo 120 → 126 BPM") && s.contains("no undo")));
+    let change = json!({"id":"c7","family":"rename","title":"Renamed track “Bass” → “Sub”","state":"applied","at":1});
+    h.emit(json!({"type":"change","change":change}));
+    let mut kept = change;
+    kept["state"] = json!("kept");
+    kept["note"] = json!("It changed in Live since, so Kumi left it as it is.");
+    *h.control.undo.borrow_mut() = Some(serde_json::from_value(kept).unwrap());
+    h.type_text("/undo\r").await;
+    assert!(h.calls().contains(&"undo:last".into()));
+    h.has("Kept: Renamed track “Bass” → “Sub”.");
+    h.has("It changed in Live since");
+    assert!(h.screen().iter().any(|s| s.contains("Renamed track “Bass” → “Sub”") && s.contains("kept")));
+    h.close().await;
+    let h = Harness::new(80, 24);
+    h.start().await;
+    h.connect();
+    let change = json!({"id":"c3","family":"tempo","title":"Tempo 120 → 130 BPM","state":"applied","at":1});
+    h.emit(json!({"type":"change","change":change}));
+    let mut undone = change;
+    undone["state"] = json!("undone");
+    *h.control.undo.borrow_mut() = Some(serde_json::from_value(undone).unwrap());
+    let lines = h.screen();
+    let row = lines.iter().position(|s| s.contains("Tempo 120 → 130 BPM") && s.contains("undo")).unwrap();
+    h.type_text(&click(&lines, row, "undo")).await;
+    assert!(h.calls().contains(&"undo:c3".into()));
+    h.close().await;
+});
+case!(history_scroll_mouse_keyboard_and_badges, async {
+    let h = Harness::new(120, 36);
+    h.start().await;
+    h.connect();
+    for i in 1..=40 {
+        h.emit(json!({"type":"change","change":{"id":format!("c{i}"),"family":"tempo","title":format!("Tempo change {i}"),"state":"applied","at":i}}));
+    }
+    let lines = h.screen();
+    let row = strip(&lines);
+    assert!(lines[row].contains("HISTORY 40"));
+    assert!(lines[row + 1].contains("Tempo change 40"));
+    assert!(regex::Regex::new("↓ [0-9]+ more").unwrap().is_match(&lines.join("\n")));
+    let x = lines[row].find("HISTORY").unwrap() + 2;
+    h.type_text(&format!("\x1b[<65;{x};{}M", row + 4)).await;
+    let lines = h.screen();
+    assert!(lines[row + 1].contains("↑ 4 more"));
+    assert!(lines[row + 2].contains("Tempo change 36"));
+    h.emit(json!({"type":"change","change":{"id":"c41","family":"tempo","title":"Tempo change 41","state":"applied","at":41}}));
+    assert!(h.screen()[row + 2].contains("Tempo change 36"));
+    *h.control.undo.borrow_mut() =
+        Some(serde_json::from_value(json!({"id":"c36","family":"tempo","title":"Tempo change 36","state":"undone","at":36})).unwrap());
+    h.type_text(&click(&h.screen(), row + 2, "undo")).await;
+    assert!(h.calls().contains(&"undo:c36".into()));
+    *h.control.undo.borrow_mut() =
+        Some(serde_json::from_value(json!({"id":"c35","family":"tempo","title":"Tempo change 35","state":"undone","at":35})).unwrap());
+    h.type_text("\x1b[Z").await;
+    h.type_text("\x1b[B").await;
+    h.type_text("\r").await;
+    assert!(h.calls().contains(&"undo:c35".into()));
+    h.type_text("\x1b").await;
+    h.type_text("x").await;
+    h.has("x");
+    h.close().await;
+    let c = Rc::new(Control::default());
+    *c.tree.borrow_mut() = Some(
+        serde_json::from_value(
+            json!({"trackRef":"3:track:3","devices":[{"ref":"a","name":"Saturator","className":"Saturator","deviceType":"audio_effect"}]}),
+        )
+        .unwrap(),
+    );
+    let h = Harness::with(120, 36, c, |o| o.icons = Some(kumi::tui::icons::IconStyle::Badges));
+    h.start().await;
+    h.connect();
+    h.emit(json!({"type":"focus","focus":{"track":{"name":"4-Audio","kind":"audio"},"trackRef":"3:track:3","device":"Saturator","detail":"Device"}}));
+    delay(5).await;
+    h.has("AT 4-Audio");
+    h.has("└ FX Saturator");
+    h.close().await;
+});

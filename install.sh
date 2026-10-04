@@ -3,7 +3,7 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/user1303836/kumi/main/install.sh | sh
 #
-# It puts Kumi and its own copy of Node in ~/.kumi (no admin rights, nothing outside your home folder),
+# It puts native Kumi in ~/.kumi (no admin rights, nothing outside your home folder),
 # adds ~/.kumi/bin to your PATH, and checks every download against its published checksum. Running it
 # again updates or repairs Kumi. Your settings, sign-ins and conversations in ~/.kumi are never touched.
 #
@@ -37,22 +37,24 @@ main() {
     Darwin) platform="darwin" ;;
     Linux) platform="linux"
       if [ -f /etc/alpine-release ] || ldd --version 2>&1 | grep -qi musl; then
-        fail "this Linux uses musl (Alpine), which Kumi's Node doesn't support."
+        fail "this Linux uses musl (Alpine), which this Kumi release doesn't support."
       fi ;;
     MINGW*|MSYS*|CYGWIN*) fail "on Windows, open PowerShell and run: irm https://raw.githubusercontent.com/user1303836/kumi/main/install.ps1 | iex" ;;
     *) fail "Kumi runs on macOS and Windows (and Linux); this is $os." ;;
   esac
-  # A Terminal running under Rosetta says x86_64 on an Apple Silicon Mac; Kumi wants the native Node.
+  # A Terminal running under Rosetta says x86_64 on an Apple Silicon Mac; Kumi uses the native architecture.
   if [ "$platform" = "darwin" ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" = "1" ]; then arch="arm64"; fi
   case "$arch" in
-    arm64|aarch64) arch="arm64" ;;
-    x86_64|amd64) arch="x64" ;;
-    *) fail "this processor ($arch) isn't one Kumi's Node is made for." ;;
+    arm64|aarch64) arch="aarch64" ;;
+    x86_64|amd64) arch="x86_64" ;;
+    *) fail "this processor ($arch) isn't supported by this Kumi release." ;;
   esac
   if [ "$platform" = "darwin" ]; then
     macos="$(sw_vers -productVersion 2>/dev/null || echo 0)"
     if [ "${macos%%.*}" -lt 13 ] 2>/dev/null; then fail "Kumi needs macOS 13 (Ventura) or later; this Mac has macOS $macos."; fi
   fi
+
+  if [ "$platform" = "darwin" ]; then target="$arch-apple-darwin"; else target="$arch-unknown-linux-gnu"; fi
 
   # ── Tools it needs (every Mac has them) ────────────────────────────────
   if command -v curl >/dev/null 2>&1; then
@@ -76,40 +78,25 @@ main() {
 
   # ── Which Kumi ─────────────────────────────────────────────────────────
   step "Finding the latest Kumi…"
-  fetch "$base/kumi-release.json" "$work/release.json"; got=$?
+  fetch "$base/kumi-release-$target.json" "$work/release.json"; got=$?
   if [ "$got" -ne 0 ]; then
     # curl -f exits 22, and wget 8, when the server answered with an error (no release there) rather than not at all.
     if [ "$got" -eq 22 ] || [ "$got" -eq 8 ]; then fail "there's no Kumi release to install at ${base#https://} yet. Try again later."; fi
     fail "couldn't reach GitHub ($base). Check your internet connection and try again."
   fi
   field() { sed -n "s/.*\"$1\" *: *\"\\([^\"]*\\)\".*/\\1/p" "$work/release.json" | head -n 1; }
-  kumi_version="$(field kumi)"; bundle="$(field bundle)"; bundle_sha="$(field sha256)"; node_version="$(field node)"
-  [ -n "$kumi_version" ] && [ -n "$bundle" ] && [ -n "$bundle_sha" ] && [ -n "$node_version" ] || fail "the release description didn't make sense; try again later."
-
-  # ── Kumi's own Node ────────────────────────────────────────────────────
-  node_dir="$KUMI_HOME/node"
-  if [ -x "$node_dir/bin/node" ] && [ "$("$node_dir/bin/node" --version 2>/dev/null)" = "v$node_version" ]; then
-    step "Node $node_version is already here."
-  else
-    step "Downloading Node $node_version for Kumi (about 50 MB, once)…"
-    node_name="node-v$node_version-$platform-$arch"
-    fetch "https://nodejs.org/dist/v$node_version/SHASUMS256.txt" "$work/SHASUMS256.txt" || fail "couldn't reach nodejs.org. Check your internet connection and try again."
-    fetch "https://nodejs.org/dist/v$node_version/$node_name.tar.gz" "$work/node.tar.gz" || fail "couldn't download Node from nodejs.org."
-    want="$(grep " $node_name.tar.gz\$" "$work/SHASUMS256.txt" | cut -d' ' -f1)"
-    [ -n "$want" ] && [ "$(sha "$work/node.tar.gz")" = "$want" ] || fail "Node's download didn't match its checksum, so it wasn't used. Try again."
-    mkdir -p "$work/node" && tar -xzf "$work/node.tar.gz" -C "$work/node" || fail "couldn't unpack Node."
-    "$work/node/$node_name/bin/node" --version >/dev/null 2>&1 || fail "Node $node_version won't run on this computer (it may be too old for it)."
-    rm -rf "$node_dir.previous"; [ -d "$node_dir" ] && mv "$node_dir" "$node_dir.previous"
-    mv "$work/node/$node_name" "$node_dir" || { [ -d "$node_dir.previous" ] && mv "$node_dir.previous" "$node_dir"; fail "couldn't put Node in place."; }
-    rm -rf "$node_dir.previous"
-  fi
+  kumi_version="$(field kumi)"; bundle="$(field bundle)"; bundle_sha="$(field sha256)"
+  [ "$(field runtime)" = "rust-native" ] && [ "$(field target)" = "$target" ] || fail "the release doesn't match this computer."
+  printf '%s\n' "$kumi_version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9_.]+)?$' || fail "the release version didn't make sense."
+  printf '%s\n' "$bundle" | grep -Eq '^[A-Za-z0-9_.-]+\.tar\.gz$' || fail "the release archive name didn't make sense."
+  printf '%s\n' "$bundle_sha" | grep -Eq '^[0-9a-f]{64}$' || fail "the release checksum didn't make sense."
 
   # ── Kumi ───────────────────────────────────────────────────────────────
   step "Downloading Kumi ${kumi_version}…"
   fetch "$base/$bundle" "$work/kumi.tar.gz" || fail "couldn't download Kumi from GitHub."
   [ "$(sha "$work/kumi.tar.gz")" = "$bundle_sha" ] || fail "Kumi's download didn't match its checksum, so it wasn't used. Try again."
   mkdir -p "$work/app" && tar -xzf "$work/kumi.tar.gz" -C "$work/app" || fail "couldn't unpack Kumi."
-  KUMI_INSTALLED=1 KUMI_HOME="$KUMI_HOME" "$node_dir/bin/node" "$work/app/apps/kumi/bin/kumi.mjs" --version >/dev/null 2>&1 || fail "the downloaded Kumi didn't start. Please report this at github.com/user1303836/kumi/issues."
+  KUMI_INSTALLED=1 KUMI_HOME="$KUMI_HOME" "$work/app/kumi" --version >/dev/null 2>&1 || fail "the downloaded Kumi didn't start. Please report this at github.com/user1303836/kumi/issues."
   app="$KUMI_HOME/app"
   rm -rf "$app.previous"; [ -d "$app" ] && mv "$app" "$app.previous"
   mv "$work/app" "$app" || { [ -d "$app.previous" ] && mv "$app.previous" "$app"; fail "couldn't put Kumi in place."; }
@@ -118,9 +105,11 @@ main() {
   mkdir -p "$KUMI_HOME/bin"
   cat > "$KUMI_HOME/bin/kumi" <<'LAUNCHER'
 #!/bin/sh
-# Kumi's launcher, written by its installer: Kumi runs on its own Node, whatever Node this computer has.
 KUMI_HOME="${KUMI_HOME:-$(cd "$(dirname "$0")/.." && pwd)}"
 export KUMI_HOME KUMI_INSTALLED=1
+if [ -x "$KUMI_HOME/app/kumi" ]; then
+  exec "$KUMI_HOME/app/kumi" "$@"
+fi
 exec "$KUMI_HOME/node/bin/node" "$KUMI_HOME/app/apps/kumi/bin/kumi.mjs" "$@"
 LAUNCHER
   chmod 755 "$KUMI_HOME/bin/kumi"

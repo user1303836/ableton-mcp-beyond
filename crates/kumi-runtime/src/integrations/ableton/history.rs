@@ -1,0 +1,558 @@
+//! Live change records, guarded undo, grouped HISTORY, and quiet audition steps.
+use super::{
+    changes::{next_change_id, undo_note, EMERGENCY_STOP},
+    connection::LiveConnection,
+    context,
+    fast::revert_script,
+    observation::ObservedChange,
+    remember::Remember,
+    views::ViewHost,
+};
+use crate::{
+    core::{contracts::*, errors::RuntimeError},
+    mcp::types::{CallToolResult, ContentBlock},
+};
+use futures::{future::LocalBoxFuture, FutureExt};
+use indexmap::{IndexMap, IndexSet};
+use kumi_common::{
+    abort::{self, Signal, SignalExt},
+    js::{json::stringify, number::to_string, string::head},
+};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::{
+    cell::{Cell, RefCell},
+    future::Future,
+    panic::{catch_unwind, AssertUnwindSafe},
+    rc::Rc,
+};
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Restore {
+    #[serde(rename = "ref")]
+    pub reference: String,
+    pub field: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Applied {
+    pub record: ChangeRecord,
+    pub transaction_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub undo_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restore: Option<Restore>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permanent: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub members: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub within: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revert: Option<Vec<Value>>,
+}
+impl Applied {
+    pub fn new(record: ChangeRecord, transaction_id: String, restore: Option<Restore>) -> Self {
+        let permanent = (record.state == ChangeState::Kept).then_some(true);
+        Self { record, transaction_id, restore, permanent, undo_key: None, members: None, within: None, revert: None }
+    }
+}
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UndoResult {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record: Option<ChangeRecord>,
+    pub text: String,
+    pub is_error: bool,
+}
+impl UndoResult {
+    fn error(text: impl Into<String>) -> Self {
+        Self { record: None, text: text.into(), is_error: true }
+    }
+    fn with(record: ChangeRecord, text: impl Into<String>, is_error: bool) -> Self {
+        Self { record: Some(record), text: text.into(), is_error }
+    }
+}
+pub enum FastResult {
+    Result(Value),
+    Error { error: String, sent: bool },
+}
+pub struct History {
+    pub connection: Rc<LiveConnection>,
+    pub remember: Rc<Remember>,
+    pub entries: RefCell<IndexMap<String, Rc<RefCell<Applied>>>>,
+    pub changes_this_turn: Cell<usize>,
+    quiet: RefCell<Option<Vec<String>>>,
+    timeout_ms: u64,
+    on_change: Option<Rc<dyn Fn(ChangeRecord)>>,
+}
+impl History {
+    pub fn change_signal(&self) -> Signal {
+        abort::any([self.connection.lifetime.clone(), abort::timeout(self.timeout_ms)])
+    }
+    pub fn new(
+        connection: Rc<LiveConnection>,
+        remember: Rc<Remember>,
+        timeout_ms: Option<u64>,
+        on_change: Option<Rc<dyn Fn(ChangeRecord)>>,
+    ) -> Self {
+        Self {
+            connection,
+            remember,
+            timeout_ms: timeout_ms.unwrap_or(30_000),
+            on_change,
+            entries: RefCell::new(IndexMap::new()),
+            changes_this_turn: Cell::new(0),
+            quiet: RefCell::new(None),
+        }
+    }
+    pub fn observed(&self) -> Vec<ObservedChange> {
+        self.entries
+            .borrow()
+            .values()
+            .map(|entry| {
+                let entry = entry.borrow();
+                ObservedChange { record: entry.record.clone(), within: entry.within.as_ref().is_some_and(|s| !s.is_empty()) }
+            })
+            .collect()
+    }
+    pub fn emit(&self, record: &ChangeRecord) {
+        if self.quiet.borrow().is_some() {
+            return;
+        }
+        if let Some(listener) = &self.on_change {
+            let _ = catch_unwind(AssertUnwindSafe(|| listener(record.clone())));
+        }
+    }
+    pub fn is_quiet(&self) -> bool {
+        self.quiet.borrow().is_some()
+    }
+    pub fn remember(&self, record: ChangeRecord, transaction_id: String, restore: Option<Restore>) {
+        self.entries.borrow_mut().insert(record.id.clone(), Rc::new(RefCell::new(Applied::new(record.clone(), transaction_id, restore))));
+        if let Some(quiet) = self.quiet.borrow_mut().as_mut() {
+            quiet.push(record.id.clone());
+            return;
+        }
+        if self.entries.borrow().len() > 20_000 {
+            self.entries.borrow_mut().shift_remove_index(0);
+        }
+        self.emit(&record);
+        self.remember.schedule_save(20_000);
+    }
+    pub fn retire(&self, note: &str) {
+        let entries: Vec<_> = self.entries.borrow().values().cloned().collect();
+        for entry in entries {
+            let record = {
+                let mut entry = entry.borrow_mut();
+                if !matches!(entry.record.state, ChangeState::Applied | ChangeState::Unsure) {
+                    continue;
+                }
+                entry.record.state = ChangeState::Expired;
+                entry.record.note = Some(note.into());
+                entry.record.clone()
+            };
+            self.emit(&record);
+        }
+    }
+    fn update(&self, entry: &Rc<RefCell<Applied>>, state: ChangeState, note: Option<String>) -> ChangeRecord {
+        let record = {
+            let mut entry = entry.borrow_mut();
+            entry.record.state = state;
+            entry.record.note = note;
+            entry.record.clone()
+        };
+        self.emit(&record);
+        record
+    }
+    pub async fn quietly<T>(&self, into: Option<&mut Vec<String>>, work: impl Future<Output = T>) -> T {
+        struct Guard<'a> {
+            history: &'a History,
+            outer: Option<Vec<String>>,
+            counted: usize,
+            into: Option<&'a mut Vec<String>>,
+        }
+        impl Drop for Guard<'_> {
+            fn drop(&mut self) {
+                let quiet = self.history.quiet.borrow_mut().take().unwrap_or_default();
+                if let Some(into) = self.into.as_mut() {
+                    into.extend(quiet);
+                } else {
+                    let released: Vec<_> = quiet
+                        .iter()
+                        .filter_map(|id| self.history.entries.borrow_mut().shift_remove(id))
+                        .filter_map(|entry| {
+                            let entry = entry.borrow();
+                            (entry.record.state == ChangeState::Applied).then(|| entry.transaction_id.clone())
+                        })
+                        .collect();
+                    self.history.release(&released);
+                }
+                *self.history.quiet.borrow_mut() = self.outer.take();
+                self.history.changes_this_turn.set(self.counted);
+            }
+        }
+        let _guard = Guard { history: self, outer: self.quiet.replace(Some(Vec::new())), counted: self.changes_this_turn.get(), into };
+        work.await
+    }
+    pub fn release(&self, given: &[String]) {
+        let ids: Vec<_> = given.iter().filter(|s| !s.is_empty()).cloned().collect();
+        if ids.is_empty() || !self.connection.has("live_transaction_release") {
+            return;
+        }
+        for chunk in ids.chunks(64) {
+            let connection = self.connection.clone();
+            let args = object(json!({"transactionIds":chunk}));
+            let signal = abort::any([connection.lifetime.clone(), abort::timeout(10_000)]);
+            start_background(async move {
+                let _ = connection.call("live_transaction_release", args, signal).await;
+            });
+        }
+    }
+    pub fn grouped(&self, title: &str, ids: &[String], apart: &[String]) -> Option<String> {
+        let members: Vec<_> = ids
+            .iter()
+            .filter(|id| {
+                !apart.contains(id)
+                    && self.entries.borrow().get(*id).is_some_and(|entry| {
+                        matches!(entry.borrow().record.state, ChangeState::Applied | ChangeState::Unsure | ChangeState::Kept)
+                    })
+            })
+            .cloned()
+            .collect();
+        let gone: Vec<_> = ids.iter().filter(|id| !members.contains(id)).collect();
+        let released: Vec<_> = gone
+            .iter()
+            .filter_map(|id| self.entries.borrow().get(*id).cloned())
+            .filter_map(|entry| {
+                let entry = entry.borrow();
+                (entry.record.state == ChangeState::Applied).then(|| entry.transaction_id.clone())
+            })
+            .collect();
+        self.release(&released);
+        for id in gone {
+            self.entries.borrow_mut().shift_remove(id);
+        }
+        if members.is_empty() {
+            return None;
+        }
+        let record:ChangeRecord=serde_json::from_value(json!({"id":next_change_id(),"family":"clip","title":head(title,160),"state":"applied","at":self.connection.now().timestamp_millis()})).unwrap();
+        for id in &members {
+            self.entries.borrow()[id].borrow_mut().within = Some(record.id.clone());
+        }
+        let mut entry = Applied::new(record.clone(), String::new(), None);
+        entry.members = Some(members);
+        self.entries.borrow_mut().insert(record.id.clone(), Rc::new(RefCell::new(entry)));
+        self.emit(&record);
+        self.remember.schedule_save(20_000);
+        Some(record.id)
+    }
+    pub async fn run_fast(&self, code: String, signal: Signal) -> Result<FastResult, RuntimeError> {
+        let called =
+            match self.connection.call("live_run_python", object(json!({"code":code,"mode":"exec","timeoutMs":10000})), signal).await {
+                Ok(v) => v,
+                Err(_) => return Ok(FastResult::Error { error: "Live didn't answer".into(), sent: true }),
+            };
+        if called.is_error == Some(true) {
+            return Ok(FastResult::Error { error: head(&result_text(&called), 600), sent: uncertain(&called) });
+        }
+        let body = match context::payload(&called) {
+            Ok(v) => v,
+            Err(_) => return Ok(FastResult::Error { error: "Kumi couldn't read Live's answer".into(), sent: true }),
+        };
+        if body.get("ok") != Some(&Value::Bool(true)) {
+            let error = context::object(body.get("error").filter(|v| !v.is_null()).unwrap_or(&json!({})))?;
+            let message =
+                error.get("message").filter(|v| !v.is_null()).map(|v| js_string(Some(v))).unwrap_or_else(|| "Live refused it".into());
+            return Ok(FastResult::Error { error: head(&message, 600), sent: false });
+        }
+        Ok(FastResult::Result(body.get("result").cloned().unwrap_or(Value::Null)))
+    }
+    pub fn undo<'a>(&'a self, target: &'a str, signal: Signal, discard: bool) -> LocalBoxFuture<'a, Result<UndoResult, RuntimeError>> {
+        async move {
+            let entry = if target == "last" {
+                self.entries
+                    .borrow()
+                    .values()
+                    .rev()
+                    .find(|entry| {
+                        let entry = entry.borrow();
+                        entry.record.state == ChangeState::Applied && entry.within.as_ref().is_none_or(|s| s.is_empty())
+                    })
+                    .cloned()
+            } else {
+                self.entries.borrow().get(target).cloned()
+            };
+            let Some(entry) = entry else {
+                return Ok(UndoResult::error(if target == "last" {
+                    "There's no change of Kumi's left to undo.".into()
+                } else {
+                    format!("There's no change {} in this session.", head(target, 32))
+                }));
+            };
+            let snapshot = entry.borrow().clone();
+            if snapshot.record.state == ChangeState::Undone {
+                return Ok(UndoResult::with(
+                    snapshot.record.clone(),
+                    stringify(&json!({"undone":snapshot.record.title,"change":snapshot.record.id,"already":true})),
+                    false,
+                ));
+            }
+            if snapshot.record.state == ChangeState::Expired {
+                return Ok(UndoResult::with(
+                    snapshot.record.clone(),
+                    snapshot.record.note.unwrap_or_else(|| "Kumi can't undo this anymore.".into()),
+                    true,
+                ));
+            }
+            if snapshot.permanent == Some(true) {
+                return Ok(UndoResult::with(
+                    snapshot.record.clone(),
+                    snapshot.record.note.unwrap_or_else(|| "Kumi can't take this back; Live's own undo (Cmd-Z in Live) can.".into()),
+                    true,
+                ));
+            }
+            let _ = self.connection.ensure_catalog(signal.clone()).await;
+            if let Some(revert) = snapshot.revert {
+                if !self.connection.available.get() || self.connection.lost.get() || !self.connection.has("live_run_python") {
+                    return Ok(UndoResult::error("Kumi can't reach Live right now, so it can't undo."));
+                }
+                signal.check()?;
+                let done = self
+                    .run_fast(
+                        revert_script(&json!(revert)),
+                        abort::any([signal, self.connection.lifetime.clone(), abort::timeout(self.timeout_ms)]),
+                    )
+                    .await?;
+                let result = match done {
+                    FastResult::Result(v) => context::object(&v)?,
+                    FastResult::Error { error, .. } => {
+                        return Ok(UndoResult::with(
+                            self.update(&entry, ChangeState::Unsure, Some("Live didn't confirm the undo; try again.".into())),
+                            format!("Live didn't confirm the undo: {error}"),
+                            true,
+                        ))
+                    }
+                };
+                let back = result.get("back").and_then(Value::as_f64).unwrap_or(0.);
+                let names = |key: &str| {
+                    result
+                        .get(key)
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .take(16)
+                        .map(str::to_owned)
+                        .collect::<Vec<_>>()
+                };
+                let moved = names("moved");
+                let gone = names("gone");
+                self.remember.schedule_save(20_000);
+                if moved.is_empty() && gone.is_empty() {
+                    return Ok(self.undone(&entry));
+                }
+                if back != 0. {
+                    entry.borrow_mut().revert = None;
+                }
+                let mut parts = Vec::new();
+                if back != 0. {
+                    parts.push(format!("Kumi put back {} of its parameters", to_string(back)));
+                }
+                let them = if moved.len() == 1 { "it" } else { "them" };
+                if !moved.is_empty() {
+                    parts.push(if back != 0. {
+                        format!("{} changed in Live since, so Kumi left {them}", moved.join(", "))
+                    } else {
+                        format!(
+                            "{} changed in Live since Kumi set {them}, so Kumi left {them} as {}",
+                            moved.join(", "),
+                            if moved.len() == 1 { "it is" } else { "they are" }
+                        )
+                    });
+                }
+                if !gone.is_empty() {
+                    parts.push(format!("{} {} in Live any more", gone.join(", "), if gone.len() == 1 { "isn't" } else { "aren't" }));
+                }
+                let note = format!("{}.", parts.join("; "));
+                return Ok(UndoResult::with(self.update(&entry, ChangeState::Kept, Some(note.clone())), note, true));
+            }
+            if !self.connection.available.get() || self.connection.lost.get() || !self.connection.has("live_undo") {
+                return Ok(UndoResult::error("Kumi can't reach Live right now, so it can't undo."));
+            }
+            signal.check()?;
+            let undo_key = entry.borrow_mut().undo_key.get_or_insert_with(|| uuid::Uuid::new_v4().to_string()).clone();
+            if let Some(members) = snapshot.members {
+                let mut hidden = Vec::new();
+                self.quietly(Some(&mut hidden), async {
+                    for id in members.iter().rev() {
+                        if self.entries.borrow().get(id).is_none_or(|entry| entry.borrow().record.state != ChangeState::Undone) {
+                            let _ = self.undo(id, signal.clone(), false).await;
+                        }
+                    }
+                })
+                .await;
+                let left = members
+                    .iter()
+                    .filter(|id| self.entries.borrow().get(*id).is_none_or(|entry| entry.borrow().record.state != ChangeState::Undone))
+                    .count();
+                if left == 0 {
+                    return Ok(self.undone(&entry));
+                }
+                let note = format!(
+                    "Kumi took back {} of its {} changes; the rest changed in Live since, so Kumi left them.",
+                    members.len() - left,
+                    members.len()
+                );
+                return Ok(UndoResult::with(self.update(&entry, ChangeState::Kept, Some(note.clone())), note, true));
+            }
+            if snapshot.transaction_id.is_empty() {
+                return Ok(UndoResult::with(snapshot.record, "Kumi can't take this back; Live's own undo (Cmd-Z in Live) can.", true));
+            }
+            let mut args = object(json!({"transactionId":snapshot.transaction_id,"confirmation":"undo","idempotencyKey":undo_key}));
+            if discard {
+                args.insert("discard".into(), json!(true));
+            }
+            let bound = abort::any([self.connection.lifetime.clone(), abort::timeout(self.timeout_ms)]);
+            let result = match self.connection.call("live_undo", args, bound).await {
+                Ok(v) => v,
+                Err(_) => {
+                    return Ok(UndoResult::with(
+                        self.update(&entry, ChangeState::Unsure, Some("Live didn't answer the undo; try again.".into())),
+                        "Live didn't answer the undo; it can be retried.",
+                        true,
+                    ))
+                }
+            };
+            if result.is_error == Some(true) {
+                let message = head(&result_text(&result), 2048);
+                let lower = message.to_ascii_lowercase();
+                let refused = ["modified after apply", "changed before deletion", "undo refused"].iter().any(|s| lower.contains(s));
+                let record = if uncertain(&result) && !refused {
+                    self.update(&entry, ChangeState::Unsure, Some("Live didn't confirm the undo; try again.".into()))
+                } else {
+                    self.update(&entry, ChangeState::Kept, Some(undo_note(&message)))
+                };
+                return Ok(UndoResult::with(record, message, true));
+            }
+            let body = context::payload(&result)?;
+            if body.get("state").and_then(Value::as_str) != Some("undone") {
+                return Ok(UndoResult::with(
+                    self.update(&entry, ChangeState::Unsure, Some("Live didn't confirm the undo; try again.".into())),
+                    stringify(&json!(body)),
+                    true,
+                ));
+            }
+            self.remember.schedule_save(20_000);
+            if let Some(restore) = snapshot.restore {
+                let mut book = self.connection.references.borrow_mut();
+                if let Some(current) = book.known.get_mut(&restore.reference) {
+                    if restore.field == "name" {
+                        if let Some(value) = restore.value {
+                            current.name = value;
+                        }
+                    } else {
+                        current.color = restore.value.filter(|s| !s.is_empty());
+                    }
+                }
+            }
+            Ok(self.undone(&entry))
+        }
+        .boxed_local()
+    }
+    fn undone(&self, entry: &Rc<RefCell<Applied>>) -> UndoResult {
+        let record = self.update(entry, ChangeState::Undone, None);
+        let text = stringify(&json!({"undone":record.title,"change":record.id}));
+        UndoResult::with(record, text, false)
+    }
+    pub async fn stop_everything(&self, signal: Signal) -> bool {
+        self.try_stop_everything(signal).await.unwrap_or(false)
+    }
+    async fn try_stop_everything(&self, signal: Signal) -> Result<bool, RuntimeError> {
+        if !self.connection.available.get() || self.connection.lost.get() || self.connection.tools().is_none() {
+            return Ok(false);
+        }
+        self.connection.ensure_catalog(signal.clone()).await?;
+        if !self.connection.has(EMERGENCY_STOP) || !self.connection.has("live_discover") {
+            return Ok(false);
+        }
+        for _ in 0..2 {
+            let read = context::payload(
+                &self.connection.call("live_discover", object(json!({"kind":"session-playback","limit":1})), signal.clone()).await?,
+            )?;
+            let playback = context::object(
+                read.get("items").and_then(Value::as_array).and_then(|a| a.first()).filter(|v| !v.is_null()).unwrap_or(&json!({})),
+            )?;
+            let transport = context::object(playback.get("transport").filter(|v| !v.is_null()).unwrap_or(&json!({})))?;
+            let mut targets = IndexSet::new();
+            for key in ["firedTargets", "playingTargets"] {
+                for target in playback.get(key).and_then(Value::as_array).into_iter().flatten() {
+                    let target = context::object(target)?;
+                    targets.insert(format!(
+                        "{}|{}|{}",
+                        js_string(target.get("trackRef")),
+                        js_string(target.get("clipSlotRef")),
+                        js_string(target.get("sceneRef"))
+                    ));
+                }
+            }
+            let mut targets: Vec<_> = targets.into_iter().collect();
+            targets.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+            let recording = match (
+                transport.get("sessionRecord") == Some(&Value::Bool(true)),
+                transport.get("arrangementRecord") == Some(&Value::Bool(true)),
+            ) {
+                (true, true) => "both",
+                (true, false) => "session",
+                (false, true) => "arrangement",
+                _ => "stopped",
+            };
+            if transport.get("playing") != Some(&Value::Bool(true)) && targets.is_empty() && recording == "stopped" {
+                return Ok(true);
+            }
+            let result=self.connection.call(EMERGENCY_STOP,object(json!({"confirmation":"emergency-stop","expectedTargets":targets,"expectedRecording":recording,"idempotencyKey":uuid::Uuid::new_v4().to_string()})),signal.clone()).await?;
+            if result.is_error != Some(true) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+}
+pub fn result_text(result: &CallToolResult) -> String {
+    result
+        .content
+        .iter()
+        .map(|item| match item {
+            ContentBlock::Text { text, .. } => text.as_str(),
+            _ => "",
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+pub fn uncertain(result: &CallToolResult) -> bool {
+    result.structured_content.as_ref().and_then(|v| v.get("state")).and_then(Value::as_str) == Some("uncertain")
+        || result_text(result).to_ascii_lowercase().contains("uncertain")
+}
+fn object(value: Value) -> JsonObject {
+    value.as_object().cloned().unwrap_or_default()
+}
+fn js_string(value: Option<&Value>) -> String {
+    match value {
+        None => "undefined".into(),
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Object(_)) => "[object Object]".into(),
+        Some(Value::Array(a)) => {
+            a.iter().map(|v| if v.is_null() { String::new() } else { js_string(Some(v)) }).collect::<Vec<_>>().join(",")
+        }
+        Some(v) => stringify(v),
+    }
+}
+fn start_background(work: impl Future<Output = ()> + 'static) {
+    let mut work = Box::pin(work);
+    let waker = futures::task::noop_waker();
+    let mut cx = std::task::Context::from_waker(&waker);
+    if work.as_mut().poll(&mut cx).is_pending() {
+        tokio::task::spawn_local(work);
+    }
+}

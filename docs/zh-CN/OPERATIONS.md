@@ -2,6 +2,8 @@
 
 [English](../en/OPERATIONS.md) · 简体中文 · [日本語](../ja/OPERATIONS.md)
 
+Kumi 1.7.5 的原生桥接不需要 Node，使用 `ableton-mcp-server` 的子命令。本页中面向 Node/npm 发行包的步骤适用于旧版；当前原生版步骤请参阅[英文版](../en/OPERATIONS.md)。使用 Kumi 时，关闭 Live 后运行 `kumi bridge` 即可。
+
 日常运行桥接：启动、检查、限制，以及它写入磁盘的内容。安装方法见[交付](DELIVERY.md)。出现故障时，见[恢复](RECOVERY.md)。
 
 ## 启动

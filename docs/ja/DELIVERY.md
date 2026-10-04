@@ -2,6 +2,8 @@
 
 [English](../en/DELIVERY.md) · [简体中文](../zh-CN/DELIVERY.md) · 日本語
 
+ネイティブ版 Kumi 1.7.5 のブリッジは Node を必要とせず、`ableton-mcp-server` のサブコマンドを使います。このページの Node・npm 配布向けの手順は旧版用です。現在のネイティブ版の手順は[英語版](../en/DELIVERY.md)を参照してください。Kumi を使う場合は、Live を閉じて `kumi bridge` を実行します。
+
 ブリッジは二つの部分からなります。Live が読み込む Remote Script `AbletonMcpBridge` と、Kumi（またはほかの MCP クライアント）が起動するローカルの MCP サーバーです。どちらも一つのパッケージ `@ableton-mcp/mcp-server` に入っていて、一つのツールでインストールします。それがブリッジのライフサイクル CLI、`ableton-mcp-lifecycle` です。このツールは何かを変更する前に計画を立て、インストールしたものをレシートに記録し、まさにそれを修復、ロールバック、削除できます。Kumi を使う場合は、`kumi bridge` がこれを実行します。
 
 ## Kumi で使う

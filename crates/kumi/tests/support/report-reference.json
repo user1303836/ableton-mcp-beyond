@@ -1,0 +1,282 @@
+[
+  {
+    "secrets": [
+      "saved-key-1234567890"
+    ],
+    "home": "C:\\Users\\Mia",
+    "user": "Mia",
+    "input": "key saved-key-1234567890 and sk-abcdefghijklmnopqrst",
+    "output": "key [secret] and [secret]"
+  },
+  {
+    "secrets": [
+      "saved-key-1234567890"
+    ],
+    "home": "C:\\Users\\Mia",
+    "user": "Mia",
+    "input": "Authorization: Bearer abc.def",
+    "output": "Authorization: Bearer [secret]"
+  },
+  {
+    "secrets": [
+      "saved-key-1234567890"
+    ],
+    "home": "C:\\Users\\Mia",
+    "user": "Mia",
+    "input": "{\"token\": \"abcdefghijk\"}",
+    "output": "{\"token\": \"[secret]\"}"
+  },
+  {
+    "secrets": [
+      "saved-key-1234567890"
+    ],
+    "home": "C:\\Users\\Mia",
+    "user": "Mia",
+    "input": "x AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA y",
+    "output": "x [long value] y"
+  },
+  {
+    "secrets": [
+      "saved-key-1234567890"
+    ],
+    "home": "C:\\Users\\Mia",
+    "user": "Mia",
+    "input": "C:\\Users\\Mia\\Music\\a.als and C:/Users/Mia/b",
+    "output": "~\\Music\\a.als and ~/b"
+  },
+  {
+    "secrets": [
+      "saved-key-1234567890"
+    ],
+    "home": "C:\\Users\\Mia",
+    "user": "Mia",
+    "input": "Mia’s set, Miami",
+    "output": "<user>’s set, Miami"
+  },
+  {
+    "secrets": [
+      "saved-key-1234567890"
+    ],
+    "home": "C:\\Users\\Mia",
+    "user": "Mia",
+    "input": "~/.config/ableton-mcp-release-a8a291e/bridge-config.json",
+    "output": "~/.config/ableton-mcp-release-a8a291e/bridge-config.json"
+  },
+  {
+    "secrets": [
+      "saved-key-1234567890"
+    ],
+    "home": "C:\\Users\\Mia",
+    "user": "Mia",
+    "input": "longsecretprefixmore longsecretprefix",
+    "output": "longsecretprefixmore longsecretprefix"
+  },
+  {
+    "secrets": [
+      "saved-key-1234567890"
+    ],
+    "home": "C:\\Users\\Mia",
+    "user": "Mia",
+    "input": "/Users/猫/Music/🎹🎹🎹🎹",
+    "output": "/Users/猫/Music/🎹🎹🎹🎹"
+  },
+  {
+    "secrets": [
+      "saved-key-1234567890"
+    ],
+    "home": "C:\\Users\\Mia",
+    "user": "Mia",
+    "input": "éBearer abc\nBearerstill",
+    "output": "éBearer [secret]\nBearerstill"
+  },
+  {
+    "secrets": [
+      "saved-key-1234567890"
+    ],
+    "home": "C:\\Users\\Mia",
+    "user": "Mia",
+    "input": "{\"access\":\"🎹🎹🎹🎹\"}",
+    "output": "{\"access\":\"[secret]\"}"
+  },
+  {
+    "secrets": [
+      "saved-key-1234567890"
+    ],
+    "home": "C:\\Users\\Mia",
+    "user": "Mia",
+    "input": "Bearer﻿abc",
+    "output": "Bearer [secret]"
+  },
+  {
+    "secrets": [
+      "saved-key-1234567890"
+    ],
+    "home": "C:\\Users\\Mia",
+    "user": "Mia",
+    "input": "éCatz Cat Caté",
+    "output": "éCatz Cat Caté"
+  },
+  {
+    "secrets": [
+      "saved-key-1234567890"
+    ],
+    "home": "C:\\Users\\Mia",
+    "user": "Mia",
+    "input": "eyJaaaaaaaaaa.bbbbbbbbbb.cccccccccc",
+    "output": "[secret]"
+  },
+  {
+    "secrets": [
+      "longsecretprefix",
+      "longsecretprefixmore",
+      "🎹🎹🎹🎹"
+    ],
+    "home": "/Users/猫",
+    "user": "Cat",
+    "input": "key saved-key-1234567890 and sk-abcdefghijklmnopqrst",
+    "output": "key saved-key-1234567890 and [secret]"
+  },
+  {
+    "secrets": [
+      "longsecretprefix",
+      "longsecretprefixmore",
+      "🎹🎹🎹🎹"
+    ],
+    "home": "/Users/猫",
+    "user": "Cat",
+    "input": "Authorization: Bearer abc.def",
+    "output": "Authorization: Bearer [secret]"
+  },
+  {
+    "secrets": [
+      "longsecretprefix",
+      "longsecretprefixmore",
+      "🎹🎹🎹🎹"
+    ],
+    "home": "/Users/猫",
+    "user": "Cat",
+    "input": "{\"token\": \"abcdefghijk\"}",
+    "output": "{\"token\": \"[secret]\"}"
+  },
+  {
+    "secrets": [
+      "longsecretprefix",
+      "longsecretprefixmore",
+      "🎹🎹🎹🎹"
+    ],
+    "home": "/Users/猫",
+    "user": "Cat",
+    "input": "x AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA y",
+    "output": "x [long value] y"
+  },
+  {
+    "secrets": [
+      "longsecretprefix",
+      "longsecretprefixmore",
+      "🎹🎹🎹🎹"
+    ],
+    "home": "/Users/猫",
+    "user": "Cat",
+    "input": "C:\\Users\\Mia\\Music\\a.als and C:/Users/Mia/b",
+    "output": "C:\\Users\\Mia\\Music\\a.als and C:/Users/Mia/b"
+  },
+  {
+    "secrets": [
+      "longsecretprefix",
+      "longsecretprefixmore",
+      "🎹🎹🎹🎹"
+    ],
+    "home": "/Users/猫",
+    "user": "Cat",
+    "input": "Mia’s set, Miami",
+    "output": "Mia’s set, Miami"
+  },
+  {
+    "secrets": [
+      "longsecretprefix",
+      "longsecretprefixmore",
+      "🎹🎹🎹🎹"
+    ],
+    "home": "/Users/猫",
+    "user": "Cat",
+    "input": "~/.config/ableton-mcp-release-a8a291e/bridge-config.json",
+    "output": "~/.config/ableton-mcp-release-a8a291e/bridge-config.json"
+  },
+  {
+    "secrets": [
+      "longsecretprefix",
+      "longsecretprefixmore",
+      "🎹🎹🎹🎹"
+    ],
+    "home": "/Users/猫",
+    "user": "Cat",
+    "input": "longsecretprefixmore longsecretprefix",
+    "output": "[secret] [secret]"
+  },
+  {
+    "secrets": [
+      "longsecretprefix",
+      "longsecretprefixmore",
+      "🎹🎹🎹🎹"
+    ],
+    "home": "/Users/猫",
+    "user": "Cat",
+    "input": "/Users/猫/Music/🎹🎹🎹🎹",
+    "output": "~/Music/[secret]"
+  },
+  {
+    "secrets": [
+      "longsecretprefix",
+      "longsecretprefixmore",
+      "🎹🎹🎹🎹"
+    ],
+    "home": "/Users/猫",
+    "user": "Cat",
+    "input": "éBearer abc\nBearerstill",
+    "output": "éBearer [secret]\nBearerstill"
+  },
+  {
+    "secrets": [
+      "longsecretprefix",
+      "longsecretprefixmore",
+      "🎹🎹🎹🎹"
+    ],
+    "home": "/Users/猫",
+    "user": "Cat",
+    "input": "{\"access\":\"🎹🎹🎹🎹\"}",
+    "output": "{\"access\":\"[secret]\"}"
+  },
+  {
+    "secrets": [
+      "longsecretprefix",
+      "longsecretprefixmore",
+      "🎹🎹🎹🎹"
+    ],
+    "home": "/Users/猫",
+    "user": "Cat",
+    "input": "Bearer﻿abc",
+    "output": "Bearer [secret]"
+  },
+  {
+    "secrets": [
+      "longsecretprefix",
+      "longsecretprefixmore",
+      "🎹🎹🎹🎹"
+    ],
+    "home": "/Users/猫",
+    "user": "Cat",
+    "input": "éCatz Cat Caté",
+    "output": "éCatz <user> <user>é"
+  },
+  {
+    "secrets": [
+      "longsecretprefix",
+      "longsecretprefixmore",
+      "🎹🎹🎹🎹"
+    ],
+    "home": "/Users/猫",
+    "user": "Cat",
+    "input": "eyJaaaaaaaaaa.bbbbbbbbbb.cccccccccc",
+    "output": "[secret]"
+  }
+]

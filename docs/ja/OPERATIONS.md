@@ -2,6 +2,8 @@
 
 [English](../en/OPERATIONS.md) · [简体中文](../zh-CN/OPERATIONS.md) · 日本語
 
+ネイティブ版 Kumi 1.7.5 のブリッジは Node を必要とせず、`ableton-mcp-server` のサブコマンドを使います。このページの Node・npm 配布向けの手順は旧版用です。現在のネイティブ版の手順は[英語版](../en/OPERATIONS.md)を参照してください。Kumi を使う場合は、Live を閉じて `kumi bridge` を実行します。
+
 ブリッジの日々の運用について説明します：起動、確認、制限、ディスクに書き込むもの。インストールについては[ブリッジのインストール](DELIVERY.md)を、問題が起きたときは[回復手順](RECOVERY.md)を参照してください。
 
 ## 起動

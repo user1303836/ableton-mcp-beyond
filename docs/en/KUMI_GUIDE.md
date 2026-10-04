@@ -366,7 +366,9 @@ device.
 What it needs:
 
 - **yt-dlp**, which Kumi fetches into `~/.kumi/tools` the first time (about
-  35 MB, checked against its release's checksums) and again each month.
+  35 MB, checked against its release's checksums) and again each month. For its JavaScript
+  challenges, Kumi reuses the Node runtime retained from an older installer, then looks on PATH.
+  Fresh native installs do not include that optional runtime; some YouTube videos need it.
 - **ffmpeg**, for frames and sound: `brew install ffmpeg` on a Mac; on Windows
   Kumi fetches it the first time (about 170 MB, checked). Without it, Kumi reads
   only a video's words.
@@ -513,22 +515,41 @@ only with Live's own undo. `/new` keeps the connection, so undo still works.
 ## Updating, reporting and uninstalling
 
 ```sh
-kumi update              # the newest Kumi, and the bridge in Live when it's older
+kumi update              # the newest Kumi and its bridge
 kumi update --check      # only say whether there's a newer Kumi
 kumi update --rollback   # go back to the Kumi before the last update
-kumi doctor              # check Node, sign-in, the bridge, Live, the extension and the terminal
+kumi doctor              # check sign-in, the bridge, Live, the extension and the terminal
 kumi report              # a file to send when something goes wrong
 kumi uninstall           # remove Kumi; add --all to remove your conversations, notes and sign-ins too
 ```
 
 `update` fetches the newest release, checks it against its checksum and starts
 it once to be sure it runs before putting it in place; the one before is kept
-for `--rollback`. If the bridge in Live is older and Live is closed, it then runs
+for `--rollback`. If the bridge needs an update or a switch from JavaScript to native and Live is closed, it then runs
 `kumi bridge`; if Live is open, it says to quit Live and run `kumi bridge`. In a
 copy of the repository, `update` moves the checkout forward instead
-(`git merge --ff-only`, refusing local changes) and runs `npm run setup`.
+(`git merge --ff-only`, refusing local changes) and builds the workspace with Cargo.
 Inside Kumi, `/update` asks first, then closes Kumi, updates it and opens it
 again with the same conversation.
+
+For the current 1.7.4 installer (bundled Node 24):
+
+1. Close Live and run `kumi update` (or `/update` inside Kumi).
+2. Open Kumi as usual. Its first native startup upgrades the existing bridge, even when both
+   bridge versions are 1.0.73. Reopen Live when Kumi asks.
+3. Continue with the same settings, sign-ins, conversations and library. They stay in `~/.kumi`,
+   or your existing `KUMI_HOME`; no new login or data move is needed.
+
+The previous app and its Node runtime stay available for rollback. `kumi update --rollback`
+restores the JavaScript app together with its retained bridge configuration and secret. Live must
+be closed, and the bridge's previous generation must still be available. Repeating the rollback
+returns to the native app. Kumi never quits Live itself.
+
+Very old installers using Node 22 refuse the new release before downloading it. If `kumi update`
+says it needs another Node version, run the [installer](../../README.md#get-started) again with the
+same `KUMI_HOME`; it installs the native app while keeping your data. npm users can keep using
+`npm run setup` and `npm run kumi -- ...`: Cargo builds this checkout when available; otherwise
+these commands install the matching published native release.
 
 Kumi checks for a newer version as it starts, at most once a day, and says
 nothing when there's none or no network. `"updateCheck": false` in
@@ -540,7 +561,7 @@ conversation, the gap log, and the bridge's lines from Live's own log. Keys and
 tokens are taken out, your home folder shows as `~` and your account name as
 `<user>`. Read it before sending.
 
-`uninstall` removes Kumi, its Node, its launcher and the PATH entry it added,
+`uninstall` removes Kumi, any retained legacy Node runtime, its launcher and the PATH entry it added,
 and offers to take the bridge and the extension out of Live (only while Live is
 closed). Your conversations, notes, recipes and sign-ins stay unless you add
 `--all`.
@@ -592,8 +613,7 @@ says which need which.
   reads see its requests. Kumi doesn't read an address that carries a key or a
   token.
 - **Downloads** come from GitHub (Kumi's releases and update checks, yt-dlp,
-  ffmpeg and whisper.cpp), Hugging Face (the speech model), nodejs.org (the
-  installer's Node) and the video sites you name.
+  ffmpeg and whisper.cpp), Hugging Face (the speech model), and the video sites you name.
 - **Audio** is analysed on your computer; only the numbers go to the model.
 - **Your voice** is written down on your computer, and the recording deleted as
   soon as it is; only the words leave, when you send them.

@@ -1,0 +1,1728 @@
+{
+  "env": {
+    "KUMI_AUTH_FILE": "/config-test-isolated/auth.json",
+    "KUMI_SETTINGS_FILE": "/config-test-isolated/settings.json",
+    "KUMI_REMOTE_SCRIPTS_DIR": "/config-test-isolated/Remote Scripts"
+  },
+  "commands": [
+    {
+      "args": [],
+      "expected": {
+        "mode": "inference-only",
+        "bridgeMissing": true,
+        "authFile": "/config-test-isolated/auth.json"
+      }
+    },
+    {
+      "args": [
+        "--help"
+      ],
+      "expected": {
+        "mode": "help"
+      }
+    },
+    {
+      "args": [
+        "--version"
+      ],
+      "expected": {
+        "mode": "version"
+      }
+    },
+    {
+      "args": [
+        "-v"
+      ],
+      "expected": {
+        "mode": "version"
+      }
+    },
+    {
+      "args": [
+        "doctor"
+      ],
+      "expected": {
+        "mode": "doctor"
+      }
+    },
+    {
+      "args": [
+        "report"
+      ],
+      "expected": {
+        "mode": "report"
+      }
+    },
+    {
+      "args": [
+        "auth"
+      ],
+      "expected": {
+        "mode": "auth",
+        "authFile": "/config-test-isolated/auth.json",
+        "settingsFile": "/config-test-isolated/settings.json"
+      }
+    },
+    {
+      "args": [
+        "login"
+      ],
+      "expected": {
+        "mode": "login-choose",
+        "authFile": "/config-test-isolated/auth.json",
+        "piAuthFile": "$HOME/.pi/agent/auth.json",
+        "settingsFile": "/config-test-isolated/settings.json"
+      }
+    },
+    {
+      "args": [
+        "update"
+      ],
+      "expected": {
+        "mode": "update",
+        "rollback": false,
+        "check": false
+      }
+    },
+    {
+      "args": [
+        "update",
+        "--check"
+      ],
+      "expected": {
+        "mode": "update",
+        "rollback": false,
+        "check": true
+      }
+    },
+    {
+      "args": [
+        "update",
+        "--rollback"
+      ],
+      "expected": {
+        "mode": "update",
+        "rollback": true,
+        "check": false
+      }
+    },
+    {
+      "args": [
+        "update",
+        "--now"
+      ],
+      "error": "Use: update [--check | --rollback]."
+    },
+    {
+      "args": [
+        "update",
+        "--check",
+        "--rollback"
+      ],
+      "error": "Use: update [--check | --rollback]."
+    },
+    {
+      "args": [
+        "library"
+      ],
+      "expected": {
+        "mode": "library",
+        "rebuild": false
+      }
+    },
+    {
+      "args": [
+        "library",
+        "--rebuild"
+      ],
+      "expected": {
+        "mode": "library",
+        "rebuild": true
+      }
+    },
+    {
+      "args": [
+        "library",
+        "--everything"
+      ],
+      "error": "Use: library [--rebuild]."
+    },
+    {
+      "args": [
+        "bridge"
+      ],
+      "expected": {
+        "mode": "bridge",
+        "yes": false,
+        "allowDirty": false
+      }
+    },
+    {
+      "args": [
+        "bridge",
+        "--yes",
+        "--allow-dirty"
+      ],
+      "expected": {
+        "mode": "bridge",
+        "yes": true,
+        "allowDirty": true
+      }
+    },
+    {
+      "args": [
+        "bridge",
+        "--force"
+      ],
+      "error": "Use: bridge [--yes] [--allow-dirty]."
+    },
+    {
+      "args": [
+        "uninstall"
+      ],
+      "expected": {
+        "mode": "uninstall",
+        "all": false,
+        "yes": false
+      }
+    },
+    {
+      "args": [
+        "uninstall",
+        "--yes",
+        "--all"
+      ],
+      "expected": {
+        "mode": "uninstall",
+        "all": true,
+        "yes": true
+      }
+    },
+    {
+      "args": [
+        "uninstall",
+        "--all",
+        "--all"
+      ],
+      "expected": {
+        "mode": "uninstall",
+        "all": true,
+        "yes": false
+      }
+    },
+    {
+      "args": [
+        "uninstall",
+        "--force"
+      ],
+      "error": "Use: uninstall [--all] [--yes]."
+    },
+    {
+      "args": [
+        "model"
+      ],
+      "expected": {
+        "mode": "model",
+        "settingsFile": "/config-test-isolated/settings.json"
+      }
+    },
+    {
+      "args": [
+        "model",
+        "openai/gpt-6-luna"
+      ],
+      "expected": {
+        "mode": "model",
+        "settingsFile": "/config-test-isolated/settings.json",
+        "model": "openai/gpt-6-luna"
+      }
+    },
+    {
+      "args": [
+        "model",
+        "x/test-only-secret-do-not-log"
+      ],
+      "error": "Use: model <provider>/<model>, with provider one of openai-codex, openai, anthropic, opencode, opencode-go, ollama, lmstudio (or a server in settings.json)."
+    },
+    {
+      "args": [
+        "--inference-only"
+      ],
+      "expected": {
+        "mode": "inference-only",
+        "authFile": "/config-test-isolated/auth.json"
+      }
+    },
+    {
+      "args": [
+        "login",
+        "ollama"
+      ],
+      "error": "Ollama needs no sign-in: while it's open, its models are in /model, or choose one with: npm run kumi -- model ollama/<model>"
+    },
+    {
+      "args": [
+        "logout",
+        "lmstudio"
+      ],
+      "error": "LM Studio needs no sign-in: while it's open, its models are in /model, or choose one with: npm run kumi -- model lmstudio/<model>"
+    },
+    {
+      "args": [
+        "logout"
+      ],
+      "error": "Use: logout <provider>, with provider one of openai-codex, openai, anthropic, opencode, opencode-go."
+    },
+    {
+      "args": [
+        "login",
+        "test-only-secret-do-not-log"
+      ],
+      "error": "Use: login <provider>, with provider one of openai-codex, openai, anthropic, opencode, opencode-go."
+    },
+    {
+      "args": [
+        "--bridge-config"
+      ],
+      "error": "Use: npm run kumi [--bridge-config /absolute/path.json | --inference-only], or doctor, auth, login, logout, model; --help must be used alone."
+    },
+    {
+      "args": [
+        "--bridge-config",
+        "--help"
+      ],
+      "error": "Use: npm run kumi [--bridge-config /absolute/path.json | --inference-only], or doctor, auth, login, logout, model; --help must be used alone."
+    },
+    {
+      "args": [
+        "--inference-only",
+        "--inference-only"
+      ],
+      "error": "Use: npm run kumi [--bridge-config /absolute/path.json | --inference-only], or doctor, auth, login, logout, model; --help must be used alone."
+    },
+    {
+      "args": [
+        "--help",
+        "--inference-only"
+      ],
+      "error": "Use: npm run kumi [--bridge-config /absolute/path.json | --inference-only], or doctor, auth, login, logout, model; --help must be used alone."
+    },
+    {
+      "args": [
+        "--bridge-config",
+        "/file",
+        "--bridge-config",
+        "/other"
+      ],
+      "error": "Use: npm run kumi [--bridge-config /absolute/path.json | --inference-only], or doctor, auth, login, logout, model; --help must be used alone."
+    },
+    {
+      "args": [
+        "--inference-only",
+        "--bridge-config",
+        "/file"
+      ],
+      "error": "Use: npm run kumi [--bridge-config /absolute/path.json | --inference-only], or doctor, auth, login, logout, model; --help must be used alone."
+    },
+    {
+      "args": [
+        "--api-key",
+        "test-only-secret-do-not-log"
+      ],
+      "error": "Use: npm run kumi [--bridge-config /absolute/path.json | --inference-only], or doctor, auth, login, logout, model; --help must be used alone."
+    },
+    {
+      "args": [
+        "--model",
+        "openai/gpt-6-luna"
+      ],
+      "error": "Use: npm run kumi [--bridge-config /absolute/path.json | --inference-only], or doctor, auth, login, logout, model; --help must be used alone."
+    },
+    {
+      "args": [
+        "--backend",
+        "wasm"
+      ],
+      "error": "Use: npm run kumi [--bridge-config /absolute/path.json | --inference-only], or doctor, auth, login, logout, model; --help must be used alone."
+    },
+    {
+      "args": [
+        "--anything"
+      ],
+      "error": "Use: npm run kumi [--bridge-config /absolute/path.json | --inference-only], or doctor, auth, login, logout, model; --help must be used alone."
+    },
+    {
+      "args": [
+        "positional"
+      ],
+      "error": "Use: npm run kumi [--bridge-config /absolute/path.json | --inference-only], or doctor, auth, login, logout, model; --help must be used alone."
+    },
+    {
+      "args": [
+        "login",
+        "openai-codex"
+      ],
+      "expected": {
+        "mode": "login",
+        "provider": "openai-codex",
+        "method": "browser",
+        "authFile": "/config-test-isolated/auth.json",
+        "piAuthFile": "$HOME/.pi/agent/auth.json",
+        "settingsFile": "/config-test-isolated/settings.json"
+      }
+    },
+    {
+      "args": [
+        "login",
+        "openai-codex",
+        "--device"
+      ],
+      "expected": {
+        "mode": "login",
+        "provider": "openai-codex",
+        "method": "device",
+        "authFile": "/config-test-isolated/auth.json",
+        "piAuthFile": "$HOME/.pi/agent/auth.json",
+        "settingsFile": "/config-test-isolated/settings.json"
+      }
+    },
+    {
+      "args": [
+        "login",
+        "openai-codex",
+        "--from-pi"
+      ],
+      "expected": {
+        "mode": "login",
+        "provider": "openai-codex",
+        "method": "import-pi",
+        "authFile": "/config-test-isolated/auth.json",
+        "piAuthFile": "$HOME/.pi/agent/auth.json",
+        "settingsFile": "/config-test-isolated/settings.json"
+      }
+    },
+    {
+      "args": [
+        "login",
+        "openai-codex",
+        "--token",
+        "test-only-secret-do-not-log"
+      ],
+      "error": "Use: login openai-codex [--device | --from-pi]."
+    },
+    {
+      "args": [
+        "login",
+        "openai-codex",
+        "--device",
+        "--from-pi"
+      ],
+      "error": "Use: login openai-codex [--device | --from-pi]."
+    },
+    {
+      "args": [
+        "login",
+        "openai"
+      ],
+      "expected": {
+        "mode": "login",
+        "provider": "openai",
+        "method": "key",
+        "authFile": "/config-test-isolated/auth.json",
+        "piAuthFile": "$HOME/.pi/agent/auth.json",
+        "settingsFile": "/config-test-isolated/settings.json"
+      }
+    },
+    {
+      "args": [
+        "login",
+        "openai",
+        "--device"
+      ],
+      "error": "Use: login openai; Kumi asks for the API key, so it stays out of your shell history."
+    },
+    {
+      "args": [
+        "login",
+        "openai",
+        "--from-pi"
+      ],
+      "error": "Use: login openai; Kumi asks for the API key, so it stays out of your shell history."
+    },
+    {
+      "args": [
+        "login",
+        "openai",
+        "--token",
+        "test-only-secret-do-not-log"
+      ],
+      "error": "Use: login openai; Kumi asks for the API key, so it stays out of your shell history."
+    },
+    {
+      "args": [
+        "login",
+        "openai",
+        "--device",
+        "--from-pi"
+      ],
+      "error": "Use: login openai; Kumi asks for the API key, so it stays out of your shell history."
+    },
+    {
+      "args": [
+        "login",
+        "anthropic"
+      ],
+      "expected": {
+        "mode": "login",
+        "provider": "anthropic",
+        "method": "key",
+        "authFile": "/config-test-isolated/auth.json",
+        "piAuthFile": "$HOME/.pi/agent/auth.json",
+        "settingsFile": "/config-test-isolated/settings.json"
+      }
+    },
+    {
+      "args": [
+        "login",
+        "anthropic",
+        "--device"
+      ],
+      "error": "Use: login anthropic; Kumi asks for the API key, so it stays out of your shell history."
+    },
+    {
+      "args": [
+        "login",
+        "anthropic",
+        "--from-pi"
+      ],
+      "error": "Use: login anthropic; Kumi asks for the API key, so it stays out of your shell history."
+    },
+    {
+      "args": [
+        "login",
+        "anthropic",
+        "--token",
+        "test-only-secret-do-not-log"
+      ],
+      "error": "Use: login anthropic; Kumi asks for the API key, so it stays out of your shell history."
+    },
+    {
+      "args": [
+        "login",
+        "anthropic",
+        "--device",
+        "--from-pi"
+      ],
+      "error": "Use: login anthropic; Kumi asks for the API key, so it stays out of your shell history."
+    },
+    {
+      "args": [
+        "login",
+        "opencode"
+      ],
+      "expected": {
+        "mode": "login",
+        "provider": "opencode",
+        "method": "key",
+        "authFile": "/config-test-isolated/auth.json",
+        "piAuthFile": "$HOME/.pi/agent/auth.json",
+        "settingsFile": "/config-test-isolated/settings.json"
+      }
+    },
+    {
+      "args": [
+        "login",
+        "opencode",
+        "--device"
+      ],
+      "error": "Use: login opencode; Kumi asks for the API key, so it stays out of your shell history."
+    },
+    {
+      "args": [
+        "login",
+        "opencode",
+        "--from-pi"
+      ],
+      "error": "Use: login opencode; Kumi asks for the API key, so it stays out of your shell history."
+    },
+    {
+      "args": [
+        "login",
+        "opencode",
+        "--token",
+        "test-only-secret-do-not-log"
+      ],
+      "error": "Use: login opencode; Kumi asks for the API key, so it stays out of your shell history."
+    },
+    {
+      "args": [
+        "login",
+        "opencode",
+        "--device",
+        "--from-pi"
+      ],
+      "error": "Use: login opencode; Kumi asks for the API key, so it stays out of your shell history."
+    },
+    {
+      "args": [
+        "login",
+        "opencode-go"
+      ],
+      "expected": {
+        "mode": "login",
+        "provider": "opencode-go",
+        "method": "key",
+        "authFile": "/config-test-isolated/auth.json",
+        "piAuthFile": "$HOME/.pi/agent/auth.json",
+        "settingsFile": "/config-test-isolated/settings.json"
+      }
+    },
+    {
+      "args": [
+        "login",
+        "opencode-go",
+        "--device"
+      ],
+      "error": "Use: login opencode-go; Kumi asks for the API key, so it stays out of your shell history."
+    },
+    {
+      "args": [
+        "login",
+        "opencode-go",
+        "--from-pi"
+      ],
+      "error": "Use: login opencode-go; Kumi asks for the API key, so it stays out of your shell history."
+    },
+    {
+      "args": [
+        "login",
+        "opencode-go",
+        "--token",
+        "test-only-secret-do-not-log"
+      ],
+      "error": "Use: login opencode-go; Kumi asks for the API key, so it stays out of your shell history."
+    },
+    {
+      "args": [
+        "login",
+        "opencode-go",
+        "--device",
+        "--from-pi"
+      ],
+      "error": "Use: login opencode-go; Kumi asks for the API key, so it stays out of your shell history."
+    },
+    {
+      "args": [
+        "logout",
+        "openai-codex"
+      ],
+      "expected": {
+        "mode": "logout",
+        "provider": "openai-codex",
+        "authFile": "/config-test-isolated/auth.json"
+      }
+    },
+    {
+      "args": [
+        "logout",
+        "openai-codex",
+        "--all"
+      ],
+      "error": "Use: logout openai-codex."
+    },
+    {
+      "args": [
+        "logout",
+        "openai"
+      ],
+      "expected": {
+        "mode": "logout",
+        "provider": "openai",
+        "authFile": "/config-test-isolated/auth.json"
+      }
+    },
+    {
+      "args": [
+        "logout",
+        "openai",
+        "--all"
+      ],
+      "error": "Use: logout openai."
+    },
+    {
+      "args": [
+        "logout",
+        "anthropic"
+      ],
+      "expected": {
+        "mode": "logout",
+        "provider": "anthropic",
+        "authFile": "/config-test-isolated/auth.json"
+      }
+    },
+    {
+      "args": [
+        "logout",
+        "anthropic",
+        "--all"
+      ],
+      "error": "Use: logout anthropic."
+    },
+    {
+      "args": [
+        "logout",
+        "opencode"
+      ],
+      "expected": {
+        "mode": "logout",
+        "provider": "opencode",
+        "authFile": "/config-test-isolated/auth.json"
+      }
+    },
+    {
+      "args": [
+        "logout",
+        "opencode",
+        "--all"
+      ],
+      "error": "Use: logout opencode."
+    },
+    {
+      "args": [
+        "logout",
+        "opencode-go"
+      ],
+      "expected": {
+        "mode": "logout",
+        "provider": "opencode-go",
+        "authFile": "/config-test-isolated/auth.json"
+      }
+    },
+    {
+      "args": [
+        "logout",
+        "opencode-go",
+        "--all"
+      ],
+      "error": "Use: logout opencode-go."
+    }
+  ],
+  "settings": [
+    {
+      "raw": null,
+      "expected": {}
+    },
+    {
+      "raw": [],
+      "expected": {}
+    },
+    {
+      "raw": {},
+      "expected": {}
+    },
+    {
+      "raw": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "low"
+      },
+      "expected": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "low"
+      }
+    },
+    {
+      "raw": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "ludicrous"
+      },
+      "expected": {
+        "model": "anthropic/claude-sonnet-5"
+      }
+    },
+    {
+      "raw": {
+        "model": "bad/model",
+        "panelTab": "7bad",
+        "updateCheck": true
+      },
+      "expected": {}
+    },
+    {
+      "raw": {
+        "model": "llama-cpp/qwen3-8b.gguf",
+        "modelServers": [
+          {
+            "name": "llama.cpp",
+            "baseURL": "http://127.0.0.1:8080/v1"
+          },
+          {
+            "name": "Studio PC",
+            "baseURL": "http://192.168.1.20:8000",
+            "apiKey": "lan-token-0001"
+          },
+          {
+            "name": "",
+            "baseURL": "http://127.0.0.1:1"
+          },
+          {
+            "name": "No address",
+            "baseURL": "ftp://example.test"
+          },
+          "not a server"
+        ],
+        "editorNote": "theirs"
+      },
+      "expected": {
+        "model": "llama-cpp/qwen3-8b.gguf",
+        "modelServers": [
+          {
+            "name": "llama.cpp",
+            "baseURL": "http://127.0.0.1:8080/v1"
+          },
+          {
+            "name": "Studio PC",
+            "baseURL": "http://192.168.1.20:8000/",
+            "apiKey": "lan-token-0001"
+          }
+        ]
+      }
+    },
+    {
+      "raw": {
+        "libraryFolders": [
+          "~/Samples",
+          7,
+          "",
+          "/Volumes/Drive/Loops"
+        ],
+        "model": "openai/gpt-6-luna",
+        "updateCheck": false,
+        "panelTab": "goals"
+      },
+      "expected": {
+        "model": "openai/gpt-6-luna",
+        "panelTab": "goals",
+        "updateCheck": false,
+        "libraryFolders": [
+          "~/Samples",
+          "/Volumes/Drive/Loops"
+        ]
+      }
+    },
+    {
+      "raw": {
+        "voice": {
+          "send": true,
+          "language": "ja",
+          "microphone": " Scarlett "
+        }
+      },
+      "expected": {
+        "voice": {
+          "send": true,
+          "language": "ja",
+          "microphone": " Scarlett "
+        }
+      }
+    },
+    {
+      "raw": {
+        "voice": {
+          "send": false,
+          "language": "en-US",
+          "microphone": " \n "
+        }
+      },
+      "expected": {}
+    },
+    {
+      "raw": {
+        "voice": {
+          "send": true,
+          "language": "auto",
+          "microphone": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      },
+      "expected": {
+        "voice": {
+          "send": true,
+          "language": "auto"
+        }
+      }
+    },
+    {
+      "raw": {
+        "modelServers": [
+          {
+            "name": "Somedevice",
+            "baseURL": "https://hello.test",
+            "apiKey": "key"
+          },
+          {
+            "name": " some\nserver ",
+            "baseURL": "http://localhost/"
+          }
+        ]
+      },
+      "expected": {
+        "modelServers": [
+          {
+            "name": "Somedevice",
+            "baseURL": "https://hello.test/",
+            "apiKey": "key"
+          }
+        ]
+      }
+    }
+  ],
+  "writes": [
+    {
+      "raw": null,
+      "next": {
+        "model": "openai/gpt-6-luna"
+      },
+      "expected": {
+        "model": "openai/gpt-6-luna"
+      }
+    },
+    {
+      "raw": null,
+      "next": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "panelTab": null,
+        "voice": null,
+        "modelServers": null,
+        "libraryFolders": [],
+        "updateCheck": null
+      },
+      "expected": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "modelServers": null
+      }
+    },
+    {
+      "raw": null,
+      "next": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      },
+      "expected": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      }
+    },
+    {
+      "raw": [],
+      "next": {
+        "model": "openai/gpt-6-luna"
+      },
+      "expected": {
+        "model": "openai/gpt-6-luna"
+      }
+    },
+    {
+      "raw": [],
+      "next": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "panelTab": null,
+        "voice": null,
+        "modelServers": null,
+        "libraryFolders": [],
+        "updateCheck": null
+      },
+      "expected": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "modelServers": null
+      }
+    },
+    {
+      "raw": [],
+      "next": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      },
+      "expected": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      }
+    },
+    {
+      "raw": {},
+      "next": {
+        "model": "openai/gpt-6-luna"
+      },
+      "expected": {
+        "model": "openai/gpt-6-luna"
+      }
+    },
+    {
+      "raw": {},
+      "next": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "panelTab": null,
+        "voice": null,
+        "modelServers": null,
+        "libraryFolders": [],
+        "updateCheck": null
+      },
+      "expected": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "modelServers": null
+      }
+    },
+    {
+      "raw": {},
+      "next": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      },
+      "expected": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      }
+    },
+    {
+      "raw": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "low"
+      },
+      "next": {
+        "model": "openai/gpt-6-luna"
+      },
+      "expected": {
+        "model": "openai/gpt-6-luna"
+      }
+    },
+    {
+      "raw": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "low"
+      },
+      "next": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "panelTab": null,
+        "voice": null,
+        "modelServers": null,
+        "libraryFolders": [],
+        "updateCheck": null
+      },
+      "expected": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "modelServers": null
+      }
+    },
+    {
+      "raw": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "low"
+      },
+      "next": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      },
+      "expected": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      }
+    },
+    {
+      "raw": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "ludicrous"
+      },
+      "next": {
+        "model": "openai/gpt-6-luna"
+      },
+      "expected": {
+        "model": "openai/gpt-6-luna"
+      }
+    },
+    {
+      "raw": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "ludicrous"
+      },
+      "next": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "panelTab": null,
+        "voice": null,
+        "modelServers": null,
+        "libraryFolders": [],
+        "updateCheck": null
+      },
+      "expected": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "modelServers": null
+      }
+    },
+    {
+      "raw": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "ludicrous"
+      },
+      "next": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      },
+      "expected": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      }
+    },
+    {
+      "raw": {
+        "model": "bad/model",
+        "panelTab": "7bad",
+        "updateCheck": true
+      },
+      "next": {
+        "model": "openai/gpt-6-luna"
+      },
+      "expected": {
+        "model": "openai/gpt-6-luna"
+      }
+    },
+    {
+      "raw": {
+        "model": "bad/model",
+        "panelTab": "7bad",
+        "updateCheck": true
+      },
+      "next": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "panelTab": null,
+        "voice": null,
+        "modelServers": null,
+        "libraryFolders": [],
+        "updateCheck": null
+      },
+      "expected": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "modelServers": null
+      }
+    },
+    {
+      "raw": {
+        "model": "bad/model",
+        "panelTab": "7bad",
+        "updateCheck": true
+      },
+      "next": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      },
+      "expected": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      }
+    },
+    {
+      "raw": {
+        "model": "llama-cpp/qwen3-8b.gguf",
+        "modelServers": [
+          {
+            "name": "llama.cpp",
+            "baseURL": "http://127.0.0.1:8080/v1"
+          },
+          {
+            "name": "Studio PC",
+            "baseURL": "http://192.168.1.20:8000",
+            "apiKey": "lan-token-0001"
+          },
+          {
+            "name": "",
+            "baseURL": "http://127.0.0.1:1"
+          },
+          {
+            "name": "No address",
+            "baseURL": "ftp://example.test"
+          },
+          "not a server"
+        ],
+        "editorNote": "theirs"
+      },
+      "next": {
+        "model": "openai/gpt-6-luna"
+      },
+      "expected": {
+        "model": "openai/gpt-6-luna",
+        "modelServers": [
+          {
+            "name": "llama.cpp",
+            "baseURL": "http://127.0.0.1:8080/v1"
+          },
+          {
+            "name": "Studio PC",
+            "baseURL": "http://192.168.1.20:8000",
+            "apiKey": "lan-token-0001"
+          },
+          {
+            "name": "",
+            "baseURL": "http://127.0.0.1:1"
+          },
+          {
+            "name": "No address",
+            "baseURL": "ftp://example.test"
+          },
+          "not a server"
+        ]
+      }
+    },
+    {
+      "raw": {
+        "model": "llama-cpp/qwen3-8b.gguf",
+        "modelServers": [
+          {
+            "name": "llama.cpp",
+            "baseURL": "http://127.0.0.1:8080/v1"
+          },
+          {
+            "name": "Studio PC",
+            "baseURL": "http://192.168.1.20:8000",
+            "apiKey": "lan-token-0001"
+          },
+          {
+            "name": "",
+            "baseURL": "http://127.0.0.1:1"
+          },
+          {
+            "name": "No address",
+            "baseURL": "ftp://example.test"
+          },
+          "not a server"
+        ],
+        "editorNote": "theirs"
+      },
+      "next": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "panelTab": null,
+        "voice": null,
+        "modelServers": null,
+        "libraryFolders": [],
+        "updateCheck": null
+      },
+      "expected": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "modelServers": null
+      }
+    },
+    {
+      "raw": {
+        "model": "llama-cpp/qwen3-8b.gguf",
+        "modelServers": [
+          {
+            "name": "llama.cpp",
+            "baseURL": "http://127.0.0.1:8080/v1"
+          },
+          {
+            "name": "Studio PC",
+            "baseURL": "http://192.168.1.20:8000",
+            "apiKey": "lan-token-0001"
+          },
+          {
+            "name": "",
+            "baseURL": "http://127.0.0.1:1"
+          },
+          {
+            "name": "No address",
+            "baseURL": "ftp://example.test"
+          },
+          "not a server"
+        ],
+        "editorNote": "theirs"
+      },
+      "next": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      },
+      "expected": {
+        "modelServers": [
+          {
+            "name": "llama.cpp",
+            "baseURL": "http://127.0.0.1:8080/v1"
+          },
+          {
+            "name": "Studio PC",
+            "baseURL": "http://192.168.1.20:8000",
+            "apiKey": "lan-token-0001"
+          },
+          {
+            "name": "",
+            "baseURL": "http://127.0.0.1:1"
+          },
+          {
+            "name": "No address",
+            "baseURL": "ftp://example.test"
+          },
+          "not a server"
+        ],
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      }
+    },
+    {
+      "raw": {
+        "libraryFolders": [
+          "~/Samples",
+          7,
+          "",
+          "/Volumes/Drive/Loops"
+        ],
+        "model": "openai/gpt-6-luna",
+        "updateCheck": false,
+        "panelTab": "goals"
+      },
+      "next": {
+        "model": "openai/gpt-6-luna"
+      },
+      "expected": {
+        "model": "openai/gpt-6-luna",
+        "panelTab": "goals",
+        "updateCheck": false,
+        "libraryFolders": [
+          "~/Samples",
+          "/Volumes/Drive/Loops"
+        ]
+      }
+    },
+    {
+      "raw": {
+        "libraryFolders": [
+          "~/Samples",
+          7,
+          "",
+          "/Volumes/Drive/Loops"
+        ],
+        "model": "openai/gpt-6-luna",
+        "updateCheck": false,
+        "panelTab": "goals"
+      },
+      "next": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "panelTab": null,
+        "voice": null,
+        "modelServers": null,
+        "libraryFolders": [],
+        "updateCheck": null
+      },
+      "expected": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "modelServers": null
+      }
+    },
+    {
+      "raw": {
+        "libraryFolders": [
+          "~/Samples",
+          7,
+          "",
+          "/Volumes/Drive/Loops"
+        ],
+        "model": "openai/gpt-6-luna",
+        "updateCheck": false,
+        "panelTab": "goals"
+      },
+      "next": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      },
+      "expected": {
+        "panelTab": "goals",
+        "updateCheck": false,
+        "libraryFolders": [
+          "~/Samples",
+          "/Volumes/Drive/Loops"
+        ],
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      }
+    },
+    {
+      "raw": {
+        "voice": {
+          "send": true,
+          "language": "ja",
+          "microphone": " Scarlett "
+        }
+      },
+      "next": {
+        "model": "openai/gpt-6-luna"
+      },
+      "expected": {
+        "model": "openai/gpt-6-luna",
+        "voice": {
+          "send": true,
+          "language": "ja",
+          "microphone": " Scarlett "
+        }
+      }
+    },
+    {
+      "raw": {
+        "voice": {
+          "send": true,
+          "language": "ja",
+          "microphone": " Scarlett "
+        }
+      },
+      "next": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "panelTab": null,
+        "voice": null,
+        "modelServers": null,
+        "libraryFolders": [],
+        "updateCheck": null
+      },
+      "expected": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "modelServers": null
+      }
+    },
+    {
+      "raw": {
+        "voice": {
+          "send": true,
+          "language": "ja",
+          "microphone": " Scarlett "
+        }
+      },
+      "next": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      },
+      "expected": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      }
+    },
+    {
+      "raw": {
+        "voice": {
+          "send": false,
+          "language": "en-US",
+          "microphone": " \n "
+        }
+      },
+      "next": {
+        "model": "openai/gpt-6-luna"
+      },
+      "expected": {
+        "model": "openai/gpt-6-luna"
+      }
+    },
+    {
+      "raw": {
+        "voice": {
+          "send": false,
+          "language": "en-US",
+          "microphone": " \n "
+        }
+      },
+      "next": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "panelTab": null,
+        "voice": null,
+        "modelServers": null,
+        "libraryFolders": [],
+        "updateCheck": null
+      },
+      "expected": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "modelServers": null
+      }
+    },
+    {
+      "raw": {
+        "voice": {
+          "send": false,
+          "language": "en-US",
+          "microphone": " \n "
+        }
+      },
+      "next": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      },
+      "expected": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      }
+    },
+    {
+      "raw": {
+        "voice": {
+          "send": true,
+          "language": "auto",
+          "microphone": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      },
+      "next": {
+        "model": "openai/gpt-6-luna"
+      },
+      "expected": {
+        "model": "openai/gpt-6-luna",
+        "voice": {
+          "send": true,
+          "language": "auto"
+        }
+      }
+    },
+    {
+      "raw": {
+        "voice": {
+          "send": true,
+          "language": "auto",
+          "microphone": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      },
+      "next": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "panelTab": null,
+        "voice": null,
+        "modelServers": null,
+        "libraryFolders": [],
+        "updateCheck": null
+      },
+      "expected": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "modelServers": null
+      }
+    },
+    {
+      "raw": {
+        "voice": {
+          "send": true,
+          "language": "auto",
+          "microphone": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      },
+      "next": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      },
+      "expected": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      }
+    },
+    {
+      "raw": {
+        "modelServers": [
+          {
+            "name": "Somedevice",
+            "baseURL": "https://hello.test",
+            "apiKey": "key"
+          },
+          {
+            "name": " some\nserver ",
+            "baseURL": "http://localhost/"
+          }
+        ]
+      },
+      "next": {
+        "model": "openai/gpt-6-luna"
+      },
+      "expected": {
+        "model": "openai/gpt-6-luna",
+        "modelServers": [
+          {
+            "name": "Somedevice",
+            "baseURL": "https://hello.test",
+            "apiKey": "key"
+          },
+          {
+            "name": " some\nserver ",
+            "baseURL": "http://localhost/"
+          }
+        ]
+      }
+    },
+    {
+      "raw": {
+        "modelServers": [
+          {
+            "name": "Somedevice",
+            "baseURL": "https://hello.test",
+            "apiKey": "key"
+          },
+          {
+            "name": " some\nserver ",
+            "baseURL": "http://localhost/"
+          }
+        ]
+      },
+      "next": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "panelTab": null,
+        "voice": null,
+        "modelServers": null,
+        "libraryFolders": [],
+        "updateCheck": null
+      },
+      "expected": {
+        "model": "anthropic/claude-sonnet-5",
+        "effort": "high",
+        "modelServers": null
+      }
+    },
+    {
+      "raw": {
+        "modelServers": [
+          {
+            "name": "Somedevice",
+            "baseURL": "https://hello.test",
+            "apiKey": "key"
+          },
+          {
+            "name": " some\nserver ",
+            "baseURL": "http://localhost/"
+          }
+        ]
+      },
+      "next": {
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      },
+      "expected": {
+        "modelServers": [
+          {
+            "name": "Somedevice",
+            "baseURL": "https://hello.test",
+            "apiKey": "key"
+          },
+          {
+            "name": " some\nserver ",
+            "baseURL": "http://localhost/"
+          }
+        ],
+        "voice": {
+          "send": true,
+          "language": "en",
+          "microphone": "Built-in"
+        }
+      }
+    }
+  ],
+  "safe": [
+    {
+      "message": "\u001b[2Jrequest test-only-secret-do-not-log; Authorization: Bearer unknown-token; x-api-key: hidden; token=secret\r\nnext\u0007",
+      "expected": "request [redacted]; Authorization: [redacted]; x-api-key: [redacted]; token=[redacted]  next "
+    },
+    {
+      "message": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa..."
+    },
+    {
+      "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx🎸🎸🎸",
+      "expected": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx�..."
+    },
+    {
+      "message": "API_KEY=\"hello\"; authorization: Bearer x, TOKEN=string}",
+      "expected": "API_KEY=\"[redacted]\"; authorization: [redacted], TOKEN=[redacted]}"
+    },
+    {
+      "message": "\u001b]8;;https://example.test\u0007hello\u001b]8;;\u0007; \u001b[31mred\u001b[0m",
+      "expected": "hello; red"
+    },
+    {
+      "message": "2Jbefore token = value; after",
+      "expected": "before token = [redacted]; after"
+    },
+    {
+      "message": "badvalue \u001b[1;2mhello",
+      "expected": "bad value hello"
+    }
+  ]
+}

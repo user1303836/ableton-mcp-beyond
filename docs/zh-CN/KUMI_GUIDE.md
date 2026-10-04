@@ -172,7 +172,7 @@ Kumi 会读取视频的标题、章节和文字内容。文字来自视频的字
 
 所需工具：
 
-- **yt-dlp**：Kumi 会在第一次时把它下载到 `~/.kumi/tools`（约 35 MB，按其发布版本的校验和验证），之后每月更新一次。
+- **yt-dlp**：Kumi 会在第一次时把它下载到 `~/.kumi/tools`（约 35 MB，按其发布版本的校验和验证），之后每月更新一次。 对于需要执行 JavaScript 的视频，Kumi 会优先复用旧安装版保留的 Node，其次查找 PATH 中的 `node`，并传给 yt-dlp。全新原生安装不会附带这个可选运行时；部分 YouTube 视频需要它。
 - **ffmpeg**：用于画面和声音。在 Mac 上运行 `brew install ffmpeg`；在 Windows 上，Kumi 会在第一次时下载它（约 170 MB，经过校验）。没有它时，Kumi 只能读取视频的文字内容。
 - **whisper.cpp**：只用于没有字幕的视频。在 Mac 上运行 `brew install whisper-cpp`；在 Windows 上由 Kumi 下载。它的语音模型（约 190 MB）会在第一次时下载。
 
@@ -241,18 +241,24 @@ Kumi 的撤销只在它与 Live 的连接持续期间有效：在 Live 重启、
 kumi update              # 获取最新的 Kumi；Live 中的桥接较旧时一并更新
 kumi update --check      # 只告诉你是否有更新的 Kumi
 kumi update --rollback   # 回到上次更新之前的 Kumi
-kumi doctor              # 检查 Node、登录、桥接、Live、扩展和终端
+kumi doctor              # 检查 登录、桥接、Live、扩展和终端
 kumi report              # 出问题时生成一个可以发送的文件
 kumi uninstall           # 卸载 Kumi；加上 --all 会同时删除你的对话、笔记和登录信息
 ```
 
-`update` 会获取最新版本，按其校验和验证，并先启动一次以确认它能运行，然后才把它放到位；之前的版本会保留，供 `--rollback` 使用。如果 Live 中的桥接较旧且 Live 已关闭，它接着会运行 `kumi bridge`；如果 Live 正开着，它会告诉你退出 Live 再运行 `kumi bridge`。在仓库的副本中，`update` 改为把检出向前推进（`git merge --ff-only`，有本地修改时拒绝执行），并运行 `npm run setup`。在 Kumi 中，`/update` 会先询问你，然后关闭 Kumi、更新，再用同一个对话重新打开它。
+`update` 会获取最新版本，按其校验和验证，并先启动一次以确认它能运行，然后才把它放到位；之前的版本会保留，供 `--rollback` 使用。如果 Live 中的桥接较旧且 Live 已关闭，它接着会运行 `kumi bridge`；如果 Live 正开着，它会告诉你退出 Live 再运行 `kumi bridge`。在仓库的副本中，`update` 改为把检出向前推进（`git merge --ff-only`，有本地修改时拒绝执行），并用 Cargo 构建工作区。在 Kumi 中，`/update` 会先询问你，然后关闭 Kumi、更新，再用同一个对话重新打开它。
+
+从当前的 1.7.4 安装版（自带 Node 24）升级时，关闭 Live，运行 `kumi update`，再照常打开 Kumi。原生应用首次启动时会迁移桥接，即使新旧桥接都为 1.0.73。设置、登录信息、对话和素材库仍在 `~/.kumi` 或已有的 `KUMI_HOME` 中，无需重新登录或移动数据。
+
+上一版应用及其 Node 会保留供回滚。`kumi update --rollback` 会一起恢复 JavaScript 应用及其桥接配置和密钥；必须先关闭 Live，并保留桥接的上一代文件。再回滚一次就会返回原生应用。Kumi 从不自行关闭 Live。
+
+很早的 Node 22 安装版可能因 Node 版本而拒绝更新。出现这种提示时，请保留原来的 `KUMI_HOME` 并重新运行[安装程序](../../README.zh-CN.md#开始使用)，它会保留数据并安装原生应用。npm 用户仍可使用原来的命令：有 Cargo 时构建当前检出的代码，没有时迁移到对应的已发布原生版本。
 
 Kumi 会在启动时检查是否有新版本，每天最多一次；没有新版本或没有网络时什么也不说。在 `~/.kumi/settings.json` 中加入 `"updateCheck": false`，或者设置 `KUMI_NO_UPDATE_CHECK=1`，即可关闭这项检查。
 
 `report` 会写出 `~/kumi-report-<date and time>.txt`，其中包含 Kumi 和桥接的版本、doctor 的检查结果、你的设置、Kumi 在你上一次对话中做了什么、缺口日志，以及 Live 自身日志中来自桥接的行。密钥和令牌会被删除，你的主文件夹显示为 `~`，你的账户名显示为 `<user>`。发送前请先读一遍。
 
-`uninstall` 会移除 Kumi、它的 Node、它的启动器以及它添加的 PATH 条目，并提出把桥接和扩展从 Live 中移除（仅在 Live 关闭时）。你的对话、笔记、配方和登录信息会保留，除非你加上 `--all`。
+`uninstall` 会移除 Kumi、保留的旧版 Node、启动器以及它添加的 PATH 条目，并提出把桥接和扩展从 Live 中移除（仅在 Live 关闭时）。你的对话、笔记、配方和登录信息会保留，除非你加上 `--all`。
 
 ## 限制
 
@@ -283,7 +289,7 @@ Kumi 会在启动时检查是否有新版本，每天最多一次；没有新版
 
 - **你的模型提供方**会收到你的消息、对话、Kumi 从工程中读取的内容、它观看的视频画面，以及它读取的图片。使用你电脑上的模型时，这些内容不会离开你的电脑（写在 `settings.json` 中的服务器无论运行在哪里都会收到）。
 - **网络搜索和阅读**会发送到上面提到的搜索服务，Kumi 读取的网页也会看到它的请求。Kumi 不会读取带有密钥或令牌的地址。
-- **下载**来自 GitHub（Kumi 的发布版本和更新检查、yt-dlp、ffmpeg 和 whisper.cpp）、Hugging Face（语音模型）、nodejs.org（安装程序使用的 Node）以及你指定的视频网站。
+- **下载**来自 GitHub（Kumi 的发布版本和更新检查、yt-dlp、ffmpeg 和 whisper.cpp）、Hugging Face（语音模型）以及你指定的视频网站。
 - **音频**在你的电脑上分析；只有数字会发送给模型。
 - **你的声音**在你的电脑上转写，录音随即删除；只有你发送时的文字会离开。
 - **你的素材库**在你的电脑上学习；只有手册的页面来自网络。

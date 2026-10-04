@@ -5,7 +5,7 @@ English · [简体中文](../zh-CN/DELIVERY.md) · [日本語](../ja/DELIVERY.md
 The bridge has two parts: the `AbletonMcpBridge` Remote Script that Live
 loads, and a local MCP server that Kumi (or another MCP client) starts. Both
 come in one package, `@ableton-mcp/mcp-server`, and one tool installs them: the
-bridge's lifecycle CLI, `ableton-mcp-lifecycle`. It plans before it changes
+bridge's lifecycle CLI, `ableton-mcp-server lifecycle`. It plans before it changes
 anything, records what it installed in a receipt, and can repair, roll back and
 remove exactly that. With Kumi, `kumi bridge` runs it for you.
 
@@ -16,7 +16,7 @@ Quit Live, then run `kumi bridge`. It:
 1. refuses while Live is running, and asks you to confirm Live is closed
    (`--yes` confirms beforehand);
 2. copies the bridge's package from the Kumi bundle (in a checkout, packs it
-   with `npm pack` instead) into a folder of its own and checks its hash;
+   with `scripts/build-native-release.py --bridge-only` instead) into a folder of its own and checks its hash;
 3. runs the lifecycle's `install`, or `upgrade` when a bridge is already there:
    first a plan, then the change;
 4. puts Kumi's Live extension into Live's Extensions folder, which Live 12.4
@@ -29,8 +29,9 @@ Control Surface in **Settings → Link, Tempo & MIDI**. In a checkout with
 uncommitted changes, `kumi bridge --allow-dirty` installs anyway (developers
 only).
 
-`kumi update` runs `kumi bridge` for you when the bridge in Live is older than
-Kumi's and Live is closed. `kumi uninstall` offers to take the bridge and the
+`kumi update` runs `kumi bridge` when the bridge needs an update and Live is closed. The first
+native app startup also migrates a legacy JavaScript bridge at the same bridge version. Its
+receipt-bound configuration, secret and ports are preserved. `kumi uninstall` offers to take the bridge and the
 extension out of Live through the lifecycle's `uninstall`, and keeps the
 bridge's files while Live still loads from them. `kumi doctor` checks the whole
 chain. The [Kumi guide](KUMI_GUIDE.md#connect-to-live) covers this from a
@@ -38,8 +39,8 @@ producer's side.
 
 | What | Where |
 | --- | --- |
-| The bridge's package | `~/.kumi/bridge/<version>-<time>/node_modules/@ableton-mcp/mcp-server` |
-| Its state: secret, configuration, receipt, journal | `~/.kumi/bridge/state`, or the folder of the bridge configuration already installed |
+| The bridge's package | `~/.kumi/bridge/<version>-<time>/package` (older Node generations retain their original `node_modules` layout) |
+| Its state: secret, configuration, receipt, journal | `~/.kumi/bridge/state`, or the existing owner receipt’s state folder |
 | The Remote Script | `AbletonMcpBridge` in your User Library's Remote Scripts folder (see [Live's folders](#lives-folders)) |
 | Kumi's Live extension | `kumi.kumi` in Live's Extensions folder |
 
@@ -51,81 +52,66 @@ Script.
 
 ## The standalone bridge
 
-For MCP clients other than Kumi. You need Node: Node 22 and 24 are supported,
-and Node 24 LTS is recommended. You also need the bridge's tarball:
-
-- **Build it:** in a clean checkout, `cd apps/mcp-server && npm ci && npm pack`.
-  A tarball built from uncommitted changes installs only with
-  `--allow-dirty-private-build`.
-- **Or take it from CI:** every CI run keeps an `exact-local-candidate`
-  artifact for 90 days, with `candidate-metadata.json` giving its sha256. On a
-  pull request it is built from GitHub's merge commit, not the branch head.
-
-Install the package where it will stay, then install the bridge into Live.
-macOS (bash or zsh):
+For MCP clients other than Kumi, use the native archive for your platform. No separate Node
+runtime is required. Build one from a clean checkout with:
 
 ```sh
-ARTIFACT=/absolute/path/to/ableton-mcp-mcp-server-x.y.z.tgz
+python3 scripts/build-native-release.py --bridge-only --out release/bridge
+```
+
+The output includes a target-specific `.tar.gz` and `prepared.json` with its exact SHA-256.
+Packages built from uncommitted changes require `--allow-dirty-private-build`.
+
+Extract the archive into a permanent directory. Keep `ableton-mcp-server` and
+`ableton-mcp-analysis-worker` together with the package's assets and release manifest.
+For example, on macOS:
+
+```sh
+ARTIFACT=/absolute/path/to/ableton-mcp-server-1.0.73-aarch64-apple-darwin.tar.gz
 ARTIFACT_SHA="$(shasum -a 256 "$ARTIFACT" | awk '{print $1}')"
 INSTALL_ROOT="$HOME/Library/Application Support/AbletonMcp/package"
 STATE="$HOME/Library/Application Support/AbletonMcp/state"
 REMOTE_SCRIPTS="$HOME/Music/Ableton/User Library/Remote Scripts"
 mkdir -p "$INSTALL_ROOT" "$REMOTE_SCRIPTS"
-npm install --prefix "$INSTALL_ROOT" --ignore-scripts --no-audit --no-fund "$ARTIFACT"
-PACKAGE_ROOT="$INSTALL_ROOT/node_modules/@ableton-mcp/mcp-server"
-LIFECYCLE="$INSTALL_ROOT/node_modules/.bin/ableton-mcp-lifecycle"
+tar -xzf "$ARTIFACT" -C "$INSTALL_ROOT"
+PACKAGE_ROOT="$INSTALL_ROOT/package"
+SERVER="$PACKAGE_ROOT/ableton-mcp-server"
 
-"$LIFECYCLE" install --remote-scripts-dir "$REMOTE_SCRIPTS" --state-dir "$STATE" \
+"$SERVER" lifecycle install --remote-scripts-dir "$REMOTE_SCRIPTS" --state-dir "$STATE" \
   --package-root "$PACKAGE_ROOT" --artifact "$ARTIFACT" --artifact-sha256 "$ARTIFACT_SHA"
-# Read the plan, quit Live, then:
-"$LIFECYCLE" install --remote-scripts-dir "$REMOTE_SCRIPTS" --state-dir "$STATE" \
+# Read the plan and quit Live, then:
+"$SERVER" lifecycle install --remote-scripts-dir "$REMOTE_SCRIPTS" --state-dir "$STATE" \
   --package-root "$PACKAGE_ROOT" --artifact "$ARTIFACT" --artifact-sha256 "$ARTIFACT_SHA" \
   --apply --confirm-live-stopped
 ```
 
-Windows (PowerShell):
+On Windows, extract the matching archive with `tar -xzf`, then invoke
+`& "$PackageRoot\ableton-mcp-server.exe" lifecycle install` with the same options, using your
+absolute Windows paths. `Get-FileHash -Algorithm SHA256 $Artifact` gives the archive's hash.
+Use your User Library's Remote Scripts folder (see [Live's folders](#lives-folders)).
 
-```powershell
-$Artifact = (Resolve-Path 'C:\absolute\path\to\ableton-mcp-mcp-server-x.y.z.tgz').Path
-$ArtifactSha = (Get-FileHash -Algorithm SHA256 $Artifact).Hash.ToLowerInvariant()
-$InstallRoot = Join-Path $env:LOCALAPPDATA 'AbletonMcp\package'
-$State = Join-Path $env:LOCALAPPDATA 'AbletonMcp\state'
-$RemoteScripts = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Ableton\User Library\Remote Scripts'
-New-Item -ItemType Directory -Force $InstallRoot, $RemoteScripts | Out-Null
-npm install --prefix $InstallRoot --ignore-scripts --no-audit --no-fund $Artifact
-$PackageRoot = Join-Path $InstallRoot 'node_modules\@ableton-mcp\mcp-server'
-$Lifecycle = Join-Path $InstallRoot 'node_modules\.bin\ableton-mcp-lifecycle.cmd'
+Open Live, choose **AbletonMcpBridge** as a Control Surface, then run `activate` with the same
+`--remote-scripts-dir`, `--state-dir` and `--package-root`. Point the MCP client at the installed
+server with `--config <state>/bridge-config.json`; see the [user guide](USER_GUIDE.md).
 
-& $Lifecycle install --remote-scripts-dir $RemoteScripts --state-dir $State `
-  --package-root $PackageRoot --artifact $Artifact --artifact-sha256 $ArtifactSha
-# Read the plan, quit Live (check Task Manager), then:
-& $Lifecycle install --remote-scripts-dir $RemoteScripts --state-dir $State `
-  --package-root $PackageRoot --artifact $Artifact --artifact-sha256 $ArtifactSha `
-  --apply --confirm-live-stopped
-```
-
-If you moved your User Library, use its Remote Scripts folder instead (see
-[Live's folders](#lives-folders)). Then open Live, choose **AbletonMcpBridge**
-as a Control Surface, and run `activate` with the same three folder options.
-The [user guide](USER_GUIDE.md) shows how to point an MCP client at the
-installed server with `--config <state>/bridge-config.json`.
-
-To upgrade, install the new tarball under a new prefix and run `upgrade` with
-the new `--package-root`, `--artifact` and `--artifact-sha256`. To remove, run
-`uninstall`, restart Live, update your MCP client's configuration, and only
-then delete the npm prefix.
+For an upgrade, extract the new tarball into a new directory and run `upgrade` with its package
+root, artifact and hash, retaining the existing state/config/secret paths. A verified legacy Node
+installation may migrate to a native package with the same bridge version. Other upgrades must
+increase the version. Keep the previous package for rollback. Run `uninstall` before deleting
+package directories. The lifecycle still accepts legacy Node release artifacts and receipts;
+those require Node 22 or 24.
 
 ## Lifecycle CLI reference
 
 ```text
-ableton-mcp-lifecycle <action> --remote-scripts-dir DIR [options]
+ableton-mcp-server lifecycle <action> --remote-scripts-dir DIR [options]
 ```
 
 | Action | What it does | Needs |
 | --- | --- | --- |
 | `install` | Creates an owner-only secret and bridge configuration, installs the Remote Script, writes the receipt | `--artifact`, `--artifact-sha256`; Live stopped |
 | `activate` | Checks, without changing Live or the installation, that Live loaded this bridge and answers through it; records the result in the receipt | Live running, the Control Surface chosen |
-| `upgrade` | Replaces the bridge with a newer package, keeping the secret and the previous version for `rollback` | A newer `--artifact`, its sha256, its `--package-root`; Live stopped |
+| `upgrade` | Replaces the bridge with a newer package, keeping the secret and the previous version for `rollback` | A newer artifact, or verified same-version Node → native migration; its SHA-256 and package root; Live stopped |
 | `repair` | Compares what's installed with the receipt; with `--apply`, moves changed files to quarantine and restores the package's own | — |
 | `rollback` | Goes back to the version the last upgrade kept | Live stopped |
 | `uninstall` | Removes the files the receipt owns; moves changed or unknown ones to quarantine; keeps the secret | Live stopped |
@@ -199,15 +185,15 @@ application folder.
 ## Checking an installation
 
 ```sh
-ableton-mcp-diagnostics --config /absolute/path/to/bridge-config.json
+ableton-mcp-server diagnostics --config /absolute/path/to/bridge-config.json
 ```
 
-It prints a JSON report. It exits with 1 for an unsupported Node or system, and
+It prints a JSON report. It exits with 1 for an unsupported system, and
 with 0 even when Live isn't reachable, so read its fields:
 
 | Field | Means |
 | --- | --- |
-| `nodeSupported`, `platformSupported` | Node and the system are supported |
+| `runtime`, `runtimeVersion`, `runtimeSupported`, `platformSupported` | Native Rust runtime, bridge version and platform support |
 | `readiness.package` | The package and its Remote Script files are present and intact (not that Live loaded them; `status` checks the installed copy) |
 | `readiness.configured` | The configuration is valid, names a bridge and has a readable secret |
 | `readiness.authenticatedBridge` | The Remote Script answered over the authenticated connection, and discovery worked (`registryHash` shows its registry) |
@@ -220,12 +206,12 @@ configuration, secret and ports match.
 
 ## Moving a configuration to version 2
 
-`ableton-mcp-migrate` keeps an old (legacy or version-1) client configuration
+`ableton-mcp-server migrate` keeps an old (legacy or version-1) client configuration
 as it is by default. Given every bridge field and an existing owner-only secret,
 it writes a version-2 bridge configuration:
 
 ```sh
-ableton-mcp-migrate --input /absolute/old.json --output /absolute/bridge-v2.json \
+ableton-mcp-server migrate --input /absolute/old.json --output /absolute/bridge-v2.json \
   --bridge-host 127.0.0.1 --bridge-port 9765 --realtime-port 9766 \
   --secret-file /absolute/bridge.secret
 ```

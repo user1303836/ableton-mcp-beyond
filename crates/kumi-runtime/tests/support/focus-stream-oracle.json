@@ -1,0 +1,7322 @@
+{
+  "focus": [
+    {
+      "row": {},
+      "value": null
+    },
+    {
+      "row": {
+        "selectedTrackRef": "1:track:0"
+      },
+      "value": null
+    },
+    {
+      "row": {
+        "focusTrackName": "Bass",
+        "focusTrackColor": "#f59a3c",
+        "focusTrackKind": "midi",
+        "focusSceneName": "Verse",
+        "focusClipName": "",
+        "focusDeviceName": "Operator",
+        "focusParameterName": "Filter Freq",
+        "focusParameterValue": "1.20 kHz",
+        "focusParameterOwner": "Operator",
+        "focusChainName": null,
+        "focusView": "Session",
+        "focusDetail": "Device",
+        "focusBrowser": false,
+        "focusSelectedNotes": 3
+      },
+      "value": {
+        "track": {
+          "name": "Bass",
+          "color": "#f59a3c",
+          "kind": "midi"
+        },
+        "scene": "Verse",
+        "clip": "",
+        "device": "Operator",
+        "parameter": {
+          "name": "Filter Freq",
+          "value": "1.20 kHz",
+          "owner": "Operator"
+        },
+        "view": "Session",
+        "detail": "Device",
+        "browser": false,
+        "selectedNotes": 3
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Pad",
+        "focusTrackColor": "orange",
+        "focusTrackKind": "spaceship",
+        "focusView": "Mixer",
+        "focusSelectedNotes": -1
+      },
+      "value": {
+        "track": {
+          "name": "Pad"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": null,
+        "focusParameterName": "Parameter"
+      },
+      "value": {
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackColor": null
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackKind": null
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedTrackRef": null
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "highlightedClipSlotRef": null
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedDeviceRef": null
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSceneName": null
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusClipName": null
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDeviceName": null
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": null
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterValue": null
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterOwner": null
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusChainName": null
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusView": null
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDetail": null
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusBrowser": null
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSelectedNotes": null
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": false,
+        "focusParameterName": "Parameter"
+      },
+      "value": {
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackColor": false
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackKind": false
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedTrackRef": false
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "highlightedClipSlotRef": false
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedDeviceRef": false
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSceneName": false
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusClipName": false
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDeviceName": false
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": false
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterValue": false
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterOwner": false
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusChainName": false
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusView": false
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDetail": false
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusBrowser": false
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        },
+        "browser": false
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSelectedNotes": false
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": true,
+        "focusParameterName": "Parameter"
+      },
+      "value": {
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackColor": true
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackKind": true
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedTrackRef": true
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "highlightedClipSlotRef": true
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedDeviceRef": true
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSceneName": true
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusClipName": true
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDeviceName": true
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": true
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterValue": true
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterOwner": true
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusChainName": true
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusView": true
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDetail": true
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusBrowser": true
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        },
+        "browser": true
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSelectedNotes": true
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": 0,
+        "focusParameterName": "Parameter"
+      },
+      "value": {
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackColor": 0
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackKind": 0
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedTrackRef": 0
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "highlightedClipSlotRef": 0
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedDeviceRef": 0
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSceneName": 0
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusClipName": 0
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDeviceName": 0
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": 0
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterValue": 0
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterOwner": 0
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusChainName": 0
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusView": 0
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDetail": 0
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusBrowser": 0
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSelectedNotes": 0
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        },
+        "selectedNotes": 0
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": -1,
+        "focusParameterName": "Parameter"
+      },
+      "value": {
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackColor": -1
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackKind": -1
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedTrackRef": -1
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "highlightedClipSlotRef": -1
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedDeviceRef": -1
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSceneName": -1
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusClipName": -1
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDeviceName": -1
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": -1
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterValue": -1
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterOwner": -1
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusChainName": -1
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusView": -1
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDetail": -1
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusBrowser": -1
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSelectedNotes": -1
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": 1.5,
+        "focusParameterName": "Parameter"
+      },
+      "value": {
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackColor": 1.5
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackKind": 1.5
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedTrackRef": 1.5
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "highlightedClipSlotRef": 1.5
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedDeviceRef": 1.5
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSceneName": 1.5
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusClipName": 1.5
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDeviceName": 1.5
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": 1.5
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterValue": 1.5
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterOwner": 1.5
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusChainName": 1.5
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusView": 1.5
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDetail": 1.5
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusBrowser": 1.5
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSelectedNotes": 1.5
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "",
+        "focusParameterName": "Parameter"
+      },
+      "value": {
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackColor": ""
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackKind": ""
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedTrackRef": ""
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "highlightedClipSlotRef": ""
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedDeviceRef": ""
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSceneName": ""
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusClipName": ""
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "clip": "",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDeviceName": ""
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": ""
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterValue": ""
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterOwner": ""
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusChainName": ""
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusView": ""
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDetail": ""
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusBrowser": ""
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSelectedNotes": ""
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Name",
+        "focusParameterName": "Parameter"
+      },
+      "value": {
+        "track": {
+          "name": "Name"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackColor": "Name"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackKind": "Name"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedTrackRef": "Name"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "trackRef": "Name",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "highlightedClipSlotRef": "Name"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "slotRef": "Name",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedDeviceRef": "Name"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "deviceRef": "Name",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSceneName": "Name"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "scene": "Name",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusClipName": "Name"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "clip": "Name",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDeviceName": "Name"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "device": "Name",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Name"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Name"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterValue": "Name"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter",
+          "value": "Name"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterOwner": "Name"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter",
+          "owner": "Name"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusChainName": "Name"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        },
+        "chain": "Name"
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusView": "Name"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDetail": "Name"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusBrowser": "Name"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSelectedNotes": "Name"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        "focusParameterName": "Parameter"
+      },
+      "value": {
+        "track": {
+          "name": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackColor": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackKind": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedTrackRef": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "trackRef": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "highlightedClipSlotRef": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "slotRef": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedDeviceRef": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "deviceRef": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSceneName": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "scene": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusClipName": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "clip": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDeviceName": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "device": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterValue": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter",
+          "value": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterOwner": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter",
+          "owner": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusChainName": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        },
+        "chain": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusView": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDetail": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusBrowser": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSelectedNotes": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "focusParameterName": "Parameter"
+      },
+      "value": {
+        "track": {
+          "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackColor": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackKind": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedTrackRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "trackRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "highlightedClipSlotRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "slotRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedDeviceRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "deviceRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSceneName": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "scene": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusClipName": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "clip": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDeviceName": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "device": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterValue": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter",
+          "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterOwner": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter",
+          "owner": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusChainName": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        },
+        "chain": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusView": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDetail": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusBrowser": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSelectedNotes": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": [],
+        "focusParameterName": "Parameter"
+      },
+      "value": {
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackColor": []
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackKind": []
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedTrackRef": []
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "highlightedClipSlotRef": []
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedDeviceRef": []
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSceneName": []
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusClipName": []
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDeviceName": []
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": []
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterValue": []
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterOwner": []
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusChainName": []
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusView": []
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDetail": []
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusBrowser": []
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSelectedNotes": []
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": {},
+        "focusParameterName": "Parameter"
+      },
+      "value": {
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackColor": {}
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackKind": {}
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedTrackRef": {}
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "highlightedClipSlotRef": {}
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedDeviceRef": {}
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSceneName": {}
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusClipName": {}
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDeviceName": {}
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": {}
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterValue": {}
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterOwner": {}
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusChainName": {}
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusView": {}
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDetail": {}
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusBrowser": {}
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSelectedNotes": {}
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "#AABB00",
+        "focusParameterName": "Parameter"
+      },
+      "value": {
+        "track": {
+          "name": "#AABB00"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackColor": "#AABB00"
+      },
+      "value": {
+        "track": {
+          "name": "Track",
+          "color": "#AABB00"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackKind": "#AABB00"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedTrackRef": "#AABB00"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "trackRef": "#AABB00",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "highlightedClipSlotRef": "#AABB00"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "slotRef": "#AABB00",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedDeviceRef": "#AABB00"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "deviceRef": "#AABB00",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSceneName": "#AABB00"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "scene": "#AABB00",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusClipName": "#AABB00"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "clip": "#AABB00",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDeviceName": "#AABB00"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "device": "#AABB00",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "#AABB00"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "#AABB00"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterValue": "#AABB00"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter",
+          "value": "#AABB00"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterOwner": "#AABB00"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter",
+          "owner": "#AABB00"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusChainName": "#AABB00"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        },
+        "chain": "#AABB00"
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusView": "#AABB00"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDetail": "#AABB00"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusBrowser": "#AABB00"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSelectedNotes": "#AABB00"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Arrangement",
+        "focusParameterName": "Parameter"
+      },
+      "value": {
+        "track": {
+          "name": "Arrangement"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackColor": "Arrangement"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackKind": "Arrangement"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedTrackRef": "Arrangement"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "trackRef": "Arrangement",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "highlightedClipSlotRef": "Arrangement"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "slotRef": "Arrangement",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedDeviceRef": "Arrangement"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "deviceRef": "Arrangement",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSceneName": "Arrangement"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "scene": "Arrangement",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusClipName": "Arrangement"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "clip": "Arrangement",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDeviceName": "Arrangement"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "device": "Arrangement",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Arrangement"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Arrangement"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterValue": "Arrangement"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter",
+          "value": "Arrangement"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterOwner": "Arrangement"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter",
+          "owner": "Arrangement"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusChainName": "Arrangement"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        },
+        "chain": "Arrangement"
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusView": "Arrangement"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        },
+        "view": "Arrangement"
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDetail": "Arrangement"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusBrowser": "Arrangement"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSelectedNotes": "Arrangement"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Device",
+        "focusParameterName": "Parameter"
+      },
+      "value": {
+        "track": {
+          "name": "Device"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackColor": "Device"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackKind": "Device"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedTrackRef": "Device"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "trackRef": "Device",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "highlightedClipSlotRef": "Device"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "slotRef": "Device",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedDeviceRef": "Device"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "deviceRef": "Device",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSceneName": "Device"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "scene": "Device",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusClipName": "Device"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "clip": "Device",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDeviceName": "Device"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "device": "Device",
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Device"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Device"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterValue": "Device"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter",
+          "value": "Device"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterOwner": "Device"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter",
+          "owner": "Device"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusChainName": "Device"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        },
+        "chain": "Device"
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusView": "Device"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDetail": "Device"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        },
+        "detail": "Device"
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusBrowser": "Device"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSelectedNotes": "Device"
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": 9007199254740991,
+        "focusParameterName": "Parameter"
+      },
+      "value": {
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackColor": 9007199254740991
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackKind": 9007199254740991
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedTrackRef": 9007199254740991
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "highlightedClipSlotRef": 9007199254740991
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedDeviceRef": 9007199254740991
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSceneName": 9007199254740991
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusClipName": 9007199254740991
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDeviceName": 9007199254740991
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": 9007199254740991
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterValue": 9007199254740991
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterOwner": 9007199254740991
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusChainName": 9007199254740991
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusView": 9007199254740991
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDetail": 9007199254740991
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusBrowser": 9007199254740991
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSelectedNotes": 9007199254740991
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        },
+        "selectedNotes": 9007199254740991
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": 9007199254740992,
+        "focusParameterName": "Parameter"
+      },
+      "value": {
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackColor": 9007199254740992
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusTrackKind": 9007199254740992
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedTrackRef": 9007199254740992
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "highlightedClipSlotRef": 9007199254740992
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "selectedDeviceRef": 9007199254740992
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSceneName": 9007199254740992
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusClipName": 9007199254740992
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDeviceName": 9007199254740992
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": 9007199254740992
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterValue": 9007199254740992
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusParameterOwner": 9007199254740992
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusChainName": 9007199254740992
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusView": 9007199254740992
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusDetail": 9007199254740992
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusBrowser": 9007199254740992
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "focusTrackName": "Track",
+        "focusParameterName": "Parameter",
+        "focusSelectedNotes": 9007199254740992
+      },
+      "value": {
+        "track": {
+          "name": "Track"
+        },
+        "parameter": {
+          "name": "Parameter"
+        }
+      }
+    },
+    {
+      "row": {
+        "selectedSceneRef": ":scene:0"
+      },
+      "value": {
+        "sceneIndex": 0
+      }
+    },
+    {
+      "row": {
+        "selectedSceneRef": "opaque:scene:17"
+      },
+      "value": {
+        "sceneIndex": 17
+      }
+    },
+    {
+      "row": {
+        "selectedSceneRef": "1:scene:001"
+      },
+      "value": {
+        "sceneIndex": 1
+      }
+    },
+    {
+      "row": {
+        "selectedSceneRef": "x:scene:1\n"
+      },
+      "value": null
+    },
+    {
+      "row": {
+        "selectedSceneRef": "x:scene:-1"
+      },
+      "value": null
+    },
+    {
+      "row": {
+        "selectedSceneRef": "x:scene:1.1"
+      },
+      "value": null
+    },
+    {
+      "row": {
+        "selectedSceneRef": "x:scene:١"
+      },
+      "value": null
+    },
+    {
+      "row": {
+        "selectedSceneRef": "x:scene:9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999"
+      },
+      "value": {
+        "sceneIndex": null
+      }
+    }
+  ],
+  "scans": [
+    {
+      "chunks": [
+        "{",
+        "\"",
+        "f",
+        "i",
+        "n",
+        "a",
+        "l",
+        "\"",
+        ":",
+        "t",
+        "r",
+        "u",
+        "e",
+        ",",
+        "\"",
+        "s",
+        "t",
+        "e",
+        "p",
+        "s",
+        "\"",
+        ":",
+        "[",
+        "{",
+        "\"",
+        "t",
+        "o",
+        "o",
+        "l",
+        "\"",
+        ":",
+        "\"",
+        "a",
+        "d",
+        "d",
+        "_",
+        "t",
+        "r",
+        "a",
+        "c",
+        "k",
+        "s",
+        "_",
+        "a",
+        "n",
+        "d",
+        "_",
+        "s",
+        "c",
+        "e",
+        "n",
+        "e",
+        "s",
+        "\"",
+        ",",
+        "\"",
+        "i",
+        "n",
+        "p",
+        "u",
+        "t",
+        "\"",
+        ":",
+        "{",
+        "\"",
+        "t",
+        "r",
+        "a",
+        "c",
+        "k",
+        "s",
+        "\"",
+        ":",
+        "[",
+        "{",
+        "\"",
+        "n",
+        "a",
+        "m",
+        "e",
+        "\"",
+        ":",
+        "\"",
+        "P",
+        "a",
+        "d",
+        "s",
+        " ",
+        "{",
+        "w",
+        "i",
+        "d",
+        "e",
+        "}",
+        " ",
+        "[",
+        "A",
+        "]",
+        " ",
+        "😀",
+        "\"",
+        ",",
+        "\"",
+        "k",
+        "i",
+        "n",
+        "d",
+        "\"",
+        ":",
+        "\"",
+        "m",
+        "i",
+        "d",
+        "i",
+        "\"",
+        "}",
+        "]",
+        ",",
+        "\"",
+        "s",
+        "c",
+        "e",
+        "n",
+        "e",
+        "s",
+        "\"",
+        ":",
+        "[",
+        "]",
+        "}",
+        ",",
+        "\"",
+        "a",
+        "s",
+        "\"",
+        ":",
+        "\"",
+        "p",
+        "a",
+        "d",
+        "s",
+        "\"",
+        "}",
+        ",",
+        "{",
+        "\"",
+        "t",
+        "o",
+        "o",
+        "l",
+        "\"",
+        ":",
+        "\"",
+        "r",
+        "e",
+        "n",
+        "a",
+        "m",
+        "e",
+        "\"",
+        ",",
+        "\"",
+        "i",
+        "n",
+        "p",
+        "u",
+        "t",
+        "\"",
+        ":",
+        "{",
+        "\"",
+        "k",
+        "i",
+        "n",
+        "d",
+        "\"",
+        ":",
+        "\"",
+        "t",
+        "r",
+        "a",
+        "c",
+        "k",
+        "\"",
+        ",",
+        "\"",
+        "r",
+        "e",
+        "f",
+        "\"",
+        ":",
+        "\"",
+        "t",
+        "r",
+        "a",
+        "c",
+        "k",
+        ":",
+        "1",
+        "\"",
+        ",",
+        "\"",
+        "n",
+        "a",
+        "m",
+        "e",
+        "\"",
+        ":",
+        "\"",
+        "S",
+        "a",
+        "y",
+        " ",
+        "\\",
+        "\"",
+        "h",
+        "i",
+        "\\",
+        "\"",
+        " ",
+        "\\",
+        "\\",
+        " ",
+        "b",
+        "y",
+        "e",
+        " ",
+        "}",
+        "]",
+        "\"",
+        "}",
+        "}",
+        ",",
+        "{",
+        "\"",
+        "t",
+        "o",
+        "o",
+        "l",
+        "\"",
+        ":",
+        "\"",
+        "l",
+        "o",
+        "a",
+        "d",
+        "_",
+        "s",
+        "a",
+        "m",
+        "p",
+        "l",
+        "e",
+        "_",
+        "t",
+        "o",
+        "_",
+        "p",
+        "a",
+        "d",
+        "\"",
+        ",",
+        "\"",
+        "i",
+        "n",
+        "p",
+        "u",
+        "t",
+        "\"",
+        ":",
+        "{",
+        "\"",
+        "d",
+        "e",
+        "v",
+        "i",
+        "c",
+        "e",
+        "R",
+        "e",
+        "f",
+        "\"",
+        ":",
+        "\"",
+        "@",
+        "r",
+        "a",
+        "c",
+        "k",
+        "\"",
+        ",",
+        "\"",
+        "s",
+        "a",
+        "m",
+        "p",
+        "l",
+        "e",
+        "\"",
+        ":",
+        "{",
+        "\"",
+        "r",
+        "a",
+        "n",
+        "d",
+        "o",
+        "m",
+        "\"",
+        ":",
+        "t",
+        "r",
+        "u",
+        "e",
+        ",",
+        "\"",
+        "f",
+        "o",
+        "l",
+        "d",
+        "e",
+        "r",
+        "s",
+        "\"",
+        ":",
+        "[",
+        "\"",
+        "/",
+        "S",
+        "a",
+        "m",
+        "p",
+        "l",
+        "e",
+        "s",
+        "/",
+        "K",
+        "i",
+        "c",
+        "k",
+        "s",
+        "\"",
+        "]",
+        "}",
+        "}",
+        ",",
+        "\"",
+        "e",
+        "a",
+        "c",
+        "h",
+        "\"",
+        ":",
+        "{",
+        "\"",
+        "n",
+        "o",
+        "t",
+        "e",
+        "\"",
+        ":",
+        "[",
+        "3",
+        "6",
+        ",",
+        "3",
+        "7",
+        ",",
+        "3",
+        "8",
+        "]",
+        "}",
+        "}",
+        "]",
+        ",",
+        "\"",
+        "n",
+        "o",
+        "t",
+        "e",
+        "\"",
+        ":",
+        "\"",
+        "a",
+        "f",
+        "t",
+        "e",
+        "r",
+        "\"",
+        "}"
+      ],
+      "events": [
+        {
+          "chunk": 142,
+          "step": {
+            "tool": "add_tracks_and_scenes",
+            "input": {
+              "tracks": [
+                {
+                  "name": "Pads {wide} [A] 😀",
+                  "kind": "midi"
+                }
+              ],
+              "scenes": []
+            },
+            "as": "pads"
+          }
+        },
+        {
+          "chunk": 231,
+          "step": {
+            "tool": "rename",
+            "input": {
+              "kind": "track",
+              "ref": "track:1",
+              "name": "Say \"hi\" \\ bye }]"
+            }
+          }
+        },
+        {
+          "chunk": 372,
+          "step": {
+            "tool": "load_sample_to_pad",
+            "input": {
+              "deviceRef": "@rack",
+              "sample": {
+                "random": true,
+                "folders": [
+                  "/Samples/Kicks"
+                ]
+              }
+            },
+            "each": {
+              "note": [
+                36,
+                37,
+                38
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\"",
+        "fin",
+        "al",
+        "\":t",
+        "ru",
+        "e,\"",
+        "st",
+        "eps",
+        "\":",
+        "[{\"",
+        "to",
+        "ol\"",
+        ":\"",
+        "add",
+        "_t",
+        "rac",
+        "ks",
+        "_an",
+        "d_",
+        "sce",
+        "ne",
+        "s\",",
+        "\"i",
+        "npu",
+        "t\"",
+        ":{\"",
+        "tr",
+        "ack",
+        "s\"",
+        ":[{",
+        "\"n",
+        "ame",
+        "\":",
+        "\"Pa",
+        "ds",
+        " {w",
+        "id",
+        "e} ",
+        "[A",
+        "] 😀",
+        "\",",
+        "\"ki",
+        "nd",
+        "\":\"",
+        "mi",
+        "di\"",
+        "}]",
+        ",\"s",
+        "ce",
+        "nes",
+        "\":",
+        "[]}",
+        ",\"",
+        "as\"",
+        ":\"",
+        "pad",
+        "s\"",
+        "},{",
+        "\"t",
+        "ool",
+        "\":",
+        "\"re",
+        "na",
+        "me\"",
+        ",\"",
+        "inp",
+        "ut",
+        "\":{",
+        "\"k",
+        "ind",
+        "\":",
+        "\"tr",
+        "ac",
+        "k\",",
+        "\"r",
+        "ef\"",
+        ":\"",
+        "tra",
+        "ck",
+        ":1\"",
+        ",\"",
+        "nam",
+        "e\"",
+        ":\"S",
+        "ay",
+        " \\\"",
+        "hi",
+        "\\\" ",
+        "\\\\",
+        " by",
+        "e ",
+        "}]\"",
+        "}}",
+        ",{\"",
+        "to",
+        "ol\"",
+        ":\"",
+        "loa",
+        "d_",
+        "sam",
+        "pl",
+        "e_t",
+        "o_",
+        "pad",
+        "\",",
+        "\"in",
+        "pu",
+        "t\":",
+        "{\"",
+        "dev",
+        "ic",
+        "eRe",
+        "f\"",
+        ":\"@",
+        "ra",
+        "ck\"",
+        ",\"",
+        "sam",
+        "pl",
+        "e\":",
+        "{\"",
+        "ran",
+        "do",
+        "m\":",
+        "tr",
+        "ue,",
+        "\"f",
+        "old",
+        "er",
+        "s\":",
+        "[\"",
+        "/Sa",
+        "mp",
+        "les",
+        "/K",
+        "ick",
+        "s\"",
+        "]}}",
+        ",\"",
+        "eac",
+        "h\"",
+        ":{\"",
+        "no",
+        "te\"",
+        ":[",
+        "36,",
+        "37",
+        ",38",
+        "]}",
+        "}],",
+        "\"n",
+        "ote",
+        "\":",
+        "\"af",
+        "te",
+        "r\"}"
+      ],
+      "events": [
+        {
+          "chunk": 57,
+          "step": {
+            "tool": "add_tracks_and_scenes",
+            "input": {
+              "tracks": [
+                {
+                  "name": "Pads {wide} [A] 😀",
+                  "kind": "midi"
+                }
+              ],
+              "scenes": []
+            },
+            "as": "pads"
+          }
+        },
+        {
+          "chunk": 92,
+          "step": {
+            "tool": "rename",
+            "input": {
+              "kind": "track",
+              "ref": "track:1",
+              "name": "Say \"hi\" \\ bye }]"
+            }
+          }
+        },
+        {
+          "chunk": 149,
+          "step": {
+            "tool": "load_sample_to_pad",
+            "input": {
+              "deviceRef": "@rack",
+              "sample": {
+                "random": true,
+                "folders": [
+                  "/Samples/Kicks"
+                ]
+              }
+            },
+            "each": {
+              "note": [
+                36,
+                37,
+                38
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\"final",
+        "\":true,",
+        "\"steps\"",
+        ":[{\"too",
+        "l\":\"add",
+        "_tracks",
+        "_and_sc",
+        "enes\",\"",
+        "input\":",
+        "{\"track",
+        "s\":[{\"n",
+        "ame\":\"P",
+        "ads {wi",
+        "de} [A]",
+        " 😀\",\"ki",
+        "nd\":\"mi",
+        "di\"}],\"",
+        "scenes\"",
+        ":[]},\"a",
+        "s\":\"pad",
+        "s\"},{\"t",
+        "ool\":\"r",
+        "ename\",",
+        "\"input\"",
+        ":{\"kind",
+        "\":\"trac",
+        "k\",\"ref",
+        "\":\"trac",
+        "k:1\",\"n",
+        "ame\":\"S",
+        "ay \\\"hi",
+        "\\\" \\\\ b",
+        "ye }]\"}",
+        "},{\"too",
+        "l\":\"loa",
+        "d_sampl",
+        "e_to_pa",
+        "d\",\"inp",
+        "ut\":{\"d",
+        "eviceRe",
+        "f\":\"@ra",
+        "ck\",\"sa",
+        "mple\":{",
+        "\"random",
+        "\":true,",
+        "\"folder",
+        "s\":[\"/S",
+        "amples/",
+        "Kicks\"]",
+        "}},\"eac",
+        "h\":{\"no",
+        "te\":[36",
+        ",37,38]",
+        "}}],\"no",
+        "te\":\"af",
+        "ter\"}"
+      ],
+      "events": [
+        {
+          "chunk": 20,
+          "step": {
+            "tool": "add_tracks_and_scenes",
+            "input": {
+              "tracks": [
+                {
+                  "name": "Pads {wide} [A] 😀",
+                  "kind": "midi"
+                }
+              ],
+              "scenes": []
+            },
+            "as": "pads"
+          }
+        },
+        {
+          "chunk": 33,
+          "step": {
+            "tool": "rename",
+            "input": {
+              "kind": "track",
+              "ref": "track:1",
+              "name": "Say \"hi\" \\ bye }]"
+            }
+          }
+        },
+        {
+          "chunk": 53,
+          "step": {
+            "tool": "load_sample_to_pad",
+            "input": {
+              "deviceRef": "@rack",
+              "sample": {
+                "random": true,
+                "folders": [
+                  "/Samples/Kicks"
+                ]
+              }
+            },
+            "each": {
+              "note": [
+                36,
+                37,
+                38
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\"final\":true,\"steps\":[{\"tool\":\"add_tracks_and_scenes\",\"input\":{",
+        "\"tracks\":[{\"name\":\"Pads {wide} [A] 😀\",\"kind\":\"midi\"}],\"scenes\":[",
+        "]},\"as\":\"pads\"},{\"tool\":\"rename\",\"input\":{\"kind\":\"track\",\"ref\":\"",
+        "track:1\",\"name\":\"Say \\\"hi\\\" \\\\ bye }]\"}},{\"tool\":\"load_sample_to",
+        "_pad\",\"input\":{\"deviceRef\":\"@rack\",\"sample\":{\"random\":true,\"fold",
+        "ers\":[\"/Samples/Kicks\"]}},\"each\":{\"note\":[36,37,38]}}],\"note\":\"a",
+        "fter\"}"
+      ],
+      "events": [
+        {
+          "chunk": 2,
+          "step": {
+            "tool": "add_tracks_and_scenes",
+            "input": {
+              "tracks": [
+                {
+                  "name": "Pads {wide} [A] 😀",
+                  "kind": "midi"
+                }
+              ],
+              "scenes": []
+            },
+            "as": "pads"
+          }
+        },
+        {
+          "chunk": 3,
+          "step": {
+            "tool": "rename",
+            "input": {
+              "kind": "track",
+              "ref": "track:1",
+              "name": "Say \"hi\" \\ bye }]"
+            }
+          }
+        },
+        {
+          "chunk": 5,
+          "step": {
+            "tool": "load_sample_to_pad",
+            "input": {
+              "deviceRef": "@rack",
+              "sample": {
+                "random": true,
+                "folders": [
+                  "/Samples/Kicks"
+                ]
+              }
+            },
+            "each": {
+              "note": [
+                36,
+                37,
+                38
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\"final\":true,\"steps\":[{\"tool\":\"add_tracks_and_scenes\",\"input\":{\"tracks\":[{\"name\":\"Pads {wide} [A] 😀\",\"kind\":\"midi\"}],\"scenes\":[]},\"as\":\"pads\"},{\"tool\":\"rename\",\"input\":{\"kind\":\"track\",\"ref\":\"track:1\",\"name\":\"Say \\\"hi\\\" \\\\ bye }]\"}},{\"tool\":\"load_sample_to_pad\",\"input\":{\"deviceRef\":\"@rack\",\"sample\":{\"random\":true,\"folders\":[\"/Samples/Kicks\"]}},\"each\":{\"note\":[36,37,38]}}],\"note\":\"after\"}"
+      ],
+      "events": [
+        {
+          "chunk": 0,
+          "step": {
+            "tool": "add_tracks_and_scenes",
+            "input": {
+              "tracks": [
+                {
+                  "name": "Pads {wide} [A] 😀",
+                  "kind": "midi"
+                }
+              ],
+              "scenes": []
+            },
+            "as": "pads"
+          }
+        },
+        {
+          "chunk": 0,
+          "step": {
+            "tool": "rename",
+            "input": {
+              "kind": "track",
+              "ref": "track:1",
+              "name": "Say \"hi\" \\ bye }]"
+            }
+          }
+        },
+        {
+          "chunk": 0,
+          "step": {
+            "tool": "load_sample_to_pad",
+            "input": {
+              "deviceRef": "@rack",
+              "sample": {
+                "random": true,
+                "folders": [
+                  "/Samples/Kicks"
+                ]
+              }
+            },
+            "each": {
+              "note": [
+                36,
+                37,
+                38
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{",
+        "\n",
+        " ",
+        " ",
+        "\"",
+        "f",
+        "i",
+        "n",
+        "a",
+        "l",
+        "\"",
+        ":",
+        " ",
+        "t",
+        "r",
+        "u",
+        "e",
+        ",",
+        "\n",
+        " ",
+        " ",
+        "\"",
+        "s",
+        "t",
+        "e",
+        "p",
+        "s",
+        "\"",
+        ":",
+        " ",
+        "[",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        "{",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "t",
+        "o",
+        "o",
+        "l",
+        "\"",
+        ":",
+        " ",
+        "\"",
+        "a",
+        "d",
+        "d",
+        "_",
+        "t",
+        "r",
+        "a",
+        "c",
+        "k",
+        "s",
+        "_",
+        "a",
+        "n",
+        "d",
+        "_",
+        "s",
+        "c",
+        "e",
+        "n",
+        "e",
+        "s",
+        "\"",
+        ",",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "i",
+        "n",
+        "p",
+        "u",
+        "t",
+        "\"",
+        ":",
+        " ",
+        "{",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "t",
+        "r",
+        "a",
+        "c",
+        "k",
+        "s",
+        "\"",
+        ":",
+        " ",
+        "[",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "{",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "n",
+        "a",
+        "m",
+        "e",
+        "\"",
+        ":",
+        " ",
+        "\"",
+        "P",
+        "a",
+        "d",
+        "s",
+        " ",
+        "{",
+        "w",
+        "i",
+        "d",
+        "e",
+        "}",
+        " ",
+        "[",
+        "A",
+        "]",
+        " ",
+        "😀",
+        "\"",
+        ",",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "k",
+        "i",
+        "n",
+        "d",
+        "\"",
+        ":",
+        " ",
+        "\"",
+        "m",
+        "i",
+        "d",
+        "i",
+        "\"",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "}",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "]",
+        ",",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "s",
+        "c",
+        "e",
+        "n",
+        "e",
+        "s",
+        "\"",
+        ":",
+        " ",
+        "[",
+        "]",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "}",
+        ",",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "a",
+        "s",
+        "\"",
+        ":",
+        " ",
+        "\"",
+        "p",
+        "a",
+        "d",
+        "s",
+        "\"",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        "}",
+        ",",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        "{",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "t",
+        "o",
+        "o",
+        "l",
+        "\"",
+        ":",
+        " ",
+        "\"",
+        "r",
+        "e",
+        "n",
+        "a",
+        "m",
+        "e",
+        "\"",
+        ",",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "i",
+        "n",
+        "p",
+        "u",
+        "t",
+        "\"",
+        ":",
+        " ",
+        "{",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "k",
+        "i",
+        "n",
+        "d",
+        "\"",
+        ":",
+        " ",
+        "\"",
+        "t",
+        "r",
+        "a",
+        "c",
+        "k",
+        "\"",
+        ",",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "r",
+        "e",
+        "f",
+        "\"",
+        ":",
+        " ",
+        "\"",
+        "t",
+        "r",
+        "a",
+        "c",
+        "k",
+        ":",
+        "1",
+        "\"",
+        ",",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "n",
+        "a",
+        "m",
+        "e",
+        "\"",
+        ":",
+        " ",
+        "\"",
+        "S",
+        "a",
+        "y",
+        " ",
+        "\\",
+        "\"",
+        "h",
+        "i",
+        "\\",
+        "\"",
+        " ",
+        "\\",
+        "\\",
+        " ",
+        "b",
+        "y",
+        "e",
+        " ",
+        "}",
+        "]",
+        "\"",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "}",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        "}",
+        ",",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        "{",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "t",
+        "o",
+        "o",
+        "l",
+        "\"",
+        ":",
+        " ",
+        "\"",
+        "l",
+        "o",
+        "a",
+        "d",
+        "_",
+        "s",
+        "a",
+        "m",
+        "p",
+        "l",
+        "e",
+        "_",
+        "t",
+        "o",
+        "_",
+        "p",
+        "a",
+        "d",
+        "\"",
+        ",",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "i",
+        "n",
+        "p",
+        "u",
+        "t",
+        "\"",
+        ":",
+        " ",
+        "{",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "d",
+        "e",
+        "v",
+        "i",
+        "c",
+        "e",
+        "R",
+        "e",
+        "f",
+        "\"",
+        ":",
+        " ",
+        "\"",
+        "@",
+        "r",
+        "a",
+        "c",
+        "k",
+        "\"",
+        ",",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "s",
+        "a",
+        "m",
+        "p",
+        "l",
+        "e",
+        "\"",
+        ":",
+        " ",
+        "{",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "r",
+        "a",
+        "n",
+        "d",
+        "o",
+        "m",
+        "\"",
+        ":",
+        " ",
+        "t",
+        "r",
+        "u",
+        "e",
+        ",",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "f",
+        "o",
+        "l",
+        "d",
+        "e",
+        "r",
+        "s",
+        "\"",
+        ":",
+        " ",
+        "[",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "/",
+        "S",
+        "a",
+        "m",
+        "p",
+        "l",
+        "e",
+        "s",
+        "/",
+        "K",
+        "i",
+        "c",
+        "k",
+        "s",
+        "\"",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "]",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "}",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "}",
+        ",",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "e",
+        "a",
+        "c",
+        "h",
+        "\"",
+        ":",
+        " ",
+        "{",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "\"",
+        "n",
+        "o",
+        "t",
+        "e",
+        "\"",
+        ":",
+        " ",
+        "[",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "3",
+        "6",
+        ",",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "3",
+        "7",
+        ",",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "3",
+        "8",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "]",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        " ",
+        "}",
+        "\n",
+        " ",
+        " ",
+        " ",
+        " ",
+        "}",
+        "\n",
+        " ",
+        " ",
+        "]",
+        ",",
+        "\n",
+        " ",
+        " ",
+        "\"",
+        "n",
+        "o",
+        "t",
+        "e",
+        "\"",
+        ":",
+        " ",
+        "\"",
+        "a",
+        "f",
+        "t",
+        "e",
+        "r",
+        "\"",
+        "\n",
+        "}"
+      ],
+      "events": [
+        {
+          "chunk": 270,
+          "step": {
+            "tool": "add_tracks_and_scenes",
+            "input": {
+              "tracks": [
+                {
+                  "name": "Pads {wide} [A] 😀",
+                  "kind": "midi"
+                }
+              ],
+              "scenes": []
+            },
+            "as": "pads"
+          }
+        },
+        {
+          "chunk": 422,
+          "step": {
+            "tool": "rename",
+            "input": {
+              "kind": "track",
+              "ref": "track:1",
+              "name": "Say \"hi\" \\ bye }]"
+            }
+          }
+        },
+        {
+          "chunk": 740,
+          "step": {
+            "tool": "load_sample_to_pad",
+            "input": {
+              "deviceRef": "@rack",
+              "sample": {
+                "random": true,
+                "folders": [
+                  "/Samples/Kicks"
+                ]
+              }
+            },
+            "each": {
+              "note": [
+                36,
+                37,
+                38
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\n",
+        "  \"",
+        "fi",
+        "nal",
+        "\":",
+        " tr",
+        "ue",
+        ",\n ",
+        " \"",
+        "ste",
+        "ps",
+        "\": ",
+        "[\n",
+        "   ",
+        " {",
+        "\n  ",
+        "  ",
+        "  \"",
+        "to",
+        "ol\"",
+        ": ",
+        "\"ad",
+        "d_",
+        "tra",
+        "ck",
+        "s_a",
+        "nd",
+        "_sc",
+        "en",
+        "es\"",
+        ",\n",
+        "   ",
+        "  ",
+        " \"i",
+        "np",
+        "ut\"",
+        ": ",
+        "{\n ",
+        "  ",
+        "   ",
+        "  ",
+        "\"tr",
+        "ac",
+        "ks\"",
+        ": ",
+        "[\n ",
+        "  ",
+        "   ",
+        "  ",
+        "  {",
+        "\n ",
+        "   ",
+        "  ",
+        "   ",
+        "  ",
+        " \"n",
+        "am",
+        "e\":",
+        " \"",
+        "Pad",
+        "s ",
+        "{wi",
+        "de",
+        "} [",
+        "A]",
+        " 😀\"",
+        ",\n",
+        "   ",
+        "  ",
+        "   ",
+        "  ",
+        "  \"",
+        "ki",
+        "nd\"",
+        ": ",
+        "\"mi",
+        "di",
+        "\"\n ",
+        "  ",
+        "   ",
+        "  ",
+        "  }",
+        "\n ",
+        "   ",
+        "  ",
+        "  ]",
+        ",\n",
+        "   ",
+        "  ",
+        "   ",
+        "\"s",
+        "cen",
+        "es",
+        "\": ",
+        "[]",
+        "\n  ",
+        "  ",
+        "  }",
+        ",\n",
+        "   ",
+        "  ",
+        " \"a",
+        "s\"",
+        ": \"",
+        "pa",
+        "ds\"",
+        "\n ",
+        "   ",
+        "},",
+        "\n  ",
+        "  ",
+        "{\n ",
+        "  ",
+        "   ",
+        "\"t",
+        "ool",
+        "\":",
+        " \"r",
+        "en",
+        "ame",
+        "\",",
+        "\n  ",
+        "  ",
+        "  \"",
+        "in",
+        "put",
+        "\":",
+        " {\n",
+        "  ",
+        "   ",
+        "  ",
+        " \"k",
+        "in",
+        "d\":",
+        " \"",
+        "tra",
+        "ck",
+        "\",\n",
+        "  ",
+        "   ",
+        "  ",
+        " \"r",
+        "ef",
+        "\": ",
+        "\"t",
+        "rac",
+        "k:",
+        "1\",",
+        "\n ",
+        "   ",
+        "  ",
+        "  \"",
+        "na",
+        "me\"",
+        ": ",
+        "\"Sa",
+        "y ",
+        "\\\"h",
+        "i\\",
+        "\" \\",
+        "\\ ",
+        "bye",
+        " }",
+        "]\"\n",
+        "  ",
+        "   ",
+        " }",
+        "\n  ",
+        "  ",
+        "},\n",
+        "  ",
+        "  {",
+        "\n ",
+        "   ",
+        "  ",
+        "\"to",
+        "ol",
+        "\": ",
+        "\"l",
+        "oad",
+        "_s",
+        "amp",
+        "le",
+        "_to",
+        "_p",
+        "ad\"",
+        ",\n",
+        "   ",
+        "  ",
+        " \"i",
+        "np",
+        "ut\"",
+        ": ",
+        "{\n ",
+        "  ",
+        "   ",
+        "  ",
+        "\"de",
+        "vi",
+        "ceR",
+        "ef",
+        "\": ",
+        "\"@",
+        "rac",
+        "k\"",
+        ",\n ",
+        "  ",
+        "   ",
+        "  ",
+        "\"sa",
+        "mp",
+        "le\"",
+        ": ",
+        "{\n ",
+        "  ",
+        "   ",
+        "  ",
+        "  \"",
+        "ra",
+        "ndo",
+        "m\"",
+        ": t",
+        "ru",
+        "e,\n",
+        "  ",
+        "   ",
+        "  ",
+        "   ",
+        "\"f",
+        "old",
+        "er",
+        "s\":",
+        " [",
+        "\n  ",
+        "  ",
+        "   ",
+        "  ",
+        "   ",
+        "\"/",
+        "Sam",
+        "pl",
+        "es/",
+        "Ki",
+        "cks",
+        "\"\n",
+        "   ",
+        "  ",
+        "   ",
+        "  ",
+        "]\n ",
+        "  ",
+        "   ",
+        "  ",
+        "}\n ",
+        "  ",
+        "   ",
+        "},",
+        "\n  ",
+        "  ",
+        "  \"",
+        "ea",
+        "ch\"",
+        ": ",
+        "{\n ",
+        "  ",
+        "   ",
+        "  ",
+        "\"no",
+        "te",
+        "\": ",
+        "[\n",
+        "   ",
+        "  ",
+        "   ",
+        "  ",
+        "36,",
+        "\n ",
+        "   ",
+        "  ",
+        "   ",
+        " 3",
+        "7,\n",
+        "  ",
+        "   ",
+        "  ",
+        "   ",
+        "38",
+        "\n  ",
+        "  ",
+        "   ",
+        " ]",
+        "\n  ",
+        "  ",
+        "  }",
+        "\n ",
+        "   ",
+        "}\n",
+        "  ]",
+        ",\n",
+        "  \"",
+        "no",
+        "te\"",
+        ": ",
+        "\"af",
+        "te",
+        "r\"\n",
+        "}"
+      ],
+      "events": [
+        {
+          "chunk": 108,
+          "step": {
+            "tool": "add_tracks_and_scenes",
+            "input": {
+              "tracks": [
+                {
+                  "name": "Pads {wide} [A] 😀",
+                  "kind": "midi"
+                }
+              ],
+              "scenes": []
+            },
+            "as": "pads"
+          }
+        },
+        {
+          "chunk": 169,
+          "step": {
+            "tool": "rename",
+            "input": {
+              "kind": "track",
+              "ref": "track:1",
+              "name": "Say \"hi\" \\ bye }]"
+            }
+          }
+        },
+        {
+          "chunk": 296,
+          "step": {
+            "tool": "load_sample_to_pad",
+            "input": {
+              "deviceRef": "@rack",
+              "sample": {
+                "random": true,
+                "folders": [
+                  "/Samples/Kicks"
+                ]
+              }
+            },
+            "each": {
+              "note": [
+                36,
+                37,
+                38
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\n  \"fi",
+        "nal\": t",
+        "rue,\n  ",
+        "\"steps\"",
+        ": [\n   ",
+        " {\n    ",
+        "  \"tool",
+        "\": \"add",
+        "_tracks",
+        "_and_sc",
+        "enes\",\n",
+        "      \"",
+        "input\":",
+        " {\n    ",
+        "    \"tr",
+        "acks\": ",
+        "[\n     ",
+        "     {\n",
+        "       ",
+        "     \"n",
+        "ame\": \"",
+        "Pads {w",
+        "ide} [A",
+        "] 😀\",\n ",
+        "       ",
+        "    \"ki",
+        "nd\": \"m",
+        "idi\"\n  ",
+        "       ",
+        " }\n    ",
+        "    ],\n",
+        "       ",
+        " \"scene",
+        "s\": []\n",
+        "      }",
+        ",\n     ",
+        " \"as\": ",
+        "\"pads\"\n",
+        "    },\n",
+        "    {\n ",
+        "     \"t",
+        "ool\": \"",
+        "rename\"",
+        ",\n     ",
+        " \"input",
+        "\": {\n  ",
+        "      \"",
+        "kind\": ",
+        "\"track\"",
+        ",\n     ",
+        "   \"ref",
+        "\": \"tra",
+        "ck:1\",\n",
+        "       ",
+        " \"name\"",
+        ": \"Say ",
+        "\\\"hi\\\" ",
+        "\\\\ bye ",
+        "}]\"\n   ",
+        "   }\n  ",
+        "  },\n  ",
+        "  {\n   ",
+        "   \"too",
+        "l\": \"lo",
+        "ad_samp",
+        "le_to_p",
+        "ad\",\n  ",
+        "    \"in",
+        "put\": {",
+        "\n      ",
+        "  \"devi",
+        "ceRef\":",
+        " \"@rack",
+        "\",\n    ",
+        "    \"sa",
+        "mple\": ",
+        "{\n     ",
+        "     \"r",
+        "andom\":",
+        " true,\n",
+        "       ",
+        "   \"fol",
+        "ders\": ",
+        "[\n     ",
+        "       ",
+        "\"/Sampl",
+        "es/Kick",
+        "s\"\n    ",
+        "      ]",
+        "\n      ",
+        "  }\n   ",
+        "   },\n ",
+        "     \"e",
+        "ach\": {",
+        "\n      ",
+        "  \"note",
+        "\": [\n  ",
+        "       ",
+        " 36,\n  ",
+        "       ",
+        " 37,\n  ",
+        "       ",
+        " 38\n   ",
+        "     ]\n",
+        "      }",
+        "\n    }\n",
+        "  ],\n  ",
+        "\"note\":",
+        " \"after",
+        "\"\n}"
+      ],
+      "events": [
+        {
+          "chunk": 38,
+          "step": {
+            "tool": "add_tracks_and_scenes",
+            "input": {
+              "tracks": [
+                {
+                  "name": "Pads {wide} [A] 😀",
+                  "kind": "midi"
+                }
+              ],
+              "scenes": []
+            },
+            "as": "pads"
+          }
+        },
+        {
+          "chunk": 60,
+          "step": {
+            "tool": "rename",
+            "input": {
+              "kind": "track",
+              "ref": "track:1",
+              "name": "Say \"hi\" \\ bye }]"
+            }
+          }
+        },
+        {
+          "chunk": 105,
+          "step": {
+            "tool": "load_sample_to_pad",
+            "input": {
+              "deviceRef": "@rack",
+              "sample": {
+                "random": true,
+                "folders": [
+                  "/Samples/Kicks"
+                ]
+              }
+            },
+            "each": {
+              "note": [
+                36,
+                37,
+                38
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\n  \"final\": true,\n  \"steps\": [\n    {\n      \"tool\": \"add_tracks_",
+        "and_scenes\",\n      \"input\": {\n        \"tracks\": [\n          {\n  ",
+        "          \"name\": \"Pads {wide} [A] 😀\",\n            \"kind\": \"midi",
+        "\"\n          }\n        ],\n        \"scenes\": []\n      },\n      \"as",
+        "\": \"pads\"\n    },\n    {\n      \"tool\": \"rename\",\n      \"input\": {\n",
+        "        \"kind\": \"track\",\n        \"ref\": \"track:1\",\n        \"name",
+        "\": \"Say \\\"hi\\\" \\\\ bye }]\"\n      }\n    },\n    {\n      \"tool\": \"lo",
+        "ad_sample_to_pad\",\n      \"input\": {\n        \"deviceRef\": \"@rack\"",
+        ",\n        \"sample\": {\n          \"random\": true,\n          \"folde",
+        "rs\": [\n            \"/Samples/Kicks\"\n          ]\n        }\n      ",
+        "},\n      \"each\": {\n        \"note\": [\n          36,\n          37,",
+        "\n          38\n        ]\n      }\n    }\n  ],\n  \"note\": \"after\"\n}"
+      ],
+      "events": [
+        {
+          "chunk": 4,
+          "step": {
+            "tool": "add_tracks_and_scenes",
+            "input": {
+              "tracks": [
+                {
+                  "name": "Pads {wide} [A] 😀",
+                  "kind": "midi"
+                }
+              ],
+              "scenes": []
+            },
+            "as": "pads"
+          }
+        },
+        {
+          "chunk": 6,
+          "step": {
+            "tool": "rename",
+            "input": {
+              "kind": "track",
+              "ref": "track:1",
+              "name": "Say \"hi\" \\ bye }]"
+            }
+          }
+        },
+        {
+          "chunk": 11,
+          "step": {
+            "tool": "load_sample_to_pad",
+            "input": {
+              "deviceRef": "@rack",
+              "sample": {
+                "random": true,
+                "folders": [
+                  "/Samples/Kicks"
+                ]
+              }
+            },
+            "each": {
+              "note": [
+                36,
+                37,
+                38
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\n  \"final\": true,\n  \"steps\": [\n    {\n      \"tool\": \"add_tracks_and_scenes\",\n      \"input\": {\n        \"tracks\": [\n          {\n            \"name\": \"Pads {wide} [A] 😀\",\n            \"kind\": \"midi\"\n          }\n        ],\n        \"scenes\": []\n      },\n      \"as\": \"pads\"\n    },\n    {\n      \"tool\": \"rename\",\n      \"input\": {\n        \"kind\": \"track\",\n        \"ref\": \"track:1\",\n        \"name\": \"Say \\\"hi\\\" \\\\ bye }]\"\n      }\n    },\n    {\n      \"tool\": \"load_sample_to_pad\",\n      \"input\": {\n        \"deviceRef\": \"@rack\",\n        \"sample\": {\n          \"random\": true,\n          \"folders\": [\n            \"/Samples/Kicks\"\n          ]\n        }\n      },\n      \"each\": {\n        \"note\": [\n          36,\n          37,\n          38\n        ]\n      }\n    }\n  ],\n  \"note\": \"after\"\n}"
+      ],
+      "events": [
+        {
+          "chunk": 0,
+          "step": {
+            "tool": "add_tracks_and_scenes",
+            "input": {
+              "tracks": [
+                {
+                  "name": "Pads {wide} [A] 😀",
+                  "kind": "midi"
+                }
+              ],
+              "scenes": []
+            },
+            "as": "pads"
+          }
+        },
+        {
+          "chunk": 0,
+          "step": {
+            "tool": "rename",
+            "input": {
+              "kind": "track",
+              "ref": "track:1",
+              "name": "Say \"hi\" \\ bye }]"
+            }
+          }
+        },
+        {
+          "chunk": 0,
+          "step": {
+            "tool": "load_sample_to_pad",
+            "input": {
+              "deviceRef": "@rack",
+              "sample": {
+                "random": true,
+                "folders": [
+                  "/Samples/Kicks"
+                ]
+              }
+            },
+            "each": {
+              "note": [
+                36,
+                37,
+                38
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{",
+        "\"",
+        "o",
+        "t",
+        "h",
+        "e",
+        "r",
+        "\"",
+        ":",
+        "{",
+        "\"",
+        "s",
+        "t",
+        "e",
+        "p",
+        "s",
+        "\"",
+        ":",
+        "[",
+        "{",
+        "\"",
+        "t",
+        "o",
+        "o",
+        "l",
+        "\"",
+        ":",
+        "\"",
+        "n",
+        "o",
+        "\"",
+        "}",
+        "]",
+        "}",
+        ",",
+        "\"",
+        "s",
+        "t",
+        "e",
+        "p",
+        "s",
+        "\"",
+        ":",
+        "[",
+        "{",
+        "\"",
+        "t",
+        "o",
+        "o",
+        "l",
+        "\"",
+        ":",
+        "\"",
+        "y",
+        "e",
+        "s",
+        "\"",
+        "}",
+        "]",
+        "}"
+      ],
+      "events": [
+        {
+          "chunk": 57,
+          "step": {
+            "tool": "yes"
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\"",
+        "oth",
+        "er",
+        "\":{",
+        "\"s",
+        "tep",
+        "s\"",
+        ":[{",
+        "\"t",
+        "ool",
+        "\":",
+        "\"no",
+        "\"}",
+        "]},",
+        "\"s",
+        "tep",
+        "s\"",
+        ":[{",
+        "\"t",
+        "ool",
+        "\":",
+        "\"ye",
+        "s\"",
+        "}]}"
+      ],
+      "events": [
+        {
+          "chunk": 23,
+          "step": {
+            "tool": "yes"
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\"other",
+        "\":{\"ste",
+        "ps\":[{\"",
+        "tool\":\"",
+        "no\"}]},",
+        "\"steps\"",
+        ":[{\"too",
+        "l\":\"yes",
+        "\"}]}"
+      ],
+      "events": [
+        {
+          "chunk": 8,
+          "step": {
+            "tool": "yes"
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\"other\":{\"steps\":[{\"tool\":\"no\"}]},\"steps\":[{\"tool\":\"yes\"}]}"
+      ],
+      "events": [
+        {
+          "chunk": 0,
+          "step": {
+            "tool": "yes"
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\"other\":{\"steps\":[{\"tool\":\"no\"}]},\"steps\":[{\"tool\":\"yes\"}]}"
+      ],
+      "events": [
+        {
+          "chunk": 0,
+          "step": {
+            "tool": "yes"
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{",
+        "\"",
+        "s",
+        "t",
+        "e",
+        "p",
+        "s",
+        "\"",
+        ":",
+        "[",
+        "{",
+        "\"",
+        "t",
+        "o",
+        "o",
+        "l",
+        "\"",
+        ":",
+        "\"",
+        "f",
+        "i",
+        "r",
+        "s",
+        "t",
+        "\"",
+        "}",
+        "]",
+        "}",
+        "}",
+        "}",
+        "{",
+        "\"",
+        "s",
+        "t",
+        "e",
+        "p",
+        "s",
+        "\"",
+        ":",
+        "[",
+        "{",
+        "\"",
+        "t",
+        "o",
+        "o",
+        "l",
+        "\"",
+        ":",
+        "\"",
+        "l",
+        "a",
+        "t",
+        "e",
+        "r",
+        "\"",
+        "}",
+        "]",
+        "}"
+      ],
+      "events": [
+        {
+          "chunk": 25,
+          "step": {
+            "tool": "first"
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\"",
+        "ste",
+        "ps",
+        "\":[",
+        "{\"",
+        "too",
+        "l\"",
+        ":\"f",
+        "ir",
+        "st\"",
+        "}]",
+        "}}}",
+        "{\"",
+        "ste",
+        "ps",
+        "\":[",
+        "{\"",
+        "too",
+        "l\"",
+        ":\"l",
+        "at",
+        "er\"",
+        "}]",
+        "}"
+      ],
+      "events": [
+        {
+          "chunk": 10,
+          "step": {
+            "tool": "first"
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\"steps",
+        "\":[{\"to",
+        "ol\":\"fi",
+        "rst\"}]}",
+        "}}{\"ste",
+        "ps\":[{\"",
+        "tool\":\"",
+        "later\"}",
+        "]}"
+      ],
+      "events": [
+        {
+          "chunk": 3,
+          "step": {
+            "tool": "first"
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\"steps\":[{\"tool\":\"first\"}]}}}{\"steps\":[{\"tool\":\"later\"}]}"
+      ],
+      "events": [
+        {
+          "chunk": 0,
+          "step": {
+            "tool": "first"
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\"steps\":[{\"tool\":\"first\"}]}}}{\"steps\":[{\"tool\":\"later\"}]}"
+      ],
+      "events": [
+        {
+          "chunk": 0,
+          "step": {
+            "tool": "first"
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{",
+        "\"",
+        "s",
+        "t",
+        "e",
+        "p",
+        "s",
+        "\"",
+        ":",
+        "[",
+        "{",
+        "\"",
+        "x",
+        "\"",
+        ":",
+        "1",
+        "}",
+        ",",
+        "2",
+        ",",
+        "n",
+        "u",
+        "l",
+        "l",
+        ",",
+        "[",
+        "]",
+        ",",
+        "{",
+        "\"",
+        "y",
+        "\"",
+        ":",
+        "3",
+        "}",
+        "]",
+        "}"
+      ],
+      "events": [
+        {
+          "chunk": 16,
+          "step": {
+            "x": 1
+          }
+        },
+        {
+          "chunk": 34,
+          "step": {
+            "y": 3
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\"",
+        "ste",
+        "ps",
+        "\":[",
+        "{\"",
+        "x\":",
+        "1}",
+        ",2,",
+        "nu",
+        "ll,",
+        "[]",
+        ",{\"",
+        "y\"",
+        ":3}",
+        "]}"
+      ],
+      "events": [
+        {
+          "chunk": 6,
+          "step": {
+            "x": 1
+          }
+        },
+        {
+          "chunk": 13,
+          "step": {
+            "y": 3
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\"steps",
+        "\":[{\"x\"",
+        ":1},2,n",
+        "ull,[],",
+        "{\"y\":3}",
+        "]}"
+      ],
+      "events": [
+        {
+          "chunk": 2,
+          "step": {
+            "x": 1
+          }
+        },
+        {
+          "chunk": 4,
+          "step": {
+            "y": 3
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\"steps\":[{\"x\":1},2,null,[],{\"y\":3}]}"
+      ],
+      "events": [
+        {
+          "chunk": 0,
+          "step": {
+            "x": 1
+          }
+        },
+        {
+          "chunk": 0,
+          "step": {
+            "y": 3
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{\"steps\":[{\"x\":1},2,null,[],{\"y\":3}]}"
+      ],
+      "events": [
+        {
+          "chunk": 0,
+          "step": {
+            "x": 1
+          }
+        },
+        {
+          "chunk": 0,
+          "step": {
+            "y": 3
+          }
+        }
+      ]
+    },
+    {
+      "chunks": [
+        "{",
+        "\"",
+        "s",
+        "t",
+        "e",
+        "p",
+        "s",
+        "\"",
+        ":",
+        "[",
+        "{",
+        "\"",
+        "t",
+        "o",
+        "o",
+        "l",
+        "\"",
+        ":",
+        "b",
+        "a",
+        "d",
+        "}",
+        ",",
+        "{",
+        "\"",
+        "a",
+        "f",
+        "t",
+        "e",
+        "r",
+        "\"",
+        ":",
+        "t",
+        "r",
+        "u",
+        "e",
+        "}",
+        "]",
+        "}"
+      ],
+      "events": []
+    },
+    {
+      "chunks": [
+        "{\"",
+        "ste",
+        "ps",
+        "\":[",
+        "{\"",
+        "too",
+        "l\"",
+        ":ba",
+        "d}",
+        ",{\"",
+        "af",
+        "ter",
+        "\":",
+        "tru",
+        "e}",
+        "]}"
+      ],
+      "events": []
+    },
+    {
+      "chunks": [
+        "{\"steps",
+        "\":[{\"to",
+        "ol\":bad",
+        "},{\"aft",
+        "er\":tru",
+        "e}]}"
+      ],
+      "events": []
+    },
+    {
+      "chunks": [
+        "{\"steps\":[{\"tool\":bad},{\"after\":true}]}"
+      ],
+      "events": []
+    },
+    {
+      "chunks": [
+        "{\"steps\":[{\"tool\":bad},{\"after\":true}]}"
+      ],
+      "events": []
+    }
+  ]
+}

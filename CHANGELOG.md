@@ -3,6 +3,25 @@
 Kumi's releases. The Ableton bridge (`apps/mcp-server`) is versioned on its own;
 each Kumi release names the bridge it ships with.
 
+## 1.7.5 — Unreleased
+
+Ships with bridge 1.0.73.
+
+- Kumi and its bridge run as native Rust executables. Fresh installs need no Node runtime.
+- Current 1.7.4 installer users keep using `kumi update`. Settings, sign-ins, conversations,
+  library data and the configured Kumi home stay in place.
+- On first native startup with Live closed, the existing JavaScript bridge switches to the native
+  bridge, including when both are version 1.0.73. Its secret, ports and configuration paths stay.
+- `kumi update --rollback` restores the previous app and its bridge generation. Close Live before
+  rolling back to the JavaScript app. Another rollback returns to the retained native app.
+- YouTube downloads reuse the managed Node runtime retained from an older installation for
+  yt-dlp’s JavaScript challenges, even when Node is absent from PATH.
+- Existing npm commands build the current checkout when Cargo is installed; otherwise they hand
+  off to a published native release using the same Kumi home.
+
+The optimized release and platform installer checks are required before publication. Native
+real-Live validation remains separate from source comparisons and isolated migration tests.
+
 ## 1.7.4 — 2026-10-03
 
 Ships with bridge 1.0.73.

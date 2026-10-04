@@ -1,0 +1,196 @@
+//! Serialized, best-effort snapshots and catch-up for the currently saved Set.
+use super::{
+    connection::LiveConnection,
+    context::{object, payload},
+    project::{self, Baseline, DescribedDiff, ProjectStore},
+    views::ViewHost,
+};
+use crate::core::{
+    contracts::{CatchUp, JsonObject},
+    errors::RuntimeError,
+};
+use futures::{
+    future::{LocalBoxFuture, Shared},
+    FutureExt,
+};
+use kumi_common::abort::{self, Signal};
+use serde_json::{json, Value};
+use std::{
+    cell::{Cell, RefCell},
+    panic::{catch_unwind, AssertUnwindSafe},
+    rc::Rc,
+    time::Duration,
+};
+#[derive(Debug, Clone)]
+pub struct CurrentProject {
+    pub identity: String,
+    pub path: Option<String>,
+    pub name: String,
+}
+pub type Saving = Shared<LocalBoxFuture<'static, ()>>;
+pub struct Remember {
+    pub connection: Rc<LiveConnection>,
+    pub store: Option<Rc<dyn ProjectStore>>,
+    pub current: RefCell<Option<Rc<CurrentProject>>>,
+    pub context: RefCell<Option<JsonObject>>,
+    pub last_saved: Cell<i64>,
+    on_catch_up: Option<Rc<dyn Fn(CatchUp)>>,
+    saving: RefCell<Saving>,
+    timer: RefCell<Option<Signal>>,
+}
+impl Remember {
+    pub fn new(connection: Rc<LiveConnection>, store: Option<Rc<dyn ProjectStore>>, on_catch_up: Option<Rc<dyn Fn(CatchUp)>>) -> Rc<Self> {
+        Rc::new(Self {
+            connection,
+            store,
+            current: RefCell::new(None),
+            context: RefCell::new(None),
+            last_saved: Cell::new(0),
+            on_catch_up,
+            saving: RefCell::new(async {}.boxed_local().shared()),
+            timer: RefCell::new(None),
+        })
+    }
+    pub fn current(&self) -> Option<Rc<CurrentProject>> {
+        self.current.borrow().clone()
+    }
+    pub fn pending(&self) -> Saving {
+        self.saving.borrow().clone()
+    }
+    pub fn cancel_timer(&self) {
+        if let Some(timer) = self.timer.borrow_mut().take() {
+            timer.cancel();
+        }
+    }
+    fn enqueue(self: &Rc<Self>, work: impl FnOnce(Rc<Self>) -> LocalBoxFuture<'static, Result<(), RuntimeError>> + 'static) -> Saving {
+        let before = self.pending();
+        let this = self.clone();
+        let pending = async move {
+            before.await;
+            let _ = work(this).await;
+        }
+        .boxed_local()
+        .shared();
+        *self.saving.borrow_mut() = pending.clone();
+        let running = pending.clone();
+        tokio::task::spawn_local(running);
+        pending
+    }
+    pub async fn export_pages(&self, signal: Signal) -> Result<Vec<JsonObject>, RuntimeError> {
+        let mut pages = Vec::new();
+        let mut cursor = None;
+        loop {
+            let mut args = super::views::object(json!({"profile":"local","limit":200}));
+            if let Some(cursor) = cursor {
+                args.insert("cursor".into(), json!(cursor));
+            }
+            let page = payload(&self.connection.call("live_project_snapshot_export", args, signal.clone()).await?)?;
+            cursor = object(page.get("page").unwrap_or(&Value::Null))?
+                .get("nextCursor")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned);
+            pages.push(page);
+            if cursor.is_none() {
+                break;
+            }
+            if pages.len() >= 64 {
+                return Err(RuntimeError::plain("The Set is too large to remember yet"));
+            }
+        }
+        Ok(pages)
+    }
+    pub fn save_now(self: &Rc<Self>, bound: Option<u64>) -> Saving {
+        self.enqueue(move |this| {
+            async move {
+                let Some(known) = this.current() else { return Ok(()) };
+                let Some(path) = known.path.as_deref().filter(|s| !s.is_empty()) else { return Ok(()) };
+                let Some(store) = &this.store else { return Ok(()) };
+                let connection = &this.connection;
+                if !connection.available.get() || connection.lost.get() || connection.closed.get() {
+                    return Ok(());
+                }
+                let signal = abort::any([connection.lifetime.clone(), abort::timeout(bound.unwrap_or(30_000))]);
+                connection.ensure_catalog(signal.clone()).await.map_err(RuntimeError::from)?;
+                if !connection.has("live_project_snapshot_export") {
+                    return Ok(());
+                }
+                let pages = this.export_pages(signal).await?;
+                if !this.current().is_some_and(|current| Rc::ptr_eq(&current, &known)) {
+                    return Ok(());
+                }
+                store
+                    .save(&Baseline {
+                        version: 1,
+                        path: path.into(),
+                        name: known.name.clone(),
+                        saved_at: connection.now().timestamp_millis(),
+                        artifact_id: artifact_of(&pages)?,
+                        pages,
+                    })
+                    .await?;
+                this.last_saved.set(kumi_common::time::now_ms());
+                Ok(())
+            }
+            .boxed_local()
+        })
+    }
+    pub fn schedule_save(self: &Rc<Self>, delay: u64) {
+        if self.store.is_none() || self.connection.closed.get() {
+            return;
+        }
+        self.cancel_timer();
+        let stop = Signal::new();
+        *self.timer.borrow_mut() = Some(stop.clone());
+        let weak = Rc::downgrade(self);
+        tokio::task::spawn_local(async move {
+            tokio::select! {biased;_=stop.cancelled()=>{},_=tokio::time::sleep(Duration::from_millis(delay))=>{if let Some(this)=weak.upgrade(){let _=this.save_now(None);}}}
+        });
+    }
+    pub async fn project_path(&self, signal: Signal) -> Option<String> {
+        let result: Result<Option<String>, RuntimeError> = async {
+            self.connection.ensure_catalog(signal.clone()).await.map_err(RuntimeError::from)?;
+            if !self.connection.has("live_project_info") {
+                return Ok(None);
+            }
+            let info =
+                payload(&self.connection.call("live_project_info", JsonObject::new(), abort::any([signal, abort::timeout(5000)])).await?)?;
+            Ok(info
+                .get("path")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty() && info.get("exists") != Some(&Value::Bool(false)))
+                .map(str::to_owned))
+        }
+        .await;
+        result.ok().flatten()
+    }
+    pub fn catch_up(self: &Rc<Self>, identity: String, name: String, after_reconnect: bool) {
+        *self.context.borrow_mut() = None;
+        let Some(store) = self.store.clone() else { return };
+        let Some(path) = self.current().filter(|p| p.identity == identity).and_then(|p| p.path.clone()).filter(|s| !s.is_empty()) else {
+            return;
+        };
+        let _ = self.enqueue(move|this|async move{
+   let connection=&this.connection;let signal=abort::any([connection.lifetime.clone(),abort::timeout(60_000)]);connection.ensure_catalog(signal.clone()).await.map_err(RuntimeError::from)?;
+   if !["live_project_info","live_project_snapshot_export","live_project_snapshot_diff"].iter().all(|name|connection.has(name)){return Ok(())}if !this.current().is_some_and(|p|p.identity==identity){return Ok(())}
+   let pages=this.export_pages(signal.clone()).await?;let baseline=store.load(&path).await?;
+   if let Some(baseline)=baseline.filter(|_|this.current().is_some_and(|p|p.identity==identity)){
+    let mut described=Some(DescribedDiff{lines:Vec::new(),more:0});
+    if baseline.artifact_id!=artifact_of(&pages)?{
+     let diff=async{let result=connection.call("live_project_snapshot_diff",super::views::object(json!({"beforePages":baseline.pages,"afterPages":pages,"limit":200})),signal).await?;let diff=payload(&result)?;Ok::<_,RuntimeError>(project::describe_diff(&diff,&baseline.pages,&pages,None))}.await;
+     described=match diff{Ok(diff) if diff.lines.is_empty()=>None,Ok(diff)=>Some(diff),Err(_)=>Some(DescribedDiff{lines:vec!["The Set changed, but it's too big for Kumi to compare yet".into()],more:0})};
+    }
+    if let Some(described)=described{let mut summary=project::catch_up_from(&name,&baseline,described);if after_reconnect{summary.after_reconnect=Some(true);}
+     let mut context=super::views::object(json!({"lastSeen":project::since(baseline.saved_at as f64,connection.now().timestamp_millis() as f64),"changes":summary.lines}));if summary.more!=0{context.insert("more".into(),json!(summary.more));}*this.context.borrow_mut()=Some(context);
+     if let Some(callback)=&this.on_catch_up{let _=catch_unwind(AssertUnwindSafe(||callback(summary)));}
+    }
+   }
+   store.save(&Baseline{version:1,path,name,saved_at:connection.now().timestamp_millis(),artifact_id:artifact_of(&pages)?,pages}).await?;this.last_saved.set(kumi_common::time::now_ms());Ok(())
+  }.boxed_local());
+    }
+}
+fn artifact_of(pages: &[JsonObject]) -> Result<String, RuntimeError> {
+    let empty = json!({});
+    let artifact = pages.first().and_then(|page| page.get("artifact")).filter(|v| !v.is_null()).unwrap_or(&empty);
+    Ok(object(artifact)?.get("id").and_then(Value::as_str).unwrap_or("").into())
+}

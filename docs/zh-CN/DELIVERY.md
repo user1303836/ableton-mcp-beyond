@@ -2,6 +2,8 @@
 
 [English](../en/DELIVERY.md) · 简体中文 · [日本語](../ja/DELIVERY.md)
 
+Kumi 1.7.5 的原生桥接不需要 Node，使用 `ableton-mcp-server` 的子命令。本页中面向 Node/npm 发行包的步骤适用于旧版；当前原生版步骤请参阅[英文版](../en/DELIVERY.md)。使用 Kumi 时，关闭 Live 后运行 `kumi bridge` 即可。
+
 桥接由两部分组成：由 Live 加载的 `AbletonMcpBridge` Remote Script，以及由 Kumi（或其他 MCP 客户端）启动的本地 MCP 服务器。两者都在同一个包 `@ableton-mcp/mcp-server` 中，并由同一个工具安装：桥接的生命周期 CLI `ableton-mcp-lifecycle`。它在做任何修改之前先制定计划，把安装的内容记录在回执中，并且能够精确地修复、回滚和移除这些内容。使用 Kumi 时，`kumi bridge` 会替你运行它。
 
 ## 使用 Kumi 安装
